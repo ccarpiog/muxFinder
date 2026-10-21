@@ -217,4 +217,22 @@ enum TestSupport {
     let text = (try? String(contentsOf: directory.appending(path: name), encoding: .utf8)) ?? ""
     return text.hasSuffix("\n") ? processIDs(in: Data(text.utf8)) : []
   }
+
+  /// The bytes of `Fixtures/<path>` from the test bundle, for example
+  /// `fixture("discovery/local-test-sessions.txt")`.
+  static func fixture(_ path: String) throws -> Data {
+    guard let root = Bundle.module.resourceURL else { throw CocoaError(.fileNoSuchFile) }
+    return try Data(contentsOf: root.appending(path: "Fixtures/\(path)"))
+  }
+
+  /// Creates a fresh directory with a short path under `/tmp` (tmux socket paths must stay
+  /// under 104 bytes, which the per-user temporary directory is too long for). The caller
+  /// removes it.
+  static func makeShortTemporaryDirectory() throws -> URL {
+    var template = Array("/tmp/mfx-XXXXXX".utf8CString)
+    guard let path = mkdtemp(&template) else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    return URL(fileURLWithPath: String(cString: path), isDirectory: true)
+  }
 }

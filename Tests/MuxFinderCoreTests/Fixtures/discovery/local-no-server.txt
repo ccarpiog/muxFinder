@@ -1,0 +1,8 @@
+MUXFINDER-PROBE 1
+nonce	3f3ff4c3c878e375
+host	Neptuno-M4.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+sessions-exit	1
+sessions-stderr	error connecting to /private/tmp/mfx.S4i72U/tmux-501/default (No such file or directory)
+end	3f3ff4c3c878e375

@@ -1,0 +1,5 @@
+MUXFINDER-PROBE 1
+nonce	f7cca764eee8237e
+host	Neptuno-M4.local
+tmux-not-found
+end	f7cca764eee8237e

@@ -1,0 +1,17 @@
+MUXFINDER-PROBE 1
+nonce	20e82aa3cb43510a
+host	Neptuno-M4.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+session	20e82aa3cb43510a	$2	1792611079	1	0	1792611079	86029	1792611079	/private/tmp/mfx.Fuq1nL/tmux-501/default	muxfinder-test-"dq" 'sq' `id`
+session	20e82aa3cb43510a	$5	1792611080	1	0	1792611080	86029	1792611079	/private/tmp/mfx.Fuq1nL/tmux-501/default	muxfinder-test-#{pid}
+session	20e82aa3cb43510a	$1	1792611079	1	0	1792611079	86029	1792611079	/private/tmp/mfx.Fuq1nL/tmux-501/default	muxfinder-test-$(touch /tmp/mfx-x)
+session	20e82aa3cb43510a	$3	1792611080	1	0	1792611080	86029	1792611079	/private/tmp/mfx.Fuq1nL/tmux-501/default	muxfinder-test--x
+session	20e82aa3cb43510a	$0	1792611079	1	0	1792611079	86029	1792611079	/private/tmp/mfx.Fuq1nL/tmux-501/default	muxfinder-test-a;rm -rf ~
+session	20e82aa3cb43510a	$6	1792611080	1	0	1792611080	86029	1792611079	/private/tmp/mfx.Fuq1nL/tmux-501/default	muxfinder-test-back\\slash
+session	20e82aa3cb43510a	$4	1792611080	1	0	1792611080	86029	1792611079	/private/tmp/mfx.Fuq1nL/tmux-501/default	muxfinder-test-🧪🚀 👨‍👩‍👧
+sessions-exit	0
+sessions-stderr	
+clients-exit	0
+clients-stderr	
+end	20e82aa3cb43510a

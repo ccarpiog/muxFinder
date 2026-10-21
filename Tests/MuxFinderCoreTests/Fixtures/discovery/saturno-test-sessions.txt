@@ -1,0 +1,13 @@
+MUXFINDER-PROBE 1
+nonce	97836bb1c68a8121
+host	Saturno-M4.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+session	97836bb1c68a8121	$0	1792611029	1	1	1792611030	1394	1792611029	/private/tmp/tmux-501/default	muxfinder-test-plain
+session	97836bb1c68a8121	$1	1792611030	1	0	1792611030	1394	1792611029	/private/tmp/tmux-501/default	muxfinder-test-ünïcödé-日本-🧪
+sessions-exit	0
+sessions-stderr	
+client	97836bb1c68a8121	$0	1	1417
+clients-exit	0
+clients-stderr	
+end	97836bb1c68a8121

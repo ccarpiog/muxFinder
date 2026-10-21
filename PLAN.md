@@ -34,7 +34,9 @@ Sources/
   muxfinder-launch/           helper executable that iTerm2 runs inside the launch tab
   muxfinder-probe/            developer/diagnostic CLI that drives the core without the GUI
   MuxFinderApp/               SwiftUI menu bar app (MenuBarExtra .window style)
-Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh, tmux or iTerm2
+Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, never the
+                              user's tmux server (one test uses real tmux on a private
+                              socket directory and skips when tmux is absent)
   Fixtures/                   discovery outputs, protobuf golden bytes
 scripts/                      build-app.sh, install.sh, uninstall.sh, dev/ helpers
 docs/                         REQUIREMENTS, ARCHITECTURE, INTEGRATION-PROOF, TESTING
@@ -82,16 +84,20 @@ session, verifies its identity, and then activates the tab.
   remote login shell parses, so build exactly one string:
   `/bin/sh -c '<static script>' muxfinder '<arg1>' '<arg2>' …`. Every argument goes through
   POSIX single-quote escaping (`'` → `'\''`). Script bodies are static constants with no
-  interpolated data. Locally, use `posix_spawn` with argv only and never a shell. This requires
+  interpolated data. Locally, use `posix_spawn` with argv only and never a login shell; a
+  static script runs as `/bin/sh -c <script> muxfinder <arg1> …`, data only as argv. This requires
   a POSIX-compatible login shell on remote hosts (zsh or bash, the macOS default); document it.
 - **D4 — Session identity.** `SessionKey = (hostID, socketPath, serverPID, serverStartTime,
   sessionID)`. `session_created` is kept for revalidation. Names are display data only, and all
   targets use `$N` ids. Before attaching, the helper's guard script checks that
   `display-message -p -t "$id" '#{pid}:#{session_created}'` still matches. Exit code 64 means
   the session is gone, 65 means it changed (for example, an id reused after a server restart).
-- **D5 — Locating tmux.** Use the explicit override first, then `/opt/homebrew/bin/tmux`,
-  `/usr/local/bin/tmux`, `/opt/local/bin/tmux`, and finally `command -v tmux`. Never rely on
-  PATH alone: noninteractive SSH on Saturno has `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, verified.
+- **D5 — Locating tmux.** An explicit override is used alone: if it is missing, or does not
+  answer `-V` with `tmux …`, the host reports "tmux not found" (no fallback to another tmux).
+  Without an override, use `/opt/homebrew/bin/tmux`, `/usr/local/bin/tmux`,
+  `/opt/local/bin/tmux`, `/usr/bin/tmux`, and finally `command -v tmux`. Never rely on PATH
+  alone: noninteractive SSH on Saturno has `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, verified. The
+  locator runs on the target host as a static `sh` fragment (`TmuxLocator.script`).
 - **D6 — Discovery is read-only and noninteractive.** It runs only `list-sessions`,
   `list-clients` and `display-message`. SSH gets
   `-o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -n -T`
@@ -112,9 +118,22 @@ session, verifies its identity, and then activates the tab.
   The UI and README say so.
 - **D10 — UI language is English, sentence case** ("New session", "Move here", "Refresh").
 - **D11 — Tests.** `swift test` is hermetic: fakes for the process runner, the clock and
-  iTerm2. Real-world checks run only through `muxfinder-probe e2e-*` subcommands. They open
-  real iTerm2 windows, are run explicitly during verification, and their results are recorded
-  in `docs/TESTING.md`. A mocked attachment is never reported as a real integration result.
+  iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
+  Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `e2e-*`; the
+  `e2e-*` ones open real iTerm2 windows), are run explicitly during verification, and their
+  results are recorded in `docs/TESTING.md`. A mocked attachment is never reported as a real
+  integration result.
+- **D12 — tmux output is always read through `tmux -u`** (decided in Phase 2, 2026-10-21).
+  A tmux client whose locale is not UTF-8 (the first set of `LC_ALL`, `LC_CTYPE`, `LANG` must
+  contain "UTF-8") replaces every non-ASCII byte **and every tab** in `-F` output with `_`, so
+  Unicode names are lost and tab-separated records can't be split. Noninteractive SSH only
+  has a locale when the client forwards `LANG` (macOS `SendEnv LANG LC_*` / `AcceptEnv LANG
+  LC_*`), and GUI apps started by launchd normally have no `LANG`, so the remote side gets
+  none. `-u` forces UTF-8 output whatever the locale and needs no locale to exist on the host;
+  `LC_ALL=…UTF-8` would need a locale name valid on every host and changes other tools too.
+  Verified locally with `env -i` and on Saturno with `env -u LANG ssh …`: without `-u` tabs
+  and Unicode both came back as `_`; with `-u` the bytes were exact. Every tmux command whose
+  output muxFinder parses uses `-u`.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -169,6 +188,29 @@ session, verifies its identity, and then activates the tab.
   check how the Python module's `profile.py` / `window.py` set a custom command.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
+
+Verified in Phase 2 (2026-10-21):
+
+- **tmux 3.8 names:** `new-session -s` rejects names with control characters ("invalid
+  session name"), expands formats in the name (`##{pid}` is stored as `#{pid}`) and stores `\`
+  as `\\`. Listing never re-expands a stored name. Names are still treated as hostile by the
+  parser (raw tabs and line breaks are possible in principle).
+- **tmux client side effects and errors:** any client command, including `list-sessions`,
+  creates `$TMUX_TMPDIR/tmux-<uid>` (0700; default `/tmp`) if it is missing. With no socket
+  the error is `error connecting to <socket> (No such file or directory)`; after a server
+  exits its socket file stays and the error becomes `no server running on <socket>`.
+  `#{socket_path}` is the resolved path, e.g. `/private/tmp/tmux-501/default`. Unix socket
+  paths must stay under 104 bytes, so test servers use `/tmp/mfx-XXXXXX`, not `$TMPDIR`.
+- `uname -n` is `Neptuno-M4.local` here and `Saturno-M4.local` on Saturno.
+- **ssh (OpenSSH_10.5p1, LibreSSL 3.3.6):** `ssh … -- <dest> <cmd>` works. Exit 255 stderr:
+  `ssh: Could not resolve hostname something.invalid: nodename nor servname provided, or not
+  known`; `ssh: connect to host 192.0.2.1 port 22: Operation timed out` (after the 5 s
+  `ConnectTimeout`); `nonexistent-muxfinder@saturno-m4: Permission denied
+  (publickey,password,keyboard-interactive).`; `ssh: connect to host 127.0.0.1 port 1:
+  Connection refused` (destination `ssh://127.0.0.1:1`). With `StrictHostKeyChecking=yes`
+  and an empty known-hosts file: `No ED25519 host key is known for saturno-m4 and you have
+  requested strict checking.` plus `Host key verification failed.`; with a wrong key the
+  `REMOTE HOST IDENTIFICATION HAS CHANGED!` banner comes first, then the same last line.
 
 ## Unattended-run rules (binding for every phase)
 

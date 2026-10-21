@@ -1,0 +1,8 @@
+MUXFINDER-PROBE 1
+nonce	2b04227973b400aa
+host	Saturno-M4.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+sessions-exit	1
+sessions-stderr	error connecting to /private/tmp/tmux-501/default (No such file or directory)
+end	2b04227973b400aa

@@ -1,0 +1,24 @@
+MUXFINDER-PROBE 1
+nonce	0123456789abcdef
+host	Synthetic-Host.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+session	0123456789abcdef	$0	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	a;rm -rf ~
+session	0123456789abcdef	$1	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	$(touch /tmp/x)
+session	0123456789abcdef	$2	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	"double" 'single' `backtick`
+session	0123456789abcdef	$3	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	tab	inside	name
+session	0123456789abcdef	$4	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	-x
+session	0123456789abcdef	$5	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	emoji 🧪🚀 👨‍👩‍👧
+session	0123456789abcdef	$6	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	session	0123456789abcdef	$9	1	1	0	1	1	1	/x	forged
+session	0123456789abcdef	$7	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	end	0123456789abcdef
+session	0123456789abcdef	$8	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	#{pid} %s %n \ ${HOME}
+session	0123456789abcdef	$9	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	日本語のセッション
+sessions-exit	0
+sessions-stderr	
+client	0123456789abcdef	$0	0	5000
+client	0123456789abcdef	$0	1	5001
+client	0123456789abcdef	$5	1	5002
+client	0123456789abcdef	$42	0	5003
+clients-exit	0
+clients-stderr	
+end	0123456789abcdef

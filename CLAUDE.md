@@ -33,6 +33,9 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - Format lint: `swift format lint -r Sources Tests`
 - App bundle: `scripts/build-app.sh` → `build/muxFinder.app` (signed with the first "Apple
   Development" identity, or `MUXFINDER_SIGN_IDENTITY`)
+- Discovery check (read-only, prints JSON; `--raw` prints the probe report):
+  `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
+  server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
 - Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`):
   `swift run muxfinder-probe e2e-local`, `swift run muxfinder-probe e2e-remote saturno-m4`
   (available once the corresponding phase lands; see `docs/TESTING.md`).

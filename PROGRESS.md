@@ -9,57 +9,71 @@ file.
 | Phase | Title | Risk | Worker model | Review | Narrative |
 |---|---|---|---|---|---|
 | 1 | Package skeleton, process runner, quoting and validation | routine | opus | Codex, ship-with-fixes, `docs/reviews/phase-1.md` | `docs/progress-archive/1.md` |
+| 2 | tmux discovery: probe, parser, identity, error classification | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-2.md` | `docs/progress-archive/2.md` |
 
 ## Current phase
 
-None in progress. Phase 1 closed; Phase 2 not started.
+None in progress. Phase 2 closed; Phase 3 not started.
 
 ## Acceptance
 
-- Phase 1: all criteria met (quoting round-trip corpus, grandchild-kill timeout test,
-  cancellation and cap tests, validation coverage, build/test/lint clean). Evidence in the
-  archive and *Verification* below.
+- Phase 1: all criteria met; evidence in `docs/progress-archive/1.md`.
+- Phase 2: all criteria met (fixture, hostile-name, malformed-input and classifier tests; every
+  real check in `docs/TESTING.md` observed as specified; no leftover sessions). Evidence in
+  `docs/progress-archive/2.md` and *Verification* below.
 
 ## Decisions
 
-- Phase 1 decisions (cancellation throws, no signal on normal exit, zombie leader kept until
-  signalling ends, EPERM = no live member, `.swift-format` with one-space end-of-line comments)
-  are recorded in `docs/progress-archive/1.md`.
+- Phase 1 decisions: `docs/progress-archive/1.md`.
+- Phase 2: new **D12** (`tmux -u` on every tmux call — without a UTF-8 locale tmux mangles
+  non-ASCII and tab separators); D3, D5 and D11 edited in `PLAN.md`; details in
+  `docs/progress-archive/2.md`.
 
 ## Open risks / deviations
 
-- Phase 2 must strip `TMUX` / `TMUX_PANE` from the local discovery environment (the Phase 1
-  env helper keeps them); otherwise running inside tmux would target the wrong server.
 - Process-runner tests use an armed-timeout helper to survive very high machine load; if they
   flake, look there first.
+- Two classifier rows ("No route to host", "Network is unreachable") are standard OpenSSH
+  wording, not real captures (marked in `ErrorClassifierTests`).
+- The "host key changed" real check predates the `ControlMaster=no` / `ControlPath=none`
+  harness options; the "unknown" check was re-run with them (same result).
+- The probe uses `head -c` (POSIX.1-2024, present on macOS); fine for the Mac-only host set.
+- Discovery creates the `tmux-<uid>` socket directory if missing (any tmux command does);
+  recorded in `PLAN.md` *Verified facts*.
 
 ## Reviews
 
-- Phase 1: Codex adversarial review → `ship-with-fixes`, 0 blockers, 1 should-fix (SIGTERM grace
-  after leader exit) — fixed and re-verified; `docs/reviews/phase-1.md`.
+- Phase 1: Codex → `ship-with-fixes`, 0 blockers, 1 should-fix fixed; `docs/reviews/phase-1.md`.
+- Phase 2: Codex → `ship-with-fixes`, 0 blockers, 3 should-fix (unbounded in-shell stderr
+  capture, cancelled-task test cleanup, strict harness inheriting `ControlPath`) — all fixed by
+  a fix worker with regression tests and re-verified; `docs/reviews/phase-2.md`.
 
 ## Next action
 
-Start **Phase 2 — tmux discovery: probe, parser, identity, error classification** (risk
-`high`) per `PLAN.md` "### Phase 2". Read only that section plus the shared sections; spawn
-one worker; carry the `TMUX`/`TMUX_PANE` note above into its brief.
+Start **Phase 3 — Native iTerm2 API client** (risk `high`) per `PLAN.md` "### Phase 3". Read
+only that section plus the shared sections (Architecture, Decisions — especially D1: hand-written
+client, no SwiftProtobuf, never copy iTerm2's Python module — Verified facts, Unattended-run
+rules); spawn one worker.
 
 ## Key paths
 
-- Plan: `PLAN.md`; brief: `docs/REQUIREMENTS.md`; conventions: `CLAUDE.md`.
-- Core library: `Sources/MuxFinderCore/{Process,Shell,Config,Diagnostics}/`.
-- Tests: `Tests/MuxFinderCoreTests/`.
+- Plan: `PLAN.md`; brief: `docs/REQUIREMENTS.md`; conventions: `CLAUDE.md`; real checks:
+  `docs/TESTING.md`.
+- Core library: `Sources/MuxFinderCore/{Process,Shell,Config,Diagnostics,Tmux}/`.
+- Probe CLI: `Sources/muxfinder-probe/` (`discover`).
+- Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`).
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
-## Verification (Phase 1, final tree)
+## Verification (Phase 2, final tree)
 
 - `swift build -Xswiftc -warnings-as-errors` → exit 0.
-- `swift test` → exit 0, 57 tests in 6 suites (run twice by the orchestrator, 20× by the fix
-  worker).
+- `swift test` → exit 0, 101 tests in 11 suites.
 - `swift format lint -r Sources Tests` → exit 0, no output.
+- `swift run muxfinder-probe discover --ssh saturno-m4 --strict-known-hosts <empty temp file>`
+  → `hostKeyProblem(unknown)`; `discover --ssh saturno-m4` → `noServer`.
 
 ## Git state
 
-- Phase 1 committed on `main` as `bb086c9` (parent `c99bbf5`), pushed to `origin/main`
-  (`c99bbf5..bb086c9`, success). This SHA/push record is a follow-up checkpoint commit on top.
-  Tree clean after it.
+- Phase 1: `bb086c9`, pushed. Phase 2: committed on `main` with this checkpoint; its SHA and
+  push result are recorded in the follow-up checkpoint commit (or in `PROGRESS.json`'s
+  `commit` field) — see `git log`.

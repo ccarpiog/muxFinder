@@ -1,5 +1,5 @@
 // muxfinder-probe: developer and diagnostic CLI that drives the core without the GUI.
-// Placeholder; real subcommands (discovery, e2e checks) arrive in later phases.
+// Later phases add the iTerm2, attach and e2e subcommands.
 
 import Foundation
 import MuxFinderCore
@@ -10,6 +10,7 @@ let usage = """
 
   commands:
     help    Show this help.
+  \(DiscoverCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -17,10 +18,13 @@ func printError(_ message: String) {
   FileHandle.standardError.write(Data((message + "\n").utf8))
 }
 
-let arguments = CommandLine.arguments.dropFirst()
+/// The command-line arguments after the program name.
+let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "help", "-h", "--help":
   print(usage)
+case "discover":
+  exit(await DiscoverCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

@@ -17,7 +17,11 @@ let package = Package(
     .executableTarget(name: "muxfinder-launch", dependencies: ["MuxFinderCore"]),
     .executableTarget(name: "muxfinder-probe", dependencies: ["MuxFinderCore"]),
     .executableTarget(name: "MuxFinderApp", dependencies: ["MuxFinderCore"]),
-    .testTarget(name: "MuxFinderCoreTests", dependencies: ["MuxFinderCore"]),
+    .testTarget(
+      name: "MuxFinderCoreTests",
+      dependencies: ["MuxFinderCore"],
+      resources: [.copy("Fixtures")]
+    ),
   ],
   swiftLanguageModes: [.v6]
 )

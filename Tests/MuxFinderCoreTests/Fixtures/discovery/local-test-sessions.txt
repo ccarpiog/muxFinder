@@ -1,0 +1,13 @@
+MUXFINDER-PROBE 1
+nonce	81fdc2500c63a239
+host	Neptuno-M4.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+session	81fdc2500c63a239	$0	1792610997	1	1	1792610997	79030	1792610997	/private/tmp/tmux-501/default	muxfinder-test-plain
+session	81fdc2500c63a239	$1	1792610997	1	0	1792610997	79030	1792610997	/private/tmp/tmux-501/default	muxfinder-test-ünïcödé-日本-🧪
+sessions-exit	0
+sessions-stderr	
+client	81fdc2500c63a239	$0	1	79036
+clients-exit	0
+clients-stderr	
+end	81fdc2500c63a239
