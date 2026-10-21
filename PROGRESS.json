@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "updated": "2026-10-21T20:01:40Z",
+ "updated": "2026-10-21T20:38:30Z",
  "plan": "PLAN.md",
  "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
  "phases": [
@@ -27,9 +27,25 @@
   {
    "id": "3",
    "title": "Native iTerm2 API client",
+   "status": "in_progress",
+   "risk": "high",
+   "summary": "Talks to iTerm2 over its Unix-socket WebSocket API; split into 3a (wire layer) and 3b (transport and client)."
+  },
+  {
+   "id": "3a",
+   "title": "iTerm2 wire layer: protobuf codec, typed messages, golden fixtures",
+   "status": "done",
+   "risk": "high",
+   "summary": "Encodes and decodes the iTerm2 API protobuf messages muxFinder needs, checked byte-for-byte against golden fixtures.",
+   "review": "docs/reviews/phase-3a.md",
+   "narrative": "docs/progress-archive/3a.md"
+  },
+  {
+   "id": "3b",
+   "title": "iTerm2 transport and client: WebSocket, cookie, API client, probe",
    "status": "queued",
    "risk": "high",
-   "summary": "Talks to iTerm2 over its Unix-socket WebSocket API with a hand-written protobuf codec."
+   "summary": "Connects to iTerm2 over its Unix-socket WebSocket with a cookie and exposes the API calls to the app and probe."
   },
   {
    "id": "4",

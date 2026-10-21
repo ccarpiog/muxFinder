@@ -36,6 +36,34 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   each tmux command has a timeout, and it ends before the directory is removed; a second test
   cancels its task while a session exists and checks the session is gone. `TMUX` and
   `TMUX_PANE` are set to a bogus server to prove they are ignored. Skips when tmux is absent.
+- **iTerm2 protobuf codec** (`ProtoWireTests`): varint edge cases (0, 127, 128, `UInt32.max`,
+  2^63, `UInt64.max`, negative `int32`/`int64` as 10-byte varints), every scalar and
+  length-delimited encoding, unknown fields of all four wire types skipped, known fields with
+  the wrong wire type skipped, repeated occurrences of a singular embedded message merged (no
+  value may span two occurrences, and the nesting limit still holds), split-tree link oneofs
+  merged until the member changes, and typed `ProtoWireError`s for truncated keys, varints,
+  length prefixes, fixed-width and length-delimited values, lengths past the end (also past a
+  nested message's end), overlong varints, wire types 3/4/6/7, field numbers 0 and 2^29, and
+  nesting past 100 levels; each malformed input is also checked inside a response envelope.
+- **iTerm2 golden messages** (`ITerm2GoldenTests`, `ITerm2JSONTests`): every request type
+  (list sessions, create tab with a command, with window/index/close-on-end, with a command
+  needing every JSON escape, activate session/tab/window/app, list profiles with and without
+  filters, tmux list connections and send command) encodes byte for byte like the fixture
+  iTerm2's Python module produced. Every response fixture decodes to the expected values:
+  nested split trees, tmux tab fields, minimized and buried sessions, unknown fields of every
+  wire type (top level and nested), status enums, profile `Name`/`Guid`, errors, unsupported
+  submessages and notifications; unknown enum values decode to `unknown`. Merge fixtures, which
+  the generator checks against `api_pb2`'s own decoding, cover responses split across
+  occurrences (`08 01 92 07 02 08 01 92 07 00`, a list-sessions response whose tab root and
+  links arrive in pieces, a tmux send-command), unknown fields before and after a response
+  (including Python's re-serialization of the list-sessions fixture), and oneof members
+  replacing each other. Every truncation and single-byte corruption of every response fixture
+  decodes or throws `ProtoWireError`. The fixtures (`Tests/MuxFinderCoreTests/Fixtures/iterm2/`)
+  hold only synthetic values (a test checks for machine-specific strings) and are committed;
+  `swift test` never runs Python.
+  Regenerate them (dev only, after changing the generator) with iTerm2's interpreter in
+  isolated mode, then check that `git status` shows only intended changes:
+  `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I scripts/dev/gen-iterm2-fixtures.py`.
 
 ## Real-world checks
 

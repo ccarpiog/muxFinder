@@ -163,29 +163,52 @@ session, verifies its identity, and then activates the tab.
   `x-iterm2-advisory-name`. The reply is `101 Switching Protocols`, and its headers can span
   several reads. Binary frames carry protobuf. `ListSessions` and `Tmux.ListConnections`
   round-trips succeeded.
-- **Protobuf field numbers** (`proto2`; dump more with the interpreter above plus
-  `from iterm2 import api_pb2`, walking `DESCRIPTOR.message_types_by_name`):
-  - `ClientOriginatedMessage` / `ServerOriginatedMessage`: `id`=1 (int64),
-    `error`=2 (server, string), `list_sessions`=106, `create_tab`=108, `activate`=114,
-    `variable`=115, `tmux`=124 (each `*_request` / `*_response`).
+- **Protobuf field numbers** (`proto2`, iterm2 module 2.11 / protobuf 6.33 upb; dump more with
+  the interpreter above plus `from iterm2 import api_pb2`, walking
+  `DESCRIPTOR.message_types_by_name`). All modeled in `Sources/MuxFinderCore/ITerm2/`:
+  - `ClientOriginatedMessage` / `ServerOriginatedMessage`: `id`=1 (int64; absent on
+    notifications), then the `submessage` oneof: `error`=2 (server, string), `list_sessions`=106,
+    `create_tab`=108, `activate`=114, `variable`=115, `list_profiles`=118, `tmux`=124 (each
+    `*_request` / `*_response`); every request/response type sits in 100–133, and the server's
+    `notification`=1000.
   - `ListSessionsResponse`: `windows`=1, `buried_sessions`=2. `Window`: `tabs`=1,
-    `window_id`=2, `number`=4. `Tab`: `tab_id`=2, `root`=3 (SplitTreeNode),
-    `tmux_window_id`=4, `tmux_connection_id`=5.
-  - `SplitTreeNode`: `vertical`=1, `links`=2. `SessionSummary`: `unique_identifier`=1,
-    `title`=4.
-  - `CreateTabRequest`: `profile_name`=1, `window_id`=2, `tab_index`=3,
+    `window_id`=2, `frame`=3, `number`=4. `Tab`: `tab_id`=2 (string), `root`=3 (SplitTreeNode),
+    `tmux_window_id`=4 and `tmux_connection_id`=5 (strings), `minimized_sessions`=6
+    (SessionSummary). Only tabs carry tmux fields; `SessionSummary` has none.
+  - `SplitTreeNode`: `vertical`=1, `links`=2 (`SplitTreeLink`, oneof `child`: `session`=1,
+    `node`=2). `SessionSummary`: `unique_identifier`=1, `frame`=2, `grid_size`=3, `title`=4.
+  - `CreateTabRequest`: `profile_name`=1, `window_id`=2, `tab_index`=3 (uint32),
     `command`=4 (deprecated), `custom_profile_properties`=5 (ProfileProperty `key`=1,
-    `json_value`=2). `CreateTabResponse`: `status`=1, `window_id`=2, `tab_id`=3,
-    `session_id`=4.
-  - `TmuxRequest`: `list_connections`=1, `send_command`=2 (`connection_id`=1, `command`=2),
-    `set_window_visible`=3, `create_window`=4. `TmuxResponse`: `list_connections`=1
-    (`connections` → `connection_id`=1, `owning_session_id`=2), `send_command`=2, `status`=4.
-  - `ActivateRequest`: `window_id`=1, `tab_id`=2, `session_id`=3, `order_window_front`=4,
-    `select_tab`=5, `select_session`=6, `activate_app`=7 (`raise_all_windows`=1,
-    `ignoring_other_apps`=2).
-- **Profile keys** seen in the user's iTerm2 prefs: `"Custom Command"` takes `No`, `Yes` or
-  `SSH`; `Command` is a string; `"Close Sessions On End"` is a bool. Before relying on them,
-  check how the Python module's `profile.py` / `window.py` set a custom command.
+    `json_value`=2). `CreateTabResponse`: `status`=1 (`OK`=0, `INVALID_PROFILE_NAME`=1,
+    `INVALID_WINDOW_ID`=2, `INVALID_TAB_INDEX`=3, `MISSING_SUBSTITUTION`=4), `window_id`=2,
+    `tab_id`=3 (**int32**, unlike the string `Tab.tab_id`), `session_id`=4.
+  - `TmuxRequest` (oneof `payload`): `list_connections`=1 (empty), `send_command`=2
+    (`connection_id`=1, `command`=2), `set_window_visible`=3, `create_window`=4.
+    `TmuxResponse`: `list_connections`=1 (`connections` → `connection_id`=1,
+    `owning_session_id`=2; nothing else), `send_command`=2 (`output`=1),
+    `set_window_visible`=3, `create_window`=5, `status`=4 (`OK`=0, `INVALID_REQUEST`=1,
+    `INVALID_CONNECTION_ID`=2, `INVALID_WINDOW_ID`=3).
+  - `ActivateRequest`: oneof `identifier` (`window_id`=1, `tab_id`=2, `session_id`=3),
+    `order_window_front`=4, `select_tab`=5, `select_session`=6, `activate_app`=7
+    (`raise_all_windows`=1, `ignoring_other_apps`=2). `ActivateResponse`: `status`=1 (`OK`=0,
+    `BAD_IDENTIFIER`=1, `INVALID_OPTION`=2).
+  - `ListProfilesRequest`: `properties`=1, `guids`=2 (both repeated string; empty means all).
+    `ListProfilesResponse`: `profiles`=1 → `Profile.properties`=1 (ProfileProperty).
+  - No message muxFinder uses has a repeated scalar (packable) field.
+- **How the Python module serializes requests** (the golden fixtures reproduce it):
+  `SerializeToString` writes fields in field-number order; `id` is always set (numbered from 0);
+  empty requests are still present (`SetInParent`); `rpc.async_activate` always sets the three
+  activate flags, even when false, and sends `activate_app` fields only when true (its
+  `ignoring_other_apps` check is buggy, so any app options set both). `rpc.async_create_tab`'s
+  own `command` argument raises a `TypeError` in 2.11; `Window.async_create(command=…)` and
+  `Window.async_create_tab(command=…)` build the properties themselves.
+- **Profile property keys and JSON values** (`LocalWriteOnlyProfile`, `profile.py`): a custom
+  command is `"Custom Command"` = `"Yes"` (`Profile.USE_CUSTOM_COMMAND_ENABLED`; `"No"` and
+  `"SSH"` also exist), then `"Command"` = the command line, sent in that order;
+  `"Close Sessions On End"` = `true`/`false`; `"Name"` and `"Guid"` are strings
+  (`PartialProfile` asks for `["Guid", "Name"]`). Each `json_value` is Python `json.dumps`
+  output: ASCII only, `"` `\` and `\b \f \n \r \t` escaped, every other character outside
+  U+0020–U+007E as lowercase `\uXXXX` (surrogate pairs above U+FFFF), `/` not escaped.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
 
@@ -342,6 +365,15 @@ messages, `CookieProvider`, `ITerm2APIClient`, the `ITerm2Integration` protocol 
 `FakeITerm2Integration`), `scripts/dev/gen-iterm2-fixtures.py` (dev-time only, run with iTerm2's
 interpreter and `-I`), golden fixtures, and `muxfinder-probe iterm2 status | list-sessions |
 list-connections | list-profiles`.
+
+Split (autoclaude run, 2026-10-21), each sub-phase with its own commit and review:
+- **3a — wire layer (hermetic):** the `ProtoWire` codec, the typed messages (request and
+  response envelopes plus every message listed below), `scripts/dev/gen-iterm2-fixtures.py`,
+  the golden fixtures and the golden encode/decode tests. No socket, no iTerm2 at test time.
+- **3b — transport and client:** the RFC 6455 `WebSocketClient` over the Unix socket (with
+  fake-socket tests for fragmentation and partial reads), `CookieProvider`, the connection
+  lifecycle and error cases, `ITerm2APIClient`, the `ITerm2Integration` protocol and
+  `FakeITerm2Integration`, the `muxfinder-probe iterm2 …` subcommands and the real checks.
 
 Requirements:
 - **WebSocket client (RFC 6455):** client masking, continuation frames, ping→pong, close
