@@ -92,5 +92,6 @@ live in `Sources/MuxFinderCore/ITerm2/`. Spawn one worker.
 ## Git state
 
 - Phase 1: `bb086c9`, pushed. Phase 2: `c1ee43d`, pushed.
-- Phase 3a: being committed on `main` with this checkpoint; SHA and push result recorded in a
-  follow-up checkpoint commit.
+- Phase 3a committed on `main` as `745e36e` (parent `19db777`), pushed to `origin/main`
+  (`19db777..745e36e`, success). This SHA/push record is a follow-up checkpoint commit on top.
+  Tree clean after it.

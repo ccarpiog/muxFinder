@@ -38,7 +38,8 @@
    "risk": "high",
    "summary": "Encodes and decodes the iTerm2 API protobuf messages muxFinder needs, checked byte-for-byte against golden fixtures.",
    "review": "docs/reviews/phase-3a.md",
-   "narrative": "docs/progress-archive/3a.md"
+   "narrative": "docs/progress-archive/3a.md",
+   "commit": "745e36e"
   },
   {
    "id": "3b",
