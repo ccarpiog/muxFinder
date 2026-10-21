@@ -1,7 +1,13 @@
 # SwiftPM
 .build/
 .swiftpm/
+/Packages/
 Package.resolved.lock
+
+# SourceKit-LSP background indexing and coverage output
+.index-build/
+*.profraw
+*.profdata
 
 # App bundle output
 build/
