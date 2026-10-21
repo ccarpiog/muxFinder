@@ -13,6 +13,8 @@ public struct DiagnosticCategory: RawRepresentable, Hashable, Sendable {
 
   /// Running external processes.
   public static let process = DiagnosticCategory(rawValue: "process")
+  /// Connections to iTerm2's API.
+  public static let iTerm2 = DiagnosticCategory(rawValue: "iterm2")
   /// Application lifecycle and anything without a more specific category.
   public static let general = DiagnosticCategory(rawValue: "general")
 }

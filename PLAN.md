@@ -134,6 +134,27 @@ session, verifies its identity, and then activates the tab.
   Verified locally with `env -i` and on Saturno with `env -u LANG ssh …`: without `-u` tabs
   and Unicode both came back as `_`; with `-u` the bytes were exact. Every tmux command whose
   output muxFinder parses uses `-u`.
+- **D13 — iTerm2 transport model** (decided in Phase 3b, 2026-10-21). Each API connection has
+  one dedicated reader thread (bounded `poll()` reads, never on Swift's cooperative pool) that
+  hands whole messages to the `ITerm2Connection` actor through an `AsyncStream`, and one serial
+  writer queue that writes every frame whole, so no actor or reader ever blocks on the socket.
+  The actor matches responses to requests by `id`; a stream end, undecodable message or
+  stalled half-received message ends the connection and fails every pending request. Each
+  request's frame carries the request's absolute deadline: a request that times out, is
+  cancelled or loses its connection before its frame starts writing withdraws the frame (it is
+  never sent) and fails with `ITerm2Error.notSent(reason)`, and the writer never starts a frame
+  after its deadline or after a close frame was queued. A frame whose write has started is
+  written whole; its request then fails with the plain reason (`timedOut`, `disconnected`, …,
+  or `CancellationError`), meaning the outcome is unknown. `ITerm2APIClient` connects on demand
+  with a fresh cookie for every connection and never retries a request (a request may have
+  taken effect before its connection broke; only `notSent` and the connect-time errors
+  guarantee it did not). Concurrent callers share one connection attempt; `disconnect()`
+  invalidates the attempt in progress by generation, failing its callers with `disconnected`
+  and closing a connection it completes late. Connection order: running check, socket-file
+  check, cookie, connect, handshake, so no cookie is requested while iTerm2 is not running or
+  its API is off. Socket missing, refused or not a socket → `apiDisabled`; HTTP 401 →
+  `authRejected`. The client announces the library version `python 2.11` that the protocol
+  facts were checked against.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -211,6 +232,24 @@ session, verifies its identity, and then activates the tab.
   U+0020–U+007E as lowercase `\uXXXX` (surrogate pairs above U+FFFF), `/` not escaped.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
+
+Verified in Phase 3b (2026-10-21, iTerm2 3.7.6, read-only checks from a shell inside iTerm2):
+
+- **Handshake reply:** `101` with `Upgrade: websocket`, `Connection: Upgrade`, a correct
+  `Sec-WebSocket-Accept`, and `X-iTerm2-Protocol-Version: 1.21`. The in-process
+  `NSAppleScript` cookie request (main actor, CLI started from this shell) shows no prompt and
+  returns two printable-ASCII tokens separated by one space. iTerm2 answers a client close
+  frame, so the close handshake completes at once.
+- **Handshake refusals** (from iTerm2's Python module `connection.py`, not produced live: the
+  run rules forbid sending a bogus cookie): HTTP **401** means the cookie or key was not
+  accepted (the module fetches a fresh cookie and retries once); HTTP **406** means iTerm2
+  considers the client library version too old. Cookies are single-use: the module discards
+  them after every connection attempt.
+- **Ordinary tabs carry `tmux_window_id` `"-1"`** and no `tmux_connection_id` in
+  `ListSessionsResponse` (`ITerm2API.Tab.isTmuxTab` accounts for it). What a tmux tab carries
+  is still to be seen in Phase 4.
+- With no tmux integration connection, `Tmux.ListConnections` answers `status=OK` with no
+  payload (also seen in the planning spike); the client returns an empty list.
 
 Verified in Phase 2 (2026-10-21):
 

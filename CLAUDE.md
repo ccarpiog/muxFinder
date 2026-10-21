@@ -36,6 +36,9 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - Discovery check (read-only, prints JSON; `--raw` prints the probe report):
   `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
   server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
+- iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe
+  iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`. Prove `apiDisabled`
+  with `--socket <missing path>`, never by quitting iTerm2 or sending a bogus cookie.
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
   `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.

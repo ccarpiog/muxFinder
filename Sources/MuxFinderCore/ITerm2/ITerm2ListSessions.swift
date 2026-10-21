@@ -97,6 +97,18 @@ extension ITerm2API {
       (root?.sessions ?? []) + minimizedSessions
     }
 
+    /// The `tmux_window_id` iTerm2 sends for a tab that shows no tmux window (iTerm2 3.7.6
+    /// sends it on every ordinary tab, without a `tmux_connection_id`).
+    public static let noTmuxWindowID = "-1"
+
+    /// Whether the tab belongs to a tmux integration connection: it has a connection id, or a
+    /// tmux window id other than `noTmuxWindowID`.
+    public var isTmuxTab: Bool {
+      if let tmuxConnectionID, !tmuxConnectionID.isEmpty { return true }
+      guard let tmuxWindowID else { return false }
+      return !tmuxWindowID.isEmpty && tmuxWindowID != Self.noTmuxWindowID
+    }
+
     /// Decodes a tab. Repeated occurrences of `root` merge into one split tree.
     public init(from reader: inout ProtoReader) throws {
       self.init()
