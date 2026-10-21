@@ -1,0 +1,19 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved.lock
+
+# App bundle output
+build/
+
+# Xcode (in case someone opens the package in Xcode)
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Local scratch
+*.log
