@@ -133,6 +133,7 @@ tabs the test did not create. Spawn one worker.
 
 - Phase 1: `bb086c9`, pushed. Phase 2: `c1ee43d`, pushed. Phase 3a: `745e36e`, pushed.
   Phase 3b: `0d3b65f`, pushed.
-- Phase 4a: committed on `main` on top of `a70e94c`; SHA and push result recorded by the
-  follow-up checkpoint commit. From 3b on, commit messages carry no AI attribution trailer
+- Phase 4a committed on `main` as `1f5a3be` (parent `a70e94c`), pushed to `origin/main`
+  (`a70e94c..1f5a3be`, success). This SHA/push record is a follow-up checkpoint commit on top;
+  tree clean after it. From 3b on, commit messages carry no AI attribution trailer
   (user's global rule); earlier pushed commits are left as they are.
