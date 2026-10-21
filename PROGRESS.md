@@ -74,6 +74,7 @@ rules); spawn one worker.
 
 ## Git state
 
-- Phase 1: `bb086c9`, pushed. Phase 2: committed on `main` with this checkpoint; its SHA and
-  push result are recorded in the follow-up checkpoint commit (or in `PROGRESS.json`'s
-  `commit` field) — see `git log`.
+- Phase 1: `bb086c9`, pushed.
+- Phase 2 committed on `main` as `c1ee43d` (parent `840af6c`), pushed to `origin/main`
+  (`840af6c..c1ee43d`, success). This SHA/push record is a follow-up checkpoint commit on top.
+  Tree clean after it.

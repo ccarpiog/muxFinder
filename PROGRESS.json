@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "updated": "2026-10-21T20:01:21Z",
+ "updated": "2026-10-21T20:01:40Z",
  "plan": "PLAN.md",
  "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
  "phases": [
@@ -21,7 +21,8 @@
    "risk": "high",
    "summary": "Lists tmux sessions on a host with a read-only probe, parses them strictly and classifies SSH and tmux failures.",
    "review": "docs/reviews/phase-2.md",
-   "narrative": "docs/progress-archive/2.md"
+   "narrative": "docs/progress-archive/2.md",
+   "commit": "c1ee43d"
   },
   {
    "id": "3",
