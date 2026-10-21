@@ -15,6 +15,8 @@ public struct DiagnosticCategory: RawRepresentable, Hashable, Sendable {
   public static let process = DiagnosticCategory(rawValue: "process")
   /// Connections to iTerm2's API.
   public static let iTerm2 = DiagnosticCategory(rawValue: "iterm2")
+  /// The launch helper (`muxfinder-launch`) and its request and result files.
+  public static let launch = DiagnosticCategory(rawValue: "launch")
   /// Application lifecycle and anything without a more specific category.
   public static let general = DiagnosticCategory(rawValue: "general")
 }

@@ -133,6 +133,116 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   iTerm2's error text,
   `FakeITerm2Integration` (queued results then fallback, call log, not-running and
   socket-missing guards, `ensureRunning()`), and `Tab.isTmuxTab` with iTerm2's `"-1"`.
+- **Launch models** (`LaunchModelsTests`): canonical lowercase launch ids accepted, 12
+  malformed ones refused (uppercase, braces, missing hyphens, non-hex, path traversal,
+  whitespace, non-ASCII); request and result JSON round trips and the exact request keys; an
+  unknown host kind, a non-`$N` session id or an uppercase id refused on decode; unusable
+  values (format version, pid 0, relative override, negative time); every failure's
+  `{"kind": …}` encoding; the full exit status → failure tables for the attach child (64–68,
+  other statuses, 126/127/255, signals) and the check child (a timeout wins, 64–68, anything
+  else check failed), and each failure's exit status (75 for a check timeout, 128 + n when
+  interrupted; PLAN.md D14).
+- **Launch store** (`LaunchStoreTests`, temporary directories only): directory 0700 and files
+  0600 checked with `lstat`, no temporary file left; `<root>/launch` from `AppPaths`; a 0755
+  directory tightened; a symbolic link as the directory refused for every operation (target
+  untouched); a foreign directory refused (root-owned `/usr`, and a temporary one checked
+  against another uid, unchanged); a file in the way; a missing directory never created by
+  the helper's operations; delete on read and single use; duplicate ids refused; TTL with a
+  fake clock (valid at 120 s, refused and removed at 121 s, and when dated 60 s in the
+  future); the sweep (only stale request/result/digest/temporary files; the test-mode marker,
+  other files and directories kept); results taken once; unsafe request files refused and
+  removed (symbolic link with the target kept, FIFO without blocking, 0644, oversized,
+  invalid JSON, another id); the test-mode marker only as a regular file, created 0600 and
+  removed once; argv digests. Extended ACLs, set with `acl_set_link_np` inside the test's own
+  temporary directory: an inheritable `everyone` ACL and a deny-only one on the launch
+  directory removed by the helper's and the app's operations; a parent with an inheritable
+  ACL leaves none on the created launch directory or on any file written there (request,
+  result, argv digest, marker), all 0600; the writer removes an ACL a new file inherited
+  (the premise checked first) before writing; request and result files with an allow or a
+  deny-only ACL refused and removed; an immutable directory whose ACL cannot be removed
+  refused as unusable.
+- **Helper path** (`LaunchHelperPathTests`): the D2 rule (space, quotes, `$`, backticks, `;`,
+  tab, line break, `~`, `\`, non-ASCII and relative paths refused; bundle, build and plain
+  paths accepted), the tab command line, and locating the helper next to an executable
+  (missing, not executable, through a symbolic link, in a folder with a space).
+- **Guard script** (`LaunchGuardTests`): the real static guard (the check child) through
+  `/bin/sh` against a fake `tmux`: exact argv and check request (stdin `/dev/null`, 10 s
+  default deadline, 4 KiB cap), the separate attach argv, no `exec` or `attach-session` in
+  the script; a match exits 0 and prints exactly the tmux path, nothing on stderr, no
+  attach; the printed path accepted only as one line with an absolute path to a regular
+  executable file (links followed) and, with an override, only the override (11 refused
+  shapes: no newline, extra lines, relative, empty, missing, a directory, not executable,
+  CR, NUL, invalid UTF-8); identity answers classified (changed values → 65, empty or other
+  session id → 64, empty or garbage → 67); tmux errors (no server, no socket, can't find
+  session → 64; permission denied, protocol mismatch → 67 with the line on stderr, sanitized
+  to printable ASCII and 200 bytes); missing or non-tmux override → 66 without fallback; 11
+  bad argument shapes → 68; `TMUX`/`TMUX_PANE` never reach tmux.
+- **Guard on real tmux** (`LaunchGuardRealTmuxTests`): a private `TMUX_TMPDIR` server under
+  `/tmp`, started with `-f /dev/null`, holding one `muxfinder-test-*` session; the check only,
+  never an attach. No socket → 64; the discovered session passes and yields the located tmux,
+  with and without an override; a wrong id → 64; a wrong `session_created`, pid or server
+  start time → 65; after the server exits (stale socket) → 64. Cleanup kills the session by
+  id, like the discovery end-to-end test. Skips when tmux is absent.
+- **Terminal child runner** (`TerminalChildRunnerTests`): attach child: exit status and
+  signal terminations; the child stays in the parent's process group and gets only
+  descriptors 0–2 (an inheritable descriptor numbered 100 or above does not leak); signals
+  forwarded through the control, both queued before the spawn and sent while the child runs
+  (SIGHUP → `terminalHungUp`); task cancellation → SIGTERM; spawn failures. Check child:
+  piped output and its own process group; a pending signal interrupts it before anything is
+  spawned; a signal while it runs kills its whole group, including a background descendant
+  that ignores SIGTERM (pids and group gone); task cancellation → `interrupted([SIGTERM])`; a
+  spawn failure is thrown.
+- **Helper logic** (`LaunchHelperTests`, fake child runner and terminal): success (request
+  consumed; the check with the guard argv, the helper's deadline and `TMUX`, `TMUX_PANE` and
+  `MUXFINDER_LAUNCH_*` removed from its environment; the attach as the printed tmux path with
+  `-u -CC attach-session -t <id>` and the same environment; success result, no output, no
+  wait); a guard failure ends the launch before any attach, explained, and waited for only
+  when interactive; the check's stderr copied to the tab as printable ASCII before the
+  explanation and kept out of the diagnostics; an unusable printed path (missing, not the
+  override) → 67 without an attach; a check timeout → 75; a check interrupted by SIGHUP
+  (129, no wait) or SIGINT (130, waits); a closed tab during the attach (SIGHUP passed on)
+  never waited for; signal deaths exit 128 + n; missing (70), expired (71) and spawn-failure
+  (74, either child) results; 7 usage errors (exit 2, nothing run or consumed) and `help`;
+  an unusable directory override (73); the argv digest written by the environment variable
+  or the marker file, before parsing; diagnostics free of paths and session ids.
+- **Stalled check** (`LaunchHelperStalledCheckTests`): the helper in the test process with
+  the real child runner (300 ms grace) and the real guard against the fake tmux hanging in
+  `display-message` (it ignores HUP, INT and TERM and keeps a background `sleep 30` that does
+  too). With a 1 s deadline (doubled and retried, up to four times, if a loaded machine did
+  not reach `display-message` in time) the launch ends as `checkTimedOut` (75) after the
+  deadline and less than 5 s past it; a SIGHUP passed on through the control ends it at once
+  as `interrupted` (129) without a wait for Return. Either way the fake, its sleeper and their
+  process group are gone, and nothing attaches.
+- **Helper binary** (`LaunchHelperBinaryTests`): the built `muxfinder-launch` run with a
+  private launch directory, `MUXFINDER_LAUNCH_NO_WAIT=1` and stdin that is not a terminal:
+  usage errors (2); a missing request (70) with its result and an argv digest of exactly
+  argv (count 3, the binary path's length and SHA-256, the launch id); the attach path
+  against the fake tmux (tmux is the helper's direct child, in the helper's process group,
+  reading the helper's stdin, writing its stdout; exit 0 → success, exit 1 →
+  `childExited(1)` with the explanation); SIGTERM and SIGHUP sent to the helper alone reach
+  tmux (the fake's traps exit 43/44), and the helper survives to record the result; SIGTERM
+  and SIGHUP sent to the helper alone while the check hangs end the launch as `interrupted`
+  (143/129) with a result, and the check's process group (separate from the test runner's,
+  so only the helper can have removed it) is gone; real tmux on a private server: no server
+  → 64, wrong `session_created` → 65, both recorded in the result. No real tmux client is
+  ever attached by `swift test`.
+
+## Helper test mode: argv digest (for Phase 4b)
+
+To see exactly how iTerm2 splits a tab's `Command` property, turn on the helper's test mode
+and read the digest it writes before parsing its arguments (PLAN.md D14):
+
+- Turn it on with `MUXFINDER_LAUNCH_TEST_MODE=1` (direct runs) or, for helpers iTerm2
+  starts, by creating a regular file named `test-mode` in the launch directory
+  (`~/Library/Application Support/muxFinder/launch/`). An e2e run creates the marker before
+  opening the tab and removes it during cleanup. The sweep never removes it.
+- The helper writes `argv-<helper pid>.json` (0600) in the launch directory: `argumentCount`,
+  `arguments` (per argument, argv[0] first: `byteLength` and lowercase hex `sha256`),
+  `launchID` (the first argument after argv[0] that is a canonical launch id, else absent),
+  `helperPID` and `recordedAt`. No other raw argument is stored.
+- `LaunchStore.takeArgvDigests()` reads the digests (and deletes them), oldest first. To check
+  a run, compare `argumentCount` with 3, `arguments[0]` with the helper path's length and
+  SHA-256, and `launchID` with the request's id.
 
 ## Real-world checks
 
@@ -203,3 +313,24 @@ Method notes:
   under `/tmp`.
 - The listings' raw stdout (ids, profile names) went to temporary files that were deleted
   after the shape above was extracted.
+
+### Phase 4a — launch helper (2026-10-21)
+
+Environment: Neptuno, tmux 3.8, debug build (`.build/debug/muxfinder-launch`). Everything ran
+in a pseudo-terminal from `script -q /dev/null …` (not iTerm2), with a private launch
+directory (`MUXFINDER_LAUNCH_DIRECTORY`) and a private `TMUX_TMPDIR` server under `/tmp` that
+held one `muxfinder-test-*` session running `sleep 60`. iTerm2 was not involved at any point.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Wait for Return on a terminal | `(sleep 2; printf '\n') \| script -q /dev/null muxfinder-launch attach <fresh uuid>` (no request) | exit 70; printed the "launch request … was not found" explanation and `Press Return to close.`, then returned 2 s later, when the newline arrived |
+| Real control-mode attach | request file for `$0` written 0600 by hand (identity from `display-message`), then `(sleep 2; list-clients; printf 'detach-client\n'; sleep 2) \| script -q /dev/null muxfinder-launch attach <uuid>` | exit 0; the check child passed, then tmux was spawned directly; while attached, `list-clients` showed one control-mode client on `$0`; control-mode `%`-prefixed protocol lines on the terminal; result `{"childTermination":{"kind":"exited","status":0},"exitStatus":0,…}` with no failure; no client left afterwards |
+| Hung tmux server | the same request flow on a fresh private server stopped with `kill -STOP <server pid>` before the helper ran, helper stdin `/dev/null` | exit 75 after 10 s; result `{"childTermination":{"kind":"signaled","signal":15},"exitStatus":75,"failure":{"kind":"checkTimedOut"},…}`; the "did not answer … in time" explanation on the terminal; no `tmux -u display-message` process left; then `kill -CONT`, and cleanup as below |
+| Cleanup | `kill-session -t '$0'` on the private server, then `list-sessions` | `no server running on /private/tmp/mfx.…/tmux-501/default`; socket and launch directories removed |
+
+Method notes:
+
+- The terminal's output (control-mode protocol from a `sleep 60` session) was only counted for
+  its `%` markers, not recorded.
+- After `swift test`, no `/tmp/mfx-*` directory created by the tests was left, and
+  `/opt/homebrew/bin/tmux -u list-sessions` reported no server on the user's default socket.

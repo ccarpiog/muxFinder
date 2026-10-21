@@ -159,6 +159,14 @@ struct ProcessSupervisor: Sendable {
 
   /// Checks the request for values `posix_spawn` cannot represent and flattens it to strings.
   func validatedLaunchParameters() throws(ProcessRunnerError) -> LaunchParameters {
+    try Self.launchParameters(for: request)
+  }
+
+  /// Checks `request` for values `posix_spawn` cannot represent and flattens it to strings.
+  /// Shared with `TerminalChildRunner`, which spawns without pipes.
+  static func launchParameters(
+    for request: ProcessRequest
+  ) throws(ProcessRunnerError) -> LaunchParameters {
     let url = request.executableURL
     let path = url.path(percentEncoded: false)
     guard url.isFileURL, path.hasPrefix("/"), !path.utf8.contains(0) else {
@@ -176,7 +184,7 @@ struct ProcessSupervisor: Sendable {
       environment.append("\(name)=\(value)")
     }
     return LaunchParameters(path: path, argv: [path] + request.arguments, environment: environment)
-  } // End of func validatedLaunchParameters()
+  } // End of func launchParameters(for:)
 
   /// Creates the pipes and spawns the child in a new process group.
   ///

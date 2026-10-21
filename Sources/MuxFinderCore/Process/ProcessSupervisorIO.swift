@@ -54,6 +54,15 @@ struct SpawnFileActions {
     )
   }
 
+  /// Keeps this process's `descriptor` open in the child under the same number, even with
+  /// `POSIX_SPAWN_CLOEXEC_DEFAULT`.
+  mutating func inherit(_ descriptor: Int32) throws(ProcessRunnerError) {
+    try checkSpawnCall(
+      posix_spawn_file_actions_addinherit_np(&raw, descriptor),
+      "posix_spawn_file_actions_addinherit_np"
+    )
+  }
+
   /// Releases the action list.
   mutating func destroy() {
     posix_spawn_file_actions_destroy(&raw)
@@ -63,7 +72,8 @@ struct SpawnFileActions {
 /// Wraps `posix_spawnattr_t`, configured for muxFinder's children. The owner calls `destroy()`
 /// exactly once.
 ///
-/// - `POSIX_SPAWN_SETPGROUP` with pgroup 0: the child leads a new process group.
+/// - `POSIX_SPAWN_SETPGROUP` with pgroup 0 (unless `newProcessGroup` is `false`): the child
+///   leads a new process group.
 /// - `POSIX_SPAWN_SETSIGMASK` (empty) and `POSIX_SPAWN_SETSIGDEF` (all catchable signals): the
 ///   child starts with no blocked signals and default dispositions, whatever this process uses.
 /// - `POSIX_SPAWN_CLOEXEC_DEFAULT`: only the descriptors set up by the file actions survive.
@@ -71,13 +81,14 @@ struct SpawnAttributes {
   /// The underlying handle, passed to `posix_spawn`.
   var raw: posix_spawnattr_t?
 
-  /// Initializes and configures the attributes.
-  init() throws(ProcessRunnerError) {
+  /// Initializes and configures the attributes. `newProcessGroup: false` keeps the child in
+  /// this process's group, which a child that reads the controlling terminal needs (a
+  /// background group would get `SIGTTIN`).
+  init(newProcessGroup: Bool = true) throws(ProcessRunnerError) {
     raw = nil
     try checkSpawnCall(posix_spawnattr_init(&raw), "posix_spawnattr_init")
-    let flags =
-      POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
-      | POSIX_SPAWN_CLOEXEC_DEFAULT
+    var flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_CLOEXEC_DEFAULT
+    if newProcessGroup { flags |= POSIX_SPAWN_SETPGROUP }
     var blocked = sigset_t()
     sigemptyset(&blocked)
     var defaults = sigset_t()
@@ -86,7 +97,9 @@ struct SpawnAttributes {
     sigdelset(&defaults, SIGSTOP)
     do throws(ProcessRunnerError) {
       try checkSpawnCall(posix_spawnattr_setflags(&raw, Int16(flags)), "posix_spawnattr_setflags")
-      try checkSpawnCall(posix_spawnattr_setpgroup(&raw, 0), "posix_spawnattr_setpgroup")
+      if newProcessGroup {
+        try checkSpawnCall(posix_spawnattr_setpgroup(&raw, 0), "posix_spawnattr_setpgroup")
+      }
       try checkSpawnCall(posix_spawnattr_setsigmask(&raw, &blocked), "posix_spawnattr_setsigmask")
       try checkSpawnCall(
         posix_spawnattr_setsigdefault(&raw, &defaults),

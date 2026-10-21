@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "updated": "2026-10-21T21:34:58Z",
+ "updated": "2026-10-21T22:40:54Z",
  "plan": "PLAN.md",
  "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
  "phases": [
@@ -54,9 +54,25 @@
   {
    "id": "4",
    "title": "Integration proof, local: attach, native tabs and splits, detach, reattach",
+   "status": "in_progress",
+   "risk": "high",
+   "summary": "Proves the local attach workflow end to end; split into 4a (launch layer and helper, done) and 4b (coordinator and real proof)."
+  },
+  {
+   "id": "4a",
+   "title": "Launch layer and helper: request files, guard, muxfinder-launch",
+   "status": "done",
+   "risk": "high",
+   "summary": "Hands attach requests to a launch helper through private files and checks the session is unchanged before attaching.",
+   "review": "docs/reviews/phase-4a.md",
+   "narrative": "docs/progress-archive/4a.md"
+  },
+  {
+   "id": "4b",
+   "title": "Attach coordinator and real local proof",
    "status": "queued",
    "risk": "high",
-   "summary": "Proves on this Mac that a local tmux session attaches in iTerm2 via tmux -CC, detaches and reattaches."
+   "summary": "Attaches, confirms, focuses and detaches a local session in iTerm2 and records the real results."
   },
   {
    "id": "5",

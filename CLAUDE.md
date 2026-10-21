@@ -39,6 +39,13 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe
   iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`. Prove `apiDisabled`
   with `--socket <missing path>`, never by quitting iTerm2 or sending a bogus cookie.
+- Launch helper (iTerm2 runs it in a launch tab; by hand only for checks):
+  `.build/debug/muxfinder-launch attach <uuid>` takes `<uuid>.request.json` from
+  `~/Library/Application Support/muxFinder/launch/`. For checks, set
+  `MUXFINDER_LAUNCH_DIRECTORY=<absolute private dir>` and a private `TMUX_TMPDIR`.
+  `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
+  argv digest; `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return. Exit codes and the
+  digest format: PLAN.md D14, `docs/TESTING.md`.
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
   `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.

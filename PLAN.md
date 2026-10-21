@@ -90,8 +90,15 @@ session, verifies its identity, and then activates the tab.
 - **D4 — Session identity.** `SessionKey = (hostID, socketPath, serverPID, serverStartTime,
   sessionID)`. `session_created` is kept for revalidation. Names are display data only, and all
   targets use `$N` ids. Before attaching, the helper's guard script checks that
-  `display-message -p -t "$id" '#{pid}:#{session_created}'` still matches. Exit code 64 means
-  the session is gone, 65 means it changed (for example, an id reused after a server restart).
+  `display-message -p -t "$id" '#{session_id}:#{pid}:#{start_time}:#{session_created}'` still
+  matches (the session id is in the format because `display-message` resolves a missing target
+  leniently; see D14). Exit code 64 means the session is gone, 65 means it changed (for
+  example, an id reused after a server restart). The check and the attach are separate
+  processes (D14), so a few milliseconds pass between the check's `display-message` and tmux's
+  `attach-session` (reaping the check, validating its output, one `posix_spawn`). A session
+  that ends in that window makes `attach-session` exit 1; a server restarted in it is caught
+  by the coordinator's identity check through the new control connection (Phase 4, step 7).
+  Within one server a `$N` id is never reused.
 - **D5 — Locating tmux.** An explicit override is used alone: if it is missing, or does not
   answer `-V` with `tmux …`, the host reports "tmux not found" (no fallback to another tmux).
   Without an override, use `/opt/homebrew/bin/tmux`, `/usr/local/bin/tmux`,
@@ -155,6 +162,86 @@ session, verifies its identity, and then activates the tab.
   its API is off. Socket missing, refused or not a socket → `apiDisabled`; HTTP 401 →
   `authRejected`. The client announces the library version `python 2.11` that the protocol
   facts were checked against.
+- **D14 — Launch protocol** (decided in Phase 4a, 2026-10-21; code in
+  `Sources/MuxFinderCore/Launch/`).
+  - **Files:** `launch/<uuid>.request.json` and `<uuid>.result.json`, the uuid only in
+    canonical lowercase form (`LaunchToken`, validated before it names a file). Writes are
+    atomic (temporary file with `O_CREAT|O_EXCL|O_NOFOLLOW`, mode 0600, then a rename;
+    `RENAME_EXCL` for requests, so an id is never reused). The directory is 0700 (tightened if
+    looser) and refused if it is a symbolic link, not a directory, or owned by another user;
+    all file calls go through its descriptor. Only `writeRequest` (and
+    `createTestModeMarker`) creates it. The helper takes its request by opening it with
+    `O_NOFOLLOW` and unlinking it at once (the first unlink wins, so a request is used once),
+    then requires a regular file owned by the user, no group or other bits, no extended ACL and
+    at most 16 KiB. TTL: 120 s after `createdAt` (5 s future tolerance), on an injectable
+    clock. The sweep removes request, result, argv-digest and temporary files whose mtime is
+    older than the TTL.
+  - **ACLs:** mode bits alone are no private boundary on macOS, since an extended ACL entry
+    grants access whatever they say and new files inherit their directory's inheritable
+    entries. So, through descriptors (`ExtendedACL`): every open of the launch directory
+    removes any extended ACL from it and refuses the directory (73) if that fails; every file
+    the store creates loses any inherited ACL before its first byte is written; and a file
+    being taken is refused (and deleted) if it carries any extended ACL entry, even a
+    deny-only one. That strict rule works on a normal home directory: the ACL macOS puts on
+    home folders (`group:everyone deny delete`) is not inheritable. A deny-delete entry also
+    blocks the owner's unlink, so the store removes the ACL of a file the user owns before
+    deleting it. Only the launch directory and its files are covered, not the Application
+    Support root above it.
+  - **Exit codes:** guard 64 gone, 65 changed, 66 tmux missing (the D5 rule, discovery's
+    `tmuxNotFound`), 67 tmux check failed, 68 guard usage. Helper 2 usage, 70 request missing,
+    71 expired, 72 unreadable, 73 launch directory unusable, 74 spawn failed, 75 check timed
+    out, 128 + n interrupted by signal n before tmux attached; otherwise tmux's own status (0
+    after a detach, 1 on errors), and 128 + n for signal n. 255 is left to ssh (Phase 5).
+    `LaunchFailure.fromCheck(_:timedOut:)` (the check child) and `LaunchFailure.from(_:host:)`
+    (the attach child) are the pure mappings.
+  - **Gone versus error:** in tmux 3.8, `display-message -t '$N'` for a missing id exits 0
+    and prints empty session fields, so the guard reads the output. Exactly
+    `<id>:<pid>:<start>:<created>` is a match. `<id>:` with other values is changed. An empty
+    or different session id is gone. Any other shape is 67. A tmux failure with `no server
+    running on`, `error connecting to … (No such file or directory)` or `can't find session`
+    is gone; any other tmux failure is 67, with tmux's first line (printable ASCII, 200 bytes)
+    on stderr.
+  - **Check, then attach (two children):** the **check** is the static guard,
+    `/bin/sh -c <script> muxfinder <override> <id> <pid> <start> <created>`, run through
+    `PosixSpawnProcessRunner`: stdin `/dev/null`, piped output (4 KiB cap), its own process
+    group and a 10 s hard deadline (`LaunchGuard.defaultTimeout`, injectable) after which the
+    whole group gets SIGTERM, then SIGKILL 2 s later, so the locator, `display-message` and
+    every other subprocess end together. A timeout is `checkTimedOut` (75). On a match the
+    check prints the tmux path it used; the helper accepts exactly one line holding an
+    absolute path without NUL or line breaks that names a regular executable file (links
+    followed), and with an override only the override itself, else `tmuxCheckFailed`. The D2
+    character rule does not apply: the path is only ever argv. The check's stderr (tmux's
+    sanitized first line) is copied to the tab as printable ASCII, never to the logs. The
+    **attach** is `<path> -u -CC attach-session -t <id>`, spawned directly with no shell.
+    D12's `-u` applies to control mode too, so the formats iTerm2 requests keep UTF-8 and
+    tabs. This replaced a single guard that `exec`ed tmux: its locator and `display-message`
+    subprocesses had no deadline and were out of reach of a signal sent to the shell, and
+    putting the shell in its own group would have stopped tmux with `SIGTTIN`. The price is
+    the check-to-attach window described in D4.
+  - **Helper process:** the attach child runs on the helper's own terminal: descriptors 0–2
+    are inherited (never pipes), the child stays in the helper's foreground process group (a
+    background group would get `SIGTTIN`), and it starts with default dispositions. The helper
+    ignores SIGHUP, SIGINT and SIGTERM for its whole life and watches them with
+    `EVFILT_SIGNAL` from its first instructions (`TerminalChildControl.watchTerminalSignals()`,
+    which `LaunchHelper.standard()` starts): one that arrives before tmux attaches ends the
+    launch as `interrupted(n)` without attaching (a running check is stopped with its whole
+    process group, the same way as on a timeout); one that arrives while tmux runs is passed
+    on to tmux. So closing the tab never orphans tmux or a check subprocess, and the result is
+    always written. It restores the defaults only for the final wait. On failure it prints a
+    one-paragraph explanation, and waits for Return only when stdin is a terminal,
+    `MUXFINDER_LAUNCH_NO_WAIT` is not `1`, and no SIGHUP arrived.
+  - **Test mode:** set by `MUXFINDER_LAUNCH_TEST_MODE=1`, or by a regular file
+    `launch/test-mode` owned by the user. The marker is how 4b turns test mode on for helpers
+    iTerm2 starts: the e2e run creates it (`LaunchStore.createTestModeMarker()`) and removes it
+    in cleanup (`removeTestModeMarker()`), and the sweep leaves it alone. In test mode the
+    helper writes `launch/argv-<pid>.json` before parsing argv: the argument count, then each
+    argument's byte length and SHA-256, plus the first canonical launch id found.
+    `LaunchStore.takeArgvDigests()` reads them.
+  - **Overrides and paths:** `MUXFINDER_LAUNCH_DIRECTORY` (absolute) replaces the launch
+    directory for development and tests; a relative or empty value is refused (73).
+    `LaunchHelperPath.locate()` finds `muxfinder-launch` next to the running executable and
+    applies the D2 rule. The tab command is `LaunchHelperPath.attachCommandLine(for:)`, that
+    is `<path> attach <uuid>`.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -232,6 +319,25 @@ session, verifies its identity, and then activates the tab.
   U+0020–U+007E as lowercase `\uXXXX` (surrogate pairs above U+FFFF), `/` not escaped.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
+
+Verified in Phase 4a (2026-10-21, tmux 3.8, private `TMUX_TMPDIR` servers only):
+
+- `tmux -u display-message -p -t '$99' '#{session_id}:#{pid}:#{start_time}:#{session_created}'`
+  for a missing id exits **0** and prints `:<pid>:<start_time>:`. It did not fall back to
+  another session, even with a control client attached to one. `has-session -t '$99'` fails
+  with `can't find session: $99` (exit 1). A new server numbers its sessions from `$0` again.
+- `tmux -u -CC attach-session` whose stdin is not a terminal prints `tcgetattr failed:
+  Operation not supported by device`, exits 1 and attaches nothing. Under a pseudo-terminal
+  (`script -q /dev/null …`), `muxfinder-launch attach <uuid>` → check child → a directly
+  spawned `tmux -u -CC attach-session` attached as a control client and exited 0 after
+  `detach-client`.
+- A tmux client whose server is stopped (`SIGSTOP`) blocks in `display-message` with no
+  timeout of its own, and SIGTERM ends it. The helper's check deadline ended such a check
+  after 10 s (exit 75, `checkTimedOut`) and left no client behind.
+- `EVFILT_SIGNAL` reports signals whose disposition is `SIG_IGN`. The helper relies on it, and
+  the helper binary tests show it.
+- With Swift 6.4's build system the products are in `.build/out/Products/Debug/`, and
+  `.build/debug` links there. `swift test` builds the executables too.
 
 Verified in Phase 3b (2026-10-21, iTerm2 3.7.6, read-only checks from a shell inside iTerm2):
 
@@ -450,6 +556,20 @@ Goal: prove the central workflow end to end on this Mac before any real UI exist
 Deliverables: `Launch/` (request and result files, TTL, 0600), `muxfinder-launch attach
 <uuid>`, `Attach/AttachCoordinator` (local path), `muxfinder-probe attach --local --session
 <$id>`, `muxfinder-probe e2e-local`, and `docs/INTEGRATION-PROOF.md` with the real results.
+
+Split (autoclaude run, 2026-10-21), each sub-phase with its own commit and review:
+- **4a — launch layer and helper (hermetic):** `Launch/` (request and result models, the
+  0700 launch directory, 0600 files, atomic writes, delete on read, 2-minute TTL and stale-file
+  sweep, helper-path validation), the static guard script (the bounded D4 check, then a
+  direct `tmux -u -CC attach-session` child), the `muxfinder-launch attach <uuid>` executable
+  (child processes, result file, plain failure text and wait for Return, argv digest in test
+  mode), and the mapping of guard and child exit codes to typed failures. Local host kind
+  only; the ssh launch path is Phase 5. Tests are hermetic, plus guard checks against real
+  tmux on a private socket directory. No iTerm2 at any point.
+- **4b — attach coordinator and real proof:** `Attach/AttachCoordinator` (local path, the
+  states, single-flight, `ListConnections` polling, identity check, `Activate`, detach),
+  `muxfinder-probe attach --local --session <$id>`, `muxfinder-probe e2e-local`, the real runs
+  (at least twice) and `docs/INTEGRATION-PROOF.md`.
 
 Requirements:
 - **Attach flow:**

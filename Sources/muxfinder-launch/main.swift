@@ -1,13 +1,27 @@
-// muxfinder-launch: the helper iTerm2 runs inside a launch tab (PLAN.md D2).
-// Placeholder until the launch phase; it only reports that it is not implemented yet.
+// muxfinder-launch: the helper iTerm2 runs inside a launch tab, as
+// `<path>/muxfinder-launch attach <launch id>` (PLAN.md D2, D14). All logic lives in
+// `LaunchHelper` in MuxFinderCore; this file only wires the process to it.
 
-import Foundation
+import Darwin
 import MuxFinderCore
 
-/// Writes `message` and a newline to standard error.
-func printError(_ message: String) {
-  FileHandle.standardError.write(Data((message + "\n").utf8))
+// A terminal or pipe that went away must make writes fail with EPIPE instead of killing the
+// helper before it records its result. The child starts with default dispositions.
+signal(SIGPIPE, SIG_IGN)
+// The helper is never stopped by these before its result is written. `LaunchHelper.standard()`
+// starts `TerminalChildControl.watchTerminalSignals()` right after this (EVFILT_SIGNAL records
+// ignored signals): one that arrives before tmux attaches ends the launch as `interrupted`
+// (killing the check's process group), one that arrives later is passed on to tmux.
+// `StandardLaunchTerminal.waitForReturn()` restores the defaults so Ctrl-C or closing the tab
+// ends the final wait. Only a signal in the instant between these two steps is dropped.
+for signalNumber in TerminalChildRunner.forwardedSignalNumbers {
+  signal(signalNumber, SIG_IGN)
 }
 
-printError("muxfinder-launch: not implemented yet.")
-exit(EX_USAGE)
+/// The raw bytes of every argument, argv[0] first, exactly as the process received them.
+let argv: [[UInt8]] = (0..<Int(CommandLine.argc)).map { index in
+  guard let pointer = CommandLine.unsafeArgv[index] else { return [] }
+  return UnsafeRawBufferPointer(start: pointer, count: strlen(pointer)).map { $0 }
+}
+
+exit(await LaunchHelper.standard().run(argv: argv))
