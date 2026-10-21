@@ -3,7 +3,7 @@
  "phases": [
   {"id": "1", "title": "Package skeleton, process runner, quoting and validation", "status": "done", "risk": "routine",
    "summary": "Sets up the Swift package, a safe process runner, shell quoting, input validation, app paths and a diagnostics log.",
-   "review": "docs/reviews/phase-1.md", "narrative": "docs/progress-archive/1.md"},
+   "review": "docs/reviews/phase-1.md", "narrative": "docs/progress-archive/1.md", "commit": "bb086c9"},
   {"id": "2", "title": "tmux discovery: probe, parser, identity, error classification", "status": "queued", "risk": "high",
    "summary": "Lists tmux sessions on a host with a read-only probe, parses them and classifies failures."},
   {"id": "3", "title": "Native iTerm2 API client", "status": "queued", "risk": "high",

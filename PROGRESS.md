@@ -60,6 +60,6 @@ one worker; carry the `TMUX`/`TMUX_PANE` note above into its brief.
 
 ## Git state
 
-- Phase 1 is committed on `main` in the commit that adds this file (parent `c99bbf5`; find it
-  with `git log -1 -- docs/progress-archive/1.md`). Its push result is recorded at the next
-  checkpoint. Tree clean after that commit.
+- Phase 1 committed on `main` as `bb086c9` (parent `c99bbf5`), pushed to `origin/main`
+  (`c99bbf5..bb086c9`, success). This SHA/push record is a follow-up checkpoint commit on top.
+  Tree clean after it.
