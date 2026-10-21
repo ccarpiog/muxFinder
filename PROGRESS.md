@@ -110,5 +110,7 @@ big for one worker, split it and record the split in `PLAN.md`. Spawn one worker
 ## Git state
 
 - Phase 1: `bb086c9`, pushed. Phase 2: `c1ee43d`, pushed. Phase 3a: `745e36e`, pushed.
-- Phase 3b: committed on `main` (SHA and push result recorded by the follow-up checkpoint
-  commit).
+- Phase 3b committed on `main` as `0d3b65f` (parent `56a0f76`), pushed to `origin/main`
+  (`56a0f76..0d3b65f`, success). This SHA/push record is a follow-up checkpoint commit on top.
+  Tree clean after it. From 3b on, commit messages carry no AI attribution trailer (user's
+  global rule); earlier pushed commits are left as they are.

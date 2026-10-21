@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "updated": "2026-10-21T21:34:37Z",
+ "updated": "2026-10-21T21:34:58Z",
  "plan": "PLAN.md",
  "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
  "phases": [
@@ -48,7 +48,8 @@
    "risk": "high",
    "summary": "Connects to iTerm2 over its Unix-socket WebSocket with a cookie and exposes the API calls to the app and probe.",
    "review": "docs/reviews/phase-3b.md",
-   "narrative": "docs/progress-archive/3b.md"
+   "narrative": "docs/progress-archive/3b.md",
+   "commit": "0d3b65f"
   },
   {
    "id": "4",
