@@ -543,6 +543,47 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   blocks; the size cap (a file at the cap read, one byte over skipped); de-duplication in
   first-seen order across files; no `.ssh` or no config; CRLF, trailing spaces and form
   feeds; `~user` paths not expanded; every file's bytes, mode and mtime unchanged afterwards.
+- **Refresh engine** (`RefreshCoordinatorTests`, `RefreshScheduleTests`,
+  `RefreshSnapshotTests`; PLAN.md D20): a scripted prober whose calls wait until the test
+  answers them (optionally ignoring cancellation, like a probe that finished as it was
+  cancelled), a fake attachment index, and `GatedAttachClock`, whose sleeps end only when the
+  test advances virtual time, so every timer fires exactly when the test says and no test
+  orders steps by real time (waits only poll for a state the engine reaches by itself). One
+  test each: a hung host not delaying three others (one queued behind the limit); overlapping
+  requests making exactly one follow-up after the running attempt; the limit of 3 with
+  first-come queueing and a request joining a queued attempt; a probe retired by an edit
+  keeping its host's single flight and its slot (hosts queued behind it going first, the host
+  starting by itself once the probe ends); a late result from before a sleep, answered after
+  waking, discarded and never published, the post-wake attempt waiting for it and then
+  applied; a destination edit retiring the attempt in flight (its result discarded, the new
+  attempt under revision 2 starting once it ended); a removed host's result dropped and the
+  host re-added under a new revision; a rename keeping the attempt in flight; background backoff
+  30 s, 1 min, 2 min, 5 min, 15 min, 15 min (nothing 1 s before each step), reset to 5 min by
+  a success and to 30 s by the next failure; "Retry" and "Refresh" bypassing backoff with
+  the failure still counted; the visible 15 s cadence ignoring backoff and the background
+  step returning on close; the healthy cadence (5 min, at once on opening, 15 s, 5 min after
+  closing); stale marking after a failure that follows a success (sessions, `lastSuccess`
+  kept, `lastAttempt` moved, failure classified) and live again after the next success; a
+  failure with no success before and `noServer`; the same session name, id and server on two
+  hosts staying two entries; sleep cancelling the probe in flight and every timer before it
+  returns, nothing running in an hour of virtual sleep or on a network change, and every host
+  refreshed exactly 5 s after waking (not at 4.999 s); sleep ending a
+  `refreshOnce(includeAttachments: true)` round, which then starts no attachment check; a
+  network change refreshing only the
+  failing host; the attachment merge (only the mapped session marked, the index given every
+  host's node name and servers), no attachment check in the background, and D16's failure
+  policy (`apiDisabled` clearing an earlier check's attachments, `notRunning` meaning nothing
+  attached); `refreshOnce` scheduling nothing; This Mac discovered by `/bin/sh` and only the
+  SSH host by `/usr/bin/ssh`; the sleep/wake adapter keeping order, a `stop()` run inside its
+  `start()` leaving nothing observed, and the path filter;
+  `stop()` cancelling a hung probe, a timer and a hung attachment check, leaving no task,
+  sleeper or running call and finishing the update stream. With the real
+  `PosixSpawnProcessRunner` and `DiscoveryProbe` against the fake tmux (`hang-pids`: a
+  `sleep 30` child), both `stop()` and `systemWillSleep()` return only once the probe's
+  process group has no live member, and every pid is gone soon after. Removing the stale
+  result guards, the follow-up, the limit, the wait in `systemWillSleep()`, the per-host guard
+  over retired probes, the `refreshOnce` work epoch, the adapter's start generation or the
+  backoff steps makes these tests fail.
 
 ## Helper test mode: argv digest
 
@@ -995,4 +1036,37 @@ window was opened, no tmux connection queried, no ssh run.
 | Suggestions | `.build/debug/muxfinder-probe hosts suggestions > <dir>/suggestions.json`, then a count of the array (names not printed) | exit 0; a JSON object whose only key is `suggestions`, one name. `ls -lae ~/.ssh` afterwards: every entry's mtime as before (the config's is months old) |
 | Cleanup | `rm -r <dir>` | the private directory removed |
 | Unit tests | `swift test` | exit 0, 499 tests in 49 suites (42 new: `HostListTests`, `HostStoreTests`, `SSHConfigSuggestionsTests`) |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |
+
+### Phase 7b — refresh engine (2026-10-22)
+
+`muxfinder-probe refresh --once [--config <path>] [--attachments]` (PLAN.md D20) loads the
+host list like `hosts show` (read-only; `--config` names the `hosts.json` file, whose folder
+must be yours and not a symbolic link), refreshes every enabled host once through a real
+`RefreshCoordinator` that is never started (nothing scheduled) and prints JSON: the load
+state, the configuration revision, the attachment check, and per host its freshness, last
+outcome (`ok`, `noServer` or the failure with its reason), `lastAttempt`, `lastSuccess`,
+failure count, node name and sessions. This Mac runs the probe directly; SSH hosts run
+discovery's noninteractive ssh (D6). No iTerm2 window opens and nothing is written.
+
+- Without `--attachments` (the default) iTerm2 is never contacted; `attachments.state` is
+  `notChecked`.
+- `--attachments` adds one attachment check after the round: it sends the read-only identity
+  `display-message` to every iTerm2 tmux connection, the user's included, so in unattended
+  runs use it only while `iterm2 list-connections` shows none of the user's (the same caution
+  as `iterm2 attachments`). Each session then lists its `iTerm2Connections`;
+  `attachments.state` is `checked` (with counts), `iTermNotRunning` or `failed` (with the
+  error's kind, attachments unknown).
+
+Environment: Neptuno, from the repo root after `swift build`, `TMUX_TMPDIR` unset except
+where noted. Saturno (`saturno-m4`) was only discovered; nothing was written on it. No iTerm2
+window was opened and no tmux connection queried (`--attachments` was not run).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Private host list | `mktemp -d /tmp/mfx.XXXXXX`; a schema 1 `hosts.json` (0600) holding This Mac (`local`) and Saturno (`ssh`, `saturno-m4`), both enabled; `.build/debug/muxfinder-probe hosts show --config <dir>/hosts.json` | exit 0; `"state" : "saved"`, both hosts, This Mac's id |
+| One refresh round | `swift run muxfinder-probe refresh --once --config <dir>/hosts.json` | exit 0; `saved`, revision 1, attachments `notChecked`; both hosts `live` with outcome `noServer` (no tmux server ran on either Mac), so 0 sessions; `lastAttempt`, `lastSuccess` and the node name set, 0 failures |
+| Sessions through the engine | a second `mktemp -d` as a private `TMUX_TMPDIR` with one `muxfinder-test-<8 hex>` session (`tmux -u -f /dev/null new-session -d -s … 'sleep 600'`); `TMUX_TMPDIR=<it> .build/debug/muxfinder-probe refresh --once --config <dir>/hosts.json` | exit 0; This Mac `live`, outcome `ok`, 1 session: the test session, its key carrying This Mac's id and the private socket; Saturno `live`, `noServer` |
+| Cleanup | `kill-session -t '=muxfinder-test-…'` on the private server; `rm -r` both folders; `ls -A /private/tmp \| rg '^mfx\.'` | the private server ended with its session (`list-sessions`: no server running); nothing listed |
+| Unit tests | `swift test`, repeated | exit 0, 531 tests in 52 suites (26 new in `RefreshCoordinatorTests`, `RefreshScheduleTests`, `RefreshSnapshotTests`). On the final tree 19 of 20 runs passed, 13 of them in a row. The one failure was the existing `doesNotBlockTheMainActor` (fewer than 5 main-actor ticks in 0.9 s) at a load average of about 12. With the new suites skipped, the earlier 505 tests also failed 2 of 20 runs (`doesNotBlockTheMainActor`, `keepsTrailingSemicolonsOnAPrivateServer`). No refresh test failed in 36 full runs |
 | Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |

@@ -19,12 +19,13 @@ file.
 | 5b | Remote attach over SSH | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-5b.md` | `docs/progress-archive/5b.md` |
 | 6a | New session and vanished sessions | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-6a.md` | `docs/progress-archive/6a.md` |
 | 7a | Host configuration: `HostStore`, invariants, defaults, SSH config suggestions | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7a.md` | `docs/progress-archive/7a.md` |
+| 7b | Refresh engine: `RefreshCoordinator`, `HostSnapshot`, attachment merge, `refresh --once` | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7b.md` | `docs/progress-archive/7b.md` |
 
 ## Current phase
 
-None in progress. Phase 6a closed with its final-tree `e2e-remote saturno-m4` run (16/16);
-Phase 7a closed before it. Next: **Phase 7b — refresh engine** (*Next action*). Phase 6 was
-split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
+None in progress. Phase 7b (refresh engine) closed; Phases 1–7b are done. Next: **Phase 6b —
+Move here** if iTerm2's thread count allows, else **Phase 8** (*Next action*). Phase 6 was split
+into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase still queued.
 
 ## Acceptance
 
@@ -72,6 +73,12 @@ split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
   the old code), the This Mac switch, defaults and every suggestion rule; real read-only `hosts
   show` / `hosts suggestions` left the support directory and `~/.ssh` unchanged; build, 505
   tests and lint pass. Evidence in `docs/progress-archive/7a.md`.
+- Phase 7b: all criteria met — every plan test (slow host, coalescing, late stale result,
+  config edit and removed host, backoff, stale marking, no leaked tasks or processes after
+  `stop()` with a real process group, same name on two hosts) plus limit 3, sleep/wake, network
+  change, attachment merge and the three review regressions; real final-tree `refresh --once`
+  against a private This Mac + Saturno `hosts.json` exit 0, both `live`; build, 534 tests and
+  lint pass. Evidence in `docs/progress-archive/7b.md`.
 
 ## Decisions
 
@@ -130,6 +137,12 @@ split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
   SSH, disabled; suggestion rules). The launch layer's ACL/safe-write code moved to
   `Config/PrivateStorage.swift` and `Config/ExtendedACL.swift`, shared by both stores —
   `docs/progress-archive/7a.md`.
+- Phase 7b: new **D20** (refresh engine: actor with `HostDiscovering`/`AttachClock`/
+  `AttachmentIndexing` seams and an `updates()` stream; limit 3 with retired probes keeping
+  their slot and blocking only their own host; one follow-up per busy host rather than joining;
+  generation + revision + work-epoch discard; cadence and background-only backoff; attachment
+  checks only while the popover is visible; probe `refresh --once` with opt-in
+  `--attachments`) — `docs/progress-archive/7b.md`.
 
 ## Open risks / deviations
 
@@ -205,6 +218,12 @@ split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
   unsupported; more in `docs/progress-archive/7a.md`.
 - 7a: the 5b test `aSilentRemoteConnectionIsStale()` flaked about once in 18 runs (a wait-
   condition race); fixed with a cancelled-sleep count on `GatedAttachClock`, 20/20 runs since.
+- 7b: `doesNotBlockTheMainActor` (Phase 1) failed 2 of 12 runs under load and is now a
+  deterministic handshake; `keepsTrailingSemicolonsOnAPrivateServer` (6a) failed about 1 in 20
+  under heavy load in the worker's runs, unseen in the orchestrator's 14 — look there first if
+  the suite flakes. `refresh --once --attachments` never ran for real (it queries the user's
+  iTerm2 tmux connections); remote sessions through the engine were not seen (Saturno had no
+  server); more in `docs/progress-archive/7b.md`.
 
 ## Reviews
 
@@ -258,22 +277,23 @@ split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
   then renamed over it unconditionally, so a file replaced in between was lost) — fixed by a
   fix worker (swap publication, the displaced file kept), six regressions that fail on the old
   code, re-verified; `docs/reviews/phase-7a.md`.
+- Phase 7b: Codex → `ship-with-fixes`, 0 blockers, 3 should-fix (sleep let a suspended
+  `refreshOnce` round submit its attachment check; an edited host's retired probe did not block
+  a second probe for the same host; `RefreshSystemEvents` start/stop could leave observers
+  installed) — all fixed by a fix worker (work epoch, retired probes in the per-host guard,
+  generation under a lock), each regression failing on the old code, re-verified;
+  `docs/reviews/phase-7b.md`.
 
 ## Next action
 
-1. **Phase 7b — refresh engine** (`PLAN.md` "### Phase 7": *Requirements*, *Acceptance* and
-   the *Split* 7b bullet; risk `high`). 7a is done: `HostStore`/`HostList` (D19) load the
-   hosts. Build `RefreshCoordinator`, `HostSnapshot`, the `AttachmentIndex` merge,
-   sleep/wake/network-change entry points and `muxfinder-probe refresh --once [--config
-   <path>]`, with the fake-prober/fake-clock tests the plan lists. Its real check runs against
-   a private `hosts.json` holding This Mac and Saturno (`saturno-m4`); it is discovery only
-   and opens no windows. If it would query the user's iTerm2 tmux connections, keep the
-   *Open risks* 5a caution (only while `iterm2 list-connections` shows none of the user's).
-2. **Then Phase 6b — Move here** (`PLAN.md` 6b bullet; risk `high`), which opens real iTerm2
-   windows: run its real checks only with iTerm2's thread count at **25 or lower** (item 3).
-   If it stays above 25, run Phase 8 (menu bar app and popover; no real iTerm2 windows)
-   meanwhile; if nothing window-free is left and the count is still above 25, stop as
-   `BLOCKED` and ask the user whether to restart iTerm2 or accept a higher baseline.
+1. **Phase 6b — Move here** (`PLAN.md` "### Phase 6", the *Split* 6b bullet; risk `high`),
+   which opens real iTerm2 windows. First check iTerm2's thread count (item 3): run 6b's real
+   checks only at **25 or lower**. If it stays above 25, run **Phase 8** (menu bar app and
+   popover, `PLAN.md` "### Phase 8"; routine; no real iTerm2 windows; it consumes D20's
+   `RefreshCoordinator.updates()` and wires `RefreshSystemEvents`) meanwhile. If nothing
+   window-free is left and the count is still above 25, stop as `BLOCKED` and ask the user
+   whether to restart iTerm2 or accept a higher baseline.
+2. Then whichever of 6b and 8 is left, then Phase 9.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
@@ -291,12 +311,15 @@ split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
 - Launch helper: `Sources/muxfinder-launch/` (`muxfinder-launch attach <uuid>`); remote argv
   and D3 string: `Sources/MuxFinderCore/Launch/RemoteLaunch.swift` (D17).
 - Attachment index: `Sources/MuxFinderCore/Attach/AttachmentIndex.swift` (D16).
+- Refresh engine: `Sources/MuxFinderCore/Refresh/` (`RefreshCoordinator`, `HostSnapshot`,
+  `RefreshSystemEvents`; D20); host list: `Sources/MuxFinderCore/Config/` (D19).
 - Session creation: `Sources/MuxFinderCore/Tmux/TmuxCommands.swift`, `Tmux/CreatedSession.swift`
   (D18); `createAndAttach` in `Attach/AttachCoordinator.swift`; probe
   `Sources/muxfinder-probe/NewSessionCommand.swift`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
-  `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`; shared harness
+  `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
+  suggestions`, `refresh --once`; shared harness
   `E2ERun.swift`).
 - Integration proof (local and over SSH, final): `docs/INTEGRATION-PROOF.md`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
@@ -305,13 +328,11 @@ split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 6a final-tree remote run (on `228f8da`): `swift build` exit 0; `iterm2 status` exit 0
-  before and after; iTerm2 count 16 → 26; `env -u TMUX_TMPDIR swift run muxfinder-probe
-  e2e-remote saturno-m4` exit 0, 16/16 PASS, 104.4 s; launch directory empty, no
-  `/private/tmp/mfx.*`, no tmux server left on Neptuno or Saturno.
-- Phase 7a (final tree, `228f8da`): `swift build -Xswiftc -warnings-as-errors` exit 0;
-  `swift test` exit 0, 505 tests in 49 suites, 20 consecutive runs; `swift format lint -r
-  Sources Tests` exit 0; `hosts show` read-only — `docs/progress-archive/7a.md`.
+- Phase 7b (final tree): `swift build -Xswiftc -warnings-as-errors` exit 0; `swift format lint
+  -r Sources Tests` exit 0; `swift test` exit 0, 534 tests in 52 suites, 6 consecutive runs;
+  real `env -u TMUX_TMPDIR swift run muxfinder-probe refresh --once --config
+  <mktemp dir>/hosts.json` exit 0, both hosts `live` (`noServer`); private folder removed, no
+  `/private/tmp/mfx.*` left — `docs/progress-archive/7b.md`.
 
 ## Git state
 
@@ -327,7 +348,9 @@ split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b (Move here) is queued.
   (`60d55ea..dca1228`, success). This SHA/push record is a follow-up commit on top; tree clean
   after it.
 - Phase 6a: code, review and fixes `0210999` (parent `96c6ac8`), pushed. Closing records
-  (final-tree remote run, archive, checkpoint) are in the commit after `228f8da`; its SHA and
-  push result are recorded by the next commit.
+  (final-tree remote run, archive, checkpoint) `e0fcbdd` (parent `228f8da`), pushed to
+  `origin/main`.
 - Phase 7a: code, review fix and checkpoint `228f8da` (parent `7fda73e`), pushed to
   `origin/main` (`7fda73e..228f8da`, success).
+- Phase 7b: code, review fixes and checkpoint in the commit after `e0fcbdd`; its SHA and push
+  result are recorded by the next commit.

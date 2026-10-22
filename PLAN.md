@@ -129,7 +129,8 @@ session, verifies its identity, and then activates the tab.
 - **D11 — Tests.** `swift test` is hermetic: fakes for the process runner, the clock and
   iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
   Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `attach`,
-  `new-session`, `e2e-*`, `hosts`; all but `discover` and `hosts` open real iTerm2 windows),
+  `new-session`, `e2e-*`, `hosts`, `refresh`; all but `discover`, `hosts` and `refresh` open
+  real iTerm2 windows),
   are run explicitly during verification, and their results are recorded in
   `docs/TESTING.md`. A mocked attachment is never reported as a real integration result.
 - **D12 — tmux output is always read through `tmux -u`** (decided in Phase 2, 2026-10-21).
@@ -704,6 +705,98 @@ session, verifies its identity, and then activates the tab.
     problem's code and message, the hosts and This Mac's id; `hosts suggestions` prints
     `{"suggestions": [ … ]}`. Both are read-only: no folder or file is created, no ssh runs
     and iTerm2 is not contacted.
+
+- **D20 — Refresh engine** (decided in Phase 7b, 2026-10-22; code in
+  `Sources/MuxFinderCore/Refresh/`: `RefreshCoordinator.swift`, `HostSnapshot.swift`,
+  `RefreshSystemEvents.swift`).
+  - **Actor and seams:** `RefreshCoordinator` is an actor built from a `HostList` (its enabled
+    hosts, in list order). Probes and attachment checks run in detached tasks, never on the
+    main actor. Its seams are the attach coordinator's: discovery is `HostDiscovering`
+    (`DiscoveryProbe` in production, so This Mac runs `/bin/sh` and never ssh, D3/D6), time
+    is `AttachClock` (monotonic instants for schedules, wall-clock dates for timestamps), and
+    the attachment index is `AttachmentIndexing` (`AttachmentIndex` conforms; `nil` never
+    checks). Phase 8 reads `updates()`: an `AsyncStream<RefreshState>` per subscriber, the
+    current state first, then one after every change (newest only by default), finished by
+    `stop()`. Lifecycle: created idle (explicit requests and `refreshOnce` run, nothing is
+    scheduled), `start()` begins the cadence, `stop()` ends everything for good.
+  - **Slots and single flight:** at most 3 probes run at once (`Configuration
+    .concurrencyLimit`), first come first served, so a slow host holds one slot and never
+    delays the others; a retired probe (below) keeps its slot until its task has ended, so the
+    limit counts processes really running. A host has at most one probe running, a retired one
+    included: a host whose retired probe has not ended waits in the queue without holding up
+    the hosts behind it, and starts as soon as that probe ends, with no further request. A
+    request while the host's attempt runs marks **one follow-up** attempt, started when it
+    ends; more requests during that attempt change nothing; a request while the host waits for
+    a slot (or for its retired probe) joins the queued attempt. Joining the running attempt instead was rejected: its result
+    may predate the reason for the request (a session just created, D18 `mayHaveCreated`; a
+    network change), and "every request is answered by an attempt that started after it" is
+    what callers need. Overlapping requests cost at most two attempts.
+  - **Generations and revisions:** attempts are numbered from one global generation counter
+    and record their host's configuration revision. `configRevision` increases whenever an
+    enabled host is added, removed, or changes **mode, destination or tmux override** (what
+    discovery runs); a renamed host or a new profile keeps its snapshot and its attempt in
+    flight, since discovery is the same. A discovery change resets the host (snapshot
+    `notChecked` under the new revision), and once started refreshes it at once (as soon as its
+    retired probe has ended). Cancelling an
+    attempt (sleep, a configuration change, removal, `stop()`) **retires** it. A result is
+    applied only when its attempt is not retired, is still its host's current attempt, ran
+    under the host's current revision and is newer than the last applied generation;
+    anything else is counted in `discardedResults` and never published.
+  - **Cadence and backoff:** `start()` refreshes every host at once; then each host's next
+    attempt is due one step after its last attempt **ended**: 5 min in the background, 15 s
+    while the popover is visible (`popoverDidOpen()` also refreshes every host at once;
+    `popoverDidClose()` reschedules from the last end). In the background only, a host whose
+    last attempt failed waits the backoff step for its consecutive failures instead of 5 min:
+    30 s, 1 min, 2 min, 5 min, then 15 min for every later failure; a success resets the
+    count. The visible cadence and every explicit request (`retry(_:)`, `retryAll()`, popover
+    opening, wake, network change) ignore backoff; their failures still count. Successes are
+    `ok` and `noServer`; every other status (including `tmuxNotFound`) is a failure.
+  - **Sleep, wake, network:** `systemWillSleep()` retires every attempt, cancels every timer,
+    the pending wake refresh and the attachment check, and returns once all of those tasks
+    have ended; the process runner kills each probe's process group before its cancelled run
+    returns (Phase 1), so no probe process survives it. Sleep and `stop()` also end a
+    `refreshOnce` round in progress: each of their cancellations opens a new work epoch, and a
+    round submits a host request or its attachment check only while the epoch it began in is
+    current, so a round their cancellation resumes submits nothing more. While asleep nothing
+    scheduled runs (explicit requests, a round begun while asleep included, still do: the user
+    is there). `systemDidWake()` refreshes every host after 5 s (`wakeDelay`).
+    `networkPathChanged()` refreshes the hosts whose last attempt failed, at once; it is
+    ignored while asleep or while the wake refresh is pending.
+    `RefreshSystemEvents` adapts `NSWorkspace` sleep and wake notifications (from a
+    notification center the app passes in, since MuxFinderCore does not link AppKit) and an
+    `NWPathMonitor` (its first update and unchanged paths not forwarded), feeding one ordered
+    stream so a wake never overtakes its sleep. Its `start()` and `stop()` stay one lifecycle
+    even when they race: each opens a new generation; a start claims the stream and its reader
+    under the lock (so a stop finishes that stream and waits for that reader), then installs
+    its observers and monitor only if its generation is still current, and otherwise removes
+    them itself before returning; events are forwarded only from the current generation's
+    observers and monitor. App wiring is Phase 8.
+  - **Snapshots (`HostSnapshot`):** per enabled host: the config and its revision, freshness
+    (`notChecked`, `live`, `stale`), the sessions, the last outcome (`sessionsListed`,
+    `noServer`, or `failed` with the classified `HostStatus`), `lastAttempt` and `lastSuccess`
+    (wall clock, when the attempt ended), consecutive failures, the node name of the last
+    success, `isRefreshing` and `nextRefreshAt` (monotonic). A failure after a success keeps
+    that success's sessions and marks them `stale`, never live; a failure with no success
+    before is `stale` with no sessions. Session identity is the D4 `SessionKey`, which holds
+    the host id, so the same name (even the same id and server) on two hosts stays two
+    entries.
+  - **Attachments (D16):** a check runs only while the popover is visible (after each applied
+    result, one at a time with at most one follow-up) or once at the end of
+    `refreshOnce(includeAttachments: true)`; never in the background, so the iTerm2 cookie is
+    not requested while the popover is closed. Hosts are given as their last success's node
+    name and servers (stale hosts too). Each session gets the connections the snapshot maps to
+    its key. The failure policy follows D16: iTerm2 not running is `iTermNotRunning` (nothing
+    attached); any other listing failure is `failed(error)`: every session's attachments are
+    cleared (an older check's are never kept) and the UI must read that as unknown, not "not
+    open here"; connections without a usable answer are unmapped counts inside a `checked`
+    result.
+  - **Probe:** `muxfinder-probe refresh --once [--config <path>] [--attachments]` loads the
+    list through `HostStore.load()` (read-only, `--config` as for `hosts show`), runs
+    `refreshOnce` on an idle coordinator over the real `DiscoveryProbe`, prints the state as
+    JSON (load state, configuration revision, attachment check, every host with its outcome,
+    timestamps and sessions) and stops it. Without `--attachments` iTerm2 is never contacted;
+    with it the check sends the read-only identity `display-message` to every iTerm2 tmux
+    connection, the user's included (the 5a caution applies).
 
 ## Verified facts (planning session, 2026-10-21)
 

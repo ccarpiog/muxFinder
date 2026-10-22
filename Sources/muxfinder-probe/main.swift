@@ -11,6 +11,7 @@ let usage = """
     help    Show this help.
   \(DiscoverCommand.usage)
   \(HostsCommand.usage)
+  \(RefreshCommand.usage)
   \(ITerm2Command.usage)
   \(AttachCommand.usage)
   \(NewSessionCommand.usage)
@@ -32,6 +33,8 @@ case "discover":
   exit(await DiscoverCommand.run(Array(arguments.dropFirst())))
 case "hosts":
   exit(await HostsCommand.run(Array(arguments.dropFirst())))
+case "refresh":
+  exit(await RefreshCommand.run(Array(arguments.dropFirst())))
 case "iterm2":
   exit(await ITerm2Command.run(Array(arguments.dropFirst())))
 case "attach":

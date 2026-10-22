@@ -438,24 +438,32 @@ struct ProcessRunnerTests {
     }
   } // End of func reapsImmediateExitsReliably()
 
-  /// Awaiting a run from the main actor leaves the main actor free to do other work.
+  /// Awaiting a run from the main actor leaves the main actor free to do other work: the child
+  /// waits for a file that only a main-actor task creates, after the child has started, so a
+  /// blocked main actor would end the run by its timeout instead of a clean exit.
   @MainActor @Test func doesNotBlockTheMainActor() async throws {
-    let ticks = MainActorCounter()
-    let ticker = Task { @MainActor in
+    let directory = try TestSupport.makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let releaser = Task { @MainActor in
       while !Task.isCancelled {
-        ticks.value += 1
+        if TestSupport.fileExists("started", in: directory) {
+          FileManager.default.createFile(
+            atPath: directory.appending(path: "go").path(percentEncoded: false),
+            contents: nil
+          )
+          return
+        }
         try? await Task.sleep(for: .milliseconds(10))
       }
-    }
-    let result = try await runner.run(TestSupport.shellRequest("sleep 0.3"))
-    ticker.cancel()
+    } // End of main-actor task releasing the child
+    let result = try await runner.run(
+      TestSupport.shellRequest(
+        #": > "$1/started"; while [ ! -e "$1/go" ]; do sleep 0.01; done"#,
+        arguments: [directory.path(percentEncoded: false)]
+      )
+    )
+    releaser.cancel()
+    await releaser.value
     #expect(result.termination == .exited(0))
-    #expect(ticks.value >= 5)
   } // End of func doesNotBlockTheMainActor()
-}
-
-/// A counter mutated only on the main actor.
-@MainActor final class MainActorCounter {
-  /// The current count.
-  var value = 0
 }

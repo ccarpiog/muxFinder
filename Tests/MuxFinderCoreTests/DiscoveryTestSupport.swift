@@ -151,6 +151,9 @@ func sessionID(_ raw: String) -> TmuxSessionID {
 /// - `endless-version`: `-V` prints `tmux 9.9-` followed by an endless line of `x` (it stops
 ///   only when its reader goes away); listings behave like `sessions`.
 /// - `hang`: `list-sessions` sleeps for 30 s.
+/// - `hang-pids`: `list-sessions` starts `sleep 30` in the background, writes its own pid and
+///   that child's pid (`<pid> <child pid>` and a newline) to the file named by
+///   `MUXFINDER_FAKE_PIDFILE`, and waits for the child.
 ///
 /// It fails with exit 98 if `TMUX` or `TMUX_PANE` reached it, and 99 if `-u` is missing. Records
 /// are printed after the literal prefix of the `-F` format (tag and nonce), the way real tmux
@@ -171,6 +174,10 @@ let fakeTmuxScript = #"""
   prefix=${4%%#\{*}
   case "$mode:$2" in
     hang:list-sessions) sleep 30 ;;
+    hang-pids:list-sessions)
+      sleep 30 &
+      printf '%s %s\n' "$$" "$!" > "$MUXFINDER_FAKE_PIDFILE"
+      wait ;;
     no-server:list-sessions)
       echo "no server running on /private/tmp/tmux-501/default" >&2; exit 1 ;;
     noisy:list-sessions)

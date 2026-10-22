@@ -44,6 +44,13 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `~/.ssh/config` and its includes; they are the user's, so never paste them into docs,
   fixtures or logs). Test a save only through `HostStore` on a private folder, never on
   `~/Library/Application Support/muxFinder/hosts.json`.
+- Refresh engine check (prints JSON, opens no window, writes nothing): `swift run
+  muxfinder-probe refresh --once [--config <path>] [--attachments]` loads the host list like
+  `hosts show` (a private `hosts.json` from `mktemp -d` for checks), refreshes every enabled
+  host once through `RefreshCoordinator` (This Mac directly, SSH hosts with discovery's
+  noninteractive ssh; only `saturno-m4` in unattended runs) and prints the snapshots. Without
+  `--attachments` it never contacts iTerm2; `--attachments` asks every tmux connection, so
+  the same caution as `iterm2 attachments`.
 - iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe
   iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`, `attachments`
   (sends every tmux connection the read-only identity `display-message`; in unattended runs

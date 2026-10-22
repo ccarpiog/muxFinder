@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T16:17:17Z",
+  "updated": "2026-10-22T17:15:33Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -165,11 +165,11 @@
     {
       "id": "7",
       "title": "Host configuration and refresh engine",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Stores hosts and refreshes their sessions; split into 7a (host configuration) and 7b (refresh engine).",
+      "summary": "Stores hosts and refreshes their sessions; split into 7a (host configuration) and 7b (refresh engine), both done.",
       "started": "2026-10-22T15:27:53Z",
-      "status_since": "2026-10-22T15:27:53Z"
+      "status_since": "2026-10-22T17:15:33Z"
     },
     {
       "id": "7a",
@@ -187,12 +187,15 @@
     {
       "id": "7b",
       "title": "Refresh engine",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "7",
       "summary": "Refreshes every host concurrently with backoff, sleep and wake handling, and live or stale snapshots.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-7b.md",
+      "narrative": "docs/progress-archive/7b.md",
       "added": "2026-10-22T15:27:53Z",
-      "status_since": "2026-10-22T15:27:53Z"
+      "started": "2026-10-22T16:17:54Z",
+      "status_since": "2026-10-22T17:15:33Z"
     },
     {
       "id": "8",
