@@ -13,11 +13,16 @@ file.
 | 3a | iTerm2 wire layer: protobuf codec, typed messages, golden fixtures | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-3a.md` | `docs/progress-archive/3a.md` |
 | 3b | iTerm2 transport and client: WebSocket, cookie, API client, probe | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-3b.md` | `docs/progress-archive/3b.md` |
 | 4a | Launch layer and helper: request files, guard, muxfinder-launch | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4a.md` | `docs/progress-archive/4a.md` |
+| 4b | Attach coordinator and probe commands | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4b.md` | `docs/progress-archive/4b.md` |
 
 ## Current phase
 
-None in progress. Phase 4 is split into 4a and 4b (recorded in `PLAN.md` "### Phase 4");
-4a is complete, 4b not started.
+**Phase 4c — real local proof: blocked on the user.** Phase 4 is split into 4a, 4b and 4c
+(recorded in `PLAN.md` "### Phase 4"). 4a and 4b are complete. 4c has not started: e2e run 1
+(in 4b) detached ~1 s after attaching, iTerm2 opened its modal "session ended very soon after
+starting" warning in the launch window the test created, and while it is open iTerm2's API
+answers nothing (`.build/debug/muxfinder-probe iterm2 status` → exit 75 `timedOut`, last checked
+2026-10-22 01:39). Only a person can dismiss it; run rule 6 forbids UI scripting.
 
 ## Acceptance
 
@@ -35,7 +40,13 @@ None in progress. Phase 4 is split into 4a and 4b (recorded in `PLAN.md` "### Ph
 - Phase 4a: all criteria met (0700 dir / 0600 files / TTL / delete-on-read / ACL stripping
   asserted by tests; guard gone, changed, tmux-missing, no-server, stalled-check and signal
   cases against real tmux on a private `TMUX_TMPDIR`; data only as argv; nothing in iTerm2 or
-  the user's tmux touched). Evidence in `docs/progress-archive/4a.md` and *Verification* below.
+  the user's tmux touched). Evidence in `docs/progress-archive/4a.md`.
+- Phase 4b (acceptance narrowed by the 4b/4c split): coordinator with distinct states,
+  single-flight, typed failures, owned-connection detach and a 10 s minimum launch-tab age, all
+  covered by hermetic tests; probe `attach`, `detach`, `e2e-local` built; draft
+  `docs/INTEGRATION-PROOF.md`; build, 339 tests and lint pass — met. The two passing real
+  `e2e-local` runs were **not** met and are Phase 4c's acceptance. Evidence in
+  `docs/progress-archive/4b.md` and *Verification* below.
 
 ## Decisions
 
@@ -52,6 +63,11 @@ None in progress. Phase 4 is split into 4a and 4b (recorded in `PLAN.md` "### Ph
   `#{session_id}:#{pid}:#{start_time}:#{session_created}`; check-then-attach window); new
   **D14** (launch protocol: exit codes 64/65/66/73/75/128+n, file and ACL rules, two-child
   check-then-attach design, signal handling, test-mode argv digest) — `docs/progress-archive/4a.md`.
+- Phase 4b: 4b split again into 4b (code) and 4c (real proof), because iTerm2 is blocked until
+  a person dismisses its warning; new **D15** (attach coordinator: launch tab in a new window,
+  seams, single flight with generations, failure handling, identity command, activation without
+  `select_session`, owned-connection commands, 10 s minimum launch-tab age before any
+  `detach-client`) — `docs/progress-archive/4b.md`.
 
 ## Open risks / deviations
 
@@ -79,6 +95,17 @@ None in progress. Phase 4 is split into 4a and 4b (recorded in `PLAN.md` "### Ph
   inside iTerm2; 4b's e2e run is the first real one. 4b must create the `launch/test-mode`
   marker through `LaunchStore.createTestModeMarker()` and remove it in cleanup.
 - 4a: dev build products live in `.build/out/Products/Debug/` (`.build/debug` links there).
+- 4b: **iTerm2 is blocked** by the short-lived-session warning in the launch window e2e run 1
+  created (the only leftover; none of the user's windows were touched). Anything that ends a
+  launch tab or detaches within seconds of opening it raises that modal again.
+- 4b: the review-fix harness changes (owned-connection detach, full `CreatedSession` identity on
+  rediscovery and kill, recovery of a session created during cancellation) are hermetically
+  tested at the helper level only and have never run for real; 4c is their first real run.
+- 4b: unverified whether discovery's socket path equals the one `new-session -P` prints; a
+  mismatch makes 4c step 2 fail safely (nothing attached).
+- 4b: `muxfinder-probe detach` needs `--gateway` and always waits 10 s; an identity failure
+  reports ~10 s after the tab opened; the app pays the 10 s wait for tabs opened before a
+  restart. Phase 11's profile could silence the warning (product decision left open).
 
 ## Reviews
 
@@ -98,36 +125,51 @@ None in progress. Phase 4 is split into 4a and 4b (recorded in `PLAN.md` "### Ph
   checks) — all fixed by a fix worker (ACL stripping/refusal; two-child design with a 10 s
   process-group-bounded check, then tmux spawned directly) with regression tests and
   re-verified; `docs/reviews/phase-4a.md`.
+- Phase 4b: Codex → `ship-with-fixes`, 3 blockers (identity-failure detach bypassing a minimum
+  tab age; detach by cached short connection id could hit a user attachment after an iTerm2
+  restart; harness rediscovery by `$id` alone could target a user session), 2 should-fix (an
+  older cancelled flight overwriting newer state; cancellation during `new-session` skipping
+  cleanup) — all fixed by a fix worker with regression tests and re-verified;
+  `docs/reviews/phase-4b.md`.
 
 ## Next action
 
-Start **Phase 4b — attach coordinator and real local proof** (risk `high`) per `PLAN.md`
-"### Phase 4" (the Split paragraph's 4b bullet plus the Requirements and `e2e-local` steps).
-Read only that section plus the shared sections (Architecture, Decisions — D1, D2, D4, D13,
-D14 — Verified facts, Unattended-run rules) and `docs/TESTING.md`. Building blocks:
-`Sources/MuxFinderCore/Launch/` (store, guard, helper, failures), `ITerm2APIClient` in
-`Sources/MuxFinderCore/ITerm2/`, the probe in `Sources/muxfinder-probe/`. The e2e run opens
-real iTerm2 tabs: only `muxfinder-test-*` sessions, detach with `detach-client`, never touch
-tabs the test did not create. Spawn one worker.
+1. **User action (required first):** click OK on iTerm2's "session ended very soon after
+   starting" warning in the launch window the e2e test opened (a window holding only that
+   tab). Nothing else is needed from the user.
+2. Check `.build/debug/muxfinder-probe iterm2 status` (after `swift build`) connects (exit 0).
+   If it still times out, stop again as blocked; never use UI scripting.
+3. Start **Phase 4c — real local proof** (risk `high`) per `PLAN.md` "### Phase 4" (the Split
+   paragraph's 4c bullet, the `e2e-local` steps and the Acceptance line): run `swift run
+   muxfinder-probe e2e-local` (with `TMUX_TMPDIR` unset) until it passes twice, fixing what the
+   runs reveal; finalize `docs/INTEGRATION-PROOF.md` (versions, per-step timings, behaviors).
+   Read D14, D15, "Verified in Phase 4b", Unattended-run rules, `docs/TESTING.md` and
+   `docs/progress-archive/4b.md` *Consequences*. Only `muxfinder-test-*` sessions; never touch
+   tabs the test did not create; nothing may detach or end a launch tab before it is 10 s old.
+   Spawn one worker; its own review at the end.
 
 ## Key paths
 
 - Plan: `PLAN.md`; brief: `docs/REQUIREMENTS.md`; conventions: `CLAUDE.md`; real checks:
   `docs/TESTING.md`.
-- Core library: `Sources/MuxFinderCore/{Process,Shell,Config,Diagnostics,Tmux,ITerm2,Launch}/`.
+- Core library: `Sources/MuxFinderCore/{Process,Shell,Config,Diagnostics,Tmux,ITerm2,Launch,Attach}/`.
 - Launch helper: `Sources/muxfinder-launch/` (`muxfinder-launch attach <uuid>`).
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
-  list-connections | list-profiles`).
+  list-connections | list-profiles`, `attach --local --session`, `detach --connection
+  --gateway`, `e2e-local`).
+- Integration proof (draft until 4c): `docs/INTEGRATION-PROOF.md`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
-## Verification (Phase 4a, final tree after review fixes)
+## Verification (Phase 4b, final tree after review fixes)
 
 - `swift build -Xswiftc -warnings-as-errors` → exit 0.
-- `swift test` → exit 0, 301 tests in 30 suites.
+- `swift test` → exit 0, 339 tests in 33 suites.
 - `swift format lint -r Sources Tests` → exit 0, no output.
-- No `muxfinder-test-*` session on the default tmux server (no server running).
+- No `muxfinder-test-*` session on the default tmux server (no server running); launch
+  directory empty, no `test-mode` marker.
+- `.build/debug/muxfinder-probe iterm2 status` → exit 75 `timedOut` (iTerm2 blocked).
 
 ## Git state
 

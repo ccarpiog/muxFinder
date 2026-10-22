@@ -126,10 +126,10 @@ session, verifies its identity, and then activates the tab.
 - **D10 — UI language is English, sentence case** ("New session", "Move here", "Refresh").
 - **D11 — Tests.** `swift test` is hermetic: fakes for the process runner, the clock and
   iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
-  Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `e2e-*`; the
-  `e2e-*` ones open real iTerm2 windows), are run explicitly during verification, and their
-  results are recorded in `docs/TESTING.md`. A mocked attachment is never reported as a real
-  integration result.
+  Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `attach`,
+  `e2e-*`; `attach` and the `e2e-*` ones open real iTerm2 windows), are run explicitly during
+  verification, and their results are recorded in `docs/TESTING.md`. A mocked attachment is
+  never reported as a real integration result.
 - **D12 — tmux output is always read through `tmux -u`** (decided in Phase 2, 2026-10-21).
   A tmux client whose locale is not UTF-8 (the first set of `LC_ALL`, `LC_CTYPE`, `LANG` must
   contain "UTF-8") replaces every non-ASCII byte **and every tab** in `-F` output with `_`, so
@@ -242,6 +242,56 @@ session, verifies its identity, and then activates the tab.
     `LaunchHelperPath.locate()` finds `muxfinder-launch` next to the running executable and
     applies the D2 rule. The tab command is `LaunchHelperPath.attachCommandLine(for:)`, that
     is `<path> attach <uuid>`.
+- **D15 — Attach coordinator** (decided in Phase 4b, 2026-10-22; code in
+  `Sources/MuxFinderCore/Attach/`).
+  - **Launch tab:** `CreateTab` without `window_id`, so the tab opens in a new window and never
+    in one of the user's, with the host's profile and `Close Sessions On End = true`: it closes
+    by itself after a clean detach, and after a failure once the user pressed Return. The
+    request runs in a task of its own, so cancelling an attach never loses the new tab's
+    session id (the result reports it on every failure after the tab opened).
+  - **Seams:** iTerm2 (`ITerm2Integration`), discovery (`HostDiscovering`), the launch files
+    (`LaunchRequestStore`) and the clock (`AttachClock`) are protocols, so the coordinator is
+    tested hermetically with fakes and a manual clock.
+  - **Single flight** by `SessionKey`: concurrent callers share one launch and one result; when
+    every waiting caller is cancelled, the launch stops at its next step (`cancelled`). A caller
+    arriving while such a launch winds down (its `CreateTab` still pending) starts a new one;
+    from then on only the newest launch of the session sets `state(of:)`. The older launch's
+    updates are still delivered, with `AttachUpdate.isCurrent == false`, so its launch tab
+    stays known.
+  - **Failures:** every failure before a connection was found withdraws the request file, so a
+    tab that starts late cannot attach. The read-only polls (`ListConnections`, `ListSessions`)
+    end the attach at their first failure rather than retry it; `CreateTab`, the identity
+    `SendCommand`, `Activate` and `detach-client` are sent once (D13). An unreadable or
+    mismatching identity answer detaches the new connection once its launch tab is old enough
+    (see *Teardown*); the attach reports the failure after that detach.
+  - **Teardown:** ending a connection ends its launch tab, and a launch tab that ends within
+    seconds of opening makes iTerm2 block its whole API behind a modal warning (*Verified
+    facts*, Phase 4b). So the coordinator sends `detach-client` (after a failed identity check,
+    and for `detach`) only once the launch tab is `minimumLaunchTabAge` old: 10 s, the margin
+    `e2e-local` adopted after run 1, whose warning followed an end about 1.5 s after the start.
+    The age counts from the `CreateTab` answer for tabs this coordinator opened (it remembers
+    the latest 64), and from the call for any other tab (another process's, as with
+    `muxfinder-probe detach`), which exists already and so is old enough once the time has
+    passed. The identity-failure detach runs in a task of its own that the attach waits for,
+    so cancelling the attach neither skips the wait nor ends the tab early; a `detach`
+    cancelled during its wait sends nothing (`DetachResult.cancelled`). `detach` takes the
+    launch tab's session id with the connection id.
+  - **Connection binding:** connection ids are short names (`"tmux"`) that iTerm2 hands out
+    again, so after an iTerm2 restart a recorded id can name a user's attachment. Every command
+    for a connection (the identity check and `detach-client`) goes through
+    `ITerm2Integration.sendTmuxCommand(_:connectionID:ownedBy:)`: `ListConnections`, then the
+    command only if the connection's `owning_session_id` is the launch tab's session id
+    recorded at `CreateTab`, both on one API connection with no reconnect in between (the
+    client exposes no connection generation; this rule is what keeps a reconnect from
+    redirecting the command). Otherwise it fails with `tmuxConnectionNotOwned` (a "not sent"
+    error) and nothing is sent.
+  - **Identity command:** `display-message -p "#{pid}\t#{start_time}\t#{socket_path}\t#{session_id}"`
+    (double quotes: tmux turns `\t` into a tab there; verified with tmux 3.8 in control mode),
+    parsed on bytes: pid and start time first, session id last, the socket path in between.
+  - **Activation** is part of the result, not a state: the first tab carrying the connection id
+    (waited for up to 5 s) is activated with `select_tab`, `order_window_front` and the app
+    options, without `select_session` (iTerm2 refuses that for a tab target). A confirmed
+    attach whose tab never appears, or whose `Activate` fails, stays confirmed.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -320,6 +370,39 @@ session, verifies its identity, and then activates the tab.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
 
+Verified in Phase 4b (2026-10-22, iTerm2 3.7.6 with default preferences, tmux 3.8, the default
+tmux server holding only `muxfinder-test-*` sessions; details in `docs/INTEGRATION-PROOF.md`):
+
+- **`Command` property:** with `"Custom Command" = "Yes"` and `"Command" = "<path> attach
+  <uuid>"`, the helper got exactly 3 arguments: argv[0] the absolute path, `attach`, the id
+  (argv digest). A path with a space was not tried, so the D2 rule stands.
+- **Launch tab:** `CreateTab` without `window_id` opens a new window holding only that tab. Its
+  `session_id` is the connection's `owning_session_id`. It carries `tmux_window_id` `"-1"` and
+  no connection id, and stays in its window while attached (not buried).
+- **tmux windows** open as native windows with the default "open tmux windows as" preference:
+  one new iTerm2 window per tmux window, one tab each.
+- **tmux tabs** carry `tmux_window_id` = the tmux window id without `@` (`"0"`, `"1"`) and
+  `tmux_connection_id` = the connection id. A window split in two arrives as one splitter with
+  two session leaves (tmux's default top/bottom split as `vertical = false`).
+- **Connections:** `ListConnections` lists the new connection within about 0.5 s of the tab
+  opening. Its `connection_id` is a short name (`"tmux"` for the first one), not a UUID, so
+  connections are matched by `owning_session_id`.
+- **Activate:** a tab target with `select_session = true` is refused with `INVALID_OPTION`; a
+  tab target with `order_window_front`, `select_tab` and the app options in one request works.
+- **Detach:** `SendCommand detach-client` is answered with empty output and the connection
+  disappears at once. iTerm2 closes the connection's tabs without a dialog, `tmux -CC` exits 0,
+  the helper records success, and its launch tab closes by itself (`Close Sessions On End`).
+  The session keeps its id, windows, panes and processes.
+- **Short-lived sessions block iTerm2:** a session that ends within a few seconds of starting
+  (here about 1.5 s: attach, then an immediate detach) makes iTerm2 show its "session ended
+  very soon after starting" warning (`-[PTYSession _maybeWarnAboutShortLivedSessions]`, a modal
+  `iTermWarning`, silenceable per profile). While it is open, iTerm2's API answers nothing
+  (WebSocket handshakes time out), although AppleScript cookie requests still return. Only a
+  person can dismiss it. So nothing may end a launch tab, or detach its connection, within
+  seconds of opening it: the coordinator sends `detach-client` only once the launch tab is
+  10 s old (D15), and `e2e-local` waits as long before it kills its session or closes a launch
+  tab.
+
 Verified in Phase 4a (2026-10-21, tmux 3.8, private `TMUX_TMPDIR` servers only):
 
 - `tmux -u display-message -p -t '$99' '#{session_id}:#{pid}:#{start_time}:#{session_created}'`
@@ -353,7 +436,7 @@ Verified in Phase 3b (2026-10-21, iTerm2 3.7.6, read-only checks from a shell in
   them after every connection attempt.
 - **Ordinary tabs carry `tmux_window_id` `"-1"`** and no `tmux_connection_id` in
   `ListSessionsResponse` (`ITerm2API.Tab.isTmuxTab` accounts for it). What a tmux tab carries
-  is still to be seen in Phase 4.
+  is in the Phase 4b facts above.
 - With no tmux integration connection, `Tmux.ListConnections` answers `status=OK` with no
   payload (also seen in the planning spike); the client returns an empty list.
 
@@ -566,10 +649,16 @@ Split (autoclaude run, 2026-10-21), each sub-phase with its own commit and revie
   mode), and the mapping of guard and child exit codes to typed failures. Local host kind
   only; the ssh launch path is Phase 5. Tests are hermetic, plus guard checks against real
   tmux on a private socket directory. No iTerm2 at any point.
-- **4b — attach coordinator and real proof:** `Attach/AttachCoordinator` (local path, the
-  states, single-flight, `ListConnections` polling, identity check, `Activate`, detach),
-  `muxfinder-probe attach --local --session <$id>`, `muxfinder-probe e2e-local`, the real runs
-  (at least twice) and `docs/INTEGRATION-PROOF.md`.
+- **4b — attach coordinator and probe commands:** `Attach/AttachCoordinator` (local path, the
+  states, single-flight, `ListConnections` polling, identity check, `Activate`, detach) with
+  hermetic tests, `muxfinder-probe attach --local --session <$id>`, `muxfinder-probe
+  e2e-local`, and the first draft of `docs/INTEGRATION-PROOF.md` from the single attaches and
+  e2e run 1.
+- **4c — real local proof** (split from 4b on 2026-10-22, when e2e run 1 detached too soon and
+  iTerm2's modal short-lived-session warning blocked its API until a person dismisses it):
+  `muxfinder-probe e2e-local` passing at least twice, fixes for what those runs reveal, and the
+  final `docs/INTEGRATION-PROOF.md`. Starts only once `muxfinder-probe iterm2 status` connects
+  again.
 
 Requirements:
 - **Attach flow:**

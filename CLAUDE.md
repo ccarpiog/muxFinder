@@ -49,9 +49,10 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
   `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.
-- Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`):
-  `swift run muxfinder-probe e2e-local`, `swift run muxfinder-probe e2e-remote saturno-m4`
-  (available once the corresponding phase lands; see `docs/TESTING.md`).
+- Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`, with
+  `TMUX_TMPDIR` unset): `swift run muxfinder-probe e2e-local`, and `swift run muxfinder-probe
+  e2e-remote saturno-m4` once Phase 5 lands; one-off `attach --local --session '<$id>'` and
+  `detach --connection <id> --gateway <session id>` (see `docs/TESTING.md`).
 
 ## Environment
 

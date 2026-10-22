@@ -23,6 +23,30 @@ extension ITerm2API {
       self.buriedSessions = buriedSessions
     }
 
+    /// The tabs of the tmux integration connection `connectionID`, in window order and then
+    /// tab order.
+    public func tabs(ofTmuxConnection connectionID: String) -> [Tab] {
+      windows.flatMap(\.tabs).filter { $0.tmuxConnectionID == connectionID }
+    }
+
+    /// The window holding the tab whose split tree or minimized sessions contain `sessionID`,
+    /// with that tab; `nil` when no tab holds it (it may be buried, or gone).
+    public func placement(ofSession sessionID: String) -> (window: Window, tab: Tab)? {
+      for window in windows {
+        for tab in window.tabs
+        where tab.sessions.contains(where: { $0.uniqueIdentifier == sessionID }) {
+          return (window, tab)
+        }
+      }
+      return nil
+    }
+
+    /// Every session id: those in tabs and the buried ones.
+    public var allSessionIDs: Set<String> {
+      let inTabs = windows.flatMap(\.tabs).flatMap(\.sessions)
+      return Set((inTabs + buriedSessions).compactMap(\.uniqueIdentifier))
+    }
+
     /// Decodes a response.
     public init(from reader: inout ProtoReader) throws {
       self.init()

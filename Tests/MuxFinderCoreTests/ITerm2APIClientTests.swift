@@ -250,7 +250,64 @@ struct ITerm2APIClientTests {
     request = try await peer.nextRequest()
     try peer.respond(to: request.id, withFixture: "activate-response-ok")
     try await activated.value
+
+    let closed = Task {
+      try await harness.client.close(.init(target: .sessions(["s1", "s2", "s3"]), force: true))
+    }
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 131)
+    try peer.respond(to: request.id, withFixture: "close-response")
+    #expect(try await closed.value.statuses == [.ok, .notFound, .userDeclined])
   } // End of func successfulResults()
+
+  /// The review's finding: an ownership-bound tmux command first lists the connections and
+  /// sends the command, on the same API connection, only when the listed owner matches; for
+  /// another owner only the listing goes out (`tmuxConnectionNotOwned`). A listing lost with
+  /// its connection reports the command as not sent, and nothing reconnects to send it.
+  @Test func ownedTmuxCommand() async throws {
+    let stream = FakeByteStream()
+    let harness = Self.makeClient(streams: [stream])
+    var peer = FakeITerm2Peer(stream: stream)
+    let owner = ITerm2Fixture.session(4)
+    let owned = Task {
+      try await harness.client.sendTmuxCommand(
+        "display-message -p x", connectionID: "fixture-connection-1", ownedBy: owner)
+    }
+    try await peer.answerHandshake()
+    var request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 124)
+    #expect(request.bytes.firstRange(of: Array("display-message".utf8)) == nil)
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 124)
+    #expect(request.bytes.firstRange(of: Array("display-message -p x".utf8)) != nil)
+    try peer.respond(to: request.id, withFixture: "tmux-send-command-response")
+    #expect(try await owned.value == "4242")
+
+    let refused = Task {
+      try await harness.client.sendTmuxCommand(
+        "detach-client", connectionID: "fixture-connection-1", ownedBy: ITerm2Fixture.session(6))
+    }
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    await #expect(throws: ITerm2Error.tmuxConnectionNotOwned) { _ = try await refused.value }
+    // The next frame is the next call's: no detach-client was written in between.
+    let sessions = Task { try await harness.client.listSessions() }
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 106)
+    try peer.respond(to: request.id, withFixture: "list-sessions-response")
+    _ = try await sessions.value
+
+    let lost = Task {
+      try await harness.client.sendTmuxCommand(
+        "detach-client", connectionID: "fixture-connection-1", ownedBy: owner)
+    }
+    request = try await peer.nextRequest()
+    #expect(request.bytes.firstRange(of: Array("detach-client".utf8)) == nil)
+    stream.deliverEndOfStream()
+    await #expect(throws: ITerm2Error.notSent(.disconnected)) { _ = try await lost.value }
+    #expect(harness.connector.connects == 1)
+  } // End of func ownedTmuxCommand()
 
   /// A response of the wrong type is a protocol error.
   @Test func mismatchedResponseType() async throws {

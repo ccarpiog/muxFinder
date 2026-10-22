@@ -111,7 +111,9 @@ public struct ClientSummary: Sendable, Hashable, Codable {
 public struct DiscoveredSession: Sendable, Hashable, Codable, Identifiable {
   /// The session's identity.
   public var key: SessionKey
-  /// The session name. Display text only: it is never parsed, matched or used as a target.
+  /// The session name. Display text only: it never identifies a session and is never parsed or
+  /// used as a target (`CreatedSession` compares it only as an extra check on a session its
+  /// caller created).
   public var name: String
   /// When the session was created, in seconds since 1970 (`#{session_created}`). Kept for
   /// revalidation before attaching (PLAN.md D4).

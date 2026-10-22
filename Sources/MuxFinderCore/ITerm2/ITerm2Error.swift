@@ -12,7 +12,7 @@ import Foundation
 /// - **Not sent, no effect:** `notSent(reason)` (the request's frame was never written whole:
 ///   it was withdrawn before its write started, or the connection could not be opened), and
 ///   `notRunning`, `apiDisabled`, `automationDenied`, `cookieUnavailable`, `authRejected`,
-///   which only ever happen while connecting.
+///   which only ever happen while connecting, and `tmuxConnectionNotOwned`.
 /// - **Answered, definitive:** `requestFailed`, `createTabFailed`, `activateFailed`,
 ///   `tmuxRequestFailed`.
 /// - **Sent, outcome unknown:** `timedOut`, `disconnected`, `protocolError` and
@@ -51,10 +51,17 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
   case tmuxRequestFailed(ITerm2API.TmuxResponse.Status)
   /// iTerm2 could not be launched; a plain detail without user data.
   case launchFailed(String)
+  /// `sendTmuxCommand(_:connectionID:ownedBy:)` found no connection with that id owned by the
+  /// expected session (the connection closed, or its short id now names another session's
+  /// connection, as after an iTerm2 restart), so the command was not sent.
+  case tmuxConnectionNotOwned
   /// The request failed for `reason` (`timedOut`, `disconnected`, `protocolError` or
   /// `connectionFailed`) before its frame was written whole, so iTerm2 never acted on it: it
   /// was withdrawn while still queued (its deadline passed or its connection ended), the writer
-  /// skipped it, its write failed, or no connection could be opened for it. Never nested.
+  /// skipped it, its write failed, or no connection could be opened for it. For
+  /// `sendTmuxCommand(_:connectionID:ownedBy:)`, `reason` may also be how the connection
+  /// listing that comes before the command failed (`tmuxRequestFailed`, `requestFailed`, …).
+  /// Never nested.
   indirect case notSent(ITerm2Error)
 
   /// A stable machine-readable name for the case, used in JSON output.
@@ -75,8 +82,21 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
     case .activateFailed: return "activateFailed"
     case .tmuxRequestFailed: return "tmuxRequestFailed"
     case .launchFailed: return "launchFailed"
+    case .tmuxConnectionNotOwned: return "tmuxConnectionNotOwned"
     }
   } // End of var kind
+
+  /// Whether the failure guarantees that iTerm2 never received the request: `notSent`, or one of
+  /// the errors that only happen while connecting (see the type's documentation).
+  public var isNotSent: Bool {
+    switch self {
+    case .notSent, .notRunning, .apiDisabled, .automationDenied, .cookieUnavailable,
+      .authRejected, .tmuxConnectionNotOwned:
+      return true
+    default:
+      return false
+    }
+  }
 
   /// The user-facing explanation, one sentence.
   public var errorDescription: String? {
@@ -111,6 +131,8 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
       return "iTerm2 rejected the tmux request (\(Self.name(of: status)))."
     case .launchFailed(let detail):
       return "iTerm2 could not be launched: \(detail)."
+    case .tmuxConnectionNotOwned:
+      return "The tmux connection is not the one muxFinder opened; the command was not sent."
     case .notSent(let reason):
       var cause = reason.errorDescription ?? reason.kind
       if cause.hasSuffix(".") { cause.removeLast() }

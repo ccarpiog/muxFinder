@@ -207,6 +207,44 @@ public actor ITerm2APIClient: ITerm2Integration {
     }
   }
 
+  /// Runs a tmux command on a connection only while iTerm2 lists it as owned by
+  /// `owningSessionID`; see `ITerm2Integration.sendTmuxCommand(_:connectionID:ownedBy:)`. The
+  /// listing and the command go out on one API connection: if that connection ends in between,
+  /// the command fails with `notSent(reason)` instead of reconnecting, so a restarted iTerm2
+  /// whose new connection reuses the id never receives it.
+  public func sendTmuxCommand(
+    _ command: String,
+    connectionID: String,
+    ownedBy owningSessionID: String
+  ) async throws -> String {
+    let connection = try await requestConnection()
+    let listing: ITerm2API.TmuxResponse
+    do {
+      listing = try await sendTmux(.listConnections, on: connection)
+    } catch let error as ITerm2Error {
+      // Whatever happened to the listing, the command itself was never sent.
+      throw error.isNotSent ? error : ITerm2Error.notSent(error)
+    }
+    let connections: [ITerm2API.TmuxConnection]
+    switch listing.payload {
+    case .listConnections(let listed)?: connections = listed
+    case nil: connections = []
+    default: throw ITerm2Error.notSent(Self.unexpectedResponse)
+    }
+    guard
+      connections.contains(where: {
+        $0.connectionID == connectionID && $0.owningSessionID == owningSessionID
+      })
+    else { throw ITerm2Error.tmuxConnectionNotOwned }
+    let response = try await sendTmux(
+      .sendCommand(connectionID: connectionID, command: command), on: connection)
+    switch response.payload {
+    case .sendCommand(let output)?: return output ?? ""
+    case nil: return ""
+    default: throw Self.unexpectedResponse
+    }
+  } // End of func sendTmuxCommand(_:connectionID:ownedBy:)
+
   /// Brings a window, tab or session forward.
   public func activate(_ request: ITerm2API.ActivateRequest) async throws {
     guard case .activate(let response) = try await send(.activate(request)) else {
@@ -225,6 +263,14 @@ public actor ITerm2APIClient: ITerm2Integration {
       throw Self.unexpectedResponse
     }
     return response.profiles
+  }
+
+  /// Closes sessions, tabs or windows; see `ITerm2Integration.close(_:)`.
+  public func close(_ request: ITerm2API.CloseRequest) async throws -> ITerm2API.CloseResponse {
+    guard case .close(let response) = try await send(.close(request)) else {
+      throw Self.unexpectedResponse
+    }
+    return response
   }
 
   /// Closes the connection with the WebSocket close handshake, if one is open, and invalidates
@@ -259,9 +305,17 @@ public actor ITerm2APIClient: ITerm2Integration {
   private func send(
     _ request: ITerm2API.ClientOriginatedMessage.Request
   ) async throws -> ITerm2API.ServerOriginatedMessage.Response {
-    let connection: ITerm2Connection
+    let connection = try await requestConnection()
+    return try await connection.send(request, timeout: configuration.requestTimeout)
+  }
+
+  /// The open connection, or a new one, for a request about to be sent. A connection failure
+  /// that could otherwise read as "sent, outcome unknown" (`timedOut`, `disconnected`,
+  /// `protocolError`, `connectionFailed`) is reported as `notSent(reason)`, because no request
+  /// was sent.
+  private func requestConnection() async throws -> ITerm2Connection {
     do {
-      connection = try await openConnection()
+      return try await openConnection()
     } catch let error as ITerm2Error {
       switch error {
       case .timedOut, .disconnected, .protocolError, .connectionFailed:
@@ -270,17 +324,24 @@ public actor ITerm2APIClient: ITerm2Integration {
         throw error
       }
     }
-    return try await connection.send(request, timeout: configuration.requestTimeout)
-  } // End of func send(_:)
+  } // End of func requestConnection()
 
-  /// Sends a tmux request and checks its status.
-  private func sendTmux(_ request: ITerm2API.TmuxRequest) async throws -> ITerm2API.TmuxResponse {
-    guard case .tmux(let response) = try await send(.tmux(request)) else {
-      throw Self.unexpectedResponse
+  /// Sends a tmux request and checks its status: on `connection` when given (never
+  /// reconnecting), otherwise on the open connection or a new one.
+  private func sendTmux(
+    _ request: ITerm2API.TmuxRequest,
+    on connection: ITerm2Connection? = nil
+  ) async throws -> ITerm2API.TmuxResponse {
+    let answer: ITerm2API.ServerOriginatedMessage.Response
+    if let connection {
+      answer = try await connection.send(.tmux(request), timeout: configuration.requestTimeout)
+    } else {
+      answer = try await send(.tmux(request))
     }
+    guard case .tmux(let response) = answer else { throw Self.unexpectedResponse }
     guard response.status == .ok else { throw ITerm2Error.tmuxRequestFailed(response.status) }
     return response
-  }
+  } // End of func sendTmux(_:on:)
 
   /// The open connection, or a new one. Concurrent callers share one connection attempt.
   ///

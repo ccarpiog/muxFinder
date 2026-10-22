@@ -144,6 +144,18 @@ struct ITerm2GoldenTests {
           .sendCommand(
             connectionID: "fixture-connection-1", command: "display-message -p '#{pid}'"))
       )),
+    GoldenRequest(
+      fixture: "close-request-sessions",
+      message: .init(
+        id: 12,
+        request: .close(
+          .init(
+            target: .sessions([ITerm2Fixture.session(1), ITerm2Fixture.session(2)]), force: true))
+      )),
+    GoldenRequest(
+      fixture: "close-request-windows",
+      message: .init(
+        id: 13, request: .close(.init(target: .windows(["fixture-window-1"]), force: false)))),
   ]
 
   /// Every response fixture; each has its own decoding test below.
@@ -155,7 +167,8 @@ struct ITerm2GoldenTests {
     "notification-unsupported", "list-sessions-response-reserialized",
     "list-sessions-response-split", "create-tab-response-unknown-fields",
     "create-tab-response-then-unmodeled", "create-tab-response-after-unmodeled",
-    "activate-response-split", "tmux-send-command-response-split",
+    "activate-response-split", "tmux-send-command-response-split", "close-response",
+    "close-response-packed",
   ]
 
   /// Each request encodes byte for byte like its `api_pb2` fixture.
@@ -385,6 +398,14 @@ struct ITerm2GoldenTests {
         == .init(id: 12, response: .tmux(.init(payload: nil, status: .invalidConnectionID))))
   } // End of func decodesTmux()
 
+  /// Close responses: one status per id, unpacked as iTerm2 writes them and packed.
+  @Test(arguments: ["close-response", "close-response-packed"])
+  func decodesClose(_ fixture: String) throws {
+    #expect(
+      try ITerm2Fixture.server(fixture)
+        == .init(id: 15, response: .close(.init(statuses: [.ok, .notFound, .userDeclined]))))
+  }
+
   /// The error member of the oneof, and submessages this package does not model (a notification
   /// carries no id).
   @Test func decodesErrorsAndUnsupportedMessages() throws {
@@ -424,6 +445,9 @@ struct ITerm2GoldenTests {
     #expect(
       try decode(envelope(124, statusField: 4, 3)).response
         == .tmux(.init(status: .invalidWindowID)))
+    #expect(
+      try decode(envelope(131, statusField: 1, 9)).response
+        == .close(.init(statuses: [.unknown(9)])))
   } // End of func unknownEnumValuesAreKept()
 
   /// Oneof rules in the envelope: the last member wins, unmodeled members (`notification` and

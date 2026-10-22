@@ -24,6 +24,8 @@ extension ITerm2API {
       case listProfiles(ListProfilesRequest)
       /// `tmux_request` (124).
       case tmux(TmuxRequest)
+      /// `close_request` (131).
+      case close(CloseRequest)
     }
 
     /// `id` (1): echoed in the response so it can be matched to this request.
@@ -46,6 +48,7 @@ extension ITerm2API {
       case .activate(let message): writer.writeMessage(114, message)
       case .listProfiles(let message): writer.writeMessage(118, message)
       case .tmux(let message): writer.writeMessage(124, message)
+      case .close(let message): writer.writeMessage(131, message)
       }
     }
   } // End of struct ClientOriginatedMessage
@@ -66,6 +69,8 @@ extension ITerm2API {
       case listProfiles(ListProfilesResponse)
       /// `tmux_response` (124).
       case tmux(TmuxResponse)
+      /// `close_response` (131).
+      case close(CloseResponse)
       /// Any other member of the oneof: `notification` (1000) or a response type this package
       /// does not model. Its contents are skipped.
       case unsupported(fieldNumber: Int)
@@ -122,6 +127,7 @@ extension ITerm2API {
       case 114: return try message.decode(ActivateResponse.self).map(Response.activate)
       case 118: return try message.decode(ListProfilesResponse.self).map(Response.listProfiles)
       case 124: return try message.decode(TmuxResponse.self).map(Response.tmux)
+      case 131: return try message.decode(CloseResponse.self).map(Response.close)
       case let number?: return .unsupported(fieldNumber: number)
       }
     } // End of func response(of:error:)

@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "updated": "2026-10-21T22:41:14Z",
+ "updated": "2026-10-22T00:40:56Z",
  "plan": "PLAN.md",
  "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
  "phases": [
@@ -56,7 +56,7 @@
    "title": "Integration proof, local: attach, native tabs and splits, detach, reattach",
    "status": "in_progress",
    "risk": "high",
-   "summary": "Proves the local attach workflow end to end; split into 4a (launch layer and helper, done) and 4b (coordinator and real proof)."
+   "summary": "Proves the local attach workflow end to end; split into 4a (launch layer, done), 4b (coordinator, done) and 4c (real proof)."
   },
   {
    "id": "4a",
@@ -70,10 +70,19 @@
   },
   {
    "id": "4b",
-   "title": "Attach coordinator and real local proof",
-   "status": "queued",
+   "title": "Attach coordinator and probe commands",
+   "status": "done",
    "risk": "high",
-   "summary": "Attaches, confirms, focuses and detaches a local session in iTerm2 and records the real results."
+   "summary": "Attaches, confirms, focuses and detaches a local session in iTerm2, with hermetic tests and the e2e-local harness.",
+   "review": "docs/reviews/phase-4b.md",
+   "narrative": "docs/progress-archive/4b.md"
+  },
+  {
+   "id": "4c",
+   "title": "Real local proof",
+   "status": "blocked",
+   "risk": "high",
+   "summary": "Runs e2e-local against real iTerm2 twice; waits for the user to dismiss an iTerm2 warning that blocks its API."
   },
   {
    "id": "5",

@@ -24,6 +24,8 @@ How the fixtures are made:
   response split across several occurrences, oneof members replacing each other, unknown fields
   after a response. The script checks that `api_pb2` parses each one to the value the Swift
   tests expect, so those expectations are backed by the reference implementation.
+- `close-response-packed.bin` is written by hand as a packed run of the repeated enum (iTerm2
+  writes it unpacked); the script checks that `api_pb2` reads the same statuses from it.
 
 Every value is synthetic: made-up ids, titles such as "fixture-title-1", and commands such as
 /usr/bin/true. Nothing comes from this machine's windows, sessions, hosts or users.
@@ -238,6 +240,10 @@ def request_fixtures():
         "tmux-send-command-request.bin": module_request(
             11, lambda c: iterm2.rpc.async_rpc_send_tmux_command(
                 c, CONNECTION_1, "display-message -p '#{pid}'")),
+        "close-request-sessions.bin": module_request(
+            12, lambda c: iterm2.rpc.async_close(c, sessions=[SESSION_1, SESSION_2], force=True)),
+        "close-request-windows.bin": module_request(
+            13, lambda c: iterm2.rpc.async_close(c, windows=[WINDOW_1], force=False)),
     }
     # End of def request_fixtures()
 
@@ -352,6 +358,19 @@ def response_fixtures():
     message = server_message()
     message.notification.SetInParent()
     fixtures["notification-unsupported.bin"] = message.SerializeToString()
+
+    message = server_message(15)
+    for name in ("OK", "NOT_FOUND", "USER_DECLINED"):
+        message.close_response.statuses.append(api_pb2.CloseResponse.Status.Value(name))
+    fixtures["close-response.bin"] = message.SerializeToString()
+
+    # The same statuses as one packed run (field 1, wire type 2), which every protobuf parser
+    # accepts for a repeated enum even though iTerm2 writes them unpacked.
+    packed = varint(1 << 3 | 0) + varint(15) + length_delimited(
+        131, length_delimited(1, bytes([0, 1, 2])))
+    parsed = parse_server(packed)
+    check(list(parsed.close_response.statuses) == [0, 1, 2], "packed close statuses parse")
+    fixtures["close-response-packed.bin"] = packed
     return fixtures
     # End of def response_fixtures()
 

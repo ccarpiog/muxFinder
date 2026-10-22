@@ -63,6 +63,22 @@ public protocol ITerm2Integration: Sendable {
   /// `tmuxRequestFailed` unless iTerm2 reports `OK`.
   func sendTmuxCommand(_ command: String, connectionID: String) async throws -> String
 
+  /// Runs `command` on the tmux connection `connectionID` only while iTerm2 lists that
+  /// connection as owned by the session `owningSessionID`: it lists the connections and, if one
+  /// has that id and owner, sends the command on the same API connection, never reconnecting in
+  /// between. Connection ids are short names (`"tmux"`) that iTerm2 hands out again, for
+  /// example after a restart, so every command meant for a connection muxFinder opened is bound
+  /// to the launch tab that owns it this way.
+  ///
+  /// - Throws: `tmuxConnectionNotOwned` when no listed connection has that id and owner, and
+  ///   `notSent(reason)` when the listing failed (in both cases the command was not sent);
+  ///   otherwise what `sendTmuxCommand(_:connectionID:)` throws.
+  func sendTmuxCommand(
+    _ command: String,
+    connectionID: String,
+    ownedBy owningSessionID: String
+  ) async throws -> String
+
   /// Brings a window, tab or session (and optionally iTerm2) forward. Throws `activateFailed`
   /// unless iTerm2 reports `OK`.
   func activate(_ request: ITerm2API.ActivateRequest) async throws
@@ -70,6 +86,10 @@ public protocol ITerm2Integration: Sendable {
   /// Profiles with the requested properties (`properties` empty: all of them), limited to
   /// `guids` (empty: every profile).
   func listProfiles(properties: [String], guids: [String]) async throws -> [ITerm2API.Profile]
+
+  /// Closes sessions, tabs or windows by id and returns one status per id. Only for things the
+  /// caller created itself (the e2e harness's own launch tabs); never used to detach tmux.
+  func close(_ request: ITerm2API.CloseRequest) async throws -> ITerm2API.CloseResponse
 
   /// Closes the connection, if one is open, and invalidates a connection attempt in progress
   /// (its callers fail, and a connection it still opens is closed). The next call reconnects

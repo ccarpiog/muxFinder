@@ -1,5 +1,4 @@
 // muxfinder-probe: developer and diagnostic CLI that drives the core without the GUI.
-// Later phases add the attach and e2e subcommands.
 
 import Foundation
 import MuxFinderCore
@@ -12,6 +11,8 @@ let usage = """
     help    Show this help.
   \(DiscoverCommand.usage)
   \(ITerm2Command.usage)
+  \(AttachCommand.usage)
+  \(E2ELocalCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -28,6 +29,12 @@ case "discover":
   exit(await DiscoverCommand.run(Array(arguments.dropFirst())))
 case "iterm2":
   exit(await ITerm2Command.run(Array(arguments.dropFirst())))
+case "attach":
+  exit(await AttachCommand.run(Array(arguments.dropFirst())))
+case "detach":
+  exit(await AttachCommand.runDetach(Array(arguments.dropFirst())))
+case "e2e-local":
+  exit(await E2ELocalCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

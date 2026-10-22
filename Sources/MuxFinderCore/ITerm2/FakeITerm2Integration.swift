@@ -25,10 +25,14 @@ public actor FakeITerm2Integration: ITerm2Integration {
     case listTmuxConnections
     /// `sendTmuxCommand(_:connectionID:)`.
     case sendTmuxCommand(command: String, connectionID: String)
+    /// `sendTmuxCommand(_:connectionID:ownedBy:)`, logged whether or not the command was sent.
+    case sendOwnedTmuxCommand(command: String, connectionID: String, owningSessionID: String)
     /// `activate(_:)`.
     case activate(ITerm2API.ActivateRequest)
     /// `listProfiles(properties:guids:)`.
     case listProfiles(properties: [String], guids: [String])
+    /// `close(_:)`.
+    case close(ITerm2API.CloseRequest)
     /// `disconnect()`.
     case disconnect
   }
@@ -71,12 +75,15 @@ public actor FakeITerm2Integration: ITerm2Integration {
     public var createTab = Responses(.success(ITerm2API.CreateTabResponse()))
     /// Results of `listTmuxConnections()`.
     public var listTmuxConnections = Responses<[ITerm2API.TmuxConnection]>(.success([]))
-    /// Results of `sendTmuxCommand(_:connectionID:)`.
+    /// Results of `sendTmuxCommand(_:connectionID:)`, and of
+    /// `sendTmuxCommand(_:connectionID:ownedBy:)` once its ownership check passed.
     public var sendTmuxCommand = Responses(.success(""))
     /// Results of `activate(_:)`.
     public var activate = Responses<Void>(.success(()))
     /// Results of `listProfiles(properties:guids:)`.
     public var listProfiles = Responses<[ITerm2API.Profile]>(.success([]))
+    /// Results of `close(_:)`.
+    public var close = Responses(.success(ITerm2API.CloseResponse()))
 
     /// Creates the default script: iTerm2 runs, the socket exists, every request succeeds with
     /// an empty result.
@@ -163,6 +170,32 @@ public actor FakeITerm2Integration: ITerm2Integration {
     return try script.sendTmuxCommand.next().get()
   }
 
+  /// Logs `sendTmuxCommand(_:connectionID:ownedBy:)` and checks ownership as the real client
+  /// does: it takes the next `listTmuxConnections` result (a failure becomes `notSent`), throws
+  /// `tmuxConnectionNotOwned` unless a listed connection has that id and owner, and only then
+  /// takes the next `sendTmuxCommand` result.
+  public func sendTmuxCommand(
+    _ command: String,
+    connectionID: String,
+    ownedBy owningSessionID: String
+  ) async throws -> String {
+    calls.append(
+      .sendOwnedTmuxCommand(
+        command: command, connectionID: connectionID, owningSessionID: owningSessionID))
+    try checkReachable()
+    let connections: [ITerm2API.TmuxConnection]
+    switch script.listTmuxConnections.next() {
+    case .success(let listed): connections = listed
+    case .failure(let error): throw error.isNotSent ? error : ITerm2Error.notSent(error)
+    }
+    guard
+      connections.contains(where: {
+        $0.connectionID == connectionID && $0.owningSessionID == owningSessionID
+      })
+    else { throw ITerm2Error.tmuxConnectionNotOwned }
+    return try script.sendTmuxCommand.next().get()
+  } // End of func sendTmuxCommand(_:connectionID:ownedBy:)
+
   /// Logs `activate(_:)` and returns the next scripted result.
   public func activate(_ request: ITerm2API.ActivateRequest) async throws {
     calls.append(.activate(request))
@@ -178,6 +211,13 @@ public actor FakeITerm2Integration: ITerm2Integration {
     calls.append(.listProfiles(properties: properties, guids: guids))
     try checkReachable()
     return try script.listProfiles.next().get()
+  }
+
+  /// Logs `close(_:)` and returns the next scripted result.
+  public func close(_ request: ITerm2API.CloseRequest) async throws -> ITerm2API.CloseResponse {
+    calls.append(.close(request))
+    try checkReachable()
+    return try script.close.next().get()
   }
 
   /// Logs `disconnect()`.

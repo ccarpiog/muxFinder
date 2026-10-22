@@ -61,6 +61,7 @@ struct ITerm2CookieAndFakeTests {
       .connectionFailed(errno: EACCES), .requestFailed("server-text"),
       .createTabFailed(.invalidProfileName), .activateFailed(.badIdentifier),
       .tmuxRequestFailed(.invalidConnectionID), .launchFailed("detail"), .notSent(.timedOut),
+      .tmuxConnectionNotOwned,
     ]
     #expect(Set(errors.map(\.kind)).count == errors.count)
     for error in errors {
@@ -89,16 +90,52 @@ struct ITerm2CookieAndFakeTests {
     let request = ITerm2API.ActivateRequest(
       target: .tab("t1"), orderWindowFront: true, selectTab: true, selectSession: false)
     try await fake.activate(request)
+    let close = ITerm2API.CloseRequest(target: .sessions(["s1"]), force: true)
+    #expect(try await fake.close(close) == .init())
     await fake.disconnect()
     #expect(
       await fake.calls == [
         .listTmuxConnections, .listTmuxConnections, .listTmuxConnections,
         .sendTmuxCommand(command: "list-windows", connectionID: "c1"), .activate(request),
-        .disconnect,
+        .close(close), .disconnect,
       ])
     await fake.clearCalls()
     #expect(await fake.calls.isEmpty)
   } // End of func fakeReturnsScriptedResultsAndLogsCalls()
+
+  /// The fake's ownership-bound tmux command checks the next listing like the real client: it
+  /// answers only for a connection with that id and owner, refuses others with
+  /// `tmuxConnectionNotOwned`, and reports a failed listing as `notSent`.
+  @Test func fakeOwnedTmuxCommand() async throws {
+    var script = FakeITerm2Integration.Script()
+    script.listTmuxConnections = .init(
+      .success([.init(connectionID: "c1", owningSessionID: "s1")]),
+      queued: [
+        .success([.init(connectionID: "c1", owningSessionID: "s2")]), .failure(.timedOut),
+        .failure(.notSent(.disconnected)),
+      ])
+    script.sendTmuxCommand = .init(.success("output"))
+    let fake = FakeITerm2Integration(script: script)
+    await #expect(throws: ITerm2Error.tmuxConnectionNotOwned) {
+      _ = try await fake.sendTmuxCommand("detach-client", connectionID: "c1", ownedBy: "s1")
+    }
+    await #expect(throws: ITerm2Error.notSent(.timedOut)) {
+      _ = try await fake.sendTmuxCommand("detach-client", connectionID: "c1", ownedBy: "s1")
+    }
+    await #expect(throws: ITerm2Error.notSent(.disconnected)) {
+      _ = try await fake.sendTmuxCommand("detach-client", connectionID: "c1", ownedBy: "s1")
+    }
+    await #expect(throws: ITerm2Error.tmuxConnectionNotOwned) {
+      _ = try await fake.sendTmuxCommand("detach-client", connectionID: "c2", ownedBy: "s1")
+    }
+    let output = try await fake.sendTmuxCommand(
+      "detach-client", connectionID: "c1", ownedBy: "s1")
+    #expect(output == "output")
+    #expect(
+      await fake.calls.last
+        == .sendOwnedTmuxCommand(
+          command: "detach-client", connectionID: "c1", owningSessionID: "s1"))
+  } // End of func fakeOwnedTmuxCommand()
 
   /// Like the real client, the fake refuses requests while iTerm2 is not running or its socket
   /// is missing, and `ensureRunning()` brings it up.
@@ -136,6 +173,37 @@ struct ITerm2CookieAndFakeTests {
     #expect(try await integration.listProfiles(properties: [], guids: []) == [])
     #expect(try await integration.listSessions() == .init())
   }
+
+  /// The listing helpers the attach path uses: a connection's tabs in order, where a session
+  /// is, and every session id including buried ones.
+  @Test func listingHelpers() {
+    let sessions = AttachTestSupport.sessions
+    #expect(
+      sessions.tabs(ofTmuxConnection: AttachTestSupport.connection).map(\.tabID) == ["t3", "t4"])
+    #expect(sessions.tabs(ofTmuxConnection: "missing").isEmpty)
+    let withBuried = ITerm2API.ListSessionsResponse(
+      windows: [
+        .init(windowID: "w1", tabs: [.init(tabID: "t1", root: AttachTestSupport.leaves(2))])
+      ],
+      buriedSessions: [.init(uniqueIdentifier: "buried-1")])
+    #expect(withBuried.placement(ofSession: "leaf-1")?.window.windowID == "w1")
+    #expect(withBuried.placement(ofSession: "buried-1") == nil)
+    #expect(withBuried.allSessionIDs == ["leaf-0", "leaf-1", "buried-1"])
+  } // End of func listingHelpers()
+
+  /// Which errors guarantee a request was never sent.
+  @Test func notSentErrors() {
+    let notSent: [ITerm2Error] = [
+      .notSent(.timedOut), .notRunning, .apiDisabled, .automationDenied,
+      .cookieUnavailable(appleScriptError: 1), .authRejected, .tmuxConnectionNotOwned,
+    ]
+    let unknownOrAnswered: [ITerm2Error] = [
+      .timedOut, .disconnected, .protocolError("x"), .connectionFailed(errno: 1),
+      .requestFailed("x"), .tmuxRequestFailed(.invalidConnectionID), .launchFailed("x"),
+    ]
+    #expect(notSent.allSatisfy { $0.isNotSent })
+    #expect(!unknownOrAnswered.contains { $0.isNotSent })
+  } // End of func notSentErrors()
 
   /// `Tab.isTmuxTab` treats iTerm2's `"-1"` window id on ordinary tabs as "no tmux".
   @Test func tmuxTabDetection() {

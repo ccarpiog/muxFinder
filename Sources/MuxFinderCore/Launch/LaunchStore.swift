@@ -2,9 +2,9 @@ import Darwin
 import Foundation
 
 /// Why a launch file operation failed. Messages hold no file contents.
-public enum LaunchStoreError: Error, Sendable, Equatable, CustomStringConvertible {
+public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible {
   /// What is wrong with a file found in the launch directory.
-  public enum FileProblem: String, Sendable, Equatable {
+  public enum FileProblem: String, Sendable, Hashable {
     /// It is a symbolic link (it was removed).
     case symbolicLink
     /// It is not a regular file (a FIFO, a socket, a directory …).
