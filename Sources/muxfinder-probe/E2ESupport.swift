@@ -165,6 +165,14 @@ final class UpdateRecorder: Sendable {
     state.withLock { state in sessionIDs.compactMap { state.launchedAt[$0] }.max() }
   }
 
+  /// How long ago the launch tab `sessionID` was reported open, in seconds with one decimal
+  /// (`"?"` when it never was). It opened a moment before iTerm2 reported it, so the tab is
+  /// slightly older than this.
+  func age(of sessionID: String) -> String {
+    guard let launched = state.withLock({ $0.launchedAt[sessionID] }) else { return "?" }
+    return String(format: "%.1f", Double(milliseconds(.now - launched)) / 1000)
+  }
+
   /// The state kinds of `launchID`'s updates, in order.
   func stateKinds(of launchID: LaunchToken) -> [String] {
     state.withLock { $0.updates.filter { $0.launchID == launchID }.map(\.state.kind) }

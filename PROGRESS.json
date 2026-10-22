@@ -1,145 +1,151 @@
 {
- "schema_version": 1,
- "updated": "2026-10-22T00:41:40Z",
- "plan": "PLAN.md",
- "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
- "phases": [
-  {
-   "id": "1",
-   "title": "Package skeleton, process runner, quoting and validation",
-   "status": "done",
-   "risk": "routine",
-   "summary": "Sets up the Swift package, a safe process runner, shell quoting, input validation, app paths and a diagnostics log.",
-   "review": "docs/reviews/phase-1.md",
-   "narrative": "docs/progress-archive/1.md",
-   "commit": "bb086c9"
-  },
-  {
-   "id": "2",
-   "title": "tmux discovery: probe, parser, identity, error classification",
-   "status": "done",
-   "risk": "high",
-   "summary": "Lists tmux sessions on a host with a read-only probe, parses them strictly and classifies SSH and tmux failures.",
-   "review": "docs/reviews/phase-2.md",
-   "narrative": "docs/progress-archive/2.md",
-   "commit": "c1ee43d"
-  },
-  {
-   "id": "3",
-   "title": "Native iTerm2 API client",
-   "status": "done",
-   "risk": "high",
-   "summary": "Talks to iTerm2 over its Unix-socket WebSocket API; split into 3a (wire layer) and 3b (transport and client), both done."
-  },
-  {
-   "id": "3a",
-   "title": "iTerm2 wire layer: protobuf codec, typed messages, golden fixtures",
-   "status": "done",
-   "risk": "high",
-   "summary": "Encodes and decodes the iTerm2 API protobuf messages muxFinder needs, checked byte-for-byte against golden fixtures.",
-   "review": "docs/reviews/phase-3a.md",
-   "narrative": "docs/progress-archive/3a.md",
-   "commit": "745e36e"
-  },
-  {
-   "id": "3b",
-   "title": "iTerm2 transport and client: WebSocket, cookie, API client, probe",
-   "status": "done",
-   "risk": "high",
-   "summary": "Connects to iTerm2 over its Unix-socket WebSocket with a cookie and exposes the API calls to the app and probe.",
-   "review": "docs/reviews/phase-3b.md",
-   "narrative": "docs/progress-archive/3b.md",
-   "commit": "0d3b65f"
-  },
-  {
-   "id": "4",
-   "title": "Integration proof, local: attach, native tabs and splits, detach, reattach",
-   "status": "in_progress",
-   "risk": "high",
-   "summary": "Proves the local attach workflow end to end; split into 4a (launch layer, done), 4b (coordinator, done) and 4c (real proof)."
-  },
-  {
-   "id": "4a",
-   "title": "Launch layer and helper: request files, guard, muxfinder-launch",
-   "status": "done",
-   "risk": "high",
-   "summary": "Hands attach requests to a launch helper through private files and checks the session is unchanged before attaching.",
-   "review": "docs/reviews/phase-4a.md",
-   "narrative": "docs/progress-archive/4a.md",
-   "commit": "1f5a3be"
-  },
-  {
-   "id": "4b",
-   "title": "Attach coordinator and probe commands",
-   "status": "done",
-   "risk": "high",
-   "summary": "Attaches, confirms, focuses and detaches a local session in iTerm2, with hermetic tests and the e2e-local harness.",
-   "review": "docs/reviews/phase-4b.md",
-   "narrative": "docs/progress-archive/4b.md",
-   "commit": "f888a2c"
-  },
-  {
-   "id": "4c",
-   "title": "Real local proof",
-   "status": "blocked",
-   "risk": "high",
-   "summary": "Runs e2e-local against real iTerm2 twice; waits for the user to dismiss an iTerm2 warning that blocks its API."
-  },
-  {
-   "id": "5",
-   "title": "Integration proof over SSH, and existing-attachment detection",
-   "status": "queued",
-   "risk": "high",
-   "summary": "Proves attaching a Saturno session over SSH and detecting sessions already open in iTerm2."
-  },
-  {
-   "id": "6",
-   "title": "Session operations: create, move here, disappeared sessions",
-   "status": "queued",
-   "risk": "high",
-   "summary": "Creates new sessions, moves attached sessions to this Mac and handles sessions that vanished."
-  },
-  {
-   "id": "7",
-   "title": "Host configuration and refresh engine",
-   "status": "queued",
-   "risk": "high",
-   "summary": "Stores the configured hosts and refreshes their sessions with backoff and stale snapshots."
-  },
-  {
-   "id": "8",
-   "title": "Menu bar app and popover",
-   "status": "queued",
-   "risk": "routine",
-   "summary": "Shows hosts and sessions in a menu bar popover."
-  },
-  {
-   "id": "9",
-   "title": "Settings, onboarding, launch at login, diagnostics",
-   "status": "queued",
-   "risk": "routine",
-   "summary": "Adds the settings window, first-run onboarding, launch at login and a diagnostics view."
-  },
-  {
-   "id": "10",
-   "title": "Attach UX: open, focus, new session, move here, detach",
-   "status": "queued",
-   "risk": "high",
-   "summary": "Wires the popover actions to attach, focus, create, move and detach sessions."
-  },
-  {
-   "id": "11",
-   "title": "Persistent Work profiles",
-   "status": "queued",
-   "risk": "high",
-   "summary": "Generates the muxFinder iTerm2 dynamic profile for persistent work sessions."
-  },
-  {
-   "id": "12",
-   "title": "Packaging, documentation, acceptance run",
-   "status": "queued",
-   "risk": "routine",
-   "summary": "Builds the signed app bundle, writes the docs and runs the final acceptance checks."
-  }
- ]
+  "schema_version": 1,
+  "updated": "2026-10-22T08:21:23Z",
+  "stamped_since": "2026-10-22T07:43:37Z",
+  "plan": "PLAN.md",
+  "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
+  "phases": [
+    {
+      "id": "1",
+      "title": "Package skeleton, process runner, quoting and validation",
+      "status": "done",
+      "risk": "routine",
+      "summary": "Sets up the Swift package, a safe process runner, shell quoting, input validation, app paths and a diagnostics log.",
+      "review": "docs/reviews/phase-1.md",
+      "narrative": "docs/progress-archive/1.md",
+      "commit": "bb086c9"
+    },
+    {
+      "id": "2",
+      "title": "tmux discovery: probe, parser, identity, error classification",
+      "status": "done",
+      "risk": "high",
+      "summary": "Lists tmux sessions on a host with a read-only probe, parses them strictly and classifies SSH and tmux failures.",
+      "review": "docs/reviews/phase-2.md",
+      "narrative": "docs/progress-archive/2.md",
+      "commit": "c1ee43d"
+    },
+    {
+      "id": "3",
+      "title": "Native iTerm2 API client",
+      "status": "done",
+      "risk": "high",
+      "summary": "Talks to iTerm2 over its Unix-socket WebSocket API; split into 3a (wire layer) and 3b (transport and client), both done."
+    },
+    {
+      "id": "3a",
+      "title": "iTerm2 wire layer: protobuf codec, typed messages, golden fixtures",
+      "status": "done",
+      "risk": "high",
+      "summary": "Encodes and decodes the iTerm2 API protobuf messages muxFinder needs, checked byte-for-byte against golden fixtures.",
+      "review": "docs/reviews/phase-3a.md",
+      "narrative": "docs/progress-archive/3a.md",
+      "commit": "745e36e"
+    },
+    {
+      "id": "3b",
+      "title": "iTerm2 transport and client: WebSocket, cookie, API client, probe",
+      "status": "done",
+      "risk": "high",
+      "summary": "Connects to iTerm2 over its Unix-socket WebSocket with a cookie and exposes the API calls to the app and probe.",
+      "review": "docs/reviews/phase-3b.md",
+      "narrative": "docs/progress-archive/3b.md",
+      "commit": "0d3b65f"
+    },
+    {
+      "id": "4",
+      "title": "Integration proof, local: attach, native tabs and splits, detach, reattach",
+      "status": "done",
+      "risk": "high",
+      "summary": "Proves the local attach workflow end to end; split into 4a (launch layer), 4b (coordinator) and 4c (real proof), all done.",
+      "status_since": "2026-10-22T08:21:23Z"
+    },
+    {
+      "id": "4a",
+      "title": "Launch layer and helper: request files, guard, muxfinder-launch",
+      "status": "done",
+      "risk": "high",
+      "summary": "Hands attach requests to a launch helper through private files and checks the session is unchanged before attaching.",
+      "review": "docs/reviews/phase-4a.md",
+      "narrative": "docs/progress-archive/4a.md",
+      "commit": "1f5a3be"
+    },
+    {
+      "id": "4b",
+      "title": "Attach coordinator and probe commands",
+      "status": "done",
+      "risk": "high",
+      "summary": "Attaches, confirms, focuses and detaches a local session in iTerm2, with hermetic tests and the e2e-local harness.",
+      "review": "docs/reviews/phase-4b.md",
+      "narrative": "docs/progress-archive/4b.md",
+      "commit": "f888a2c"
+    },
+    {
+      "id": "4c",
+      "title": "Real local proof",
+      "status": "done",
+      "risk": "high",
+      "summary": "Runs e2e-local against real iTerm2 and tmux; four passing runs, a 10 s helper lifetime, and the final integration proof.",
+      "review": "docs/reviews/phase-4c.md",
+      "narrative": "docs/progress-archive/4c.md",
+      "started": "2026-10-22T07:43:37Z",
+      "status_since": "2026-10-22T08:21:23Z"
+    },
+    {
+      "id": "5",
+      "title": "Integration proof over SSH, and existing-attachment detection",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Proves attaching a Saturno session over SSH and detecting sessions already open in iTerm2."
+    },
+    {
+      "id": "6",
+      "title": "Session operations: create, move here, disappeared sessions",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Creates new sessions, moves attached sessions to this Mac and handles sessions that vanished."
+    },
+    {
+      "id": "7",
+      "title": "Host configuration and refresh engine",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Stores the configured hosts and refreshes their sessions with backoff and stale snapshots."
+    },
+    {
+      "id": "8",
+      "title": "Menu bar app and popover",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "Shows hosts and sessions in a menu bar popover."
+    },
+    {
+      "id": "9",
+      "title": "Settings, onboarding, launch at login, diagnostics",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "Adds the settings window, first-run onboarding, launch at login and a diagnostics view."
+    },
+    {
+      "id": "10",
+      "title": "Attach UX: open, focus, new session, move here, detach",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Wires the popover actions to attach, focus, create, move and detach sessions."
+    },
+    {
+      "id": "11",
+      "title": "Persistent Work profiles",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Generates the muxFinder iTerm2 dynamic profile for persistent work sessions."
+    },
+    {
+      "id": "12",
+      "title": "Packaging, documentation, acceptance run",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "Builds the signed app bundle, writes the docs and runs the final acceptance checks."
+    }
+  ]
 }

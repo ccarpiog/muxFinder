@@ -210,7 +210,15 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   never waited for; signal deaths exit 128 + n; missing (70), expired (71) and spawn-failure
   (74, either child) results; 7 usage errors (exit 2, nothing run or consumed) and `help`;
   an unusable directory override (73); the argv digest written by the environment variable
-  or the marker file, before parsing; diagnostics free of paths and session ids.
+  or the marker file, before parsing; diagnostics free of paths and session ids. The minimum
+  lifetime (D14): on an interactive terminal that was not hung up, every outcome (a tmux exit
+  right after attaching, a guard failure after Return, a usage error) holds the tab until the
+  helper is 10 s old, after the result is written and after any wait for Return; only the
+  rest of the 10 s is held (4 s elapsed → 6 s, 9.5 s → 0.5 s, 10 s or more → none, a clock
+  that went backwards → 10 s); `help`, a terminal that is not interactive and a SIGHUP never
+  hold. `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` sets the lifetime only when it is 1 to 7
+  decimal digits (else 10 s). The wait gate resumes its wait exactly once, also when the end
+  comes before the wait or several ends race.
 - **Stalled check** (`LaunchHelperStalledCheckTests`): the helper in the test process with
   the real child runner (300 ms grace) and the real guard against the fake tmux hanging in
   `display-message` (it ignores HUP, INT and TERM and keeps a background `sleep 30` that does
@@ -232,6 +240,15 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   so only the helper can have removed it) is gone; real tmux on a private server: no server
   → 64, wrong `session_created` → 65, both recorded in the result. No real tmux client is
   ever attached by `swift test`.
+- **Helper binary in a terminal** (`LaunchHelperTerminalTests`): the built `muxfinder-launch`
+  with its stdin on a pseudo-terminal's slave side (so it is interactive), stdout and stderr
+  on a pipe, its own process group, a launch id without a request (70, no child) and a
+  shortened `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS`. Signals and Return are repeated every
+  50 ms until they take effect. SIGINT and SIGTERM, from the failure prompt on or only during
+  the hold after Return, never end it: it exits 70 with its result no earlier than its 3 s
+  lifetime and less than 5 s after the later of that lifetime and the end of the wait, which
+  the signal ended like Return. SIGHUP, at the prompt or during the hold, kills it at once,
+  far inside its 60 s lifetime.
 
 - **Attach coordinator** (`AttachCoordinatorTests`, fakes for iTerm2, discovery, the launch
   store and the clock; a manual clock makes the 15 s budget run out at once): a successful
@@ -295,7 +312,10 @@ and read the digest it writes before parsing its arguments (PLAN.md D14):
 
 These open real iTerm2 windows. Run them explicitly from a shell inside iTerm2 (so the cookie
 request shows no prompt), never from `swift test`, with `TMUX_TMPDIR` unset: the helper in
-iTerm2 always uses the default tmux server.
+iTerm2 always uses the default tmux server. Run `swift build` first: `swift run
+muxfinder-probe` builds only the probe, and iTerm2 runs the `muxfinder-launch` built next to
+it, which may be older. Check `muxfinder-probe iterm2 status` before and after: a timeout
+(exit 75) means a modal iTerm2 dialog is open; stop and report which step caused it.
 
 - `swift run muxfinder-probe e2e-local` — the local integration proof (PLAN.md Phase 4). It
   creates `muxfinder-test-<8 hex digits>` on the default server (two windows, the first split
@@ -308,10 +328,11 @@ iTerm2 always uses the default tmux server.
   launch: one launch tab, one new connection, its two tmux tabs; one argv digest), 8 stale
   guard (a stale target refused by revalidation without a tab; with discovery reporting the
   same wrong `session_created` the helper's guard refuses it: `sessionChanged`, no connection,
-  no tmux client; the refused launch tab, which waits for Return, is closed by its recorded
-  session id), 9 cleanup. Notes under the steps record what iTerm2 did (argv split, placement,
-  tab fields, whether the launch tab closed). Exit 0 only when all 9 pass; 128 + n after signal
-  n. Safety: only its own session, which every later step (rediscovery before each attach, the
+  no tmux client; the refused launch tab must still be open a second later, showing the
+  explanation and waiting for Return, and is then closed by its recorded session id once it is
+  10 s old), 9 cleanup. Notes under the steps record what iTerm2 did (argv split, placement,
+  tab fields, whether the launch tab closed, how old each launch tab was when it ended). Exit 0
+  only when all 9 pass; 128 + n after signal n. Safety: only its own session, which every later step (rediscovery before each attach, the
   survival checks, the kill) accepts only if its server pid, start time, socket path, id,
   creation time and exact generated name are those `new-session -P` reported; when a signal
   cuts `new-session` short, cleanup first finds the session by that exact name among sessions
@@ -321,8 +342,9 @@ iTerm2 always uses the default tmux server.
   iTerm2 requests 10 s, polls 3–5 s, attach 15 s to a connection, the whole run 300 s); cleanup
   runs after a failure, SIGINT/SIGTERM/SIGHUP or the time limit. Every launch tab is at least
   10 s old before it ends (the coordinator waits before `detach-client`, the harness before it
-  kills the session or closes a tab), because iTerm2 shows a blocking modal warning for
-  sessions that end within seconds of starting (see `docs/INTEGRATION-PROOF.md`).
+  kills the session or closes a tab, and the helper does not exit younger), because iTerm2
+  shows a blocking modal warning for sessions that end within 3 s of starting (see
+  `docs/INTEGRATION-PROOF.md`). A full passing run takes about 43 s.
 - `swift run muxfinder-probe attach --local --session '<$id>'` — one real attach of a session
   of the default server, the way the app does it; prints the result as JSON (state, failure,
   launch id, launch tab session, connection, activation, timings). It leaves the session
@@ -445,3 +467,31 @@ Method notes:
 - iTerm2's main thread was inspected with `sample` (stack frames only) to tell a modal dialog
   from a hang; no screenshot and no UI scripting was used.
 
+
+### Phase 4c — real local proof (2026-10-22)
+
+Environment: as in Phase 4b, after a person had dismissed the warning run 1 left open
+(`iterm2 status` connected again). iTerm2's short-lived-session threshold was read without
+writing anything: `defaults read com.googlecode.iterm2` has no `ShortLivedSessionDuration`
+override and no "never warn" entry for the default profile, and the setting's default in the
+iTerm2 3.7.6 binary (`+[iTermAdvancedSettingsModel advancedSettingsModelDictionary_shortLivedSessionDuration]`,
+read with `lldb` on the file, not the running app) is 3 s.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Helper refusal in a pseudo-terminal | private `TMUX_TMPDIR` server with one `muxfinder-test-*` session, private `MUXFINDER_LAUNCH_DIRECTORY`, a request with `expectedSessionCreated` + 1; `(sleep 2; printf '\n'; sleep 12) \| script -q /dev/null muxfinder-launch attach <uuid>` | exit 65 `sessionChanged`, result written 20 ms after the start; the helper waited for Return (sent at 2 s), then held until it was 10 s old: `script` ended after 10.6 s |
+| Quick end in a pseudo-terminal | the same setup with a matching request; `(sleep 1; printf 'detach-client\n'; sleep 12) \| script …` | tmux attached and exited 0 after the detach at 1.0 s; the success result was written at once (1.0 s), and the helper held until `script` ended after 10.2 s; no client left |
+| `e2e-local`, run 1 | `swift build`, then `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` | exit 0, 9 of 9 steps PASS in 42.2 s; per-step timings and notes in `docs/INTEGRATION-PROOF.md` |
+| `e2e-local`, run 2 | the same command, right after run 1's checks | exit 0, 9 of 9 steps PASS in 42.7 s |
+| Before and after each run | `muxfinder-probe iterm2 status`; `tmux -u ls`; `ls` of the launch directory; `iterm2 list-sessions` (summary only) | always exit 0 (connected, protocol 1.21); `no server running on /private/tmp/tmux-501/default`; launch directory empty, no `test-mode` marker; 3 windows, 3 tabs, 0 tmux tabs, as before the runs |
+
+Method notes:
+
+- The pseudo-terminal checks ran outside iTerm2; their terminal output went to `/dev/null`.
+  Their server and launch directories were removed afterwards.
+- A first pseudo-terminal attempt ended after 2.0 s and 1.0 s: `swift test --filter` had
+  rebuilt `muxfinder-launch` while the hold was briefly disabled to see the new tests fail,
+  and nothing had rebuilt it since. That is why the real-check procedure now starts with
+  `swift build`.
+- No modal dialog appeared during the runs: iTerm2's API answered every request, and
+  `iterm2 status` connected after each run.

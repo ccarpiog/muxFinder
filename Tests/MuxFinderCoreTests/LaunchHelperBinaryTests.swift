@@ -272,3 +272,131 @@ struct LaunchHelperBinaryTests {
     #expect(try LaunchTestSupport.names(in: store.directory).isEmpty)
   } // End of func reportsGuardFailuresWithRealTmux()
 }
+
+/// Runs the built `muxfinder-launch` in a pseudo-terminal (`PseudoTerminalHelper`), so it is
+/// interactive: after a failure it waits for Return, then holds its tab until it is as old as
+/// `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` says. Every run asks for a launch id that has no
+/// request, so it fails at once (70) and starts no child. Signals and Return are repeated
+/// every 50 ms: one that arrives just before a wait sets its dispositions (or, for Return,
+/// before it discards earlier input) is ignored, so a single one could be lost under load.
+@Suite("Launch helper binary (terminal)")
+struct LaunchHelperTerminalTests {
+  /// The prompt the helper prints before it waits for Return.
+  static let prompt = "Press Return to close."
+
+  /// When a test starts sending its signal.
+  enum Moment: String, Sendable, CaseIterable {
+    /// At the failure prompt, and on through the hold if the helper gets there.
+    case atThePrompt
+    /// Only once Return ended the wait, so the signal reaches the hold alone.
+    case duringTheHold
+  }
+
+  /// Starts the helper for a fresh launch id with no request, in `store`'s directory, with a
+  /// minimum lifetime of `lifetimeMilliseconds`. Returns the running helper and the id.
+  static func start(
+    lifetimeMilliseconds: Int,
+    store: LaunchStore
+  ) throws -> (terminal: PseudoTerminalHelper, id: LaunchToken) {
+    let helper = try #require(LaunchHelperBinaryTests.helperURL)
+    let id = LaunchToken()
+    var environment = LaunchHelperBinaryTests.environment(launchDirectory: store.directory)
+    environment[StandardLaunchTerminal.noWaitVariable] = nil
+    environment[LaunchHelper.minimumLifetimeVariable] = String(lifetimeMilliseconds)
+    let terminal = try PseudoTerminalHelper(
+      helper: helper,
+      arguments: ["attach", id.rawValue],
+      environment: environment
+    )
+    return (terminal, id)
+  } // End of func start(lifetimeMilliseconds:store:)
+
+  /// Waits (up to 10 s) until the helper printed the prompt.
+  static func waitForPrompt(_ terminal: PseudoTerminalHelper) async throws {
+    let prompted = await TestSupport.eventually(within: .seconds(10)) {
+      terminal.text.contains(prompt)
+    }
+    try #require(prompted, "no prompt: \(terminal.text)")
+  }
+
+  /// Repeats `action` until the line end the helper writes once its wait returned shows, or
+  /// the helper exits (up to 10 s). Returns the instant that was seen.
+  static func endWait(
+    _ terminal: PseudoTerminalHelper,
+    with action: () -> Void
+  ) async throws -> ContinuousClock.Instant {
+    let ended = await PseudoTerminalHelper.repeating(
+      action,
+      until: { terminal.text.contains(prompt + "\n") || terminal.hasExited },
+      within: .seconds(10)
+    )
+    return try #require(ended, "the wait for Return never ended: \(terminal.text)")
+  }
+
+  /// Sends `signalNumber` every 50 ms until the helper exits (up to `limit`). Returns the
+  /// instant the exit was seen.
+  static func signalUntilExit(
+    _ terminal: PseudoTerminalHelper,
+    _ signalNumber: Int32,
+    within limit: Duration
+  ) async throws -> ContinuousClock.Instant {
+    let exited = await PseudoTerminalHelper.repeating(
+      { terminal.send(signalNumber) },
+      until: { terminal.hasExited },
+      within: limit
+    )
+    return try #require(exited, "the helper did not exit: \(terminal.text)")
+  }
+
+  /// SIGINT (Ctrl-C) or SIGTERM, at the failure prompt or only during the hold after Return,
+  /// never ends the helper before its minimum lifetime (3 s here): at the prompt it finishes the
+  /// wait like Return, the hold ignores it, and the helper exits normally (70, its result
+  /// written) once it is old enough, and soon after.
+  @Test(
+    .enabled(if: LaunchHelperBinaryTests.helperURL != nil),
+    .timeLimit(.minutes(1)),
+    arguments: [SIGINT, SIGTERM], Moment.allCases
+  )
+  func holdsThroughInterrupts(signalNumber: Int32, moment: Moment) async throws {
+    let lifetime = Duration.seconds(3)
+    let (store, root) = try LaunchTestSupport.makeStore(now: Date())
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (terminal, id) = try Self.start(lifetimeMilliseconds: 3000, store: store)
+    defer { terminal.stop() }
+    try await Self.waitForPrompt(terminal)
+    let waitEnded = try await Self.endWait(terminal) {
+      if moment == .atThePrompt { terminal.send(signalNumber) } else { terminal.pressReturn() }
+    }
+    let exitedAt = try await Self.signalUntilExit(terminal, signalNumber, within: .seconds(30))
+    let termination = terminal.reap()
+    #expect(termination == .exited(LaunchExitStatus.requestMissing), "\(terminal.text)")
+    #expect(exitedAt - terminal.startedAt >= lifetime)
+    #expect(exitedAt - max(terminal.startedAt + lifetime, waitEnded) < .seconds(5))
+    #expect(terminal.text.contains(Self.prompt + "\n"))
+    #expect(try store.takeResult(id)?.failure == .requestMissing)
+  } // End of func holdsThroughInterrupts(signalNumber:moment:)
+
+  /// SIGHUP (the tab closed, so nobody can see the helper end) still ends it at once, at the
+  /// prompt and during the hold, long before its minimum lifetime (60 s here); its result was
+  /// written before.
+  @Test(
+    .enabled(if: LaunchHelperBinaryTests.helperURL != nil),
+    .timeLimit(.minutes(1)),
+    arguments: Moment.allCases
+  )
+  func endsAtOnceOnHangUp(moment: Moment) async throws {
+    let (store, root) = try LaunchTestSupport.makeStore(now: Date())
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (terminal, id) = try Self.start(lifetimeMilliseconds: 60_000, store: store)
+    defer { terminal.stop() }
+    try await Self.waitForPrompt(terminal)
+    if moment == .duringTheHold {
+      _ = try await Self.endWait(terminal) { terminal.pressReturn() }
+    }
+    let exitedAt = try await Self.signalUntilExit(terminal, SIGHUP, within: .seconds(20))
+    #expect(terminal.reap() == .signaled(SIGHUP), "\(terminal.text)")
+    #expect(exitedAt - terminal.startedAt < .seconds(30))
+    #expect(terminal.text.contains(Self.prompt + "\n") == (moment == .duringTheHold))
+    #expect(try store.takeResult(id)?.failure == .requestMissing)
+  } // End of func endsAtOnceOnHangUp(moment:)
+}

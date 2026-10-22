@@ -26,7 +26,7 @@ import Foundation
 /// and never closes tmux tabs.
 ///
 /// Ending a connection ends its launch tab, and iTerm2 blocks its whole API behind a modal
-/// warning when a session ends within seconds of starting (PLAN.md *Verified facts*, Phase 4b).
+/// warning when a session ends within 3 s of starting (PLAN.md *Verified facts*, Phase 4).
 /// So the coordinator never sends `detach-client` (after a failed identity check, or for
 /// `detach`) before the launch tab is `Configuration.minimumLaunchTabAge` old, and every
 /// command for a connection goes through `ITerm2Integration.sendTmuxCommand(_:connectionID:ownedBy:)`,
@@ -48,9 +48,10 @@ public actor AttachCoordinator {
     /// How long after the connection closed the helper's result may take to appear.
     public var resultBudget: Duration
     /// How old a launch tab must be before the coordinator ends its connection. iTerm2 3.7.6
-    /// showed its blocking short-lived-session warning for a session that ended about 1.5 s
-    /// after it started; 10 s keeps a wide margin, and is what `e2e-local` uses for the ends it
-    /// causes itself (PLAN.md D15).
+    /// shows its blocking short-lived-session warning for a session that ends within 3 s of
+    /// starting (its `shortLivedSessionDuration` default; seen after an end at about 1.5 s);
+    /// 10 s keeps a wide margin, and is what `e2e-local` uses for the ends it causes itself and
+    /// the helper's own minimum lifetime (PLAN.md D14, D15).
     public var minimumLaunchTabAge: Duration
     /// Whether activation also activates iTerm2 itself (the app is in the background when the
     /// user clicks the menu bar).

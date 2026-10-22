@@ -227,9 +227,21 @@ session, verifies its identity, and then activates the tab.
     launch as `interrupted(n)` without attaching (a running check is stopped with its whole
     process group, the same way as on a timeout); one that arrives while tmux runs is passed
     on to tmux. So closing the tab never orphans tmux or a check subprocess, and the result is
-    always written. It restores the defaults only for the final wait. On failure it prints a
+    always written. For the final wait and hold it restores only SIGHUP's default (closing the
+    tab ends it at once, unseen) and keeps SIGINT and SIGTERM ignored. On failure it prints a
     one-paragraph explanation, and waits for Return only when stdin is a terminal,
-    `MUXFINDER_LAUNCH_NO_WAIT` is not `1`, and no SIGHUP arrived.
+    `MUXFINDER_LAUNCH_NO_WAIT` is not `1`, and no SIGHUP arrived; a SIGINT (Ctrl-C) or SIGTERM
+    ends that wait like Return (seen through dispatch signal sources, the wait returning once
+    whichever comes first).
+  - **Minimum lifetime** (decided in Phase 4c, 2026-10-22): under that same condition the helper
+    never exits before it is 10 s old (`LaunchHelper.minimumLifetime`, counted from its start),
+    whatever the outcome: it writes the result first, waits for Return if it failed, then holds
+    the rest (`LaunchTerminal.holdOpen(for:)`: closing the tab, SIGHUP, still ends it at once;
+    SIGINT and SIGTERM never end it, so Ctrl-C at the prompt or during the hold cannot end a
+    visible tab early). A launch tab that ends within 3 s of starting raises iTerm2's blocking
+    short-lived-session warning (*Verified facts*, Phase 4), and tmux can end right after
+    attaching (iTerm2 or someone detaching early, the session killed) or Return can be pressed
+    at once; the coordinator's own 10 s wait (D15) covers only the ends it causes.
   - **Test mode:** set by `MUXFINDER_LAUNCH_TEST_MODE=1`, or by a regular file
     `launch/test-mode` owned by the user. The marker is how 4b turns test mode on for helpers
     iTerm2 starts: the e2e run creates it (`LaunchStore.createTestModeMarker()`) and removes it
@@ -239,6 +251,9 @@ session, verifies its identity, and then activates the tab.
     `LaunchStore.takeArgvDigests()` reads them.
   - **Overrides and paths:** `MUXFINDER_LAUNCH_DIRECTORY` (absolute) replaces the launch
     directory for development and tests; a relative or empty value is refused (73).
+    `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` (1 to 7 decimal digits, tests only) replaces the
+    10 s minimum lifetime, so tests can run the binary in a pseudo-terminal quickly; any other
+    value keeps 10 s.
     `LaunchHelperPath.locate()` finds `muxfinder-launch` next to the running executable and
     applies the D2 rule. The tab command is `LaunchHelperPath.attachCommandLine(for:)`, that
     is `<path> attach <uuid>`.
@@ -265,10 +280,12 @@ session, verifies its identity, and then activates the tab.
     mismatching identity answer detaches the new connection once its launch tab is old enough
     (see *Teardown*); the attach reports the failure after that detach.
   - **Teardown:** ending a connection ends its launch tab, and a launch tab that ends within
-    seconds of opening makes iTerm2 block its whole API behind a modal warning (*Verified
-    facts*, Phase 4b). So the coordinator sends `detach-client` (after a failed identity check,
-    and for `detach`) only once the launch tab is `minimumLaunchTabAge` old: 10 s, the margin
-    `e2e-local` adopted after run 1, whose warning followed an end about 1.5 s after the start.
+    3 s of opening makes iTerm2 block its whole API behind a modal warning (*Verified facts*,
+    Phase 4). So the coordinator sends `detach-client` (after a failed identity check, and for
+    `detach`) only once the launch tab is `minimumLaunchTabAge` old: 10 s, more than three
+    times iTerm2's threshold, the margin `e2e-local` adopted after its first run (whose warning
+    followed an end about 1.5 s after the start). The helper keeps the same 10 s minimum
+    lifetime on its side (D14). In the passing runs the launch tabs ended 10.1–10.7 s old.
     The age counts from the `CreateTab` answer for tabs this coordinator opened (it remembers
     the latest 64), and from the call for any other tab (another process's, as with
     `muxfinder-probe detach`), which exists already and so is old enough once the time has
@@ -370,38 +387,49 @@ session, verifies its identity, and then activates the tab.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
 
-Verified in Phase 4b (2026-10-22, iTerm2 3.7.6 with default preferences, tmux 3.8, the default
-tmux server holding only `muxfinder-test-*` sessions; details in `docs/INTEGRATION-PROOF.md`):
+Verified in Phase 4 (4b and 4c, 2026-10-22, iTerm2 3.7.6 with default preferences, tmux 3.8,
+the default tmux server holding only `muxfinder-test-*` sessions; `e2e-local` passed twice in
+4c; details in `docs/INTEGRATION-PROOF.md`):
 
 - **`Command` property:** with `"Custom Command" = "Yes"` and `"Command" = "<path> attach
   <uuid>"`, the helper got exactly 3 arguments: argv[0] the absolute path, `attach`, the id
   (argv digest). A path with a space was not tried, so the D2 rule stands.
 - **Launch tab:** `CreateTab` without `window_id` opens a new window holding only that tab. Its
   `session_id` is the connection's `owning_session_id`. It carries `tmux_window_id` `"-1"` and
-  no connection id, and stays in its window while attached (not buried).
+  no connection id, and stays in its window while attached (not buried). iTerm2 answers
+  `CreateTab` after the helper has started (a guard refusal is already in the result file at
+  the first poll). A refused launch tab stays open with the helper's explanation until it is
+  closed; `Close` (forced) by its session id closes it without a dialog.
 - **tmux windows** open as native windows with the default "open tmux windows as" preference:
   one new iTerm2 window per tmux window, one tab each.
 - **tmux tabs** carry `tmux_window_id` = the tmux window id without `@` (`"0"`, `"1"`) and
   `tmux_connection_id` = the connection id. A window split in two arrives as one splitter with
   two session leaves (tmux's default top/bottom split as `vertical = false`).
 - **Connections:** `ListConnections` lists the new connection within about 0.5 s of the tab
-  opening. Its `connection_id` is a short name (`"tmux"` for the first one), not a UUID, so
+  opening. Its `connection_id` is a short name (`"tmux"` for the first one), not a UUID, and
+  iTerm2 hands it out again: three successive connections in one run were all `"tmux"`. So
   connections are matched by `owning_session_id`.
+- **Socket path:** discovery's `#{socket_path}` equals the one `new-session -P` prints for the
+  default server (`/private/tmp/tmux-501/default`).
+- **Single flight:** two concurrent attaches of one session opened one launch tab and one
+  connection and both got the same confirmed result.
 - **Activate:** a tab target with `select_session = true` is refused with `INVALID_OPTION`; a
   tab target with `order_window_front`, `select_tab` and the app options in one request works.
 - **Detach:** `SendCommand detach-client` is answered with empty output and the connection
   disappears at once. iTerm2 closes the connection's tabs without a dialog, `tmux -CC` exits 0,
   the helper records success, and its launch tab closes by itself (`Close Sessions On End`).
   The session keeps its id, windows, panes and processes.
-- **Short-lived sessions block iTerm2:** a session that ends within a few seconds of starting
-  (here about 1.5 s: attach, then an immediate detach) makes iTerm2 show its "session ended
-  very soon after starting" warning (`-[PTYSession _maybeWarnAboutShortLivedSessions]`, a modal
-  `iTermWarning`, silenceable per profile). While it is open, iTerm2's API answers nothing
-  (WebSocket handshakes time out), although AppleScript cookie requests still return. Only a
-  person can dismiss it. So nothing may end a launch tab, or detach its connection, within
-  seconds of opening it: the coordinator sends `detach-client` only once the launch tab is
-  10 s old (D15), and `e2e-local` waits as long before it kills its session or closes a launch
-  tab.
+- **Short-lived sessions block iTerm2:** a session that ends within 3 s of starting (the
+  advanced setting `shortLivedSessionDuration`, default 3 s, read from the 3.7.6 binary and not
+  overridden in `defaults read com.googlecode.iterm2`; 4b's first run ended one after about
+  1.5 s: attach, then an immediate detach) makes iTerm2 show its "session ended very soon after
+  starting" warning (`-[PTYSession _maybeWarnAboutShortLivedSessions]`, a modal
+  `iTermWarning`, silenceable per profile, not silenced for the default profile here). While
+  it is open, iTerm2's API answers nothing (WebSocket handshakes time out), although
+  AppleScript cookie requests still return. Only a person can dismiss it. So nothing may end a
+  launch tab, or detach its connection, before it is 10 s old: the coordinator sends
+  `detach-client` only then (D15), the helper never exits younger while its tab is visible
+  (D14), and `e2e-local` waits as long before it kills its session or closes a launch tab.
 
 Verified in Phase 4a (2026-10-21, tmux 3.8, private `TMUX_TMPDIR` servers only):
 
@@ -436,7 +464,7 @@ Verified in Phase 3b (2026-10-21, iTerm2 3.7.6, read-only checks from a shell in
   them after every connection attempt.
 - **Ordinary tabs carry `tmux_window_id` `"-1"`** and no `tmux_connection_id` in
   `ListSessionsResponse` (`ITerm2API.Tab.isTmuxTab` accounts for it). What a tmux tab carries
-  is in the Phase 4b facts above.
+  is in the Phase 4 facts above.
 - With no tmux integration connection, `Tmux.ListConnections` answers `status=OK` with no
   payload (also seen in the planning spike); the client returns an empty list.
 

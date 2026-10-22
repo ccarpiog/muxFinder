@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import Testing
+import os
 
 @testable import MuxFinderCore
 
@@ -82,7 +83,8 @@ struct LaunchHelperTests {
   /// A detach (tmux exit 0): the request is consumed; the check ran as `/bin/sh` with the
   /// request's values, the helper's deadline and a cleaned environment; the attach ran the
   /// printed tmux directly with `-u -CC attach-session -t <id>` and the same environment; the
-  /// result says success, and nothing is printed or waited for.
+  /// result says success, and nothing is printed or waited for (the clock stands still, so the
+  /// helper then holds its tab for its whole minimum lifetime).
   @Test func succeeds() async throws {
     let fixture = try Self.fixture(
       interactive: true,
@@ -117,16 +119,131 @@ struct LaunchHelperTests {
     #expect(result.helperPID == 4321)
     #expect(result.childStartedAt == LaunchTestSupport.requestTime.addingTimeInterval(1))
     #expect(fixture.terminal.text.isEmpty)
-    #expect(fixture.terminal.waits == 0)
+    #expect(fixture.terminal.pauses == [.hold(.seconds(10))])
     let events = await fixture.log.events()
     #expect(events.map(\.outcome) == [.success])
     #expect(events.first?.hostID == request.hostID.uuidString)
     #expect(!events.contains { $0.detail.contains("secret-path") || $0.detail.contains("$3") })
   } // End of func succeeds()
 
+  /// tmux ending right after it attached (an early detach, a killed session) must not end the
+  /// tab inside iTerm2's short-lived-session window, which would block iTerm2's API behind a
+  /// modal warning: on an interactive terminal the helper holds until it is
+  /// `defaultMinimumLifetime` (10 s) old, and only after its result is written, so the
+  /// coordinator learns how tmux ended at once.
+  @Test func holdsAQuickEndUntilTheMinimumLifetime() async throws {
+    let fixture = try Self.fixture(interactive: true)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    #expect(LaunchHelper.defaultMinimumLifetime == .seconds(10))
+    #expect(fixture.helper.minimumLifetime == LaunchHelper.defaultMinimumLifetime)
+    let request = LaunchTestSupport.request()
+    let resultPath = fixture.store.directory.appending(path: request.id.rawValue + ".result.json")
+      .path(percentEncoded: false)
+    let resultWrittenBeforeHold = OSAllocatedUnfairLock(initialState: false)
+    fixture.terminal.onHold {
+      let exists = FileManager.default.fileExists(atPath: resultPath)
+      resultWrittenBeforeHold.withLock { $0 = exists }
+    }
+    let (status, _) = try await Self.attach(fixture, request: request)
+    #expect(status == 0)
+    #expect(fixture.terminal.pauses == [.hold(.seconds(10))])
+    #expect(resultWrittenBeforeHold.withLock { $0 })
+    #expect(try fixture.store.takeResult(request.id)?.succeeded == true)
+  } // End of func holdsAQuickEndUntilTheMinimumLifetime()
+
+  /// The hold covers only what is left of the minimum lifetime, counted from the start of the
+  /// run: nothing once the helper is old enough, and the whole lifetime when the clock went
+  /// backwards.
+  @Test(arguments: [
+    (4.0, [Duration.seconds(6)]), (9.5, [.milliseconds(500)]), (10.0, []), (12.0, []),
+    (-5.0, [.seconds(10)]),
+  ])
+  func holdsOnlyWhatIsLeft(elapsedSeconds: Double, holds: [Duration]) async throws {
+    let fixture = try Self.fixture(interactive: true)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let start = LaunchTestSupport.requestTime.addingTimeInterval(1)
+    let calls = OSAllocatedUnfairLock(initialState: 0)
+    var helper = fixture.helper
+    helper.now = {
+      let call = calls.withLock { count -> Int in
+        count += 1
+        return count
+      }
+      return call == 1 ? start : start.addingTimeInterval(elapsedSeconds)
+    }
+    let request = LaunchTestSupport.request()
+    try fixture.store.writeRequest(request)
+    let status = await helper.run(arguments: [Self.helperPath, "attach", request.id.rawValue])
+    #expect(status == 0)
+    #expect(fixture.terminal.holds == holds)
+  } // End of func holdsOnlyWhatIsLeft(elapsedSeconds:holds:)
+
+  /// A usage error on an interactive terminal waits for Return, then holds the rest of the
+  /// minimum lifetime; `help` (typed in a shell, never run in a launch tab) neither waits nor
+  /// holds; a terminal that is not interactive never holds.
+  @Test func holdsAUsageErrorButNotHelp() async throws {
+    let fixture = try Self.fixture(interactive: true)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    #expect(await fixture.helper.run(arguments: [Self.helperPath, "attach"]) == 2)
+    #expect(fixture.terminal.pauses == [.waitForReturn, .hold(.seconds(10))])
+
+    let help = try Self.fixture(interactive: true)
+    defer { try? FileManager.default.removeItem(at: help.root) }
+    #expect(await help.helper.run(arguments: [Self.helperPath, "help"]) == 0)
+    #expect(help.terminal.pauses.isEmpty)
+
+    let unseen = try Self.fixture(interactive: false)
+    defer { try? FileManager.default.removeItem(at: unseen.root) }
+    let (status, _) = try await Self.attach(unseen)
+    #expect(status == 0)
+    #expect(unseen.terminal.pauses.isEmpty)
+  } // End of func holdsAUsageErrorButNotHelp()
+
+  /// `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` (a test seam, removed from the children's
+  /// environment by its prefix) sets the minimum lifetime only when it is 1 to 7 decimal
+  /// digits; anything else keeps the 10 s default.
+  @Test func readsTheMinimumLifetimeOverride() {
+    let variable = LaunchHelper.minimumLifetimeVariable
+    #expect(variable.hasPrefix(LaunchHelper.ownVariablePrefix))
+    #expect(LaunchHelper.minimumLifetime(for: [variable: "1500"]) == .milliseconds(1500))
+    #expect(LaunchHelper.minimumLifetime(for: [variable: "0"]) == .zero)
+    #expect(LaunchHelper.minimumLifetime(for: [variable: "9999999"]) == .milliseconds(9_999_999))
+    #expect(LaunchHelper.minimumLifetime(for: [:]) == LaunchHelper.defaultMinimumLifetime)
+    for value in ["", "abc", "-1", "+5", "1.5", " 15", "15 ", "10000000", "١٢"] {
+      #expect(
+        LaunchHelper.minimumLifetime(for: [variable: value]) == .seconds(10), "\(value)")
+    }
+  } // End of func readsTheMinimumLifetimeOverride()
+
+  /// The wait gate resumes its continuation exactly once: when the end comes after the
+  /// continuation is stored, when it comes before (`arm` resumes at once and reports the wait
+  /// over), and when several ends race (Return against a signal). A second resume would trap.
+  @Test func endsAWaitOnce() async {
+    let late = LaunchWaitGate()
+    await withCheckedContinuation { continuation in
+      #expect(late.arm(continuation))
+      late.finish()
+      late.finish()
+    }
+    let early = LaunchWaitGate()
+    early.finish()
+    await withCheckedContinuation { continuation in
+      #expect(!early.arm(continuation))
+    }
+    early.finish()
+    for _ in 0..<200 {
+      let gate = LaunchWaitGate()
+      await withCheckedContinuation { continuation in
+        #expect(gate.arm(continuation))
+        DispatchQueue.concurrentPerform(iterations: 4) { _ in gate.finish() }
+      }
+    }
+  } // End of func endsAWaitOnce()
+
   /// A guard failure ends the launch before any attach: the typed failure and its exit status,
-  /// the check's termination in the result, the explanation, and a wait only on an interactive
-  /// terminal.
+  /// the check's termination in the result, the explanation, and only on an interactive
+  /// terminal a wait for Return followed by a hold for the rest of the minimum lifetime (Return
+  /// pressed at once must not end the tab young either).
   @Test(arguments: [true, false])
   func explainsGuardFailures(interactive: Bool) async throws {
     let fixture = try Self.fixture(
@@ -143,7 +260,7 @@ struct LaunchHelperTests {
     #expect(result.childTermination == .exited(64))
     #expect(fixture.terminal.text.contains(LaunchFailure.sessionGone.explanation))
     #expect(fixture.terminal.text.contains("Press Return") == interactive)
-    #expect(fixture.terminal.waits == (interactive ? 1 : 0))
+    #expect(fixture.terminal.pauses == (interactive ? [.waitForReturn, .hold(.seconds(10))] : []))
   } // End of func explainsGuardFailures(interactive:)
 
   /// The check's stderr (tmux's error line) reaches the tab as printable ASCII, before the
@@ -191,7 +308,8 @@ struct LaunchHelperTests {
   } // End of func reportsCheckTimeouts()
 
   /// A signal during the check is `interrupted(n)`, exit 128 + n, with nothing attached; a
-  /// SIGHUP (the tab closed) is never waited for, a SIGINT on an interactive terminal is.
+  /// SIGHUP (the tab closed) is never waited for nor held, a SIGINT on an interactive terminal
+  /// is both.
   @Test(arguments: [(SIGHUP, 0), (SIGINT, 1)])
   func reportsInterruptedChecks(signalNumber: Int32, waits: Int) async throws {
     let fixture = try Self.fixture(check: .interrupted([signalNumber]), interactive: true)
@@ -205,10 +323,11 @@ struct LaunchHelperTests {
     #expect(result.childStartedAt != nil)
     #expect(fixture.terminal.text.contains(LaunchFailure.interrupted(signalNumber).explanation))
     #expect(fixture.terminal.waits == waits)
+    #expect(fixture.terminal.holds == (waits == 0 ? [] : [.seconds(10)]))
   } // End of func reportsInterruptedChecks(signalNumber:waits:)
 
-  /// A closed tab (SIGHUP passed on) is explained but never waited for; a signal death exits
-  /// 128 + n.
+  /// A closed tab (SIGHUP passed on) is explained but never waited for nor held; a signal death
+  /// exits 128 + n.
   @Test func handlesHangupsAndSignals() async throws {
     let hungUp = try Self.fixture(
       .termination(.exited(1), forwarded: [SIGHUP]),
@@ -218,7 +337,7 @@ struct LaunchHelperTests {
     let (status, request) = try await Self.attach(hungUp)
     #expect(status == 1)
     #expect(try hungUp.store.takeResult(request.id)?.failure == .childExited(1))
-    #expect(hungUp.terminal.waits == 0)
+    #expect(hungUp.terminal.pauses.isEmpty)
 
     let killed = try Self.fixture(.termination(.signaled(SIGKILL), forwarded: []))
     defer { try? FileManager.default.removeItem(at: killed.root) }

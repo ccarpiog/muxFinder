@@ -12,8 +12,10 @@ signal(SIGPIPE, SIG_IGN)
 // starts `TerminalChildControl.watchTerminalSignals()` right after this (EVFILT_SIGNAL records
 // ignored signals): one that arrives before tmux attaches ends the launch as `interrupted`
 // (killing the check's process group), one that arrives later is passed on to tmux.
-// `StandardLaunchTerminal.waitForReturn()` restores the defaults so Ctrl-C or closing the tab
-// ends the final wait. Only a signal in the instant between these two steps is dropped.
+// For the final wait and hold, `StandardLaunchTerminal` restores SIGHUP's default (closing the
+// tab ends the helper at once) and keeps SIGINT and SIGTERM ignored (Ctrl-C finishes the wait
+// like Return but never ends the helper before its minimum lifetime). Only a signal in the
+// instant between these two steps is dropped.
 for signalNumber in TerminalChildRunner.forwardedSignalNumbers {
   signal(signalNumber, SIG_IGN)
 }

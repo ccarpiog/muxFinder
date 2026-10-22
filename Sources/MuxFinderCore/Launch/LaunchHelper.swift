@@ -1,21 +1,75 @@
 import Darwin
 import Foundation
+import os
 
 /// Where the helper prints its explanation, and how it waits for Return.
+///
+/// Both waits run while the tab may still be visible, so only a SIGHUP (the tab closed, nobody
+/// can see it end) may end the helper during them; a SIGINT (Ctrl-C) or SIGTERM never ends it
+/// before its minimum lifetime (PLAN.md D14).
 public protocol LaunchTerminal: Sendable {
-  /// Whether to wait for Return after a failure: only when a person can see the tab.
+  /// Whether to wait for Return after a failure, and to hold the tab open until the helper's
+  /// minimum lifetime: only when a person can see the tab.
   var isInteractive: Bool { get }
   /// Writes `text` as is.
   func write(_ text: String)
-  /// Returns once the user pressed Return, or the terminal went away.
+  /// Returns once the user pressed Return, the terminal went away, or a SIGINT (Ctrl-C) or
+  /// SIGTERM arrived: those finish the wait like Return, so the hold that follows still keeps
+  /// the tab until the minimum lifetime. Closing the tab (SIGHUP) ends the helper at once.
   func waitForReturn() async
+  /// Keeps the helper, and so its tab, running for `duration`. Closing the tab (SIGHUP) still
+  /// ends it at once; SIGINT (Ctrl-C) and SIGTERM do not end it early.
+  func holdOpen(for duration: Duration) async
+}
+
+/// Ends one `StandardLaunchTerminal.waitForReturn()` exactly once, whichever comes first: a
+/// line end or end of file on standard input, or a finishing signal. It also works when the
+/// end comes before the wait's continuation exists.
+final class LaunchWaitGate: Sendable {
+  /// Where the wait stands.
+  private enum State: Sendable {
+    /// No continuation yet, nothing ended the wait.
+    case open
+    /// Waiting with this continuation.
+    case armed(CheckedContinuation<Void, Never>)
+    /// The wait ended; later ends do nothing.
+    case finished
+  }
+
+  /// The shared state.
+  private let state = OSAllocatedUnfairLock<State>(initialState: .open)
+
+  /// Creates an open gate.
+  init() {}
+
+  /// Stores `continuation`, or resumes it at once when the wait already ended. Returns whether
+  /// the wait is still going on.
+  func arm(_ continuation: CheckedContinuation<Void, Never>) -> Bool {
+    let ended = state.withLock { state -> Bool in
+      if case .finished = state { return true }
+      state = .armed(continuation)
+      return false
+    }
+    if ended { continuation.resume() }
+    return !ended
+  }
+
+  /// Ends the wait: resumes the stored continuation the first time, does nothing afterwards.
+  func finish() {
+    let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
+      defer { state = .finished }
+      if case .armed(let continuation) = state { return continuation }
+      return nil
+    }
+    continuation?.resume()
+  }
 }
 
 /// The helper's real terminal: standard error for text, standard input for Return.
 ///
 /// It is interactive only when standard input is a terminal and `MUXFINDER_LAUNCH_NO_WAIT` is
 /// not `1`, so a helper run by tests (stdin not a terminal) or with the variable set never
-/// waits.
+/// waits for Return and never holds its tab open.
 public struct StandardLaunchTerminal: LaunchTerminal {
   /// Set to `1` to never wait for Return.
   public static let noWaitVariable = "MUXFINDER_LAUNCH_NO_WAIT"
@@ -43,15 +97,40 @@ public struct StandardLaunchTerminal: LaunchTerminal {
     } // End of loop over writes
   } // End of func write(_:)
 
-  /// Restores the default SIGHUP, SIGINT and SIGTERM dispositions (the helper ignores them
-  /// until its result is written, so now Ctrl-C or closing the tab ends the wait), discards
-  /// input typed earlier, then reads standard input on a dedicated thread until a line ends
-  /// (Return sends `\r` in raw mode, `\n` in canonical mode), end of file or an error.
+  /// The signals that finish `waitForReturn()` like Return and never end `holdOpen(for:)`:
+  /// Ctrl-C, or a request to stop, while the tab may still be visible.
+  static let finishingSignalNumbers: [Int32] = [SIGINT, SIGTERM]
+
+  /// Sets the dispositions for both waits: SIGHUP's default again (the helper ignores it until
+  /// its result is written; now closing the tab ends the helper at once, unseen), and SIGINT and
+  /// SIGTERM ignored, so neither ends the helper before its minimum lifetime.
+  static func setWaitDispositions() {
+    signal(SIGHUP, SIG_DFL)
+    for signalNumber in finishingSignalNumbers {
+      signal(signalNumber, SIG_IGN)
+    }
+  }
+
+  /// Sets the wait dispositions (`setWaitDispositions()`), then waits for the first of: a line
+  /// end (Return sends `\r` in raw mode, `\n` in canonical mode), end of file or an error on
+  /// standard input, read on a dedicated thread after discarding input typed earlier; or a
+  /// SIGINT or SIGTERM, seen through dispatch signal sources while ignored. The wait returns
+  /// exactly once; a read thread still blocked after a signal stays blocked until the process
+  /// exits, which the minimum-lifetime hold that follows bounds.
   public func waitForReturn() async {
-    for signalNumber in TerminalChildRunner.forwardedSignalNumbers {
-      signal(signalNumber, SIG_DFL)
+    Self.setWaitDispositions()
+    let gate = LaunchWaitGate()
+    let sources = Self.finishingSignalNumbers.map { signalNumber in
+      let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global())
+      source.setEventHandler { gate.finish() }
+      source.resume()
+      return source
+    }
+    defer {
+      for source in sources { source.cancel() }
     }
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      guard gate.arm(continuation) else { return }
       let thread = Thread {
         tcflush(STDIN_FILENO, TCIFLUSH)
         var byte: UInt8 = 0
@@ -61,12 +140,19 @@ public struct StandardLaunchTerminal: LaunchTerminal {
           if count < 0, errno == EINTR { continue }
           break
         }
-        continuation.resume()
+        gate.finish()
       }
       thread.name = "cc.carpio.muxfinder.launch-wait"
       thread.start()
     }
   } // End of func waitForReturn()
+
+  /// Sets the wait dispositions (`setWaitDispositions()`: closing the tab ends the helper at
+  /// once, SIGINT and SIGTERM do not), then sleeps for `duration`.
+  public func holdOpen(for duration: Duration) async {
+    Self.setWaitDispositions()
+    try? await Task.sleep(for: duration)
+  }
 }
 
 /// `muxfinder-launch attach <launch id>`: the helper iTerm2 runs in a launch tab (PLAN.md D2,
@@ -84,13 +170,25 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 /// up, waits for Return so the tab shows why. A signal before tmux attaches (the tab closed
 /// during the check) ends the launch as `interrupted` without attaching.
 ///
+/// On that same interactive, not hung-up terminal it never exits before it is
+/// `minimumLifetime` old, whatever the outcome: iTerm2 blocks its whole API behind a modal
+/// warning when a session ends within seconds of starting (PLAN.md D14, *Verified facts*), and
+/// tmux can end right after attaching (an early detach, a killed session), Return can be
+/// pressed at once, or Ctrl-C typed (SIGINT and SIGTERM finish the wait like Return and never
+/// end the hold; only SIGHUP, a closed tab, ends the helper early). The result is written
+/// before that hold, so nobody waits for it.
+///
 /// Environment variables (development and tests; production sets none):
 /// - `MUXFINDER_LAUNCH_DIRECTORY`: an absolute path used as the launch directory instead of
 ///   `~/Library/Application Support/muxFinder/launch`. A relative or empty value is refused as
 ///   `launchDirectoryUnusable`.
 /// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`); the
 ///   `test-mode` marker file in the launch directory does the same.
-/// - `MUXFINDER_LAUNCH_NO_WAIT=1`: never wait for Return (`StandardLaunchTerminal`).
+/// - `MUXFINDER_LAUNCH_NO_WAIT=1`: never wait for Return nor hold the tab open
+///   (`StandardLaunchTerminal`).
+/// - `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS`: the minimum lifetime in milliseconds (1 to 7
+///   decimal digits; anything else keeps `defaultMinimumLifetime`), so tests can run the
+///   binary in a pseudo-terminal without waiting 10 s.
 ///
 /// Diagnostics record failure kinds, exit statuses and counts only: never paths, names,
 /// command lines or terminal content.
@@ -111,6 +209,12 @@ public struct LaunchHelper: Sendable {
   static let ownVariablePrefix = "MUXFINDER_LAUNCH_"
   /// The usage line.
   public static let usage = "usage: muxfinder-launch attach <launch id>"
+  /// The production `minimumLifetime`. iTerm2 3.7.6 warns about sessions that end within 3 s of
+  /// starting (its `shortLivedSessionDuration` default); 10 s matches the attach coordinator's
+  /// minimum launch tab age (PLAN.md D15).
+  public static let defaultMinimumLifetime: Duration = .seconds(10)
+  /// Overrides the minimum lifetime with a whole number of milliseconds (tests only).
+  public static let minimumLifetimeVariable = "MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS"
 
   /// The launch files, or `nil` when the directory override is unusable.
   public var store: LaunchStore?
@@ -128,6 +232,9 @@ public struct LaunchHelper: Sendable {
   public var now: @Sendable () -> Date
   /// The check's hard deadline (`LaunchGuard.defaultTimeout` in production).
   public var checkTimeout: Duration
+  /// How old the helper must be, counted from the start of `run`, before it exits while someone
+  /// can see its tab (`defaultMinimumLifetime` in production).
+  public var minimumLifetime: Duration
 
   /// Creates a helper from its parts. Tests pass fakes.
   public init(
@@ -138,7 +245,8 @@ public struct LaunchHelper: Sendable {
     log: DiagnosticsLog,
     processID: Int32,
     now: @escaping @Sendable () -> Date = { Date() },
-    checkTimeout: Duration = LaunchGuard.defaultTimeout
+    checkTimeout: Duration = LaunchGuard.defaultTimeout,
+    minimumLifetime: Duration = LaunchHelper.defaultMinimumLifetime
   ) {
     self.store = store
     self.environment = environment
@@ -148,13 +256,14 @@ public struct LaunchHelper: Sendable {
     self.processID = processID
     self.now = now
     self.checkTimeout = checkTimeout
-  } // End of init(store:environment:childRunner:terminal:log:processID:now:checkTimeout:)
+    self.minimumLifetime = minimumLifetime
+  } // End of init(store:environment:childRunner:terminal:log:processID:now:checkTimeout:…)
 
   /// The production helper: the store from `store(for:)`, a `TerminalChildRunner` whose control
   /// receives this process's SIGHUP, SIGINT and SIGTERM from now on
-  /// (`TerminalChildControl.watchTerminalSignals()`), the real terminal and a diagnostics log
-  /// mirrored to the unified log. Call it once, in the helper process, after ignoring those
-  /// signals.
+  /// (`TerminalChildControl.watchTerminalSignals()`), the real terminal, a diagnostics log
+  /// mirrored to the unified log and the minimum lifetime from `minimumLifetime(for:)`. Call it
+  /// once, in the helper process, after ignoring those signals.
   public static func standard(
     environment: [String: String] = ProcessInfo.processInfo.environment
   ) -> LaunchHelper {
@@ -166,9 +275,21 @@ public struct LaunchHelper: Sendable {
       childRunner: TerminalChildRunner(control: control),
       terminal: StandardLaunchTerminal(environment: environment),
       log: DiagnosticsLog(),
-      processID: getpid()
+      processID: getpid(),
+      minimumLifetime: minimumLifetime(for: environment)
     )
   } // End of func standard(environment:)
+
+  /// The minimum lifetime for `environment`: `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` when it is
+  /// 1 to 7 decimal digits (milliseconds), otherwise `defaultMinimumLifetime`.
+  static func minimumLifetime(for environment: [String: String]) -> Duration {
+    guard let text = environment[minimumLifetimeVariable],
+      (1...7).contains(text.utf8.count),
+      text.utf8.allSatisfy({ (0x30...0x39).contains($0) }),
+      let milliseconds = Int(text)
+    else { return defaultMinimumLifetime }
+    return .milliseconds(milliseconds)
+  }
 
   /// The launch store for `environment`: the override in `MUXFINDER_LAUNCH_DIRECTORY` if set
   /// (`nil` when it is not absolute), otherwise the standard location.
@@ -215,6 +336,7 @@ public struct LaunchHelper: Sendable {
       )
       terminal.write(Self.usage + "\n")
       await explain(.usage, terminalHungUp: false)
+      await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: false)
       return LaunchFailure.usage.exitStatus
     }
   } // End of func run(argv:)
@@ -392,8 +514,8 @@ public struct LaunchHelper: Sendable {
     }
   }
 
-  /// Writes the result (when `resultStore` is set), logs, explains a failure and returns the
-  /// exit status.
+  /// Writes the result (when `resultStore` is set), logs, explains a failure, holds the tab
+  /// open until the helper is `minimumLifetime` old, and returns the exit status.
   func finish(
     _ id: LaunchToken,
     request: LaunchRequest?,
@@ -443,6 +565,7 @@ public struct LaunchHelper: Sendable {
         detail: "tmux ended normally."
       )
     }
+    await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: child.terminalHungUp)
     return result.exitStatus
   } // End of func finish(_:request:failure:child:startedAt:resultStore:)
 
@@ -453,6 +576,18 @@ public struct LaunchHelper: Sendable {
     terminal.write("\nPress Return to close.")
     await terminal.waitForReturn()
     terminal.write("\n")
+  }
+
+  /// When someone can see the tab (an interactive terminal that was not hung up), keeps the
+  /// helper running until it is `minimumLifetime` old, counted from `startedAt`, so its tab
+  /// never ends inside iTerm2's short-lived-session window. A clock that went backwards counts
+  /// as no time passed.
+  func holdUntilMinimumLifetime(since startedAt: Date, terminalHungUp: Bool) async {
+    guard terminal.isInteractive, !terminalHungUp else { return }
+    let elapsed = Duration.seconds(max(0, now().timeIntervalSince(startedAt)))
+    let remaining = minimumLifetime - elapsed
+    guard remaining > .zero else { return }
+    await terminal.holdOpen(for: remaining)
   }
 
   /// The errno behind a spawn failure (`EINVAL` for a request the runner refused).

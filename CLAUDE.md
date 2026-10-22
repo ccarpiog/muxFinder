@@ -44,15 +44,19 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `~/Library/Application Support/muxFinder/launch/`. For checks, set
   `MUXFINDER_LAUNCH_DIRECTORY=<absolute private dir>` and a private `TMUX_TMPDIR`.
   `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
-  argv digest; `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return. Exit codes and the
-  digest format: PLAN.md D14, `docs/TESTING.md`.
+  argv digest; `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return and the 10 s minimum
+  lifetime (on a terminal the helper never exits younger). Exit codes and the digest format:
+  PLAN.md D14, `docs/TESTING.md`.
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
   `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.
 - Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`, with
-  `TMUX_TMPDIR` unset): `swift run muxfinder-probe e2e-local`, and `swift run muxfinder-probe
-  e2e-remote saturno-m4` once Phase 5 lands; one-off `attach --local --session '<$id>'` and
-  `detach --connection <id> --gateway <session id>` (see `docs/TESTING.md`).
+  `TMUX_TMPDIR` unset, after `swift build`: `swift run muxfinder-probe` does not rebuild the
+  `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (about 43 s; passed
+  twice in Phase 4c), and `swift run muxfinder-probe e2e-remote saturno-m4` once Phase 5
+  lands; one-off `attach --local --session '<$id>'` and `detach --connection <id> --gateway
+  <session id>` (see `docs/TESTING.md`). Check `muxfinder-probe iterm2 status` before and
+  after; a timeout means a modal iTerm2 dialog: stop and report, never script the UI.
 
 ## Environment
 

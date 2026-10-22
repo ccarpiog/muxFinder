@@ -330,14 +330,25 @@ final class FakeLaunchChildRunner: LaunchChildRunner {
   } // End of func run(executable:arguments:environment:)
 }
 
-/// A `LaunchTerminal` that records what was written and how often it waited.
+/// A `LaunchTerminal` that records what was written, and every wait for Return and hold, in
+/// order; both return at once.
 final class FakeLaunchTerminal: LaunchTerminal {
+  /// One wait or hold, in the order the helper asked for them.
+  enum Pause: Equatable {
+    /// `waitForReturn()`.
+    case waitForReturn
+    /// `holdOpen(for:)` with its duration.
+    case hold(Duration)
+  }
+
   /// Recorded state.
   private struct State {
     /// Everything written.
     var text = ""
-    /// How many times `waitForReturn()` ran.
-    var waits = 0
+    /// Every wait and hold, in order.
+    var pauses: [Pause] = []
+    /// Runs at the start of every hold, if set.
+    var onHold: (@Sendable () -> Void)?
   }
 
   /// See `LaunchTerminal.isInteractive`.
@@ -353,7 +364,23 @@ final class FakeLaunchTerminal: LaunchTerminal {
   /// Everything written so far.
   var text: String { state.withLock { $0.text } }
   /// How many times the helper waited for Return.
-  var waits: Int { state.withLock { $0.waits } }
+  var waits: Int { state.withLock { $0.pauses.filter { $0 == .waitForReturn }.count } }
+  /// The durations of the helper's holds, in order.
+  var holds: [Duration] {
+    state.withLock { state in
+      state.pauses.compactMap { pause in
+        if case .hold(let duration) = pause { return duration }
+        return nil
+      }
+    }
+  }
+  /// Every wait and hold, in order.
+  var pauses: [Pause] { state.withLock { $0.pauses } }
+
+  /// Runs `body` at the start of every later hold (to look at what exists by then).
+  func onHold(_ body: @escaping @Sendable () -> Void) {
+    state.withLock { $0.onHold = body }
+  }
 
   /// Records `text`.
   func write(_ text: String) {
@@ -362,6 +389,173 @@ final class FakeLaunchTerminal: LaunchTerminal {
 
   /// Records a wait and returns at once.
   func waitForReturn() async {
-    state.withLock { $0.waits += 1 }
+    state.withLock { $0.pauses.append(.waitForReturn) }
   }
-}
+
+  /// Records a hold, runs the `onHold` body, and returns at once.
+  func holdOpen(for duration: Duration) async {
+    let body = state.withLock { state -> (@Sendable () -> Void)? in
+      state.pauses.append(.hold(duration))
+      return state.onHold
+    }
+    body?()
+  }
+} // End of class FakeLaunchTerminal
+
+/// A built `muxfinder-launch` running in a pseudo-terminal, so it is interactive: its stdin is
+/// the terminal's slave side, while its stdout and stderr share one pipe that a dedicated
+/// thread reads. It leads its own process group, so signals reach the helper alone. The test
+/// keeps the master side open (the helper never reads end of file) and types Return through
+/// it. `stop()` kills (if needed) and reaps the helper and closes the master.
+final class PseudoTerminalHelper: Sendable {
+  /// The helper's pid; it stays this process's unreaped child until `reap()` or `stop()`.
+  let processID: pid_t
+  /// Just before the helper was spawned, so no instant of the helper's own life precedes it.
+  let startedAt: ContinuousClock.Instant
+  /// The terminal's master side (non-blocking, close-on-exec).
+  private let master: Int32
+
+  /// Lock-protected state.
+  private struct State: Sendable {
+    /// Everything the helper wrote so far.
+    var output = Data()
+    /// How the helper ended, once reaped.
+    var termination: ProcessResult.Termination?
+  }
+
+  /// The shared state.
+  private let state = OSAllocatedUnfairLock(initialState: State())
+
+  /// Spawns `helper` with `arguments` (after argv[0]) and exactly `environment`.
+  init(helper: URL, arguments: [String], environment: [String: String]) throws {
+    let start = ContinuousClock.now
+    var master: Int32 = -1
+    var slave: Int32 = -1
+    guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    defer { close(slave) }
+    for descriptor in [master, slave] { _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC) }
+    _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
+    let output: PipePair
+    do {
+      output = try PipePair.make()
+    } catch {
+      close(master)
+      throw error
+    }
+    defer { close(output.writeEnd) }
+    let spawned: pid_t
+    do {
+      spawned = try Self.spawn(
+        ProcessRequest(executableURL: helper, arguments: arguments, environment: environment),
+        terminal: slave,
+        output: output.writeEnd
+      )
+    } catch {
+      close(master)
+      close(output.readEnd)
+      throw error
+    }
+    self.master = master
+    processID = spawned
+    startedAt = start
+    let reader = Thread { [state] in
+      var buffer = [UInt8](repeating: 0, count: 1024)
+      while true {
+        let count = read(output.readEnd, &buffer, buffer.count)
+        if count < 0, errno == EINTR { continue }
+        guard count > 0 else { break }
+        let chunk = Data(buffer.prefix(count))
+        state.withLock { $0.output.append(chunk) }
+      }
+      close(output.readEnd)
+    }
+    reader.name = "cc.carpio.muxfinder.test-pty-output"
+    reader.start()
+  } // End of init(helper:arguments:environment:)
+
+  /// Spawns the request with stdin on `terminal`, stdout and stderr on `output`, in a new
+  /// process group and with default signal dispositions.
+  private static func spawn(
+    _ request: ProcessRequest,
+    terminal: Int32,
+    output: Int32
+  ) throws -> pid_t {
+    let parameters = try ProcessSupervisor.launchParameters(for: request)
+    let argv = try CStringArray(parameters.argv)
+    let envp = try CStringArray(parameters.environment)
+    var actions = try SpawnFileActions()
+    defer { actions.destroy() }
+    try actions.duplicate(terminal, to: STDIN_FILENO)
+    try actions.duplicate(output, to: STDOUT_FILENO)
+    try actions.duplicate(output, to: STDERR_FILENO)
+    var attributes = try SpawnAttributes()
+    defer { attributes.destroy() }
+    var processID: pid_t = 0
+    let code = argv.withUnsafePointer { argvPointer in
+      envp.withUnsafePointer { envPointer in
+        posix_spawn(
+          &processID, parameters.path, &actions.raw, &attributes.raw, argvPointer, envPointer)
+      }
+    }
+    guard code == 0 else { throw ProcessRunnerError.spawnFailed(errno: code) }
+    return processID
+  } // End of func spawn(_:terminal:output:)
+
+  /// Everything the helper wrote so far, as text.
+  var text: String {
+    String(decoding: state.withLock { $0.output }, as: UTF8.self)
+  }
+
+  /// Types Return (a carriage return, which the terminal turns into a line end).
+  func pressReturn() {
+    var byte: UInt8 = 0x0D
+    _ = write(master, &byte, 1)
+  }
+
+  /// Sends `signalNumber` to the helper alone, unless it was already reaped.
+  func send(_ signalNumber: Int32) {
+    guard state.withLock({ $0.termination == nil }) else { return }
+    _ = kill(processID, signalNumber)
+  }
+
+  /// Whether the helper has exited (without reaping it).
+  var hasExited: Bool {
+    state.withLock { $0.termination != nil } || ProcessSupervisor.hasExited(processID)
+  }
+
+  /// Reaps the helper (blocking until it exits) and returns how it ended.
+  func reap() -> ProcessResult.Termination? {
+    if let termination = state.withLock({ $0.termination }) { return termination }
+    guard case .success(let status) = ProcessSupervisor.reap(processID) else { return nil }
+    let termination = ProcessSupervisor.termination(fromWaitStatus: status)
+    state.withLock { $0.termination = termination }
+    return termination
+  }
+
+  /// Kills the helper if it still runs, reaps it and closes the master side.
+  func stop() {
+    if state.withLock({ $0.termination == nil }) {
+      if !ProcessSupervisor.hasExited(processID) { _ = kill(processID, SIGKILL) }
+      _ = reap()
+    }
+    close(master)
+  }
+
+  /// Repeats `action` every 50 ms until `done` holds or `limit` passes; returns the instant
+  /// `done` was first seen to hold, or `nil` on timeout.
+  static func repeating(
+    _ action: () -> Void,
+    until done: () -> Bool,
+    within limit: Duration
+  ) async -> ContinuousClock.Instant? {
+    let deadline = ContinuousClock.now + limit
+    while ContinuousClock.now < deadline {
+      if done() { return .now }
+      action()
+      try? await Task.sleep(for: .milliseconds(50))
+    }
+    return done() ? .now : nil
+  } // End of func repeating(_:until:within:)
+} // End of class PseudoTerminalHelper

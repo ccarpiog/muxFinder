@@ -23,7 +23,8 @@ enum E2ELocalCommand {
           attaches it, checks its tabs and split, detaches, reattaches, attaches twice at once
           and tries a stale launch, printing a PASS or FAIL line per step. Cleans up after
           itself, also on failure or Ctrl-C. Needs iTerm2 running with its API on, and
-          TMUX_TMPDIR unset (the helper in iTerm2 always uses the default server).
+          TMUX_TMPDIR unset (the helper in iTerm2 always uses the default server). Run
+          swift build first: iTerm2 runs the muxfinder-launch next to this executable.
     """
 
   /// How long the whole run may take before it is stopped and cleaned up.
@@ -132,10 +133,11 @@ actor E2ELocal {
   /// The tmux session's shape: windows, and panes per window.
   static let expectedPaneCounts = [1, 2]
   /// How old a launch tab must be before the run ends it by killing the session or closing the
-  /// tab. iTerm2 3.7.6 shows an application-modal "session ended very soon after starting"
-  /// warning when a session ends within a few seconds of starting, and that warning blocks its
-  /// API until someone answers it (seen in the first real run). The coordinator keeps the same
-  /// age before every detach; this is its default.
+  /// tab. iTerm2 3.7.6 shows a modal "session ended very soon after starting" warning when a
+  /// session ends within 3 s of starting (its `shortLivedSessionDuration` default), and that
+  /// warning blocks its API until someone answers it (seen in the first real run). The
+  /// coordinator keeps the same age before every detach, and the helper never exits younger
+  /// while its tab is visible; this is the coordinator's default.
   static let launchTabMinimumAge = AttachCoordinator.Configuration().minimumLaunchTabAge
 
   /// tmux on the default server.
@@ -493,6 +495,7 @@ actor E2ELocal {
     else { throw StepFailure("no attachment") }
     let detach = await coordinator.detach(
       connectionID: connectionID, gatewaySessionID: gateway, launchID: result.launchID)
+    let ageAtDetach = recorder.age(of: gateway)
     guard detach.commandError != .tmuxConnectionNotOwned else {
       throw StepFailure("connection \(connectionID) is no longer the launch tab's; nothing sent")
     }
@@ -514,7 +517,9 @@ actor E2ELocal {
     notes.append(
       "detach-client was answered \(detach.commandError == nil ? "with OK" : "with an error"); "
         + "the helper exited 0; the launch tab "
-        + (gatewayClosed == true ? "closed by itself when the helper exited" : "stayed open"))
+        + (gatewayClosed == true ? "closed by itself when the helper exited" : "stayed open")
+        + "; it was \(ageAtDetach) s old when the connection had closed and the helper's result "
+        + "had arrived")
     let survival = try await checkSurvives()
     current = nil
     return "connection \(connectionID) closed cleanly, its tabs closed; \(survival)"
@@ -653,27 +658,34 @@ actor E2ELocal {
       !connections.contains(where: { $0.owningSessionID == gateway }),
       clients.succeeded, clients.lines.isEmpty
     else { throw StepFailure("something attached: \(connections.count) connection(s)") }
-    try await Task.sleep(for: .seconds(1))
-    let stillOpen = try await client.listSessions().allSessionIDs.contains(gateway)
     notes.append(
-      "the refused launch tab "
-        + (stillOpen
-          ? "stays open showing the explanation (the helper waits for Return)"
-          : "closed by itself"))
-    if stillOpen {
-      try await waitUntilOldEnough([gateway])
-      let closed = try await client.close(.init(target: .sessions([gateway]), force: true))
-      let gone = try await poll(timeout: .seconds(5)) { () -> Bool? in
-        try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
-      }
-      guard closed.statuses == [.ok], gone == true else {
-        throw StepFailure("closing the refused launch tab failed")
-      }
-      notes.append("the test closed that tab by the session id iTerm2 reported for it (forced)")
+      "the guard's refusal reached the coordinator \(ms(result.timings.finished)) ms after the "
+        + "attach call (launch tab opened at \(ms(result.timings.launched)) ms)")
+    // The helper must keep the tab open with its explanation (it waits for Return); a tab that
+    // ended by itself this young would also have raised iTerm2's blocking warning.
+    try await Task.sleep(for: .seconds(1))
+    guard try await client.listSessions().allSessionIDs.contains(gateway) else {
+      throw StepFailure(
+        "the refused launch tab closed by itself instead of showing the explanation and waiting "
+          + "for Return")
     }
+    notes.append("the refused launch tab stays open showing the explanation (the helper waits)")
+    try await waitUntilOldEnough([gateway])
+    let ageAtClose = recorder.age(of: gateway)
+    let closed = try await client.close(.init(target: .sessions([gateway]), force: true))
+    let gone = try await poll(timeout: .seconds(5)) { () -> Bool? in
+      try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
+    }
+    guard closed.statuses == [.ok], gone == true else {
+      throw StepFailure("closing the refused launch tab failed")
+    }
+    notes.append(
+      "the test closed that tab by the session id iTerm2 reported for it (forced), \(ageAtClose) "
+        + "s after it opened")
     _ = try await checkSurvives()
     return "revalidation refused the stale target without a tab; the guard refused the stale "
-      + "request (sessionChanged), no connection or tmux client appeared"
+      + "request (sessionChanged), no connection or tmux client appeared; the refused tab "
+      + "stayed open until the test closed it"
   } // End of func staleGuard()
 
   /// Waits until every launch tab in `gateways` is `launchTabMinimumAge` old, so ending it
