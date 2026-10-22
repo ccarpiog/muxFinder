@@ -62,13 +62,107 @@ final class ManualAttachClock: AttachClock {
   var heldSleeps: Int { state.withLock { $0.heldSleeps } }
 }
 
-/// A scripted `HostDiscovering`: answers with `status`, counts calls, and can hold every call
-/// until `release()`.
+/// A clock for timeouts: `sleep(for:)` waits until `advance(by:)` moves virtual time past its
+/// deadline (or its task is cancelled), so a test decides exactly when a timeout fires.
+final class GatedAttachClock: AttachClock {
+  /// One waiting sleep.
+  private struct Waiter {
+    /// When it ends, in virtual time.
+    let deadline: Duration
+    /// Resumes the sleep.
+    let continuation: CheckedContinuation<Void, any Error>
+  }
+
+  /// Mutable state.
+  private struct State {
+    /// Virtual time since `base`.
+    var offset: Duration = .zero
+    /// Waiting sleeps, by id.
+    var waiters: [Int: Waiter] = [:]
+    /// Ids of sleeps cancelled before they registered.
+    var cancelledEarly: Set<Int> = []
+    /// The next sleep's id.
+    var nextID = 0
+    /// How many sleeps ever started.
+    var started = 0
+  }
+
+  /// The real instant virtual time starts from.
+  private let base = ContinuousClock.now
+  /// The state.
+  private let state = OSAllocatedUnfairLock(initialState: State())
+
+  /// `base` plus the virtual time.
+  func now() -> ContinuousClock.Instant { base + state.withLock { $0.offset } }
+
+  /// `ManualAttachClock.baseDate` plus the virtual time.
+  func date() -> Date {
+    let offset = state.withLock { $0.offset }
+    return ManualAttachClock.baseDate.addingTimeInterval(Double(offset / .milliseconds(1)) / 1000)
+  }
+
+  /// Waits until virtual time reaches now + `duration`, or throws when cancelled. Counts as
+  /// started even when its task is cancelled already.
+  func sleep(for duration: Duration) async throws {
+    let id = state.withLock { state -> Int in
+      state.nextID += 1
+      state.started += 1
+      return state.nextID
+    }
+    try Task.checkCancellation()
+    try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        let immediate = state.withLock { state -> Result<Void, any Error>? in
+          if state.cancelledEarly.remove(id) != nil { return .failure(CancellationError()) }
+          guard duration > .zero else { return .success(()) }
+          state.waiters[id] = Waiter(deadline: state.offset + duration, continuation: continuation)
+          return nil
+        }
+        if let immediate { continuation.resume(with: immediate) }
+      }
+    } onCancel: {
+      let waiter = state.withLock { state -> Waiter? in
+        guard let waiter = state.waiters.removeValue(forKey: id) else {
+          state.cancelledEarly.insert(id)
+          return nil
+        }
+        return waiter
+      }
+      waiter?.continuation.resume(throwing: CancellationError())
+    }
+  } // End of func sleep(for:)
+
+  /// Moves virtual time forward and ends every sleep whose deadline it reaches.
+  func advance(by duration: Duration) {
+    let due = state.withLock { state -> [Waiter] in
+      state.offset += duration
+      let due = state.waiters.filter { $0.value.deadline <= state.offset }
+      for id in due.keys { state.waiters[id] = nil }
+      return Array(due.values)
+    }
+    for waiter in due { waiter.continuation.resume() }
+  } // End of func advance(by:)
+
+  /// How many sleeps wait now.
+  var waiting: Int { state.withLock { $0.waiters.count } }
+
+  /// How many sleeps ever started.
+  var started: Int { state.withLock { $0.started } }
+
+  /// Virtual time elapsed so far.
+  var elapsed: Duration { state.withLock { $0.offset } }
+}
+
+/// A scripted `HostDiscovering`: answers with `status` (and a report naming `nodeName`), counts
+/// calls, can hold every call until `release()`, and can take a while on a test clock.
 final class FakeDiscovery: HostDiscovering {
   /// Mutable state.
   private struct State {
     /// The status every call reports.
     var status: HostStatus
+    /// The node name of the report every call carries; `nil` for no report.
+    var nodeName: String?
     /// Calls so far.
     var calls = 0
     /// Whether calls wait for `release()`.
@@ -79,13 +173,32 @@ final class FakeDiscovery: HostDiscovering {
 
   /// The state.
   private let state: OSAllocatedUnfairLock<State>
+  /// How long every call takes on `clock`.
+  private let delay: Duration
+  /// The clock `delay` passes on; `nil` for no delay.
+  private let clock: (any AttachClock)?
 
-  /// Creates a discovery reporting `status`; `gated` holds calls until `release()`.
-  init(_ status: HostStatus, gated: Bool = false) {
-    state = OSAllocatedUnfairLock(initialState: State(status: status, gated: gated))
+  /// Creates a discovery reporting `status` with a report naming `nodeName` (none when `nil`);
+  /// `gated` holds calls until `release()`; every call takes `delay` on `clock`, if given.
+  init(
+    _ status: HostStatus,
+    nodeName: String? = AttachTestSupport.nodeName,
+    gated: Bool = false,
+    takes delay: Duration = .zero,
+    on clock: (any AttachClock)? = nil
+  ) {
+    state = OSAllocatedUnfairLock(
+      initialState: State(status: status, nodeName: nodeName, gated: gated))
+    self.delay = delay
+    self.clock = clock
+  } // End of init(_:nodeName:gated:takes:on:)
+
+  /// Changes the status later calls report.
+  func setStatus(_ status: HostStatus) {
+    state.withLock { $0.status = status }
   }
 
-  /// Reports the scripted status for `host`, after `release()` when gated.
+  /// Reports the scripted status for `host`, after `release()` when gated and after the delay.
   func discover(_ host: HostConfig) async throws -> DiscoveryResult {
     let gated = state.withLock { state -> Bool in
       state.calls += 1
@@ -101,8 +214,11 @@ final class FakeDiscovery: HostDiscovering {
         if resumeNow { continuation.resume() }
       }
     }
-    let status = state.withLock { $0.status }
-    return DiscoveryResult(hostID: host.id, status: status, report: nil, duration: .milliseconds(5))
+    if let clock, delay > .zero { try await clock.sleep(for: delay) }
+    let (status, nodeName) = state.withLock { ($0.status, $0.nodeName) }
+    return DiscoveryResult(
+      hostID: host.id, status: status, report: nodeName.map { ProbeReport(nodeName: $0) },
+      duration: .milliseconds(5))
   } // End of func discover(_:)
 
   /// Lets every held call (and every later one) continue.
@@ -209,13 +325,17 @@ final class UpdateLog: Sendable {
 }
 
 /// Wraps a `FakeITerm2Integration` for attach tests: records the virtual time of every tmux
-/// command that reached "iTerm2" (did not fail as not sent), and can hold the answer of the
-/// first `createTab` call until `releaseCreateTab()`.
+/// command that reached "iTerm2" (did not fail as not sent), can hold the answer of the first
+/// `createTab` call until `releaseCreateTab()`, can make the bound commands of some
+/// connections hang (sent, never answered) until their task is cancelled, and can make every
+/// plain connection listing take a while on the clock.
 final class InstrumentedITerm2: ITerm2Integration {
   /// A tmux command that was sent, and the virtual time it was sent at.
   struct SentCommand: Sendable, Hashable {
     /// The command.
     let command: String
+    /// The connection it was sent to.
+    let connectionID: String
     /// The clock's virtual time when it was sent.
     let at: Duration
   }
@@ -232,29 +352,66 @@ final class InstrumentedITerm2: ITerm2Integration {
     var held: CheckedContinuation<Void, Never>?
     /// Whether `releaseCreateTab()` ran.
     var released = false
+    /// Connections whose bound commands hang.
+    var hanging: Set<String>
+    /// Bound commands hanging now.
+    var hangingNow = 0
+    /// Answers to bound commands by connection, used instead of the fake's own answer once
+    /// its ownership check passed: first one next, the last one repeats.
+    var answers: [String: [Result<String, ITerm2Error>]] = [:]
+    /// How long every `listTmuxConnections()` call takes on the clock.
+    var listingDelay: Duration = .zero
   }
 
   /// The fake every call goes to.
   let fake: FakeITerm2Integration
   /// The clock whose virtual time is recorded.
-  let clock: ManualAttachClock
+  let clock: any VirtualTimeClock
   /// The state.
   private let state: OSAllocatedUnfairLock<State>
 
   /// Wraps `fake`; `holdsFirstCreateTab` holds the first `createTab` answer (the fake has
-  /// already produced it) until `releaseCreateTab()`.
+  /// already produced it) until `releaseCreateTab()`; bound commands to `hanging` connections
+  /// are sent (the fake answers them) but their answer never arrives.
   init(
     _ fake: FakeITerm2Integration,
-    clock: ManualAttachClock,
-    holdsFirstCreateTab: Bool = false
+    clock: any VirtualTimeClock,
+    holdsFirstCreateTab: Bool = false,
+    hanging: Set<String> = []
   ) {
     self.fake = fake
     self.clock = clock
-    state = OSAllocatedUnfairLock(initialState: State(holdsFirstCreateTab: holdsFirstCreateTab))
+    state = OSAllocatedUnfairLock(
+      initialState: State(holdsFirstCreateTab: holdsFirstCreateTab, hanging: hanging))
   }
 
   /// The tmux commands sent so far, oldest first.
   var sent: [SentCommand] { state.withLock { $0.sent } }
+
+  /// How many bound commands hang now.
+  var hangingNow: Int { state.withLock { $0.hangingNow } }
+
+  /// Makes every `listTmuxConnections()` call take `delay` on the clock first.
+  func setListingDelay(_ delay: Duration) {
+    state.withLock { $0.listingDelay = delay }
+  }
+
+  /// Sets the answers bound commands to `connectionID` get, in order (the last one repeats).
+  func setAnswers(_ answers: [Result<String, ITerm2Error>], for connectionID: String) {
+    state.withLock { $0.answers[connectionID] = answers }
+  }
+
+  /// The next scripted answer for `connectionID`, if it has any.
+  private func nextAnswer(for connectionID: String) -> Result<String, ITerm2Error>? {
+    state.withLock { state -> Result<String, ITerm2Error>? in
+      guard var queue = state.answers[connectionID], let first = queue.first else { return nil }
+      if queue.count > 1 {
+        queue.removeFirst()
+        state.answers[connectionID] = queue
+      }
+      return first
+    }
+  } // End of func nextAnswer(for:)
 
   /// Whether the first `createTab` call is being held.
   var isHoldingCreateTab: Bool { state.withLock { $0.held != nil } }
@@ -269,10 +426,12 @@ final class InstrumentedITerm2: ITerm2Integration {
     held?.resume()
   }
 
-  /// Records `command` as sent now.
-  private func recordSent(_ command: String) {
+  /// Records `command` as sent to `connectionID` now.
+  private func recordSent(_ command: String, to connectionID: String) {
     let at = clock.elapsed
-    state.withLock { $0.sent.append(SentCommand(command: command, at: at)) }
+    state.withLock {
+      $0.sent.append(SentCommand(command: command, connectionID: connectionID, at: at))
+    }
   }
 
   /// Forwards to the fake.
@@ -316,43 +475,67 @@ final class InstrumentedITerm2: ITerm2Integration {
     return try result.get()
   } // End of func createTab(_:)
 
-  /// Forwards to the fake.
+  /// Waits for the listing delay, if any, then forwards to the fake.
   func listTmuxConnections() async throws -> [ITerm2API.TmuxConnection] {
-    try await fake.listTmuxConnections()
+    let delay = state.withLock { $0.listingDelay }
+    if delay > .zero { try await clock.sleep(for: delay) }
+    return try await fake.listTmuxConnections()
   }
 
   /// Forwards to the fake and records the command unless it certainly was not sent.
   func sendTmuxCommand(_ command: String, connectionID: String) async throws -> String {
     do {
       let output = try await fake.sendTmuxCommand(command, connectionID: connectionID)
-      recordSent(command)
+      recordSent(command, to: connectionID)
       return output
     } catch let error as ITerm2Error {
-      if !error.isNotSent { recordSent(command) }
+      if !error.isNotSent { recordSent(command, to: connectionID) }
       throw error
     }
   }
 
-  /// Forwards to the fake and records the command unless it certainly was not sent.
+  /// Forwards to the fake and records the command unless it certainly was not sent; a
+  /// connection with scripted answers then gets its next one instead of the fake's. For a
+  /// hanging connection it then waits until the task is cancelled and throws
+  /// `CancellationError` (sent, never answered).
   func sendTmuxCommand(
     _ command: String,
     connectionID: String,
     ownedBy owningSessionID: String
   ) async throws -> String {
+    let output: String
     do {
-      let output = try await fake.sendTmuxCommand(
+      output = try await fake.sendTmuxCommand(
         command, connectionID: connectionID, ownedBy: owningSessionID)
-      recordSent(command)
-      return output
+      recordSent(command, to: connectionID)
     } catch let error as ITerm2Error {
-      if !error.isNotSent { recordSent(command) }
+      if !error.isNotSent { recordSent(command, to: connectionID) }
       throw error
     }
+    let hangs = state.withLock { state -> Bool in
+      guard state.hanging.contains(connectionID) else { return false }
+      state.hangingNow += 1
+      return true
+    }
+    guard hangs else { return try nextAnswer(for: connectionID)?.get() ?? output }
+    defer { state.withLock { $0.hangingNow -= 1 } }
+    try await Task.sleep(for: .seconds(3600))
+    throw CancellationError()
   } // End of func sendTmuxCommand(_:connectionID:ownedBy:)
 
   /// Forwards to the fake.
   func activate(_ request: ITerm2API.ActivateRequest) async throws {
     try await fake.activate(request)
+  }
+
+  /// Forwards to the fake.
+  func activateFirstTab(
+    ofTmuxConnection connectionID: String,
+    ownedBy owningSessionID: String,
+    options: ITerm2API.ActivateRequest
+  ) async throws -> String? {
+    try await fake.activateFirstTab(
+      ofTmuxConnection: connectionID, ownedBy: owningSessionID, options: options)
   }
 
   /// Forwards to the fake.
@@ -375,6 +558,8 @@ enum AttachTestSupport {
   static let host = HostConfig(
     id: UUID(uuidString: "00000000-0000-4000-8000-0000000000c1")!, displayName: "This Mac",
     mode: .local)
+  /// This Mac's `uname -n`, as the fake discovery reports it.
+  static let nodeName = "fixture-node.local"
   /// The tmux server.
   static let server = ServerIdentity(
     socketPath: "/private/tmp/tmux-501/default", pid: 4242, startTime: 1_792_599_999)
@@ -398,10 +583,35 @@ enum AttachTestSupport {
       lastActivityAt: 1_792_600_050, clients: [])
   } // End of func session(id:server:createdAt:)
 
-  /// What the identity check prints for `key`'s server and session.
-  static func identityOutput(for key: SessionKey) -> String {
-    "\(key.server.pid)\t\(key.server.startTime)\t\(key.server.socketPath)\t\(key.sessionID)\n"
-  }
+  /// What the identity check prints for `key`'s server and session on the host `host`, through
+  /// a client in UTF-8 mode unless `utf8` is `false`.
+  static func identityOutput(
+    for key: SessionKey,
+    host: String = nodeName,
+    utf8: Bool = true
+  ) -> String {
+    identityLine(
+      host: host, pid: "\(key.server.pid)", startTime: "\(key.server.startTime)",
+      socketPath: key.server.socketPath, sessionID: key.sessionID.rawValue, utf8: utf8) + "\n"
+  } // End of func identityOutput(for:host:utf8:)
+
+  /// One line in `ConnectionIdentity.command`'s format, as tmux prints it: the UTF-8 flag, the
+  /// host name and socket path each after its length in bytes (or the given lengths, for
+  /// answers whose fields tmux shortened), the pid, start time and session id. Every value is
+  /// synthetic; the defaults are the fixture server's session `$3` on `nodeName`.
+  static func identityLine(
+    host: String = nodeName,
+    pid: String = "4242",
+    startTime: String = "1792599999",
+    socketPath: String = server.socketPath,
+    sessionID: String = "$3",
+    utf8: Bool = true,
+    hostLength: Int? = nil,
+    socketLength: Int? = nil
+  ) -> String {
+    "\(utf8 ? 1 : 0):\(hostLength ?? host.utf8.count):\(host):\(pid):\(startTime):"
+      + "\(socketLength ?? socketPath.utf8.count):\(socketPath):\(sessionID)"
+  } // End of func identityLine(host:pid:startTime:socketPath:sessionID:utf8:hostLength:…)
 
   /// A list-sessions response: an ordinary window, then the connection's two tabs (`t3` with a
   /// two-pane split, `t4`), plus a tab of another connection first.
@@ -448,16 +658,42 @@ enum AttachTestSupport {
       childTermination: .exited(failure?.exitStatus ?? 0), failure: failure)
   }
 
-  /// A coordinator over the given fakes.
+  /// A coordinator over the given fakes. The existing-attachment check is off unless asked
+  /// for, so the launch-path tests see only the launch's calls.
   static func coordinator(
     iTerm2: any ITerm2Integration,
     discovery: FakeDiscovery,
     store: FakeLaunchStore,
-    clock: ManualAttachClock = ManualAttachClock(),
+    clock: any AttachClock = ManualAttachClock(),
+    existingAttachments: AttachCoordinator.ExistingAttachmentCheck = .off,
     log: UpdateLog = UpdateLog()
   ) -> AttachCoordinator {
     AttachCoordinator(
       iTerm2: iTerm2, discovery: discovery, store: store, helperPath: helper, clock: clock,
-      onUpdate: { log.record($0) })
-  } // End of func coordinator(iTerm2:discovery:store:clock:log:)
+      existingAttachments: existingAttachments, onUpdate: { log.record($0) })
+  } // End of func coordinator(iTerm2:discovery:store:clock:existingAttachments:log:)
+
+  /// An attachment index over `iTerm2` whose timeouts never fire (its clock is never
+  /// advanced), so answers decide every outcome.
+  static func patientIndex(
+    _ iTerm2: any ITerm2Integration,
+    includes: (@Sendable (ITerm2API.TmuxConnection) -> Bool)? = nil
+  ) -> AttachmentIndex {
+    AttachmentIndex(
+      iTerm2: iTerm2, clock: GatedAttachClock(), configuration: .init(includes: includes))
+  }
+
+  /// This Mac as the index matches it: `nodeName` and the fixture server.
+  static let indexHost = AttachmentIndex.Host(
+    hostID: host.id, nodeName: nodeName, servers: [server])
 }
+
+/// A test clock that reports how much virtual time has passed.
+protocol VirtualTimeClock: AttachClock {
+  /// Virtual time elapsed so far.
+  var elapsed: Duration { get }
+}
+
+extension ManualAttachClock: VirtualTimeClock {}
+
+extension GatedAttachClock: VirtualTimeClock {}

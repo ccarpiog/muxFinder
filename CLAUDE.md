@@ -37,8 +37,10 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
   server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
 - iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe
-  iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`. Prove `apiDisabled`
-  with `--socket <missing path>`, never by quitting iTerm2 or sending a bogus cookie.
+  iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`, `attachments`
+  (sends every tmux connection the read-only identity `display-message`; in unattended runs
+  only while `list-connections` shows none of the user's). Prove `apiDisabled` with
+  `--socket <missing path>`, never by quitting iTerm2 or sending a bogus cookie.
 - Launch helper (iTerm2 runs it in a launch tab; by hand only for checks):
   `.build/debug/muxfinder-launch attach <uuid>` takes `<uuid>.request.json` from
   `~/Library/Application Support/muxFinder/launch/`. For checks, set
@@ -52,11 +54,14 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.
 - Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`, with
   `TMUX_TMPDIR` unset, after `swift build`: `swift run muxfinder-probe` does not rebuild the
-  `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (about 43 s; passed
-  twice in Phase 4c), and `swift run muxfinder-probe e2e-remote saturno-m4` once Phase 5
-  lands; one-off `attach --local --session '<$id>'` and `detach --connection <id> --gateway
-  <session id>` (see `docs/TESTING.md`). Check `muxfinder-probe iterm2 status` before and
-  after; a timeout means a modal iTerm2 dialog: stop and report, never script the UI.
+  `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (10 steps, about
+  43 s; passed twice in Phase 5a; asks only its own launch tabs' connections), and `swift run
+  muxfinder-probe e2e-remote saturno-m4` once Phase 5b lands; one-off `attach --local
+  --session '<$id>'` (focuses instead when the session is attached already; asks every tmux
+  connection first, so the same caution as `iterm2 attachments`) and `detach --connection
+  <id> --gateway <session id>` (see `docs/TESTING.md`). Check `muxfinder-probe iterm2 status`
+  before and after; a timeout means a modal iTerm2 dialog: stop and report, never script the
+  UI.
 
 ## Environment
 

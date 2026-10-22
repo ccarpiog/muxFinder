@@ -233,6 +233,31 @@ struct AttachCoordinatorTests {
     #expect(Self.activations(await harness.iTerm2.calls).count == 1)
   }
 
+  /// The review's finding, for step 9: when the launch tab's connection closed and iTerm2 gave
+  /// its short id to another tab's connection between the identity check and the activation,
+  /// that connection's tab is not activated (`failed(tmuxConnectionNotOwned)`); the attach
+  /// stays confirmed.
+  @Test func activationRefusesAReusedConnectionID() async throws {
+    let launched = ITerm2API.TmuxConnection(
+      connectionID: Support.connection, owningSessionID: Support.gateway)
+    let harness = Self.harness { script in
+      // The poll and the identity check see the launch tab's connection; then the id is
+      // another tab's.
+      script.listTmuxConnections = .init(
+        .success([.init(connectionID: Support.connection, owningSessionID: "someone-else")]),
+        queued: [.success([launched]), .success([launched])])
+    }
+    let result = await harness.coordinator.attach(harness.target)
+    #expect(result.state == .confirmed(connectionID: Support.connection))
+    #expect(result.activation == .failed(.tmuxConnectionNotOwned))
+    let calls = await harness.iTerm2.calls
+    #expect(Self.activations(calls).isEmpty)
+    #expect(
+      calls.contains(
+        .activateOwnedTmuxTab(connectionID: Support.connection, owningSessionID: Support.gateway)))
+    #expect(!calls.contains(.listSessions))
+  } // End of func activationRefusesAReusedConnectionID()
+
   // MARK: - Single flight
 
   /// Concurrent attaches for the same session share one launch and one result.
@@ -387,16 +412,22 @@ struct AttachCoordinatorTests {
   /// attach and detach the connection, bound to the launch tab, only once the launch tab is
   /// 10 s old; nothing is activated.
   @Test(arguments: [
-    "4243\t1792599999\t/private/tmp/tmux-501/default\t$3",
-    "4242\t1792599998\t/private/tmp/tmux-501/default\t$3",
-    "4242\t1792599999\t/private/tmp/tmux-502/default\t$3",
-    "4242\t1792599999\t/private/tmp/tmux-501/default\t$4",
-    "garbage", "",
+    (AttachTestSupport.identityLine(pid: "4243"), true),
+    (AttachTestSupport.identityLine(startTime: "1792599998"), true),
+    (AttachTestSupport.identityLine(socketPath: "/private/tmp/tmux-502/default"), true),
+    (AttachTestSupport.identityLine(sessionID: "$4"), true),
+    (AttachTestSupport.identityLine(socketLength: 28), false),
+    (
+      AttachTestSupport.identityLine(socketPath: "/private/tmp/tmux_501/default", utf8: false),
+      false
+    ),
+    ("fixture-node.local\t4242\t1792599999\t/private/tmp/tmux-501/default\t$3", false),
+    ("garbage", false), ("", false),
   ])
-  func identityMismatch(_ output: String) async throws {
+  func identityMismatch(_ output: String, readable: Bool) async throws {
     let harness = Self.harness { script in script.sendTmuxCommand = .init(.success(output)) }
     let result = await harness.coordinator.attach(harness.target)
-    let readable = ConnectionIdentity.parse(output) != nil
+    #expect((ConnectionIdentity.parse(output) != nil) == readable)
     #expect(result.failure == (readable ? .identityMismatch : .identityCheckFailed(nil)))
     #expect(result.connectionID == Support.connection)
     let calls = await harness.iTerm2.calls
@@ -406,7 +437,7 @@ struct AttachCoordinatorTests {
     #expect(harness.clock.elapsed == .seconds(10))
     #expect(Self.activations(calls).isEmpty)
     #expect(!harness.log.states.contains(.confirmed(connectionID: Support.connection)))
-  } // End of func identityMismatch(_:)
+  } // End of func identityMismatch(_:readable:)
 
   /// The review's finding: the detach after a failed identity check waits until the launch tab
   /// is 10 s old, counted from when it opened (not from the check), so iTerm2's blocking
@@ -416,14 +447,19 @@ struct AttachCoordinatorTests {
       script.listTmuxConnections = .init(
         .success([.init(connectionID: Support.connection, owningSessionID: Support.gateway)]),
         queued: [.success([]), .success([])])
-      script.sendTmuxCommand = .init(.success("4242\t1\t/private/tmp/tmux-501/default\t$9\n"))
+      script.sendTmuxCommand = .init(
+        .success(Support.identityLine(startTime: "1", sessionID: "$9") + "\n"))
     }
     let result = await harness.coordinator.attach(harness.target)
     #expect(result.failure == .identityMismatch)
     #expect(
       iTerm2.sent == [
-        .init(command: ConnectionIdentity.command, at: .milliseconds(400)),
-        .init(command: ConnectionIdentity.detachCommand, at: .seconds(10)),
+        .init(
+          command: ConnectionIdentity.command, connectionID: Support.connection,
+          at: .milliseconds(400)),
+        .init(
+          command: ConnectionIdentity.detachCommand, connectionID: Support.connection,
+          at: .seconds(10)),
       ])
     #expect(result.timings.finished == .seconds(10))
   } // End of func identityFailureDetachWaitsForTheMinimumAge()
@@ -583,7 +619,9 @@ struct AttachCoordinatorTests {
     let early = await soon.coordinator.detach(
       connectionID: Support.connection, gatewaySessionID: Support.gateway)
     #expect(early.connectionClosed)
-    #expect(soonITerm2.sent.last == .init(command: "detach-client", at: .seconds(10)))
+    #expect(
+      soonITerm2.sent.last
+        == .init(command: "detach-client", connectionID: Support.connection, at: .seconds(10)))
 
     let (later, laterITerm2) = Self.instrumented()
     _ = await later.coordinator.attach(later.target)
@@ -598,7 +636,9 @@ struct AttachCoordinatorTests {
     let late = await later.coordinator.detach(
       connectionID: Support.connection, gatewaySessionID: Support.gateway)
     #expect(late.connectionClosed)
-    #expect(laterITerm2.sent.last == .init(command: "detach-client", at: .seconds(12)))
+    #expect(
+      laterITerm2.sent.last
+        == .init(command: "detach-client", connectionID: Support.connection, at: .seconds(12)))
   } // End of func detachWaitsUntilTheLaunchTabIsOldEnough()
 
   /// A caller cancelled while the detach waits for the launch tab's age sends nothing.
@@ -657,6 +697,7 @@ struct AttachCoordinatorTests {
       .unsupportedHost, .sessionGone, .sessionChanged, .tmuxMissing, .discoveryFailed("probeError"),
       .launchStore(.fileMissing), .iTerm2(.timedOut), .helperFailed(.checkTimedOut), .helperEnded,
       .timedOut, .identityCheckFailed(nil), .identityMismatch, .cancelled,
+      .attachmentCheckFailed(.timedOut), .attachmentChanged,
     ]
     #expect(Set(failures.map(\.kind)).count == failures.count)
     for failure in failures {
@@ -668,39 +709,105 @@ struct AttachCoordinatorTests {
   } // End of func failureDescriptions()
 }
 
-/// `ConnectionIdentity`: the static commands and the strict parser.
+/// `ConnectionIdentity`: the static commands and the strict reader, for tmux clients in UTF-8
+/// mode and not (PLAN.md D16, *Verified facts*, Phase 5a).
 @Suite("Connection identity")
 struct ConnectionIdentityTests {
+  /// Shorthand.
+  typealias Support = AttachTestSupport
+
   /// The commands are the static strings PLAN.md names; nothing is inserted into them.
   @Test func commands() {
     #expect(
       ConnectionIdentity.command
-        == ##"display-message -p "#{pid}\t#{start_time}\t#{socket_path}\t#{session_id}""##)
+        == "display-message -p \"#{client_utf8}:#{n:host}:#{host}:#{pid}:#{start_time}:"
+        + "#{n:socket_path}:#{socket_path}:#{session_id}\"")
     #expect(ConnectionIdentity.detachCommand == "detach-client")
   }
 
-  /// Well-formed answers parse, including a trailing line break and a tab in the socket path.
-  @Test func parsesAnswers() throws {
+  /// Well-formed answers from a client in UTF-8 mode are exact, whatever the host name and
+  /// socket path hold (`:`, `_`, a tab, non-ASCII), with or without a trailing line break.
+  @Test func readsExactAnswers() throws {
     let plain = try #require(
-      ConnectionIdentity.parse("4242\t1792599999\t/private/tmp/tmux-501/default\t$3\n"))
+      ConnectionIdentity.parse(
+        "1:16:Fixture-M4.local:4242:1792599999:29:/private/tmp/tmux-501/default:$3\n"))
+    #expect(plain.host == "Fixture-M4.local")
     #expect(plain.pid == 4242)
     #expect(plain.startTime == 1_792_599_999)
     #expect(plain.socketPath == "/private/tmp/tmux-501/default")
     #expect(plain.sessionID == TmuxSessionID("$3"))
-    #expect(plain.matches(AttachTestSupport.session().key))
-    let tabbed = try #require(ConnectionIdentity.parse("1\t0\t/tmp/odd\tpath\t$0\r\n"))
-    #expect(tabbed.socketPath == "/tmp/odd\tpath")
-    #expect(!tabbed.matches(AttachTestSupport.session().key))
-  } // End of func parsesAnswers()
+    #expect(plain.server == Support.server)
+    #expect(plain.matches(Support.session().key))
+    let odd = "/tmp/mfx.é_x:7:\tz/tmux-501/default"
+    let unusual = try #require(
+      ConnectionIdentity.parse(
+        Support.identityLine(host: "mäc-ü:1", pid: "1", startTime: "0", socketPath: odd)
+          + "\r\n"))
+    #expect(unusual.host == "mäc-ü:1")
+    #expect(unusual.socketPath == odd)
+    #expect(!unusual.matches(Support.session().key))
+    // With exact bytes, a separator inside a field is part of it: the lengths decide.
+    let shifted = try #require(ConnectionIdentity.parse("1:11:a:7:5:11:/p:1:2:2:/q:$3"))
+    #expect(shifted.host == "a:7:5:11:/p")
+    #expect(shifted.socketPath == "/q")
+  } // End of func readsExactAnswers()
 
-  /// Anything else is refused.
+  /// A client not in UTF-8 mode: an answer that cannot have lost anything (printable ASCII
+  /// without `_` or `:` in the host name and socket path) is exact.
+  @Test func readsExactAnswersOfANonUTF8Client() throws {
+    let reported = try #require(ConnectionIdentity.parse(Support.identityLine(utf8: false)))
+    #expect(reported.host == Support.nodeName)
+    #expect(reported.matches(Support.session().key))
+  }
+
+  /// The review's finding: what tmux 3.8 sends a client not in UTF-8 mode (one `_` per column
+  /// in place of every tab, other control character and non-ASCII character; a zero-width
+  /// character vanishes) is `nonUTF8`, never an identity: `é` replaced (the field one byte
+  /// shorter than its length says), a tab replaced (same length), a `_` that may be either, a
+  /// host and path with `:`, a zero-width character dropped so the host swallows the next
+  /// separators (`a` plus five combining marks: 11 bytes, sent as `a`), a byte tmux never sends
+  /// such a client, and the old tab-separated line with its tabs replaced.
   @Test(arguments: [
-    "", "\n", "4242\t1\t/tmp/s", "4242\t1\t/tmp/s\t3", "04242\t1\t/tmp/s\t$3",
-    "+4242\t1\t/tmp/s\t$3",
-    "-1\t1\t/tmp/s\t$3", "0\t1\t/tmp/s\t$3", "4242\t 1\t/tmp/s\t$3", "4242\t1\trelative\t$3",
-    "4242\t1\t/tmp/s\t$3\nextra", "99999999999\t1\t/tmp/s\t$3", "4242\t1\t/tmp/s\t$3 ",
+    Support.identityLine(
+      socketPath: "/tmp/mfx.dud/__x/tmux-501/default", utf8: false, socketLength: 34),
+    Support.identityLine(socketPath: "/tmp/a_b/default", utf8: false),
+    Support.identityLine(host: "fixture_node.local", utf8: false),
+    Support.identityLine(host: "fixture:node", utf8: false),
+    Support.identityLine(socketPath: "/tmp/a:b/default", utf8: false),
+    "0:11:a:7:5:11:/p:1:2:2:/q:$3",
+    Support.identityLine(host: "mäc", utf8: false),
+    "0:fixture-node.local_4242_1792599999_/private/tmp/tmux-501/default_$3",
+  ])
+  func nonUTF8AnswersNeverMatch(_ output: String) {
+    #expect(ConnectionIdentity.read(output) == .nonUTF8)
+    #expect(ConnectionIdentity.parse(output) == nil)
+  }
+
+  /// Anything else is unreadable: no or another UTF-8 flag, the old tab-separated line, wrong
+  /// lengths, missing or extra fields, an empty or control-character host, non-canonical or
+  /// overflowing numbers, a relative path, a second line, a bad session id. A client not in
+  /// UTF-8 mode whose clean answer has an invalid value is unreadable too.
+  @Test(arguments: [
+    "", "\n", "1", "1:", "2:" + Support.identityLine().dropFirst(2),
+    Support.identityLine().dropFirst(2).description,
+    "fixture-node.local\t4242\t1792599999\t/private/tmp/tmux-501/default\t$3",
+    Support.identityLine(hostLength: 17), Support.identityLine(hostLength: 19),
+    Support.identityLine(socketLength: 30),
+    Support.identityLine(hostLength: 99_999_999_999_999_999),
+    Support.identityLine(host: ""), Support.identityLine(host: "h\u{1}x"),
+    Support.identityLine(host: "h\u{7F}"), Support.identityLine(pid: "04242"),
+    Support.identityLine(pid: "+4242"), Support.identityLine(pid: "-1"),
+    Support.identityLine(pid: "0"),
+    Support.identityLine(pid: "99999999999"), Support.identityLine(startTime: " 1"),
+    Support.identityLine(startTime: ""), Support.identityLine(socketPath: "relative"),
+    Support.identityLine(socketPath: ""), Support.identityLine(sessionID: "3"),
+    Support.identityLine(sessionID: "$3 "), Support.identityLine(sessionID: ""),
+    Support.identityLine() + "\nextra", Support.identityLine() + ":",
+    Support.identityLine(pid: "0", utf8: false),
+    Support.identityLine(socketPath: "relative", utf8: false),
   ])
   func refusesMalformedAnswers(_ output: String) {
+    #expect(ConnectionIdentity.read(output) == .unreadable)
     #expect(ConnectionIdentity.parse(output) == nil)
   }
 }

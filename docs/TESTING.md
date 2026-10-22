@@ -123,7 +123,11 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   send command, list profiles, activate and close; an ownership-bound tmux command (the listing,
   then the command on the same connection when the owner matches; only the listing for another
   owner, `tmuxConnectionNotOwned`; a listing lost with its connection → `notSent`, no
-  reconnect); a mismatched response type; `ensureRunning()`
+  reconnect); an ownership-bound activation (the connections, the sessions and `Activate` of
+  the connection's first tab on the same connection, the given target replaced; `nil` and no
+  `Activate` for a connection without a tab; only the listing for another owner; a sessions
+  listing lost with its connection → `notSent`, no reconnect); a mismatched response type;
+  `ensureRunning()`
   launching only when needed and failing when the socket never appears; disconnect then
   reconnect; `disconnect()` during the cookie request (gated fake provider: the waiting call
   fails at once with `notSent(.disconnected)`, the invalidated attempt never connects, the next
@@ -251,14 +255,17 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   far inside its 60 s lifetime.
 
 - **Attach coordinator** (`AttachCoordinatorTests`, fakes for iTerm2, discovery, the launch
-  store and the clock; a manual clock makes the 15 s budget run out at once): a successful
+  store and the clock; a manual clock makes the 15 s budget run out at once; the
+  existing-attachment check off, so only the launch path's calls are seen): a successful
   attach (states `requested` → `launched(gateway)` → `confirmed(connection)`, the request file's
   values, the launch tab request — new window, `<helper> attach <uuid>`, close on end, the host's
   profile and tmux override —, the identity command through the connection, bound to the launch
   tab, activation of the
   connection's first tab without `select_session`, no close request); a connection that appears
   after two polls next to another tab's; activation waiting for the first tab, `noTab` after its
-  budget (still confirmed) and a refused activation; two concurrent attaches for one session
+  budget (still confirmed), a refused activation, and a launch tab's connection id that is
+  another tab's by the activation (`failed(tmuxConnectionNotOwned)`, nothing activated, still
+  confirmed); two concurrent attaches for one session
   sharing one launch and one result (one discovery, one request, one `CreateTab`, one
   `launched`), a later attach launching again, different sessions not coalescing; cancelling
   every caller (`cancelled`, request withdrawn, launch tab still reported); an all-cancelled
@@ -269,7 +276,8 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   exit 0 before a connection to `helperEnded`); identity answers naming another pid, start time,
   socket or session (`identityMismatch`) or unreadable (`identityCheckFailed`), each followed by
   `detach-client` bound to the launch tab only once it is 10 s old (virtual time, counted from
-  `launched`) and no activation; a failed identity request with nothing more sent;
+  `launched`) and no activation (a tab-separated answer, wrong lengths or a client not in
+  UTF-8 mode are unreadable); a failed identity request with nothing more sent;
   revalidation failures (no server, tmux missing, session gone, `session_created` changed, id
   reused by another server, probe error) before anything is written or sent; SSH hosts refused;
   a request that cannot be written; `CreateTab` failures (definitive, not sent, unknown outcome)
@@ -286,9 +294,56 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   match against discovery (server pid, start time, socket path, id, creation time and name must
   all agree: a restarted server reusing the id does not match), and recovery by exact name
   among sessions created since a given time (no match, older, ambiguous).
-- **Connection identity** (`ConnectionIdentityTests`): the static identity and detach commands,
-  the parser (trailing `\n` or `\r\n`, a tab inside the socket path) and 13 refused shapes
-  (missing fields, leading zeros, signs, pid 0, spaces, relative path, extra line, overflow).
+- **Connection identity** (`ConnectionIdentityTests`): the static length-prefixed identity
+  command (PLAN.md D16) and detach command; exact answers from a client in UTF-8 mode
+  (trailing `\n` or `\r\n`; `:`, `_`, a tab and non-ASCII inside the host name and socket
+  path, the lengths deciding); a clean answer from a client not in UTF-8 mode; 8 answers from
+  such a client that are `nonUTF8`, never an identity (`é` replaced so the path is shorter than
+  its length, a tab replaced at the same length, `_` or `:` in the host or path, a dropped
+  zero-width character that makes the host swallow the next separators, a non-ASCII byte, the
+  old tab-separated line as tmux mangles it); and 30 unreadable shapes (no or another flag, the
+  old tab-separated line, wrong or overflowing lengths, missing or extra fields, an empty or
+  control-character host, leading zeros, signs, pid 0, overflow, spaces, empty fields, a
+  relative or empty path, a bad session id, an extra line, invalid values from a client not in
+  UTF-8 mode).
+- **Attachment index** (`AttachmentIndexTests`, a fake iTerm2 with per-connection answers and a
+  clock whose timeouts fire only when the test advances it): a connection mapped to its
+  session, bound to the owner from the listing, with the identity command the only command
+  sent; the session id taken from the answer and two connections of one session; unknown
+  connections (another host name, a case difference, another pid, start time or socket, a
+  restarted server, no hosts) and ambiguous ones (two hosts with the same node name and
+  server; the same host listed twice counts once), each counted, never guessed; stale ones
+  (no id, no owner or an empty id in the listing, with no command sent; a refused request, an
+  unreadable answer, a lost connection; an owner change between the listing and the command,
+  refused by the binding rule); clients not in UTF-8 mode (a clean answer maps; `é` or a tab
+  replaced, or a `_` that may be a replacement, are `nonUTF8` and never mapped, even when
+  discovery reports that very path; the same path through a client in UTF-8 mode maps); a
+  hung connection bounded by the 3 s timeout (still waiting at
+  2.999 s, stale at 3 s, its request cancelled) while the other connection maps; the filter
+  (connections left out get no command and count as excluded); listing failures thrown
+  (`notRunning` included); cancellation; hosts built from discovery results.
+- **Attach coordinator, existing attachments** (`AttachFocusTests`, the coordinator with an
+  index whose clock never fires): a session attached in the user's own tab is focused
+  (`requested` → `focused`, the owning session as gateway, the first tab activated without
+  `select_session`, the counts reported) with no request, no `ensureRunning` and no
+  `CreateTab`, also when no tab appears (`noTab`); a connection id that is another tab's by the
+  activation (the user's connection closed and its id was reused) activates nothing and opens
+  nothing (`attachmentChanged`), and with two attachments the other one is focused;
+  concurrent attaches share one focus; other
+  sessions' connections, unknown servers and stale answers do not block a launch; a listing
+  failure fails the attach (`attachmentCheckFailed`) before anything is written; iTerm2 not
+  running proceeds to `ensureRunning` and the launch; the default coordinator checks before
+  launching; a discovery result without a report fails. `detach(session:on:)`: an attachment
+  the coordinator opened (`detach-client` at 10 s counted from its launch, the identity checked
+  again first, the helper's result taken), two attachments of the user's (both at 10 s from
+  the index's snapshot, in listing order, each bound to its own tab), a user's connection that
+  first appears in a snapshot taking 7 s of virtual time (discovery 4 s, listing 3 s: the
+  re-check and `detach-client` at 17 s, not 10 s), an owner change refused by the re-check or
+  by `detach-client`'s own binding check (`notSent`), a connection that shows another session
+  by then, or answers through a client not in UTF-8 mode (`identityChanged`, nothing sent),
+  nothing attached (another
+  session's connection, no server, iTerm2 not running), cancellation during the wait (nothing
+  sent), and check failures (listing, discovery, an SSH host).
 
 ## Helper test mode: argv digest
 
@@ -317,38 +372,57 @@ muxfinder-probe` builds only the probe, and iTerm2 runs the `muxfinder-launch` b
 it, which may be older. Check `muxfinder-probe iterm2 status` before and after: a timeout
 (exit 75) means a modal iTerm2 dialog is open; stop and report which step caused it.
 
-- `swift run muxfinder-probe e2e-local` — the local integration proof (PLAN.md Phase 4). It
-  creates `muxfinder-test-<8 hex digits>` on the default server (two windows, the first split
-  in two, every pane `sleep 600`), turns on the helper's test mode (the `launch/test-mode`
-  marker, through `LaunchStore`), and prints one `PASS`/`FAIL` line per step: 1 create, 2
-  discover, 3 attach (states, activation, the argv digest: 3 arguments), 4 tabs and split
-  through `ListSessions`, 5 detach (`detach-client` answered, connection closed, helper exit 0,
-  tmux tabs and launch tab closed, session alive with the same id, 2 windows, 3 live `sleep`
-  panes, no client), 6 reattach (attach, tabs, detach again), 7 two concurrent attaches (one
-  launch: one launch tab, one new connection, its two tmux tabs; one argv digest), 8 stale
-  guard (a stale target refused by revalidation without a tab; with discovery reporting the
-  same wrong `session_created` the helper's guard refuses it: `sessionChanged`, no connection,
-  no tmux client; the refused launch tab must still be open a second later, showing the
-  explanation and waiting for Return, and is then closed by its recorded session id once it is
-  10 s old), 9 cleanup. Notes under the steps record what iTerm2 did (argv split, placement,
-  tab fields, whether the launch tab closed, how old each launch tab was when it ended). Exit 0
-  only when all 9 pass; 128 + n after signal n. Safety: only its own session, which every later step (rediscovery before each attach, the
-  survival checks, the kill) accepts only if its server pid, start time, socket path, id,
-  creation time and exact generated name are those `new-session -P` reported; when a signal
-  cuts `new-session` short, cleanup first finds the session by that exact name among sessions
-  created since the attempt; it is killed by id. Only connections iTerm2 lists as owned by
-  launch tabs it opened (checked again right before each `detach-client`), only those launch
-  tabs closed, and only by the ids iTerm2 reported; every wait is bounded (tmux calls 5 s,
-  iTerm2 requests 10 s, polls 3–5 s, attach 15 s to a connection, the whole run 300 s); cleanup
-  runs after a failure, SIGINT/SIGTERM/SIGHUP or the time limit. Every launch tab is at least
-  10 s old before it ends (the coordinator waits before `detach-client`, the harness before it
-  kills the session or closes a tab, and the helper does not exit younger), because iTerm2
-  shows a blocking modal warning for sessions that end within 3 s of starting (see
-  `docs/INTEGRATION-PROOF.md`). A full passing run takes about 43 s.
+- `swift run muxfinder-probe e2e-local` — the local integration proof (PLAN.md Phases 4 and
+  5a). It creates `muxfinder-test-<8 hex digits>` on the default server (two windows, the first
+  split in two, every pane `sleep 600`), turns on the helper's test mode (the
+  `launch/test-mode` marker, through `LaunchStore`), and prints one `PASS`/`FAIL` line per
+  step: 1 create, 2 discover, 3 attach (the existing-attachment check finding nothing, states,
+  activation, the argv digest: 3 arguments), 4 tabs and split through `ListSessions`, 5 focus
+  existing (a second attach of the attached session ends `focused` on the same connection and
+  launch tab, `requested` → `focused`, one of its tabs activated, the check counting exactly 1
+  mapped and 0 unmapped connections; nothing opens: the same window and tab ids before and
+  after, for the run's own windows and every other, the same connections, no new launch tab or
+  argv digest), 6 detach by session (`detach(session:on:)` finds exactly that attachment,
+  checks it again and sends `detach-client`: answered, connection closed, helper exit 0, tmux
+  tabs and launch tab closed, session alive with the same id, 2 windows, 3 live `sleep` panes,
+  no client), 7 reattach (attach, tabs, then a detach by connection with the same checks), 8
+  two concurrent attaches (one launch: one launch tab, one new connection, its two tmux tabs;
+  one argv digest), 9 stale guard (a stale target refused by revalidation without a tab; with
+  discovery reporting the same wrong `session_created` the helper's guard refuses it:
+  `sessionChanged`, no connection, no tmux client; the refused launch tab must still be open a
+  second later, showing the explanation and waiting for Return, and is then closed by its
+  recorded session id once it is 10 s old), 10 cleanup. Notes under the steps record what
+  iTerm2 did (argv split, placement, tab fields, the check's counts and timings, whether the
+  launch tab closed, how old each launch tab was when it ended). Exit 0 only when all 10 pass;
+  128 + n after signal n. Safety: only its own session, which every later step (rediscovery
+  before each attach, the survival checks, the kill) accepts only if its server pid, start
+  time, socket path, id, creation time and exact generated name are those `new-session -P`
+  reported; when a signal cuts `new-session` short, cleanup first finds the session by that
+  exact name among sessions created since the attempt; it is killed by id. Its attachment
+  index asks only connections owned by launch tabs the run opened (PLAN.md D16), so other tmux
+  connections get no command at all; setup prints how many exist. Only connections iTerm2
+  lists as owned by launch tabs it opened are detached (checked again right before each
+  `detach-client`), only those launch tabs closed, and only by the ids iTerm2 reported; every
+  wait is bounded (tmux calls 5 s, iTerm2 requests 10 s, the index 3 s per connection, polls
+  3–5 s, attach 15 s to a connection, the whole run 300 s); cleanup runs after a failure,
+  SIGINT/SIGTERM/SIGHUP or the time limit. Every launch tab is at least 10 s old before it ends
+  (the coordinator waits before `detach-client`, the harness before it kills the session or
+  closes a tab, and the helper does not exit younger), because iTerm2 shows a blocking modal
+  warning for sessions that end within 3 s of starting (see `docs/INTEGRATION-PROOF.md`). The
+  focus step opens and ends nothing. A full passing run takes about 43 s.
 - `swift run muxfinder-probe attach --local --session '<$id>'` — one real attach of a session
   of the default server, the way the app does it; prints the result as JSON (state, failure,
-  launch id, launch tab session, connection, activation, timings). It leaves the session
-  attached. Use it only on `muxfinder-test-*` sessions during unattended runs.
+  launch id, launch tab session, connection, activation, the existing-attachment counts,
+  timings). It leaves the session attached; when the session is attached in iTerm2 already,
+  it brings that tab forward instead (state `focused`, exit 0) and opens nothing. Its check
+  asks every tmux connection which session it shows (a read-only `display-message`), so during
+  unattended runs use it only on `muxfinder-test-*` sessions and only while `iterm2
+  list-connections` shows no connection of the user's.
+- `swift run muxfinder-probe iterm2 attachments` — read-only: discovers this Mac, asks every
+  tmux connection which host, server and session it shows (the same `display-message`), and
+  prints the mapped connections (session id, connection id, owning session) and the unmapped
+  ones by kind with their counts; no titles, host names or paths. The same caution as
+  `attach` applies in unattended runs.
 - `swift run muxfinder-probe detach --connection <id> --gateway <session id> [--launch-id
   <uuid>]` — `detach-client` on one connection, sent only while iTerm2 lists it as owned by
   that launch tab (both ids from `attach`'s JSON), after a 10 s wait (the process cannot know
@@ -495,3 +569,26 @@ Method notes:
   `swift build`.
 - No modal dialog appeared during the runs: iTerm2's API answered every request, and
   `iterm2 status` connected after each run.
+
+### Phase 5a — existing attachments, local (2026-10-22)
+
+Environment: as in Phase 4c. Before the runs iTerm2 listed no tmux connection, the default
+tmux server was not running, the launch directory was empty, and the user's 3 windows and 3
+tabs were open.
+
+| Check | Command | Observed result |
+|---|---|---|
+| `#{host}` versus `uname -n` | private `TMUX_TMPDIR` server (`-f /dev/null`) with one `muxfinder-test-*` session; `tmux -u display-message -p -t <it> "#{host}\t#{pid}\t#{start_time}\t#{socket_path}\t#{session_id}"` and `uname -n`; then the session killed | one line, five fields separated by real tabs; `#{host}` byte-identical to `uname -n` (`Neptuno-M4.local`); afterwards `no server running` on the private socket, directory removed |
+| Attachments, none | `muxfinder-probe iterm2 attachments`, before and after the runs | exit 0; `discovery: noServer`, every count 0, no attachment, nothing unmapped |
+| `e2e-local`, run 1 | `swift build`, then `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` | exit 0, 10 of 10 steps PASS in 42.9 s; focus existing PASS (131 ms; nothing opened); detach by session PASS; per-step timings and notes in `docs/INTEGRATION-PROOF.md` |
+| `e2e-local`, run 2 | the same commands after two notes were reworded | exit 0, 10 of 10 steps PASS in 43.3 s; focus existing PASS (107 ms) |
+| Clients not in UTF-8 mode | private `TMUX_TMPDIR` servers (socket directories holding `é`, a combining acute, a zero-width space, a tab and `_`) with one `muxfinder-test-*` session each; the identity command, and the tab-separated one it replaced, fed on stdin to `tmux -C attach-session` with `-u` and without, under `LC_ALL=C`, with no locale (`env -i`) and with `LANG=en_US.UTF-8`; `list-sessions -F` without `-u`; then the sessions killed | without `-u` and a UTF-8 locale: `client_utf8` 0, tabs and `é` one `_` each, the zero-width characters dropped, `_` and `:` kept, the tab-separated line one field; with `-u` or `LANG=en_US.UTF-8`: `client_utf8` 1, exact bytes; `#{n:…}` in bytes; `-F` output replaced the same way; afterwards `no server running` on each private socket, directories removed |
+| `e2e-local`, run 3 | `swift build`, then `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local`, on the final tree with the review fixes (length-prefixed identity command, bound activation, an unknown tab's age from its observation) | exit 0, 10 of 10 steps PASS in 42.2 s; focus existing PASS (88 ms; 1 mapped, 0 nonUTF8, 0 stale; nothing opened); detach by session PASS (launch tab 10.3 s old) |
+| After each run | `muxfinder-probe iterm2 status`; `iterm2 list-connections`; `tmux -u ls`; `ls` of the launch directory; `iterm2 list-sessions` (summary only; runs 1 and 2) | always exit 0 (connected, protocol 1.21); 0 connections; `no server running on /private/tmp/tmux-501/default`; launch directory empty, no `test-mode` marker; 3 windows, 3 tabs, 0 tmux tabs, as before |
+
+Method notes:
+
+- Setup reported 0 tmux connections the run had not opened, and the run's index asks only
+  connections of its own launch tabs, so no connection of the user's could get a command.
+- No modal dialog appeared: iTerm2's API answered every request, and `iterm2 status` connected
+  after each run.

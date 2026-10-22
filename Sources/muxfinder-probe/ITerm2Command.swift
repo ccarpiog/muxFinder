@@ -3,10 +3,12 @@ import MuxFinderCore
 
 /// `muxfinder-probe iterm2 …`: read-only checks of iTerm2's native API.
 ///
-/// None of these subcommands launches iTerm2, creates tabs, activates anything or sends tmux
-/// commands: they call only `status()`, `listSessions()`, `listTmuxConnections()` and
-/// `listProfiles(properties:guids:)`. Output is JSON on stdout; on failure a one-line error goes
-/// to stderr and the exit status is non-zero. Session titles are never printed.
+/// None of these subcommands launches iTerm2, creates tabs or activates anything: they call
+/// only `status()`, `listSessions()`, `listTmuxConnections()` and
+/// `listProfiles(properties:guids:)`, and `attachments` also sends each tmux connection the
+/// read-only identity `display-message` (`AttachmentIndex`, PLAN.md D16). Output is JSON on
+/// stdout; on failure a one-line error goes to stderr and the exit status is non-zero. Session
+/// titles are never printed.
 enum ITerm2Command {
   /// Usage lines for this subcommand group.
   static let usage = """
@@ -19,6 +21,11 @@ enum ITerm2Command {
           Print iTerm2's tmux integration connections.
       iterm2 list-profiles [--socket <path>]
           Print every profile's GUID and name.
+      iterm2 attachments [--socket <path>]
+          Discover this Mac's default tmux server, ask every iTerm2 tmux connection which
+          host, server and session it shows (a read-only display-message through it), and
+          print the connections mapped to sessions and the unmapped ones by kind (unknown,
+          ambiguous, nonUTF8, stale), with counts. Ids and kinds only.
           --socket  Use this API socket instead of iTerm2's (test harness; a missing path
                     reports apiDisabled without requesting a cookie).
           All iterm2 subcommands are read-only and never launch iTerm2.
@@ -34,6 +41,8 @@ enum ITerm2Command {
     case listConnections = "list-connections"
     /// `list-profiles`.
     case listProfiles = "list-profiles"
+    /// `attachments`.
+    case attachments
   }
 
   /// Runs the subcommand named by the first argument and returns the exit status.
@@ -58,6 +67,8 @@ enum ITerm2Command {
       status = await runStatus(client, socketPath: configuration.socketPath)
     case .listSessions, .listConnections, .listProfiles:
       status = await runListing(action, client)
+    case .attachments:
+      status = await runAttachments(client)
     }
     await client.disconnect()
     return status
@@ -93,7 +104,7 @@ enum ITerm2Command {
           properties: [ITerm2API.ProfileProperty.Key.guid, ITerm2API.ProfileProperty.Key.name],
           guids: [])
         printed = printJSON(ProfilesOutput(profiles))
-      case .status:
+      case .status, .attachments:
         printed = false
       }
       return printed ? 0 : EX_SOFTWARE
@@ -105,6 +116,31 @@ enum ITerm2Command {
       return EX_SOFTWARE
     }
   } // End of func runListing(_:_:)
+
+  /// `attachments`: discovers this Mac, runs the attachment index over every tmux connection
+  /// and prints what it found as JSON.
+  static func runAttachments(_ client: ITerm2APIClient) async -> Int32 {
+    let host = HostConfig(displayName: "This Mac", mode: .local)
+    let discovery: DiscoveryResult
+    do {
+      discovery = try await DiscoveryProbe().discover(host)
+    } catch {
+      printError("muxfinder-probe: discovery was cancelled")
+      return EX_SOFTWARE
+    }
+    let hosts = AttachmentIndex.Host(discovery).map { [$0] } ?? []
+    do {
+      let snapshot = try await AttachmentIndex(iTerm2: client).snapshot(of: hosts)
+      let output = AttachmentsOutput(discovery: discovery.status.kind, snapshot: snapshot)
+      return printJSON(output) ? 0 : EX_SOFTWARE
+    } catch let error as ITerm2Error {
+      reportFailure(error)
+      return exitStatus(for: error)
+    } catch {
+      printError("muxfinder-probe: \(error)")
+      return EX_SOFTWARE
+    }
+  } // End of func runAttachments(_:)
 
   /// Writes the one-line error for `error` to stderr.
   static func reportFailure(_ error: ITerm2Error) {
@@ -307,6 +343,58 @@ enum ITerm2Command {
       }
     }
   }
+
+  /// `attachments` output: ids, kinds and counts; never titles, host names or paths.
+  struct AttachmentsOutput: Encodable {
+    /// This Mac's discovery status kind (`ok`, `noServer`, …).
+    let discovery: String
+    /// Connections by kind.
+    let counts: AttachmentSnapshot.Counts
+    /// The mapped connections.
+    let attachments: [Attachment]
+    /// The unmapped connections.
+    let unmapped: [Unmapped]
+
+    /// One mapped connection.
+    struct Attachment: Encodable {
+      /// The tmux session id it shows.
+      let sessionID: String
+      /// `connection_id`.
+      let connectionID: String
+      /// `owning_session_id`.
+      let owningSessionID: String
+    }
+
+    /// One unmapped connection.
+    struct Unmapped: Encodable {
+      /// `connection_id`.
+      let connectionID: String?
+      /// `owning_session_id`.
+      let owningSessionID: String?
+      /// `unknown`, `ambiguous`, `nonUTF8` or `stale`.
+      let kind: String
+      /// For stale connections: why, with iTerm2's error kind when a request failed.
+      let reason: String?
+    }
+
+    /// Converts a snapshot.
+    init(discovery: String, snapshot: AttachmentSnapshot) {
+      self.discovery = discovery
+      counts = snapshot.counts
+      attachments = snapshot.attachments.map {
+        Attachment(
+          sessionID: $0.key.sessionID.rawValue, connectionID: $0.connectionID,
+          owningSessionID: $0.owningSessionID)
+      }
+      unmapped = snapshot.unmapped.map { entry in
+        var reason = entry.staleReason?.kind
+        if case .requestFailed(let error)? = entry.staleReason { reason? += ": \(error.kind)" }
+        return Unmapped(
+          connectionID: entry.connectionID, owningSessionID: entry.owningSessionID,
+          kind: entry.kind.rawValue, reason: reason)
+      }
+    } // End of init(discovery:snapshot:)
+  } // End of struct AttachmentsOutput
 
   /// `list-profiles` output.
   struct ProfilesOutput: Encodable {

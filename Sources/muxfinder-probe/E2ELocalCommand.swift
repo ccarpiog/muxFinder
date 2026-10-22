@@ -2,33 +2,42 @@ import AppKit
 import Foundation
 import MuxFinderCore
 
-/// `muxfinder-probe e2e-local`: the real local integration proof (PLAN.md Phase 4). It opens
-/// real iTerm2 windows, so it only runs when asked for, never from `swift test`.
+/// `muxfinder-probe e2e-local`: the real local integration proof (PLAN.md Phases 4 and 5a). It
+/// opens real iTerm2 windows, so it only runs when asked for, never from `swift test`.
 ///
 /// Safety (PLAN.md *Unattended-run rules*): it creates, attaches, detaches and kills only its
 /// own `muxfinder-test-<random>` session on the default tmux server, and finds it again (to
 /// attach, inspect or kill it) only if its server, id, creation time and name are still those
 /// `new-session` reported (`CreatedSession`), so a restarted server whose new session reuses
-/// the id is never touched. It detaches only connections iTerm2 lists as owned by launch tabs
-/// it opened (checked by the coordinator right before `detach-client`), closes only those
-/// launch tabs (by the session ids iTerm2 reported when it opened them), and never touches
-/// another window, tab, session or tmux session. Every wait is bounded, and cleanup (step 9)
-/// runs after a failure, a signal (SIGINT, SIGTERM, SIGHUP) or the overall time limit.
+/// the id is never touched. Its attachment index asks only connections owned by launch tabs
+/// this run opened (`AttachmentIndex.Configuration.includes`, PLAN.md D16), so no other tmux
+/// connection ever gets a command, not even the read-only identity `display-message`. It
+/// detaches only connections iTerm2 lists as owned by launch tabs it opened (checked by the
+/// coordinator right before `detach-client`), closes only those launch tabs (by the session
+/// ids iTerm2 reported when it opened them), and never touches another window, tab, session or
+/// tmux session. Every wait is bounded, and cleanup (step 10) runs after a failure, a signal
+/// (SIGINT, SIGTERM, SIGHUP) or the overall time limit.
 enum E2ELocalCommand {
   /// Usage lines for this subcommand.
   static let usage = """
       e2e-local
           Real end-to-end check on this Mac; opens iTerm2 windows. Creates a
           muxfinder-test-<random> session on the default tmux server, then discovers it,
-          attaches it, checks its tabs and split, detaches, reattaches, attaches twice at once
-          and tries a stale launch, printing a PASS or FAIL line per step. Cleans up after
-          itself, also on failure or Ctrl-C. Needs iTerm2 running with its API on, and
-          TMUX_TMPDIR unset (the helper in iTerm2 always uses the default server). Run
-          swift build first: iTerm2 runs the muxfinder-launch next to this executable.
+          attaches it, checks its tabs and split, attaches it again (which must focus the
+          existing tab and open nothing), detaches it by session, reattaches, attaches twice
+          at once and tries a stale launch, printing a PASS or FAIL line per step. Cleans up
+          after itself, also on failure or Ctrl-C. Asks only its own launch tabs' tmux
+          connections which session they show; other connections get no command. Needs
+          iTerm2 running with its API on, and TMUX_TMPDIR unset (the helper in iTerm2 always
+          uses the default server). Run swift build first: iTerm2 runs the muxfinder-launch
+          next to this executable.
     """
 
   /// How long the whole run may take before it is stopped and cleaned up.
   static let overallLimit: Duration = .seconds(300)
+
+  /// The number of steps, cleanup included.
+  static let stepCount = 10
 
   /// How the steps ended.
   enum Ending: Sendable, Equatable {
@@ -84,9 +93,10 @@ enum E2ELocalCommand {
     let passed = await harness.passedCount
     let total = milliseconds(ContinuousClock.now - started)
     harness.output(
-      "e2e-local: \(passed) of 9 steps passed in \(String(format: "%.1f", Double(total) / 1000)) s")
+      "e2e-local: \(passed) of \(stepCount) steps passed in "
+        + "\(String(format: "%.1f", Double(total) / 1000)) s")
     if case .signal(let number) = ending { return 128 + number }
-    return passed == 9 && ending == .finished ? 0 : 1
+    return passed == stepCount && ending == .finished ? 0 : 1
   } // End of func run(_:)
 
   /// Waits until the steps finish, a signal arrives or the overall limit passes; in the last
@@ -154,6 +164,9 @@ actor E2ELocal {
   let host = HostConfig(displayName: "This Mac", mode: .local)
   /// The coordinator's updates, including every launch tab it opened.
   let recorder = UpdateRecorder()
+  /// The attachment index every coordinator of the run uses: it asks only connections owned
+  /// by this run's launch tabs.
+  let index: AttachmentIndex
   /// The coordinator under test.
   let coordinator: AttachCoordinator
   /// The test session's name.
@@ -178,9 +191,15 @@ actor E2ELocal {
     self.tmux = tmux
     self.helperPath = helperPath
     let recorder = self.recorder
+    index = AttachmentIndex(
+      iTerm2: client,
+      configuration: .init(includes: { connection in
+        guard let owner = connection.owningSessionID else { return false }
+        return recorder.isLaunchTab(owner)
+      }))
     coordinator = AttachCoordinator(
       iTerm2: client, discovery: discovery, store: store, helperPath: helperPath,
-      onUpdate: { recorder.record($0) })
+      existingAttachments: .index(index), onUpdate: { recorder.record($0) })
   } // End of init(tmux:helperPath:)
 
   /// Writes `line` to standard output at once (unbuffered, so lines appear as steps end).
@@ -202,17 +221,18 @@ actor E2ELocal {
 
   // MARK: - Steps
 
-  /// Setup, then steps 1–8, stopping at the first failure. Step 9 (cleanup) is `cleanUp()`.
+  /// Setup, then steps 1–9, stopping at the first failure. Step 10 (cleanup) is `cleanUp()`.
   func runSteps() async {
     guard await setUpRun(),
       await step(1, "create session", { try await self.createSession() }),
       await step(2, "discover", { try await self.discoverSession() }),
       await step(3, "attach", { try await self.attachAndCheck(self.target, step: 3) }),
       await step(4, "tabs and split", { try await self.checkTabsStep() }),
-      await step(5, "detach", { try await self.detachAndCheck() }),
-      await step(6, "reattach", { try await self.reattach() }),
-      await step(7, "concurrent attaches", { try await self.concurrentAttaches() }),
-      await step(8, "stale guard", { try await self.staleGuard() })
+      await step(5, "focus existing", { try await self.focusExisting() }),
+      await step(6, "detach by session", { try await self.detachAndCheck(bySession: true) }),
+      await step(7, "reattach", { try await self.reattach() }),
+      await step(8, "concurrent attaches", { try await self.concurrentAttaches() }),
+      await step(9, "stale guard", { try await self.staleGuard() })
     else { return }
   } // End of func runSteps()
 
@@ -265,10 +285,18 @@ actor E2ELocal {
       output("FAIL setup: the launch directory is not usable (\(error.description))")
       return false
     }
+    let foreign: Int
+    do {
+      foreign = try await client.listTmuxConnections().count
+    } catch {
+      output("FAIL setup: iTerm2's tmux connections could not be listed (\(error))")
+      return false
+    }
     setUp = true
     output(
       "setup: iTerm2 API connected (protocol \(status.protocolVersion ?? "?")), helper "
-        + "\(helperPath.path), helper test mode on")
+        + "\(helperPath.path), helper test mode on; \(foreign) tmux connection(s) this run did "
+        + "not open, which its attachment index never asks")
     return true
   } // End of func setUpRun()
 
@@ -377,15 +405,101 @@ actor E2ELocal {
     guard case .activated(let tabID) = result.activation else {
       throw StepFailure("activation: \(String(describing: result.activation))")
     }
+    guard let counts = result.existingAttachments, counts.mapped == 0, counts.unmapped == 0
+    else {
+      throw StepFailure(
+        "the existing-attachment check found \(String(describing: result.existingAttachments))")
+    }
     let argv = try checkArgvDigest(for: result.launchID)
     if step == 3 { notes.append(argv) }
     let timings = result.timings
     notes.append(
-      "timings from the click: launched \(ms(timings.launched)) ms, connection \(ms(timings.connected)) "
+      "timings from the click: revalidated \(ms(timings.revalidated)) ms, existing attachments "
+        + "checked \(ms(timings.checked)) ms (none; \(counts.excluded) connection(s) of others "
+        + "not asked), launched \(ms(timings.launched)) ms, connection \(ms(timings.connected)) "
         + "ms, confirmed \(ms(timings.confirmed)) ms, activated \(ms(timings.activated)) ms")
     return "confirmed on connection \(connectionID) (requested → launched → confirmed), activated "
       + "tab \(tabID)"
   } // End of func attachAndCheck(_:step:)
+
+  /// Step 5: a second attach of the attached session must focus it: state `focused` on the
+  /// same connection and launch tab, one of that connection's tabs activated, the check
+  /// counting exactly one mapped connection, and nothing opened: the same iTerm2 windows and
+  /// tabs before and after (the run's own and every other), the same connections, no new
+  /// launch tab and no new argv digest.
+  private func focusExisting() async throws -> String {
+    guard let attached = current, let connectionID = attached.connectionID,
+      let gateway = attached.gatewaySessionID
+    else { throw StepFailure("no attachment") }
+    let (session, _) = try await discover()
+    let target = AttachTarget(host: host, session: session)
+    let before = try await client.listSessions()
+    let connectionsBefore = try await client.listTmuxConnections()
+    let launchesBefore = recorder.launchCount(for: target.key)
+    let result = await coordinator.attach(target)
+    let after = try await client.listSessions()
+    let connectionsAfter = try await client.listTmuxConnections()
+    guard result.state == .focused(connectionID: connectionID),
+      result.gatewaySessionID == gateway
+    else {
+      throw StepFailure(
+        "the second attach ended \(result.state.kind) (\(result.failure?.kind ?? "-")), not "
+          + "focused on connection \(connectionID)")
+    }
+    let states = recorder.stateKinds(of: result.launchID)
+    guard states == ["requested", "focused"] else {
+      throw StepFailure("states were \(states.joined(separator: " → "))")
+    }
+    guard case .activated(let tabID) = result.activation,
+      after.tabs(ofTmuxConnection: connectionID).contains(where: { $0.tabID == tabID })
+    else { throw StepFailure("activation: \(String(describing: result.activation))") }
+    guard let counts = result.existingAttachments, counts.mapped == 1, counts.unmapped == 0
+    else {
+      throw StepFailure(
+        "the existing-attachment check found \(String(describing: result.existingAttachments))")
+    }
+    let own = ownLayout(before, connectionID: connectionID, gateway: gateway)
+    let ownAfter = ownLayout(after, connectionID: connectionID, gateway: gateway)
+    let windowIDs = Set(before.windows.compactMap(\.windowID))
+    let tabIDs = Set(before.windows.flatMap(\.tabs).compactMap(\.tabID))
+    let newWindows = Set(after.windows.compactMap(\.windowID)).subtracting(windowIDs).count
+    let newTabs = Set(after.windows.flatMap(\.tabs).compactMap(\.tabID)).subtracting(tabIDs).count
+    let digests = try store.takeArgvDigests().count
+    guard newWindows == 0, newTabs == 0, own == ownAfter, connectionsAfter == connectionsBefore,
+      recorder.launchCount(for: target.key) == launchesBefore, digests == 0
+    else {
+      throw StepFailure(
+        "something opened: \(newWindows) new window(s), \(newTabs) new tab(s), this run's "
+          + "windows/tabs \(own.windows)/\(own.tabs) → \(ownAfter.windows)/\(ownAfter.tabs), "
+          + "connections \(connectionsBefore.count) → \(connectionsAfter.count), \(digests) "
+          + "argv digest(s)")
+    }
+    notes.append(
+      "timings from the call: revalidated \(ms(result.timings.revalidated)) ms, existing "
+        + "attachments checked \(ms(result.timings.checked)) ms (1 mapped, 0 unknown, 0 "
+        + "ambiguous, 0 nonUTF8, 0 stale, \(counts.excluded) not asked), activated "
+        + "\(ms(result.timings.activated)) ms, finished \(ms(result.timings.finished)) ms")
+    return "the second attach focused connection \(connectionID) (requested → focused) and "
+      + "activated its tab \(tabID); nothing opened: this run's \(own.windows) windows and "
+      + "\(own.tabs) tabs, every other window and tab, and the \(connectionsAfter.count) "
+      + "connection(s) unchanged, no launch tab, no argv digest"
+  } // End of func focusExisting()
+
+  /// The windows and tabs of this run's attachment: the windows holding the connection's tabs
+  /// or the launch tab, and their tabs.
+  private func ownLayout(
+    _ sessions: ITerm2API.ListSessionsResponse,
+    connectionID: String,
+    gateway: String
+  ) -> (windows: Int, tabs: Int) {
+    let own = sessions.windows.filter { window in
+      window.tabs.contains { tab in
+        tab.tmuxConnectionID == connectionID
+          || tab.sessions.contains { $0.uniqueIdentifier == gateway }
+      }
+    }
+    return (own.count, own.reduce(0) { $0 + $1.tabs.count })
+  } // End of func ownLayout(_:connectionID:gateway:)
 
   /// Milliseconds of an optional duration, or -1.
   private func ms(_ duration: Duration?) -> Int {
@@ -486,15 +600,36 @@ actor E2ELocal {
     return notes
   } // End of func placementNotes(_:connectionID:gateway:)
 
-  /// Step 5 (and the detach in steps 6 and 7): detaches the current attachment and checks that
-  /// it was clean and the session survived. The coordinator waits until the launch tab is old
-  /// enough and sends `detach-client` only if the connection is still the launch tab's.
-  private func detachAndCheck() async throws -> String {
+  /// Step 6 (by session) and the detach in steps 7 and 8 (by connection): detaches the current
+  /// attachment and checks that it was clean and the session survived. The coordinator waits
+  /// until the launch tab is old enough and sends `detach-client` only if the connection is
+  /// still the launch tab's. By session, the coordinator finds the attachment itself (through
+  /// the run's attachment index), and must find exactly this one.
+  private func detachAndCheck(bySession: Bool = false) async throws -> String {
     guard let result = current, let connectionID = result.connectionID,
       let gateway = result.gatewaySessionID
     else { throw StepFailure("no attachment") }
-    let detach = await coordinator.detach(
-      connectionID: connectionID, gatewaySessionID: gateway, launchID: result.launchID)
+    let detach: DetachResult
+    if bySession {
+      let sessionDetach = await coordinator.detach(session: result.key, on: host)
+      guard sessionDetach.outcome == .detached, sessionDetach.detaches.count == 1,
+        let only = sessionDetach.detaches.first, only.connectionID == connectionID,
+        only.gatewaySessionID == gateway
+      else {
+        throw StepFailure(
+          "detach by session ended \(sessionDetach.outcome.rawValue) with "
+            + "\(sessionDetach.detaches.count) attachment(s) "
+            + "(\(sessionDetach.checkFailure?.kind ?? "no check failure"))")
+      }
+      notes.append(
+        "detach by session found 1 attachment (index: \(sessionDetach.counts?.mapped ?? -1) mapped, "
+          + "\(sessionDetach.counts?.unmapped ?? -1) unmapped), checked its identity again and sent "
+          + "detach-client bound to the launch tab")
+      detach = only
+    } else {
+      detach = await coordinator.detach(
+        connectionID: connectionID, gatewaySessionID: gateway, launchID: result.launchID)
+    }
     let ageAtDetach = recorder.age(of: gateway)
     guard detach.commandError != .tmuxConnectionNotOwned else {
       throw StepFailure("connection \(connectionID) is no longer the launch tab's; nothing sent")
@@ -523,7 +658,7 @@ actor E2ELocal {
     let survival = try await checkSurvives()
     current = nil
     return "connection \(connectionID) closed cleanly, its tabs closed; \(survival)"
-  } // End of func detachAndCheck()
+  } // End of func detachAndCheck(bySession:)
 
   /// Checks that the test session still exists as recorded (server, id, creation time, name)
   /// with two windows, three live `sleep` panes and no client.
@@ -569,11 +704,11 @@ actor E2ELocal {
     return (perWindow.count, panes.lines.count)
   } // End of func livePanes(_:)
 
-  /// Step 6: rediscovers (the recorded session only), attaches again, checks the tabs, and
+  /// Step 7: rediscovers (the recorded session only), attaches again, checks the tabs, and
   /// detaches again.
   private func reattach() async throws -> String {
     let (session, _) = try await discover()
-    let attached = try await attachAndCheck(AttachTarget(host: host, session: session), step: 6)
+    let attached = try await attachAndCheck(AttachTarget(host: host, session: session), step: 7)
     guard let result = current, let connectionID = result.connectionID,
       let gateway = result.gatewaySessionID
     else { throw StepFailure("no attachment") }
@@ -582,7 +717,7 @@ actor E2ELocal {
     return "\(attached); \(tabs); \(detached)"
   } // End of func reattach()
 
-  /// Step 7: two concurrent attaches share one launch: one launch tab, one connection, and the
+  /// Step 8: two concurrent attaches share one launch: one launch tab, one connection, and the
   /// connection's two tmux tabs; then detaches.
   private func concurrentAttaches() async throws -> String {
     let (session, _) = try await discover()
@@ -626,9 +761,10 @@ actor E2ELocal {
       + "\(newTabs.count - 1) tmux tabs; \(tabs); \(detached)"
   } // End of func concurrentAttaches()
 
-  /// Step 8: a stale launch. Revalidation refuses a stale target before any tab opens; with
+  /// Step 9: a stale launch. Revalidation refuses a stale target before any tab opens; with
   /// discovery reporting the same wrong `session_created`, the request reaches the helper and
-  /// its guard refuses it (exit 65): `sessionChanged`, and nothing attaches.
+  /// its guard refuses it (exit 65): `sessionChanged`, and nothing attaches. The stale
+  /// coordinator uses the run's filtered attachment index too.
   private func staleGuard() async throws -> String {
     let id = try requireSession().sessionID
     let (session, _) = try await discover()
@@ -643,7 +779,8 @@ actor E2ELocal {
     let staleCoordinator = AttachCoordinator(
       iTerm2: client,
       discovery: StaleCreationDiscovery(base: discovery, sessionID: id, offset: 1),
-      store: store, helperPath: helperPath, onUpdate: { recorder.record($0) })
+      store: store, helperPath: helperPath, existingAttachments: .index(index),
+      onUpdate: { recorder.record($0) })
     let connectionsBefore = try await client.listTmuxConnections()
     let result = await staleCoordinator.attach(target)
     guard result.failure == .sessionChanged, let gateway = result.gatewaySessionID else {
@@ -704,7 +841,7 @@ actor E2ELocal {
 
   // MARK: - Cleanup
 
-  /// Step 9: detaches connections owned by this run's launch tabs, kills the test session (by
+  /// Step 10: detaches connections owned by this run's launch tabs, kills the test session (by
   /// id, after checking that its server, id, creation time and name are the recorded ones;
   /// when a signal cut `new-session` short, it is first found by its exact generated name),
   /// closes this run's launch tabs that are still open (by their recorded session ids), turns
@@ -782,11 +919,11 @@ actor E2ELocal {
     if problems.isEmpty, setUp {
       passedCount += 1
       output(
-        "PASS 9 cleanup (\(elapsed) ms): \(summary); no test session, launch tab, tmux tab, "
+        "PASS 10 cleanup (\(elapsed) ms): \(summary); no test session, launch tab, tmux tab, "
           + "connection or marker left")
     } else {
       let reason = problems.isEmpty ? "setup failed" : problems.joined(separator: "; ")
-      output("FAIL 9 cleanup (\(elapsed) ms): \(summary); \(reason)")
+      output("FAIL 10 cleanup (\(elapsed) ms): \(summary); \(reason)")
     }
   } // End of func cleanUp()
 

@@ -218,24 +218,7 @@ public actor ITerm2APIClient: ITerm2Integration {
     ownedBy owningSessionID: String
   ) async throws -> String {
     let connection = try await requestConnection()
-    let listing: ITerm2API.TmuxResponse
-    do {
-      listing = try await sendTmux(.listConnections, on: connection)
-    } catch let error as ITerm2Error {
-      // Whatever happened to the listing, the command itself was never sent.
-      throw error.isNotSent ? error : ITerm2Error.notSent(error)
-    }
-    let connections: [ITerm2API.TmuxConnection]
-    switch listing.payload {
-    case .listConnections(let listed)?: connections = listed
-    case nil: connections = []
-    default: throw ITerm2Error.notSent(Self.unexpectedResponse)
-    }
-    guard
-      connections.contains(where: {
-        $0.connectionID == connectionID && $0.owningSessionID == owningSessionID
-      })
-    else { throw ITerm2Error.tmuxConnectionNotOwned }
+    try await requireTmuxConnection(connectionID, ownedBy: owningSessionID, on: connection)
     let response = try await sendTmux(
       .sendCommand(connectionID: connectionID, command: command), on: connection)
     switch response.payload {
@@ -252,6 +235,68 @@ public actor ITerm2APIClient: ITerm2Integration {
     }
     guard response.status == .ok else { throw ITerm2Error.activateFailed(response.status) }
   }
+
+  /// Activates the first tab of a tmux connection only while iTerm2 lists it as owned by
+  /// `owningSessionID`; see `ITerm2Integration.activateFirstTab(ofTmuxConnection:ownedBy:options:)`.
+  /// Both listings and the activation go out on one API connection: if it ends in between,
+  /// the call fails (`notSent(reason)` before the activation) instead of reconnecting.
+  public func activateFirstTab(
+    ofTmuxConnection connectionID: String,
+    ownedBy owningSessionID: String,
+    options: ITerm2API.ActivateRequest
+  ) async throws -> String? {
+    let connection = try await requestConnection()
+    try await requireTmuxConnection(connectionID, ownedBy: owningSessionID, on: connection)
+    let sessions: ITerm2API.ListSessionsResponse
+    do {
+      let answer = try await connection.send(
+        .listSessions(.init()), timeout: configuration.requestTimeout)
+      guard case .listSessions(let listed) = answer else { throw Self.unexpectedResponse }
+      sessions = listed
+    } catch let error as ITerm2Error {
+      // Whatever happened to the listing, the activation itself was never sent.
+      throw error.isNotSent ? error : ITerm2Error.notSent(error)
+    }
+    guard
+      let tabID = sessions.tabs(ofTmuxConnection: connectionID).lazy.compactMap(\.tabID)
+        .first(where: { !$0.isEmpty })
+    else { return nil }
+    var request = options
+    request.target = .tab(tabID)
+    let answer = try await connection.send(
+      .activate(request), timeout: configuration.requestTimeout)
+    guard case .activate(let response) = answer else { throw Self.unexpectedResponse }
+    guard response.status == .ok else { throw ITerm2Error.activateFailed(response.status) }
+    return tabID
+  } // End of func activateFirstTab(ofTmuxConnection:ownedBy:options:)
+
+  /// Lists the tmux connections on `connection` and throws unless one has the id `connectionID`
+  /// and the owner `owningSessionID`: `tmuxConnectionNotOwned`, or `notSent(reason)` when the
+  /// listing failed. Either way the request it guards was not sent.
+  private func requireTmuxConnection(
+    _ connectionID: String,
+    ownedBy owningSessionID: String,
+    on connection: ITerm2Connection
+  ) async throws {
+    let listing: ITerm2API.TmuxResponse
+    do {
+      listing = try await sendTmux(.listConnections, on: connection)
+    } catch let error as ITerm2Error {
+      // Whatever happened to the listing, the guarded request was never sent.
+      throw error.isNotSent ? error : ITerm2Error.notSent(error)
+    }
+    let connections: [ITerm2API.TmuxConnection]
+    switch listing.payload {
+    case .listConnections(let listed)?: connections = listed
+    case nil: connections = []
+    default: throw ITerm2Error.notSent(Self.unexpectedResponse)
+    }
+    guard
+      connections.contains(where: {
+        $0.connectionID == connectionID && $0.owningSessionID == owningSessionID
+      })
+    else { throw ITerm2Error.tmuxConnectionNotOwned }
+  } // End of func requireTmuxConnection(_:ownedBy:on:)
 
   /// Profiles with the requested properties.
   public func listProfiles(

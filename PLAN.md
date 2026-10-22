@@ -132,8 +132,10 @@ session, verifies its identity, and then activates the tab.
   never reported as a real integration result.
 - **D12 — tmux output is always read through `tmux -u`** (decided in Phase 2, 2026-10-21).
   A tmux client whose locale is not UTF-8 (the first set of `LC_ALL`, `LC_CTYPE`, `LANG` must
-  contain "UTF-8") replaces every non-ASCII byte **and every tab** in `-F` output with `_`, so
-  Unicode names are lost and tab-separated records can't be split. Noninteractive SSH only
+  contain "UTF-8") gets `-F` and `display-message -p` output with every tab, other control
+  character and non-ASCII character replaced by one `_` per column (a zero-width character
+  vanishes; printable ASCII is kept), so Unicode names are lost and tab-separated records can't
+  be split. This holds for control clients too (Phase 5a facts). Noninteractive SSH only
   has a locale when the client forwards `LANG` (macOS `SendEnv LANG LC_*` / `AcceptEnv LANG
   LC_*`), and GUI apps started by launchd normally have no `LANG`, so the remote side gets
   none. `-u` forces UTF-8 output whatever the locale and needs no locale to exist on the host;
@@ -286,11 +288,15 @@ session, verifies its identity, and then activates the tab.
     times iTerm2's threshold, the margin `e2e-local` adopted after its first run (whose warning
     followed an end about 1.5 s after the start). The helper keeps the same 10 s minimum
     lifetime on its side (D14). In the passing runs the launch tabs ended 10.1–10.7 s old.
-    The age counts from the `CreateTab` answer for tabs this coordinator opened (it remembers
-    the latest 64), and from the call for any other tab (another process's, as with
-    `muxfinder-probe detach`), which exists already and so is old enough once the time has
-    passed. The identity-failure detach runs in a task of its own that the attach waits for,
-    so cancelling the attach neither skips the wait nor ends the tab early; a `detach`
+    The age counts from the `CreateTab` answer for tabs this coordinator opened (the
+    identity-failure detach takes it from its own launch; `detach` looks it up among the latest
+    64 it remembers), and for any other tab from a moment it surely existed by: the call for
+    `detach(connectionID:gatewaySessionID:launchID:)` (the caller saw the connection before
+    calling, as with `muxfinder-probe detach`), and the end of the index snapshot that revealed
+    the connection for D16's `detach(session:on:)` (a tab opened during its discovery or
+    listing did not exist at the call). The identity-failure detach runs in a task of its own
+    that the attach waits for, so cancelling the attach neither skips the wait nor ends the tab
+    early; a `detach`
     cancelled during its wait sends nothing (`DetachResult.cancelled`). `detach` takes the
     launch tab's session id with the connection id.
   - **Connection binding:** connection ids are short names (`"tmux"`) that iTerm2 hands out
@@ -301,14 +307,99 @@ session, verifies its identity, and then activates the tab.
     recorded at `CreateTab`, both on one API connection with no reconnect in between (the
     client exposes no connection generation; this rule is what keeps a reconnect from
     redirecting the command). Otherwise it fails with `tmuxConnectionNotOwned` (a "not sent"
-    error) and nothing is sent.
-  - **Identity command:** `display-message -p "#{pid}\t#{start_time}\t#{socket_path}\t#{session_id}"`
-    (double quotes: tmux turns `\t` into a tab there; verified with tmux 3.8 in control mode),
-    parsed on bytes: pid and start time first, session id last, the socket path in between.
+    error) and nothing is sent. Every activation follows the same rule through
+    `activateFirstTab(ofTmuxConnection:ownedBy:options:)`: `ListConnections`, then (owner
+    unchanged) `ListSessions` and `Activate` of the connection's first tab, on one API
+    connection.
+  - **Identity command:** D16's `ConnectionIdentity.command`, read on bytes (D16). The
+    launch's client runs with `-u`, so its answer is exact; any other answer is unreadable. The
+    attach's check compares the server and the session only.
   - **Activation** is part of the result, not a state: the first tab carrying the connection id
     (waited for up to 5 s) is activated with `select_tab`, `order_window_front` and the app
-    options, without `select_session` (iTerm2 refuses that for a tab target). A confirmed
-    attach whose tab never appears, or whose `Activate` fails, stays confirmed.
+    options, without `select_session` (iTerm2 refuses that for a tab target), bound to the
+    launch tab (*Connection binding*). A confirmed attach whose tab never appears, whose
+    `Activate` fails, or whose connection is no longer the launch tab's
+    (`failed(tmuxConnectionNotOwned)`, nothing activated) stays confirmed.
+- **D16 — Existing attachments** (decided in Phase 5a, 2026-10-22; code in
+  `Sources/MuxFinderCore/Attach/AttachmentIndex.swift` and `AttachCoordinator.swift`).
+  - **Identity command:** `ConnectionIdentity.command`,
+    `display-message -p "#{client_utf8}:#{n:host}:#{host}:#{pid}:#{start_time}:#{n:socket_path}:#{socket_path}:#{session_id}"`,
+    is the one command for the attach's identity check and for the index, with one reader on
+    bytes (`ConnectionIdentity.read(_:)`): the UTF-8 flag `0` or `1`, the host name (non-empty,
+    valid UTF-8, no control characters) and the socket path (valid UTF-8, starting with `/`)
+    each exactly as many bytes as its `#{n:…}` length (bytes, verified), the pid and start time
+    as canonical decimals, the session id last, every field ended by `:`. Only printable ASCII
+    frames the fields, because the index asks control clients muxFinder did not start: a
+    user's `tmux -CC` without `-u` under a non-UTF-8 locale gets every tab, control and
+    non-ASCII character replaced by one `_` per column, zero-width ones dropped (D12), so the
+    old tab-separated line came back unsplittable and the attachment went unmapped. A client in
+    UTF-8 mode (`1`) sends the exact bytes. For a client that is not (`0`) a line is exact only
+    when the host name and socket path are printable ASCII without `_` or `:` (no `_` means
+    nothing was replaced; no `:` means each field ends at a real separator, so its length is
+    the original byte length and nothing was dropped); anything else from it is `nonUTF8`,
+    never matched. `#{host}` is the server's `gethostname()`, the text `uname -n` prints.
+  - **Mapping:** `AttachmentIndex.snapshot(of:)` lists iTerm2's tmux connections and asks each
+    one, concurrently, through the D15 binding rule with the owning session from that same
+    listing; this read-only `display-message` is the only command it ever sends. An answer
+    maps to `SessionKey(hostID, server, session id)` when exactly one given host has a
+    discovery node name (`uname -n`) byte-equal to `#{host}` and a discovered server with the
+    same socket path, pid and start time. The session id is the answer's, so a session
+    discovery has not listed yet still maps. No title or name is ever matched.
+  - **Unmapped kinds, counted and never guessed:** `unknown` (no host matches), `ambiguous`
+    (several do, for example "This Mac" and an SSH entry for the same Mac), `nonUTF8` (a
+    client not in UTF-8 mode whose answer may have lost bytes, see *Identity command*), `stale`
+    (the listing gave no id or owner; the request failed, including `tmuxConnectionNotOwned`
+    when the connection closed or changed owner first; the answer was unreadable; or no answer
+    came in time). Connections a configured filter leaves out are not asked and count as
+    `excluded`.
+  - **Timeouts:** every command is bounded by `commandTimeout` (3 s) on the injectable clock.
+    At the deadline the request is cancelled (D13: withdrawn if not yet written; a late answer
+    is dropped), so a hung connection costs at most 3 s and never delays the others. The
+    listing has the client's 10 s request timeout.
+  - **Focus:** after revalidation an attach runs the index over the target's host alone (so
+    `ambiguous` cannot arise there). When connections map to the target's key, the attach
+    becomes a focus on the first listed one whose binding still holds. Its activation is D15's
+    (first tab of the connection, waited for up to 5 s) bound to the owning session from the
+    index's listing, because the index waits on every connection and meanwhile the short id
+    can come to name another tab's connection. A connection that closed or changed owner
+    (`tmuxConnectionNotOwned`) is skipped with nothing activated; the next attachment is
+    tried. The first one whose binding holds ends the attach `focused(connectionID)`
+    (`requested` → `focused`, published once the activation ended), the result carrying that
+    connection, its owning session as `gatewaySessionID`, the check's counts and the
+    activation. When every attachment changed, the attach fails with `attachmentChanged` and
+    opens nothing, since the session may be attached again elsewhere; attaching again checks
+    afresh. No request file, no `ensureRunning`, no `CreateTab`, even when activation fails or
+    no tab appears: the index answered "attached", so a duplicate is never opened. Concurrent
+    callers share the focus (single flight).
+  - **When the index fails:** iTerm2 not running means nothing is attached, so the launch goes
+    on (`ensureRunning` launches it). Any other listing failure ends the attach with
+    `attachmentCheckFailed(error)` before anything is written or opened. Unmapped connections
+    never block an attach; a duplicate is possible only when a connection showing the session
+    gave no usable answer within 3 s (the result reports the counts).
+  - **`detach(session:on:)`:** discovers the host, runs the index, and handles every attachment
+    of the key, whoever opened it, the earliest allowed end first. Each waits until its owning
+    tab is 10 s old (D15 *Teardown*: from `CreateTab` for launch tabs this coordinator opened,
+    for any other tab from the end of the snapshot that revealed its connection), then repeats
+    the identity check through the binding rule, because a user's tab can detach and attach
+    another session during the wait, reusing the short id; another session or server (or a
+    `nonUTF8` answer) is `identityChanged` and no answer is `identityCheckFailure`, and nothing
+    is sent. Otherwise `detach-client`, bound to the owner,
+    goes out once; it waits for the connection to close and, for its own launches, the
+    helper's result. Outcomes: `nothingAttached` (iTerm2 not running, no server, or no
+    connection maps; nothing sent), `detached`, `notSent`, `notClosed`, `cancelled` (during a
+    wait; nothing more is sent) and `checkFailed` (discovery or the listing failed). The
+    remaining race is the gap between the check and `detach-client`, two consecutive requests
+    on one API connection. Local hosts only until Phase 5b.
+  - **Seam:** `AttachCoordinator(existingAttachments:)` is `.standard` (an index over the
+    coordinator's iTerm2 integration and clock; the default), `.index(_)` (a given one: a
+    filtered index, or one with its own clock in tests) or `.off` (launch-path tests only).
+  - **Real-run safety:** `e2e-local` gives its coordinators an index whose filter admits only
+    connections owned by launch tabs this run opened, so no other connection ever gets a
+    command, not even the read-only one. It does not refuse to start when other connections
+    exist; it reports how many. A pre-check of `ListConnections` before an unfiltered index was
+    rejected: a connection the user opens between the check and the index would get the
+    command. `muxfinder-probe attach` and `iterm2 attachments` ask every connection, so
+    unattended runs use them only while `list-connections` shows none of the user's.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -386,6 +477,36 @@ session, verifies its identity, and then activates the tab.
   U+0020–U+007E as lowercase `\uXXXX` (surrogate pairs above U+FFFF), `/` not escaped.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
+
+Verified in Phase 5a (2026-10-22, iTerm2 3.7.6, tmux 3.8, the default tmux server holding only
+`muxfinder-test-*` sessions; `e2e-local` with the focus-existing step passed twice, and once
+more with the length-prefixed identity command and the bound activation; details in
+`docs/INTEGRATION-PROOF.md`):
+
+- **`#{host}`** prints `Neptuno-M4.local`, byte-identical to `uname -n` (a private
+  `TMUX_TMPDIR` server, and through the control connection, where the index mapped every
+  attachment by it).
+- **The D16 identity command** answers through a control connection with one line in its
+  length-prefixed form, flag `1` (the helper's `-u` client), that matched discovery in every
+  attach and index query (the tab-separated form it replaced did too).
+- **Clients not in UTF-8 mode** (private `TMUX_TMPDIR` servers with one `muxfinder-test-*`
+  session each, control clients `tmux -C attach-session` fed the identity command on stdin,
+  socket directories holding `é`, a combining acute, a zero-width space, a tab and `_`):
+  without `-u`, under `LC_ALL=C` or with no locale (`env -i`), `#{client_utf8}` is `0` and the
+  output has every tab and `é` replaced by one `_` each, the combining mark and the zero-width
+  space dropped, and `_`, `:` and all other printable ASCII kept, so the tab-separated line
+  arrived as one field. With `-u`, or with `LANG=en_US.UTF-8` and no `-u`, it is `1` and the
+  bytes are exact. `#{n:socket_path}` counts bytes (`é` counts 2), so a replaced or dropped
+  character shows as a field shorter than its length. A normal client's `list-sessions -F`
+  without `-u` replaced `é` and a tab by one `_` each the same way.
+- **Focus:** `Activate` (tab target, `select_tab`, `order_window_front`, app options) on a tab
+  of an existing connection brings it forward and opens nothing: the same window and tab ids
+  everywhere, the same connections, no launch tab, no helper started. The index over one
+  connection answered within 1–2 ms of discovery; a focused attach ended about 50 ms after the
+  call, discovery taking most of it.
+- **Detach by session:** the repeated identity check and then `detach-client`, both bound to
+  the launch tab, behaved like D15's detach: the connection closed, the helper exited 0, and the
+  launch tab closed by itself, 10.4–10.5 s old.
 
 Verified in Phase 4 (4b and 4c, 2026-10-22, iTerm2 3.7.6 with default preferences, tmux 3.8,
 the default tmux server holding only `muxfinder-test-*` sessions; `e2e-local` passed twice in
@@ -698,10 +819,12 @@ Requirements:
   5. The state becomes `launched(sessionID)`.
   6. Poll `ListConnections` until a connection's `owning_session_id` equals the created
      session, or the helper's result file reports failure (15 s budget locally).
-  7. Check identity with `SendCommand display-message -p '#{pid}\t#{start_time}\t#{socket_path}\t#{session_id}'`
-     through that connection.
+  7. Check identity with `SendCommand` of the D16 identity command (`display-message -p`
+     with `#{client_utf8}`, `#{host}`, `#{pid}`, `#{start_time}`, `#{socket_path}`,
+     `#{session_id}`, the host and path after their byte lengths) through that connection.
   8. The state becomes `confirmed`.
-  9. `Activate` the first tab carrying that `tmux_connection_id`.
+  9. `Activate` the first tab carrying that `tmux_connection_id`, while the launch tab still
+     owns the connection (D15 *Connection binding*).
   - The states `requested`, `launched`, `confirmed` and `failed(reason)` are distinct.
 - The helper's guard runs the D4 check before `tmux -CC attach-session -t <id>`. Its exit codes
   map to typed failures (`sessionGone`, `sessionChanged`, `tmuxMissing`, `sshFailed(class)`).
@@ -754,6 +877,22 @@ Acceptance:
 - `e2e-remote saturno-m4` covers create test session, discover, attach, verify tabs and splits,
   detach, survive, reattach, second attach focuses the existing tab, and cleanup. It exits 0.
 - `e2e-local` also passes the focus-existing step.
+
+Split (2026-10-22, before the first worker): Phase 5 is two sub-phases, each with its own
+worker, verification, review and commit.
+
+- **5a — existing-attachment detection, local (high).** `Attach/AttachmentIndex` (the mapping
+  above, with the local host's `uname -n` and discovery's socket/pid/start time), attach
+  becoming focus when the session is already attached in this Mac's iTerm2, `detach(sessionKey)`
+  for attachments in this Mac's iTerm2 (not only connections the app opened), and `e2e-local`
+  extended with the focus-existing step. Acceptance: hermetic tests for mapped, unknown,
+  ambiguous and stale connections, the focus path and `detach(sessionKey)`; `e2e-local` exits 0
+  with the focus-existing step passing (second attach opens no tab or window); no leftovers.
+- **5b — remote attach over SSH (high).** The remote path in the coordinator and the helper
+  (`/usr/bin/ssh -t -- <dest> <D3 string>`, interactive, no BatchMode, the helper's 10 s hold
+  kept when ssh fails fast), the 20 s `stillWaiting` budget, `AttachmentIndex` mapping for
+  remote hosts, and `muxfinder-probe e2e-remote saturno-m4`. Acceptance: the `e2e-remote`
+  bullet above, plus hermetic tests for the remote argv, the budget and `stillWaiting`.
 
 ### Phase 6 — Session operations: create, move here, disappeared sessions (high)
 

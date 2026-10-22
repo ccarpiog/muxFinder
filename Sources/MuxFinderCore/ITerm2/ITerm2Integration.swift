@@ -83,6 +83,26 @@ public protocol ITerm2Integration: Sendable {
   /// unless iTerm2 reports `OK`.
   func activate(_ request: ITerm2API.ActivateRequest) async throws
 
+  /// Activates the first tab of the tmux connection `connectionID` only while iTerm2 lists that
+  /// connection as owned by the session `owningSessionID`, the rule of
+  /// `sendTmuxCommand(_:connectionID:ownedBy:)`: on one API connection, never reconnecting in
+  /// between, it lists the tmux connections and, if one has that id and owner, lists the
+  /// sessions and activates the first tab carrying that connection id (with a non-empty tab
+  /// id), with `options` and that tab as the target (the target in `options` is ignored). A
+  /// connection id iTerm2 handed to another tab's connection therefore never gets its tab
+  /// activated in place of the one found under `owningSessionID`.
+  ///
+  /// - Returns: the activated tab's id, or `nil` when no tab carries the connection yet
+  ///   (nothing was activated).
+  /// - Throws: `tmuxConnectionNotOwned` when no listed connection has that id and owner, and
+  ///   `notSent(reason)` when a listing failed (in both cases nothing was activated); otherwise
+  ///   what `activate(_:)` throws.
+  func activateFirstTab(
+    ofTmuxConnection connectionID: String,
+    ownedBy owningSessionID: String,
+    options: ITerm2API.ActivateRequest
+  ) async throws -> String?
+
   /// Profiles with the requested properties (`properties` empty: all of them), limited to
   /// `guids` (empty: every profile).
   func listProfiles(properties: [String], guids: [String]) async throws -> [ITerm2API.Profile]

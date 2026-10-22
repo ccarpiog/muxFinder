@@ -160,6 +160,12 @@ final class UpdateRecorder: Sendable {
   /// Every launch tab session reported so far.
   var gatewaySessionIDs: [String] { state.withLock { $0.gatewaySessionIDs } }
 
+  /// Whether `sessionID` is a launch tab reported so far (the run's attachment index asks only
+  /// connections such tabs own).
+  func isLaunchTab(_ sessionID: String) -> Bool {
+    state.withLock { $0.launchedAt[sessionID] != nil }
+  }
+
   /// When the latest of `sessionIDs` was launched, or `nil` if none was.
   func latestLaunch(of sessionIDs: [String]) -> ContinuousClock.Instant? {
     state.withLock { state in sessionIDs.compactMap { state.launchedAt[$0] }.max() }

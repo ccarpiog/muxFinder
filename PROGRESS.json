@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T08:21:43Z",
+  "updated": "2026-10-22T09:27:46Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -95,9 +95,34 @@
     {
       "id": "5",
       "title": "Integration proof over SSH, and existing-attachment detection",
+      "status": "in_progress",
+      "risk": "high",
+      "summary": "Proves SSH attach and existing-attachment detection; split into 5a (local detection and focus, done) and 5b (remote attach over SSH).",
+      "started": "2026-10-22T08:22:57Z",
+      "status_since": "2026-10-22T08:22:57Z"
+    },
+    {
+      "id": "5a",
+      "title": "Existing-attachment detection, local",
+      "status": "done",
+      "risk": "high",
+      "parent": "5",
+      "summary": "Maps iTerm2 tmux connections to sessions, focuses an existing attachment instead of opening a tab, and detaches by session.",
+      "review": "docs/reviews/phase-5a.md",
+      "narrative": "docs/progress-archive/5a.md",
+      "added": "2026-10-22T08:22:57Z",
+      "started": "2026-10-22T08:22:57Z",
+      "status_since": "2026-10-22T09:27:46Z"
+    },
+    {
+      "id": "5b",
+      "title": "Remote attach over SSH",
       "status": "queued",
       "risk": "high",
-      "summary": "Proves attaching a Saturno session over SSH and detecting sessions already open in iTerm2."
+      "parent": "5",
+      "summary": "Attaches Saturno sessions over interactive SSH with a 20 s budget and proves it with e2e-remote.",
+      "added": "2026-10-22T08:22:57Z",
+      "status_since": "2026-10-22T08:22:57Z"
     },
     {
       "id": "6",

@@ -15,12 +15,13 @@ file.
 | 4a | Launch layer and helper: request files, guard, muxfinder-launch | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4a.md` | `docs/progress-archive/4a.md` |
 | 4b | Attach coordinator and probe commands | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4b.md` | `docs/progress-archive/4b.md` |
 | 4c | Real local proof: e2e-local passing, final integration proof | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4c.md` | `docs/progress-archive/4c.md` |
+| 5a | Existing-attachment detection, local | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-5a.md` | `docs/progress-archive/5a.md` |
 
 ## Current phase
 
-**None in flight. Phase 4 (4a, 4b, 4c) is complete; Phase 5 is next.** The user dismissed
-iTerm2's short-lived-session modal on 2026-10-22; `muxfinder-probe iterm2 status` connects
-(exit 0, last checked 2026-10-22 09:20).
+**None in flight. Phase 5 is split into 5a and 5b (`PLAN.md` "### Phase 5", *Split*); 5a is
+complete, 5b is next.** `muxfinder-probe iterm2 status` connects (exit 0, last checked
+2026-10-22 10:35, after the final `e2e-local` run).
 
 ## Acceptance
 
@@ -49,7 +50,12 @@ iTerm2's short-lived-session modal on 2026-10-22; `muxfinder-probe iterm2 status
   with 9/9 PASS in four separate real runs (two by the worker, two by the orchestrator, the last
   on the final tree after the review fix); `iterm2 status` exit 0 after each; no leftover test
   session, launch file or marker; `docs/INTEGRATION-PROOF.md` final; build, 346 tests and lint
-  pass. Evidence in `docs/progress-archive/4c.md` and *Verification* below.
+  pass. Evidence in `docs/progress-archive/4c.md`.
+- Phase 5a: all criteria met — hermetic tests for mapped, unknown, ambiguous, stale and
+  `nonUTF8` connections, the per-connection timeout, the focus path, index failure and
+  `detach(session:on:)`; real `e2e-local` exit 0 with 10/10 PASS including focus existing (no
+  tab or window opened) in five runs, the last on the final tree; no leftovers; build, 382 tests
+  and lint pass. Evidence in `docs/progress-archive/5a.md` and *Verification* below.
 
 ## Decisions
 
@@ -77,6 +83,13 @@ iTerm2's short-lived-session modal on 2026-10-22; `muxfinder-probe iterm2 status
   `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS`. D15 and *Verified facts* edited with the real
   behavior (iTerm2 warning threshold 3 s, `Command` split into 3 argv, each tmux window opens as
   its own iTerm2 window) — `docs/progress-archive/4c.md`.
+- Phase 5: split into 5a (local detection, focus, detach by session) and 5b (remote attach over
+  SSH), recorded in `PLAN.md` before the first worker.
+- Phase 5a: new **D16** (attachment index: host/socket/pid/start-time matching, unmapped kinds,
+  3 s per-connection timeout, owner-bound focus, index-failure policy, `detach(session:on:)`,
+  e2e filter to the run's own connections); identity line now
+  `#{client_utf8}:#{n:host}:#{host}:…` with length prefixes; D12, D15, *Verified facts* edited
+  — `docs/progress-archive/5a.md`.
 
 ## Open risks / deviations
 
@@ -117,6 +130,14 @@ iTerm2's short-lived-session modal on 2026-10-22; `muxfinder-probe iterm2 status
   Ctrl-C in the instant between the failure prompt appearing and the wait arming is ignored;
   `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` is test-only by convention but would also apply to a
   real launch if present in iTerm2's environment.
+- 5a: probe `attach` and `iterm2 attachments` send the read-only identity `display-message` to
+  every tmux connection, the user's included; unattended, run them only when `iterm2
+  list-connections` shows none of the user's (`e2e-local` filters to its own launch tabs).
+- 5a: a non-UTF-8 control client whose host or socket path contains `_` or `:` stays unmapped
+  (`nonUTF8`), so attaching that session can open a duplicate; a connection silent for 3 s does
+  not block an attach either (duplicate only if it showed the same session).
+- 5a: `focused` is published after activation (up to 5 s late if no tab appears yet); the
+  owned-connection `detach` still counts tab age from the call.
 
 ## Reviews
 
@@ -146,22 +167,31 @@ iTerm2's short-lived-session modal on 2026-10-22; `muxfinder-probe iterm2 status
   helper's 10 s minimum lifetime) — fixed by a fix worker (only SIGHUP restored to default in
   the waits; `LaunchWaitGate`; new pseudo-terminal suite that fails on the old behavior),
   re-verified with a fourth real `e2e-local` run; `docs/reviews/phase-4c.md`.
+- Phase 5a: Codex → `ship-with-fixes`, 1 blocker (unknown tab age measured from call entry, so
+  a tab created during discovery could be detached seconds after opening), 2 should-fix
+  (identity assumed tab separators survive non-UTF-8 clients; focus activated by the reusable
+  connection id alone) — all fixed by a fix worker with regressions that fail on the old
+  behavior, re-verified with a real `e2e-local` run on the final tree; `docs/reviews/phase-5a.md`.
 
 ## Next action
 
 1. `swift build`, then check `.build/debug/muxfinder-probe iterm2 status` connects (exit 0). If
    it times out (exit 75), iTerm2 is blocked by a modal: stop as `BLOCKED`, never UI-script.
-2. Start **Phase 5 — integration proof over SSH, and existing-attachment detection** (risk
-   `high`) per `PLAN.md` "### Phase 5". It is large: split it first and record the split in the
-   plan, e.g. **5a** (local only: `Attach/AttachmentIndex`, focus-existing instead of a second
-   tab, `detach(sessionKey)` for attachments created in this Mac's iTerm2, `e2e-local` extended
-   with the focus-existing step) and **5b** (remote path in coordinator and helper per D3,
-   20 s `stillWaiting` budget, `muxfinder-probe e2e-remote saturno-m4`). Workers read D3, D4,
-   D14, D15, *Verified facts*, Unattended-run rules, `docs/TESTING.md`,
-   `docs/INTEGRATION-PROOF.md` and `docs/progress-archive/4c.md` *Consequences*. Remote: only
+   Check `.build/debug/muxfinder-probe discover --ssh saturno-m4` answers; if Saturno is
+   unreachable, record it and stop as `BLOCKED` rather than skipping the remote proof.
+2. Start **Phase 5b — remote attach over SSH** (risk `high`) per `PLAN.md` "### Phase 5" and
+   its *Split* paragraph: the remote path in the coordinator and the helper
+   (`/usr/bin/ssh -t -- <dest> <D3 string>`, interactive, no BatchMode, the helper's 10 s hold
+   kept when ssh fails fast), the 20 s budget to `confirmed` with `stillWaiting` past it,
+   `AttachmentIndex` mapping for remote hosts and `detach(session:on:)` for them, and
+   `muxfinder-probe e2e-remote saturno-m4` (create test session, discover, attach, tabs and
+   splits, detach, survive, reattach, second attach focuses, cleanup; exit 0, run twice).
+   Hermetic tests for the remote argv, the budget and `stillWaiting`. The worker reads D3, D4,
+   D12, D14, D15, D16, *Verified facts*, Unattended-run rules, `docs/TESTING.md`,
+   `docs/INTEGRATION-PROOF.md` and `docs/progress-archive/5a.md` *Consequences*. Remote: only
    `saturno-m4`, only `muxfinder-test-*` sessions, no remote file writes. Never let a created
-   tab end within 3 s (see the modal hazard under *Open risks*). One worker per sub-phase, its
-   own review at the end.
+   tab end within 3 s; give the e2e index a filter limited to the run's own launch tabs. One
+   worker, then its own review.
 
 ## Key paths
 
@@ -169,22 +199,26 @@ iTerm2's short-lived-session modal on 2026-10-22; `muxfinder-probe iterm2 status
   `docs/TESTING.md`.
 - Core library: `Sources/MuxFinderCore/{Process,Shell,Config,Diagnostics,Tmux,ITerm2,Launch,Attach}/`.
 - Launch helper: `Sources/muxfinder-launch/` (`muxfinder-launch attach <uuid>`).
+- Attachment index: `Sources/MuxFinderCore/Attach/AttachmentIndex.swift` (D16).
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
-  list-connections | list-profiles`, `attach --local --session`, `detach --connection
-  --gateway`, `e2e-local`).
+  list-connections | list-profiles | attachments`, `attach --local --session`, `detach
+  --connection --gateway`, `e2e-local`).
 - Integration proof (local, final): `docs/INTEGRATION-PROOF.md`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
-## Verification (Phase 4c, final tree after the review fix)
+## Verification (Phase 5a, final tree after the review fixes)
 
 - `swift build -Xswiftc -warnings-as-errors` → exit 0.
-- `swift test` → exit 0, 346 tests in 34 suites.
+- `swift test` → exit 0, 382 tests in 36 suites.
 - `swift format lint -r Sources Tests` → exit 0, no output.
-- `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` → exit 0, 9 of 9 PASS in 42.9 s.
-- `.build/debug/muxfinder-probe iterm2 status` → exit 0 (connected, protocol 1.21).
-- `tmux -u ls` → no server running; launch directory empty, no `test-mode` marker.
+- `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` → exit 0, 10 of 10 PASS in 42.2 s
+  (focus existing 89 ms, detach by session 10.0 s).
+- `.build/debug/muxfinder-probe iterm2 status` → exit 0 (connected, protocol 1.21);
+  `iterm2 list-connections` → 0 before the run.
+- `tmux -u ls` → no server running; launch directory empty, no `test-mode` marker; no
+  `/private/tmp/mfx.*` left.
 
 ## Git state
 
@@ -192,7 +226,7 @@ iTerm2's short-lived-session modal on 2026-10-22; `muxfinder-probe iterm2 status
   Phase 3b: `0d3b65f`, pushed.
 - Phase 4a: `1f5a3be`, pushed.
 - Phase 4b: `f888a2c`, pushed.
-- Phase 4c committed on `main` as `e631641` (parent `96c499b`), pushed to `origin/main`
-  (`96c499b..e631641`, success). This SHA/push record is a follow-up checkpoint commit on top;
-  tree clean after it. From 3b on, commit messages carry no AI attribution trailer (user's
-  global rule); earlier pushed commits are left as they are.
+- Phase 4c: `e631641`, pushed.
+- Phase 5a: committed on `main` with this checkpoint (SHA and push result recorded by a
+  follow-up checkpoint commit). From 3b on, commit messages carry no AI attribution trailer
+  (user's global rule); earlier pushed commits are left as they are.

@@ -309,6 +309,81 @@ struct ITerm2APIClientTests {
     #expect(harness.connector.connects == 1)
   } // End of func ownedTmuxCommand()
 
+  /// The review's finding: the bound activation lists the connections, then the sessions, then
+  /// activates the connection's first tab, all on one API connection, and only while the listed
+  /// owner matches (the target in its options is replaced by the tab). A connection without a
+  /// tab activates nothing (`nil`); for another owner only the listing goes out
+  /// (`tmuxConnectionNotOwned`); a sessions listing lost with its connection activates nothing
+  /// (`notSent`), and nothing reconnects.
+  @Test func ownedActivation() async throws {
+    let stream = FakeByteStream()
+    let harness = Self.makeClient(streams: [stream])
+    var peer = FakeITerm2Peer(stream: stream)
+    let owner = ITerm2Fixture.session(4)
+    let options = ITerm2API.ActivateRequest(
+      target: .window("fixture-ignored"), orderWindowFront: true, selectTab: true,
+      selectSession: false)
+    let owned = Task {
+      try await harness.client.activateFirstTab(
+        ofTmuxConnection: "fixture-connection-1", ownedBy: owner, options: options)
+    }
+    try await peer.answerHandshake()
+    var request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 124)
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 106)
+    try peer.respond(to: request.id, withFixture: "list-sessions-response")
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 114)
+    // `tab_id` (2) = "2", the fixture's tab of the connection; the given window target is gone.
+    #expect(request.bytes.firstRange(of: [0x12, 0x01, 0x32]) != nil)
+    #expect(request.bytes.firstRange(of: Array("fixture-ignored".utf8)) == nil)
+    try peer.respond(to: request.id, withFixture: "activate-response-ok")
+    #expect(try await owned.value == "2")
+
+    let tabless = Task {
+      try await harness.client.activateFirstTab(
+        ofTmuxConnection: "fixture-connection-2", ownedBy: ITerm2Fixture.session(6),
+        options: options)
+    }
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 106)
+    try peer.respond(to: request.id, withFixture: "list-sessions-response")
+    #expect(try await tabless.value == nil)
+
+    let refused = Task {
+      try await harness.client.activateFirstTab(
+        ofTmuxConnection: "fixture-connection-1", ownedBy: ITerm2Fixture.session(6),
+        options: options)
+    }
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    await #expect(throws: ITerm2Error.tmuxConnectionNotOwned) { _ = try await refused.value }
+    // The next frame is the next call's: no sessions listing or activation in between.
+    let output = Task {
+      try await harness.client.sendTmuxCommand("display", connectionID: "c")
+    }
+    request = try await peer.nextRequest()
+    #expect(request.bytes.firstRange(of: Array("display".utf8)) != nil)
+    try peer.respond(to: request.id, withFixture: "tmux-send-command-response")
+    _ = try await output.value
+
+    let lost = Task {
+      try await harness.client.activateFirstTab(
+        ofTmuxConnection: "fixture-connection-1", ownedBy: owner, options: options)
+    }
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 106)
+    stream.deliverEndOfStream()
+    await #expect(throws: ITerm2Error.notSent(.disconnected)) { _ = try await lost.value }
+    #expect(harness.connector.connects == 1)
+  } // End of func ownedActivation()
+
   /// A response of the wrong type is a protocol error.
   @Test func mismatchedResponseType() async throws {
     let stream = FakeByteStream()

@@ -2,16 +2,20 @@ import Foundation
 import MuxFinderCore
 
 /// `muxfinder-probe attach --local --session <$id>`: attaches one session of this Mac's default
-/// tmux server through the real path (discovery, launch request, a new iTerm2 window running
-/// `muxfinder-launch`, connection confirmation, identity check, activation) and prints the
-/// outcome as JSON. It opens a real iTerm2 window and leaves the session attached.
+/// tmux server through the real path (discovery, the existing-attachment check, launch request,
+/// a new iTerm2 window running `muxfinder-launch`, connection confirmation, identity check,
+/// activation) and prints the outcome as JSON. It opens a real iTerm2 window and leaves the
+/// session attached, or brings forward the tab of an existing attachment of the session.
 enum AttachCommand {
   /// Usage lines for this subcommand.
   static let usage = """
       attach --local --session <$id> [--tmux-path <path>] [--profile <name>]
           Attach one session of this Mac's default tmux server in a new iTerm2 window, the
           way the app does, and print the outcome as JSON (state changes go to stderr). Opens
-          a real iTerm2 window and leaves the session attached; detach it from tmux.
+          a real iTerm2 window and leaves the session attached; detach it from tmux. First
+          asks every iTerm2 tmux connection which session it shows (a read-only
+          display-message); when one shows this session, its tab is brought forward instead
+          and nothing opens (state focused).
           --session    The session's id, such as '$3' (quote it for the shell).
           --tmux-path  Use this tmux executable only (the host's override).
           --profile    Open the tab with this iTerm2 profile instead of the default one.
@@ -74,7 +78,7 @@ enum AttachCommand {
     let result = await coordinator.attach(AttachTarget(host: options.host, session: found))
     await client.disconnect()
     guard ITerm2Command.printJSON(AttachOutput(result)) else { return EX_SOFTWARE }
-    return result.isConfirmed ? 0 : 1
+    return result.isAttached ? 0 : 1
   } // End of func run(_:)
 
   /// Runs `detach` with the arguments after it and returns the exit status: 0 when the
@@ -169,7 +173,7 @@ enum AttachCommand {
 
   /// An attach result as JSON: ids, states, kinds and timings; never names or titles.
   struct AttachOutput: Encodable {
-    /// `confirmed` or `failed`.
+    /// `confirmed`, `focused` or `failed`.
     let state: String
     /// The failure, when failed.
     let failure: FailureOutput?
@@ -185,6 +189,8 @@ enum AttachCommand {
     let activation: String?
     /// The activated tab.
     let activatedTabID: String?
+    /// What the existing-attachment check found, by kind; absent when it did not run.
+    let existingAttachments: AttachmentSnapshot.Counts?
     /// Milliseconds from the start of the attach to each step.
     let timingsMs: [String: Int]
 
@@ -196,6 +202,7 @@ enum AttachCommand {
       launchID = result.launchID.rawValue
       gatewaySessionID = result.gatewaySessionID
       connectionID = result.connectionID
+      existingAttachments = result.existingAttachments
       switch result.activation {
       case .activated(let tabID)?:
         activation = "activated"
@@ -216,7 +223,8 @@ enum AttachCommand {
     /// The timings that were reached, in milliseconds.
     static func milliseconds(_ timings: AttachTimings) -> [String: Int] {
       let steps: [(String, Duration?)] = [
-        ("revalidated", timings.revalidated), ("launched", timings.launched),
+        ("revalidated", timings.revalidated), ("checked", timings.checked),
+        ("launched", timings.launched),
         ("connected", timings.connected), ("confirmed", timings.confirmed),
         ("activated", timings.activated), ("finished", timings.finished),
       ]

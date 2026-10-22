@@ -27,8 +27,12 @@ public actor FakeITerm2Integration: ITerm2Integration {
     case sendTmuxCommand(command: String, connectionID: String)
     /// `sendTmuxCommand(_:connectionID:ownedBy:)`, logged whether or not the command was sent.
     case sendOwnedTmuxCommand(command: String, connectionID: String, owningSessionID: String)
-    /// `activate(_:)`.
+    /// `activate(_:)`, and the activation `activateFirstTab(ofTmuxConnection:ownedBy:options:)`
+    /// sends once its checks passed.
     case activate(ITerm2API.ActivateRequest)
+    /// `activateFirstTab(ofTmuxConnection:ownedBy:options:)`, logged whether or not anything
+    /// was activated.
+    case activateOwnedTmuxTab(connectionID: String, owningSessionID: String)
     /// `listProfiles(properties:guids:)`.
     case listProfiles(properties: [String], guids: [String])
     /// `close(_:)`.
@@ -183,6 +187,53 @@ public actor FakeITerm2Integration: ITerm2Integration {
       .sendOwnedTmuxCommand(
         command: command, connectionID: connectionID, owningSessionID: owningSessionID))
     try checkReachable()
+    try requireTmuxConnection(connectionID, ownedBy: owningSessionID)
+    return try script.sendTmuxCommand.next().get()
+  } // End of func sendTmuxCommand(_:connectionID:ownedBy:)
+
+  /// Logs `activate(_:)` and returns the next scripted result.
+  public func activate(_ request: ITerm2API.ActivateRequest) async throws {
+    calls.append(.activate(request))
+    try checkReachable()
+    try script.activate.next().get()
+  }
+
+  /// Logs `activateFirstTab(ofTmuxConnection:ownedBy:options:)` and checks as the real client
+  /// does: it takes the next `listTmuxConnections` result (a failure becomes `notSent`), throws
+  /// `tmuxConnectionNotOwned` unless a listed connection has that id and owner, then takes the
+  /// next `listSessions` result (a failure becomes `notSent`) and, when a tab carries the
+  /// connection, logs the activation as `activate(_:)` and takes the next `activate` result.
+  public func activateFirstTab(
+    ofTmuxConnection connectionID: String,
+    ownedBy owningSessionID: String,
+    options: ITerm2API.ActivateRequest
+  ) async throws -> String? {
+    calls.append(
+      .activateOwnedTmuxTab(connectionID: connectionID, owningSessionID: owningSessionID))
+    try checkReachable()
+    try requireTmuxConnection(connectionID, ownedBy: owningSessionID)
+    let sessions: ITerm2API.ListSessionsResponse
+    switch script.listSessions.next() {
+    case .success(let listed): sessions = listed
+    case .failure(let error): throw error.isNotSent ? error : ITerm2Error.notSent(error)
+    }
+    guard
+      let tabID = sessions.tabs(ofTmuxConnection: connectionID).lazy.compactMap(\.tabID)
+        .first(where: { !$0.isEmpty })
+    else { return nil }
+    var request = options
+    request.target = .tab(tabID)
+    calls.append(.activate(request))
+    try script.activate.next().get()
+    return tabID
+  } // End of func activateFirstTab(ofTmuxConnection:ownedBy:options:)
+
+  /// Takes the next `listTmuxConnections` result as a bound request's listing: a failure
+  /// becomes `notSent`, and a listing without a connection of that id and owner is
+  /// `tmuxConnectionNotOwned`.
+  private func requireTmuxConnection(_ connectionID: String, ownedBy owningSessionID: String)
+    throws
+  {
     let connections: [ITerm2API.TmuxConnection]
     switch script.listTmuxConnections.next() {
     case .success(let listed): connections = listed
@@ -193,15 +244,7 @@ public actor FakeITerm2Integration: ITerm2Integration {
         $0.connectionID == connectionID && $0.owningSessionID == owningSessionID
       })
     else { throw ITerm2Error.tmuxConnectionNotOwned }
-    return try script.sendTmuxCommand.next().get()
-  } // End of func sendTmuxCommand(_:connectionID:ownedBy:)
-
-  /// Logs `activate(_:)` and returns the next scripted result.
-  public func activate(_ request: ITerm2API.ActivateRequest) async throws {
-    calls.append(.activate(request))
-    try checkReachable()
-    try script.activate.next().get()
-  }
+  } // End of func requireTmuxConnection(_:ownedBy:)
 
   /// Logs `listProfiles(properties:guids:)` and returns the next scripted result.
   public func listProfiles(
