@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T10:54:05Z",
+  "updated": "2026-10-22T13:00:47Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -95,11 +95,11 @@
     {
       "id": "5",
       "title": "Integration proof over SSH, and existing-attachment detection",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Proves SSH attach and existing-attachment detection; split into 5a (local detection and focus, done) and 5b (remote attach, blocked on iTerm2).",
+      "summary": "Proves SSH attach and existing-attachment detection; split into 5a (local detection and focus) and 5b (remote attach), both done.",
       "started": "2026-10-22T08:22:57Z",
-      "status_since": "2026-10-22T08:22:57Z"
+      "status_since": "2026-10-22T13:00:47Z"
     },
     {
       "id": "5a",
@@ -118,15 +118,16 @@
     {
       "id": "5b",
       "title": "Remote attach over SSH",
-      "status": "blocked",
+      "status": "done",
       "risk": "high",
       "parent": "5",
-      "summary": "Remote attach built, reviewed and fixed; final real runs wait for iTerm2's wedged API to be restarted by the user.",
+      "summary": "Attaches remote sessions in iTerm2 over ssh -t with a 20 s still-waiting budget; e2e-remote passed 11/11 twice on the final tree.",
       "commit": "6b1aedc",
       "review": "docs/reviews/phase-5b.md",
+      "narrative": "docs/progress-archive/5b.md",
       "added": "2026-10-22T08:22:57Z",
       "started": "2026-10-22T09:29:09Z",
-      "status_since": "2026-10-22T10:52:40Z"
+      "status_since": "2026-10-22T13:00:47Z"
     },
     {
       "id": "6",

@@ -579,8 +579,8 @@ session, verifies its identity, and then activates the tab.
 
 Verified in Phase 5b (2026-10-22, iTerm2 3.7.6, tmux 3.8 on Neptuno and Saturno, Saturno's
 default server holding only `muxfinder-test-*` sessions; `e2e-remote saturno-m4` passed twice,
-and a third run passed steps 1–9 before iTerm2's API stopped answering; details in
-`docs/INTEGRATION-PROOF.md`):
+a third run passed steps 1–9 before iTerm2's API stopped answering, and two more passed on the
+final tree; details in `docs/INTEGRATION-PROOF.md`):
 
 - **tmux over `ssh -t`:** iTerm2 takes up the remote `tmux -u -CC attach-session` exactly like a
   local one: connection id `tmux`, owned by the launch tab's session, each tmux window as its
@@ -590,10 +590,11 @@ and a third run passed steps 1–9 before iTerm2's API stopped answering; detail
 - **`#{host}`** through the remote control connection is `Saturno-M4.local`, byte-identical to
   discovery's remote `uname -n`, and the index mapped every remote attachment by it. Saturno's
   default socket path is `/private/tmp/tmux-501/default`, the same path as this Mac's.
-- **Timings:** discovery over ssh about 0.7–0.76 s; from the attach call, the launch tab about
-  0.85–0.9 s, the connection 1.7–1.8 s, confirmed 1.8 s, activated 2.2–2.3 s; a focus of the
-  remote attachment ended 0.76–0.81 s after the call (discovery most of it). The remote guard's
-  refusal (`sessionChanged`, ssh exit 65) reached the coordinator 1.7 s after the call.
+- **Timings:** discovery over ssh about 0.7–0.78 s; from the attach call, the launch tab about
+  0.85–0.95 s, the connection 1.7–1.8 s, confirmed 1.8–1.9 s, activated 2.2–2.55 s; a focus of
+  the remote attachment ended 0.76–0.85 s after the call (discovery most of it). The remote
+  guard's refusal (`sessionChanged`, ssh exit 65) reached the coordinator 1.7–1.8 s after the
+  call.
 - **ssh waiting for a password** (seen with the `still waiting` step's original design, since
   replaced by the test launch delay, D17): with an unknown user
   (`nonexistent-muxfinder@saturno-m4`, no
@@ -602,6 +603,9 @@ and a third run passed steps 1–9 before iTerm2's API stopped answering; detail
   forced `Close` of that tab iTerm2 dropped it from `ListSessions` at once, but ssh ended (by
   SIGHUP; helper result `childSignaled(1)`, exit 129) only about 5 s later, and the attach ended
   5.2 s after the close. No dialog appeared.
+- **Hang-up after a forced close:** that 5 s is iTerm2's, not ssh's. With the test launch
+  delay (the helper alone, ssh never started) the helper's SIGHUP also came 5.0–5.2 s after
+  the forced close (`interrupted`, exit 129).
 - **Remote session lifetime:** a session created with `new-session -d` over a noninteractive
   ssh connection keeps its server after ssh ends; killing that only session ends the server
   (`noServer` afterwards).
@@ -612,8 +616,11 @@ and a third run passed steps 1–9 before iTerm2's API stopped answering; detail
   and 64 GCD worker threads, the pool's limit, each blocked in AppKit's
   `-[NSAnimation _runBlocking]` with no iTerm2 frame. So the pool was exhausted and the API's
   work queued behind it. What starts those animations, and whether the windows the runs open,
-  activate and close leak them, is not known yet (no UI was touched to find out). A restart of
-  iTerm2 by a person is the only remedy found; until then no real run can proceed.
+  activate and close leak them, is not known yet (no UI was touched to find out). It cleared
+  by itself within about two hours, without a restart: iTerm2, still the same process, then
+  answered with 18 threads, and three more real runs left it at 14–18 threads (no growth).
+  Real runs therefore check `iterm2 status` and the thread count before and after, and stop on
+  a timeout.
 
 Verified in Phase 5a (2026-10-22, iTerm2 3.7.6, tmux 3.8, the default tmux server holding only
 `muxfinder-test-*` sessions; `e2e-local` with the focus-existing step passed twice, and once

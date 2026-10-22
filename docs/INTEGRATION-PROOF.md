@@ -44,6 +44,7 @@ recorded; ids are shown only where their shape matters.
 | Phase 5a, run 1 | **exit 0: 10 of 10 PASS** | 42.9 s | 1: 30, 2: 37, 3: 631, 4: 0, 5: 131, 6: 9,850, 7: 10,619, 8: 10,839, 9: 10,545, 10: 28 |
 | Phase 5a, run 2 | **exit 0: 10 of 10 PASS** | 43.3 s | 1: 35, 2: 38, 3: 584, 4: 7, 5: 107, 6: 10,008, 7: 10,653, 8: 10,872, 9: 10,785, 10: 30 |
 | Phase 5a, run 3 | **exit 0: 10 of 10 PASS** | 42.2 s | 1: 32, 2: 42, 3: 603, 4: 0, 5: 88, 6: 9,839, 7: 10,503, 8: 10,453, 9: 10,454, 10: 27 |
+| Phase 5b, final tree | **exit 0: 10 of 10 PASS** | 43.1 s | 1: 59, 2: 64, 3: 831, 4: 13, 5: 195, 6: 9,702, 7: 10,726, 8: 10,691, 9: 10,499, 10: 56 |
 
 The 4b run detached about one second after the attach, so the launch tab and the tmux tabs
 ended within about 1.5 s of their start; iTerm2 opened its modal short-lived-session warning
@@ -53,6 +54,9 @@ about 10 s. The 4c runs had 9 steps: no focus step, and their step 5 detached by
 Phase 5a's run 3 is on the final tree, after the review fixes (the length-prefixed identity
 command, activation bound to the connection's owner, an unknown tab's age counted from its
 observation); runs 1 and 2 used the tab-separated identity command and unbound activation.
+The Phase 5b run is on the final tree with the remote path (the harness `e2e-local` shares
+with `e2e-remote`), right after the two final-tree `e2e-remote` runs; it printed the same as
+the 5a runs.
 
 What the Phase 5a runs printed (the same in each, apart from timings, ids and pids):
 
@@ -253,11 +257,10 @@ attaches the test session through `saturno-m4` itself, with requests asking for 
 60 s test launch delay (PLAN.md D14 *Test launch delay*), honored because the run turns the
 helper's test mode on: the helper prints one line and waits before it would start ssh, so the
 tab shows no password prompt and nothing logs in. After `stillWaiting` the test closes that tab
-(forced, once 10 s old) and the helper ends `interrupted` without having started ssh. This
-design has not had a real run yet: iTerm2's API stalled during run 3 below, and real runs wait
-for a person to restart iTerm2.
+(forced, once 10 s old) and the helper ends `interrupted` without having started ssh. Runs 4
+and 5 below used this design.
 
-All three runs below used the step's original design: an attach through
+Runs 1–3 below used the step's original design: an attach through
 `nonexistent-muxfinder@saturno-m4`, so ssh waited at a password prompt for a user that does
 not exist. The Phase 5b review replaced it, because it was a real authentication attempt on
 Saturno outside the run rules (only discovery and `muxfinder-test-*` sessions).
@@ -269,16 +272,26 @@ Saturno outside the run rules (only discovery and `muxfinder-test-*` sessions).
 | 1 | **exit 0: 11 of 11 PASS** | 75.9 s | 1: 3,464, 2: 716, 3: 2,194, 4: 5, 5: 10,608, 6: 2,899, 7: 1,480, 8: 9,075, 9: 14,139, 10: 28,351, 11: 2,098 |
 | 2 | **exit 0: 11 of 11 PASS** | 76.3 s | 1: 3,585, 2: 758, 3: 2,288, 4: 30, 5: 10,302, 6: 3,046, 7: 1,560, 8: 8,809, 9: 14,324, 10: 28,500, 11: 2,171 |
 | 3 | exit 1: 1–9 PASS, 10 and 11 FAIL | 92.2 s | 1: 3,607, 2: 763, 3: 2,256, 4: 7, 5: 10,760, 6: 3,052, 7: 1,578, 8: 8,890, 9: 14,280, 10: 11,597 (iTerm2's API stopped answering), 11: 34,450 |
+| 4 | **exit 0: 11 of 11 PASS** | 77.2 s | 1: 3,544, 2: 746, 3: 2,520, 4: 4, 5: 10,522, 6: 3,339, 7: 1,648, 8: 8,794, 9: 14,318, 10: 28,535, 11: 2,245 |
+| 5 | **exit 0: 11 of 11 PASS** | 77.5 s | 1: 3,571, 2: 735, 3: 2,507, 4: 12, 5: 10,695, 6: 3,241, 7: 1,525, 8: 9,072, 9: 14,259, 10: 28,706, 11: 2,224 |
 
-Run 3 was on the final tree (the closed-tab result wait raised to 10 s after run 2). Its step
-10 failed because iTerm2's API stopped answering right after that step's launch tab opened,
-not because of the remote path: the helper and its ssh were running as in runs 1 and 2, ssh at
-its password prompt. iTerm2's main thread was idle (no modal), and 64 GCD worker threads, the
-pool's limit, were each blocked in AppKit's `-[NSAnimation _runBlocking]` (*Verified facts*,
-Phase 5b). Cleanup killed the session and removed the marker, but could not close that launch
-tab; it waits for a person, as does restarting iTerm2.
+Run 3 had the closed-tab result wait raised to 10 s after run 2. Its step 10 failed because
+iTerm2's API stopped answering right after that step's launch tab opened, not because of the
+remote path: the helper and its ssh were running as in runs 1 and 2, ssh at its password
+prompt. iTerm2's main thread was idle (no modal), and 64 GCD worker threads, the pool's limit,
+were each blocked in AppKit's `-[NSAnimation _runBlocking]` (*Verified facts*, Phase 5b).
+Cleanup killed the session and removed the marker, but could not close that launch tab.
+iTerm2's API answered again within about two hours without a restart; a person then ended
+that tab.
 
-What the passing runs printed (the same in both, apart from timings, ids and pids):
+Runs 4 and 5 are on the final tree, after the review fixes (the test launch delay in step 10,
+the bounded standard error relay, the awaited attach). Before each, `iterm2 status`
+connected and setup reported 0 tmux connections the run had not opened; after each, `status`
+connected again and iTerm2's thread count had not grown (`ps -M`: 19 lines before run 4, 15
+after it, 19 after run 5).
+
+What runs 1 and 2 printed (the same in both, apart from timings, ids and pids; runs 4 and 5
+printed the same for every step but 10, see after the list):
 
 1. **create session** (over ssh, about 3.5 s for five tmux calls): `$0` with 2 windows and 3
    panes running `sleep 600`.
@@ -314,6 +327,13 @@ What the passing runs printed (the same in both, apart from timings, ids and pid
 11. **cleanup** (about 2.1 s, mostly ssh): killed `$0`; Saturno's server exited with its last
     session (`noServer` afterwards); the marker removed; nothing of the run left.
 
+Step 10 in runs 4 and 5 (the test launch delay): the attach published `stillWaiting` 21.1 s
+after the call (budget 20 s), the launch tab 20.4 s old, its helper still in its 60 s test
+launch delay (ssh not started, no prompt) and no connection; never `confirmed`. The test
+closed that tab (forced, 20.4 s after it opened); the attach then ended `helperFailed` (the
+helper reported `interrupted`, exit 129, SIGHUP) 5.0 and 5.2 s after the close, and `$0`
+survived unattached. No login was attempted on Saturno.
+
 ### Observed behavior over SSH
 
 - **Native integration:** iTerm2 treats `tmux -u -CC` arriving through `ssh -t` like a local
@@ -338,7 +358,19 @@ What the passing runs printed (the same in both, apart from timings, ids and pid
 
   The connection appears about 0.85 s after the tab (ssh connecting and authenticating with
   the agent's key, then the remote check), and activation waited about 0.4 s for the first
-  tmux tab.
+  tmux tab. Runs 4 and 5, on the final tree:
+
+  | Step | Run 4, step 3 | Run 4, step 6 | Run 5, step 3 | Run 5, step 6 |
+  |---|---|---|---|---|
+  | Revalidated by discovery | 737 ms | 784 ms | 762 ms | 748 ms |
+  | Existing attachments checked | 738 ms | 784 ms | 763 ms | 748 ms |
+  | Launch tab opened (`launched`) | 913 ms | 935 ms | 945 ms | 925 ms |
+  | Connection listed | 1,805 ms | 1,806 ms | 1,816 ms | 1,784 ms |
+  | Identity confirmed (`confirmed`) | 1,880 ms | 1,867 ms | 1,890 ms | 1,836 ms |
+  | Tab activated | 2,517 ms | 2,546 ms | 2,506 ms | 2,481 ms |
+
+  Here activation waited about 0.6 s for the first tmux tab. Focus existing ended 849 and
+  788 ms after the call; the guard's refusal reached the coordinator 1.8 s after the call.
 - **ssh waiting for a password** (the step's original design): with no key for the user, ssh
   asked for a password in the
   launch tab and the attach reported `stillWaiting` once its 20 s ran out, not before and never
@@ -347,6 +379,9 @@ What the passing runs printed (the same in both, apart from timings, ids and pid
   result 5.2 s after the close; the closed-tab result wait is now 10 s (D17). Saturno closed
   the unauthenticated connection on its own a few minutes later; ssh, still reading the
   password prompt, only notices that when the prompt ends.
-- **Dialogs:** none in runs 1 and 2, nor on the forced closes. In run 3 iTerm2's main thread
-  was not in a modal run loop when its API stopped answering (see above); the screen was not
-  looked at, so a window-level sheet cannot be ruled out.
+- **The 5 s after a forced close is iTerm2's:** in runs 4 and 5 no ssh was running (the
+  helper sat in its test launch delay), yet the helper's SIGHUP also came 5.0–5.2 s after the
+  close.
+- **Dialogs:** none in runs 1, 2, 4 and 5, nor on the forced closes. In run 3 iTerm2's main
+  thread was not in a modal run loop when its API stopped answering (see above); the screen
+  was not looked at, so a window-level sheet cannot be ruled out.

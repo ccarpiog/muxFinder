@@ -16,40 +16,12 @@ file.
 | 4b | Attach coordinator and probe commands | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4b.md` | `docs/progress-archive/4b.md` |
 | 4c | Real local proof: e2e-local passing, final integration proof | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4c.md` | `docs/progress-archive/4c.md` |
 | 5a | Existing-attachment detection, local | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-5a.md` | `docs/progress-archive/5a.md` |
+| 5b | Remote attach over SSH | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-5b.md` | `docs/progress-archive/5b.md` |
 
 ## Current phase
 
-**Phase 5b — remote attach over SSH (risk `high`, worker model `opus`: implementation worker
-plus review-fix worker). Status: BLOCKED on iTerm2.** The code, its one review and the review
-fixes are done, hermetically verified and committed (see *Git state*). What is still missing is
-the final-tree real runs: iTerm2's API stopped answering during the third real `e2e-remote`
-run. Since then `muxfinder-probe iterm2 status` has either exited 75 (`timedOut`) or not
-answered at all, last checked 2026-10-22 11:53. Under the run rules that means stop and
-report, never script the UI.
-
-- What was built: the helper runs `/usr/bin/ssh -t -o ConnectTimeout=10 -- <dest> <D3 string>`
-  (no BatchMode). The remote side runs the D4 guard check and then `exec`s tmux. ssh's exit
-  255 is classified from its relayed stderr. Every failure ends through the explanation, the
-  wait for Return and the ≥10 s hold. Remote attaches get a 20 s budget to `confirmed`; past it,
-  with the launch tab open, the coordinator publishes `stillWaiting` (never success) and keeps
-  watching once a second. It can still end `confirmed` later, or `failed`, or
-  `waitLimitReached` at 300 s. `AttachmentIndex` maps remote hosts. The identity check also
-  matches the host name. `detach(session:on:)` and focus-existing work remotely. The probe
-  gained `attach --ssh` and `e2e-remote <dest>` (11 steps; `e2e-local` and `e2e-remote` share
-  one harness, `Sources/muxfinder-probe/E2ERun.swift`).
-- Real runs on the pre-review tree: `e2e-remote saturno-m4` 11/11 PASS (75.9 s, then 76.3 s);
-  `e2e-local` 10/10 PASS (42.2 s). A third `e2e-remote` (after two small edits) passed steps
-  1–9, then iTerm2's API stalled in step 10 (`still waiting`, old design: ssh sitting at a
-  password prompt for a nonexistent user, then a forced close of the test's own tab). The
-  worker took a read-only `sample` of iTerm2: its main thread sat idle in the normal event loop
-  and all 64 GCD worker threads were stuck in AppKit `NSAnimation _runBlocking`, so this looks
-  like thread-pool starvation inside iTerm2, not a modal dialog. The cause is unconfirmed (a
-  day of e2e windows opening and closing may leak those workers).
-- **Left open for a person:** one launch window from run 3 (its helper showing the failure or
-  waiting prompt). Nothing more was sent to iTerm2 after the stall.
-- After the review: the still-waiting step no longer logs in as anyone. A test-mode-only
-  request field, `testLaunchDelaySeconds`, holds the helper before ssh starts, so no password
-  prompt appears. This new design has **not** had a real run yet.
+None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it Phase 5. Next is
+**Phase 6 — session operations**, not started (see *Next action*).
 
 ## Acceptance
 
@@ -84,14 +56,11 @@ report, never script the UI.
   `detach(session:on:)`; real `e2e-local` exit 0 with 10/10 PASS including focus existing (no
   tab or window opened) in five runs, the last on the final tree; no leftovers; build, 382 tests
   and lint pass. Evidence in `docs/progress-archive/5a.md`.
-- Phase 5b, **partly met, phase open:**
-  - Met: remote argv/D3 string, 20 s budget, `stillWaiting`, remote index mapping, remote
-    detach and focus, the ssh-fails-fast hold and the test launch delay all have hermetic
-    tests; build, 427 tests and lint pass on the final tree.
-  - Met only on the pre-review tree: `e2e-remote saturno-m4` exit 0 with 11/11 PASS twice,
-    and `e2e-local` 10/10 PASS.
-  - **Not met:** `e2e-remote` (run twice) and `e2e-local` on the final tree. iTerm2's API is
-    wedged (exit 75).
+- Phase 5b: all criteria met — hermetic tests for the remote argv/D3 string, the 20 s budget,
+  `stillWaiting`, remote index mapping, remote detach and focus, the ssh-fails-fast hold and
+  the test launch delay; on the final tree `e2e-remote saturno-m4` exit 0 with 11/11 PASS
+  twice (focus existing included, step 10 with no login) and `e2e-local` 10/10 PASS; no
+  leftovers; build, 427 tests and lint pass. Evidence in `docs/progress-archive/5b.md`.
 
 ## Decisions
 
@@ -135,7 +104,7 @@ report, never script the UI.
   `testLaunchDelaySeconds` (1–120). D14, D15, D16 and *Verified facts* edited (iTerm2 ends ssh
   about 5.2 s after a forced close, so the coordinator waits 10 s for the helper's result after
   a waiting tab closes). The new `withAwaitedTask` cancels and awaits an unstructured task on
-  every exit.
+  every exit — `docs/progress-archive/5b.md`.
 
 ## Open risks / deviations
 
@@ -184,12 +153,13 @@ report, never script the UI.
   not block an attach either (duplicate only if it showed the same session).
 - 5a: `focused` is published after activation (up to 5 s late if no tab appears yet); the
   owned-connection `detach` still counts tab age from the call.
-- **5b: iTerm2 API stall (open, blocks the phase).** It happened in real `e2e-remote` run 3,
-  step 10. Hypothesis: GCD worker starvation in iTerm2 (64 workers in
-  `NSAnimation _runBlocking`), possibly building up over many e2e runs. Not caused by a
-  dialog, as far as the read-only sample shows. Next real session: compare iTerm2's thread
-  count before and after each run (read-only, e.g. `ps -M -p <pid> | wc -l`) and stop if it
-  grows across runs.
+- **iTerm2 API stall (all later real runs).** It happened in real `e2e-remote` run 3, step 10:
+  GCD worker starvation in iTerm2 (64 workers in `NSAnimation _runBlocking`), no modal dialog
+  as far as the read-only sample shows. It cleared within about two hours without a restart,
+  and the three final-tree runs after it left iTerm2 at 14–18 threads, so no growth was seen.
+  The cause is unknown. Before and after every real run, check `iterm2 status` and the thread
+  count (read-only, `ps -M -p <pid> | wc -l`); stop as `BLOCKED` on a timeout or if the count
+  keeps growing.
 - 5b: the earlier real `e2e-remote` runs used the old still-waiting design. That design made
   one real login attempt per run to `saturno-m4` as `nonexistent-muxfinder`, three in total.
   The review flagged it as outside the run rules, and it is gone now.
@@ -235,31 +205,17 @@ report, never script the UI.
   attach before cleanup; the real invalid-user login. A fix worker fixed all three: a bounded,
   non-blocking relay; `withAwaitedTask`; and the test-mode launch delay. Each fix has
   regressions (the relay and await tests fail on the old code; the delay tests cover new
-  behavior). Re-verified hermetically only, because iTerm2 is wedged.
-  `docs/reviews/phase-5b.md`. This was the phase's one review, so none is owed.
+  behavior). Re-verified hermetically, then with three real runs on the final tree once
+  iTerm2's API answered again; `docs/reviews/phase-5b.md`.
 
 ## Next action
 
-0. **Needs the user first:** close the launch window left by `e2e-remote` run 3, and restart
-   iTerm2 if its API still does not answer. Until `iterm2 status` exits 0, the run stays
-   `BLOCKED`. Never script the UI or quit iTerm2 from a run.
-1. `swift build`, then `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as
-   `BLOCKED`) and `iterm2 list-connections`. Check that `discover --ssh saturno-m4` answers,
-   and record iTerm2's thread count (`ps -M -p $(pgrep -x iTerm2) | wc -l`, read-only).
-2. Finish **Phase 5b** on the final tree, no code changes expected. Run
-   `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-remote saturno-m4` **twice** (11/11 PASS
-   each; step 10 now uses the test launch delay, with no login prompt) and
-   `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` once (10/10 PASS). Run
-   `iterm2 status` and the thread count after each run; stop if iTerm2 stalls again or its
-   thread count keeps growing. Then check for leftovers: no `muxfinder-test-*` session on
-   either host (`discover --local`, `discover --ssh saturno-m4`), an empty launch directory
-   with no `test-mode` marker, and no `/private/tmp/mfx.*`.
-3. If all pass: record the results in `docs/INTEGRATION-PROOF.md` (remote section) and close
-   5b. Move this phase's narrative to `docs/progress-archive/5b.md`, add a *Completed* row,
-   set `PROGRESS.json` 5b to `done`, commit, push. The review was already done, so do not
-   review again. If a real run fails because of the code, the fix is a corrective phase
-   (`5c`) with its own review.
-4. Then **Phase 6 — session operations** (`PLAN.md` "### Phase 6").
+1. Start **Phase 6 — session operations** (`PLAN.md` "### Phase 6"), risk `high`.
+2. Before and after every real run: `swift build` first, then
+   `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
+   thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
+   `ps -axo pid,comm | rg 'MacOS/iTerm2$'` (`pgrep -x iTerm2` finds nothing on this Mac). Stop
+   if `status` times out or the count keeps growing across runs (*Open risks*).
 
 ## Key paths
 
@@ -274,23 +230,24 @@ report, never script the UI.
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`; shared harness
   `E2ERun.swift`).
-- Integration proof (local final; remote pending its final-tree runs): `docs/INTEGRATION-PROOF.md`.
+- Integration proof (local and over SSH, final): `docs/INTEGRATION-PROOF.md`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
-## Verification (Phase 5b, orchestrator, final tree after the review fixes)
+## Verification (Phase 5b, final tree after the review fixes)
 
 - `swift build -Xswiftc -warnings-as-errors` → exit 0.
 - `swift test` → exit 0, 427 tests in 44 suites.
 - `swift format lint -r Sources Tests` → exit 0, no output.
-- `.build/debug/muxfinder-probe iterm2 status` → exit 75 (`timedOut`) at ~11:15. A second
-  check, started at ~11:45, had not answered after several minutes and was stopped at 11:53.
-  iTerm2's API is wedged, so no real run was possible.
-- Worker-reported checks on the pre-review tree: `e2e-remote saturno-m4` passed 11/11 twice,
-  `e2e-local` passed 10/10, and run 3 failed at step 10 when iTerm2 stalled. After every run,
-  Saturno and Neptuno showed `noServer`, the launch directory was empty with no marker, and no
-  `/private/tmp/mfx.*` was left.
+- `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-remote saturno-m4` → exit 0, 11/11 PASS
+  twice (77.2 s, 77.5 s; step 10 `stillWaiting` at 21.1 s with no login, then `failed` after
+  the forced close). `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` → exit 0, 10/10
+  PASS (43.1 s).
+- `.build/debug/muxfinder-probe iterm2 status` → exit 0 before and after each run; iTerm2's
+  `ps -M` line count 19 before, then 15, 19, 16. After every run Saturno and Neptuno showed
+  `noServer`, the launch directory was empty with no marker, and no `/private/tmp/mfx.*` was
+  left.
 
 ## Git state
 
@@ -301,6 +258,5 @@ report, never script the UI.
 - Phase 4c: `e631641`, pushed.
 - Phase 5a: `5b47e14`, pushed. From 3b on, commit messages carry no AI attribution trailer
   (user's global rule); earlier pushed commits are left as they are.
-- Phase 5b (code, review and fixes; phase still open): `6b1aedc` (parent `9a81b33`), pushed to
-  `origin/main` (`9a81b33..6b1aedc`, success). This SHA/push record is a follow-up checkpoint
-  commit on top; tree clean after it.
+- Phase 5b: code, review and fixes `6b1aedc` (parent `9a81b33`), pushed. The phase's closing
+  records (final-tree runs, archive, this checkpoint) are not committed yet.

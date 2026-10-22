@@ -519,9 +519,8 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   whole run 300 s); cleanup after a failure, a signal or the time limit; exit 0 only when all
   11 pass, 128 + n after signal n. Needs key authentication to the destination (setup fails
   when `tmux -V` over ssh in `BatchMode` does not answer). Every ssh login it makes is the
-  run's own, with key authentication. The passing runs took about 76 s, 28 s of it the
-  still-waiting step, with the step's original design (a login as an unknown user so ssh
-  waited at a password prompt); the test-launch-delay design has not had a real run yet.
+  run's own, with key authentication. The passing runs on the final tree took about 77 s,
+  28.5 s of it the still-waiting step.
 - `swift run muxfinder-probe attach --local | --ssh <destination> --session '<$id>'` — one
   real attach of a session of the default server of this Mac or of a remote host (the launch
   tab runs `ssh -t`, so any password prompt appears there), the way the app does it; prints
@@ -712,11 +711,11 @@ Method notes:
 Environment: Neptuno as in Phase 5a; Saturno (`saturno-m4` over Tailscale, key auth, tmux 3.8
 at `/opt/homebrew/bin/tmux`). Before the runs iTerm2 listed no tmux connection, neither Mac
 had a tmux server running, and the launch directory was empty. Each run was preceded by
-`swift build`. All three `e2e-remote` runs used the `still waiting` step's original design (a
+`swift build`. `e2e-remote` runs 1–3 used the `still waiting` step's original design (a
 login as `nonexistent-muxfinder@saturno-m4`, so ssh waited at a password prompt). The review
 that followed replaced it with the helper's test launch delay (no login), bounded the
-standard error relay and made the step await its attach (PLAN.md D14, D17); those changes are
-covered by hermetic tests only, since iTerm2's API was still stalled (see below).
+standard error relay and made the step await its attach (PLAN.md D14, D17). Runs 4 and 5 and
+the last `e2e-local` are on that final tree, made once iTerm2's API answered again (see below).
 
 | Check | Command | Observed result |
 |---|---|---|
@@ -727,6 +726,11 @@ covered by hermetic tests only, since iTerm2's API was still stalled (see below)
 | `e2e-remote`, run 3 | the same command, on the tree with the 10 s closed-tab result wait (added after run 2 showed the attach ending 5.2 s after a close, past the 5 s wait) | exit 1 after 92.2 s: steps 1–9 PASS, step 10 FAIL ("the attach ended failed instead of waiting", about 10 s after the call, before its 20 s budget), cleanup FAIL (it killed the session and removed the marker, but could not list iTerm2's connections or close the step-10 launch tab): iTerm2's API had stopped answering (see the next row) |
 | After run 3 | `muxfinder-probe iterm2 status` (once); `/usr/bin/log show --predicate 'subsystem == "cc.carpio.muxfinder"'`; `ps`; `lsof -p <ssh pid> -i`; one `sample` of iTerm2 (stack frames only) | `status` exit 75 (`timedOut`) after about 2 minutes. No helper failure was logged for step 10, and its helper and ssh child were still running, ssh at its password prompt with its TCP connection already `CLOSED` by Saturno: the tab had opened and the remote side behaved as in runs 1–2, so the attach failed on an iTerm2 request timing out. iTerm2's main thread was idle in its event loop (no modal run loop); 64 GCD worker threads were each blocked in `-[NSAnimation _runBlocking]` (PLAN.md *Verified facts*, Phase 5b) |
 | After each run | `iterm2 status` and `iterm2 list-connections` (runs 1 and 2); `discover --ssh saturno-m4`; `discover --local`; `ls` of the launch directory | runs 1–2 and `e2e-local`: exit 0, 0 connections; after every run: Saturno `noServer`, this Mac `noServer`, launch directory empty with no `test-mode` marker, no `/private/tmp/mfx.*` |
+| Before the final-tree runs | `iterm2 status`; `ps -axo pid,lstart,comm` and `ps -M -p <iTerm2 pid> \| wc -l`; `discover --ssh saturno-m4`; `discover --local`; `ls` of the launch directory | `status` exit 0 (connected, protocol 1.21) with iTerm2 the same process as before the stall (up since 2026-10-21 19:27, never restarted); 19 lines (18 threads); both hosts `noServer`; launch directory empty. Run 3's launch tab was still open; a person ended it at 13:46, around the start of run 4, and its unread result file (ssh ended by SIGINT, helper exit 130) was removed after run 4 |
+| `e2e-remote`, run 4 | `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-remote saturno-m4`, on the final tree | exit 0, 11 of 11 steps PASS in 77.2 s; still waiting PASS (`stillWaiting` 21.1 s after the call, the helper still in its test launch delay, no ssh, no login; the attach ended `helperFailed`, helper `interrupted` exit 129, 5.0 s after the forced close) |
+| `e2e-remote`, run 5 | the same command, same tree | exit 0, 11 of 11 steps PASS in 77.5 s; step 10 as in run 4, the attach ending 5.2 s after the close |
+| `e2e-local`, final tree | `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local`, after run 5 | exit 0, 10 of 10 steps PASS in 43.1 s; focus existing 195 ms; detach by session 9.7 s |
+| After each final-tree run | `iterm2 status`; `ps -M -p <iTerm2 pid> \| wc -l`; `discover --ssh saturno-m4`; `discover --local` (after `e2e-local`); `ls` of the launch directory; `ls -d /private/tmp/mfx.*` | always `status` exit 0; 15, 19 and 16 lines, so no growth; both hosts `noServer`; launch directory empty with no `test-mode` marker; no `/private/tmp/mfx.*`. Each run's setup reported 0 tmux connections it had not opened (`iterm2 list-connections` itself was not run) |
 
 Method notes:
 
@@ -739,6 +743,6 @@ Method notes:
 - Left behind by run 3, because iTerm2's API no longer answered: one launch window of the run
   (its helper and ssh, the latter at a password prompt whose connection Saturno had closed).
   Nothing was sent to iTerm2 after the stall was found, not even ending that helper: closing a
-  window would put more work on iTerm2's starved queues. A person closes that window and
-  restarts iTerm2; `e2e-remote` (with the new still-waiting step) and `e2e-local` then need one
-  more run each on the final tree.
+  window would put more work on iTerm2's starved queues.
+- The stall cleared by itself within about two hours, without a restart. A person ended run
+  3's launch tab at 13:46, around the start of run 4.
