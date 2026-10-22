@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T22:52:34Z",
+  "updated": "2026-10-22T23:00:01Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -252,11 +252,11 @@
     {
       "id": "10",
       "title": "Attach UX: open, focus, new session, move here, detach",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Split into 10a (attach UX in the app, done) and 10b (real self-tests, next).",
+      "summary": "Split into 10a (attach UX in the app) and 10b (real self-tests), both done.",
       "started": "2026-10-22T21:37:08Z",
-      "status_since": "2026-10-22T21:37:08Z"
+      "status_since": "2026-10-22T23:00:01Z"
     },
     {
       "id": "10a",
@@ -274,12 +274,15 @@
     {
       "id": "10b",
       "title": "Real self-tests",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "10",
-      "summary": "Runs both app self-tests against the real iTerm2 and local tmux, and checks that quitting leaves work running.",
+      "summary": "Both app self-tests passed against the real iTerm2 and local tmux, and quitting the app left the attached session running.",
+      "review": "Codex, ship",
+      "narrative": "docs/progress-archive/10b.md",
       "added": "2026-10-22T21:37:08Z",
-      "status_since": "2026-10-22T21:37:08Z"
+      "started": "2026-10-22T22:53:47Z",
+      "status_since": "2026-10-22T23:00:01Z"
     },
     {
       "id": "11",

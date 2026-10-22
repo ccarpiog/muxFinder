@@ -1530,3 +1530,28 @@ Environment: Neptuno, macOS 27.2, from the repo root. No `hosts.json` (`hosts sh
 | Self-test usage | `muxFinder --selftest bogus`; `--selftest-keep`; `--selftest`; `env TMUX_TMPDIR=/nonexistent-mfx muxFinder --selftest attach-local` | exit 2 each, with the reason and the usage line; nothing contacted (the first three exit before the app starts, the last before iTerm2 or tmux is touched) |
 | Shell check | `muxFinder --report-menu-bar-item &`; after 3.5 s `kill -TERM`; `wait`; `pgrep -P` | 7 status-bar-level windows, all visible; exit status 0; no child process; no `hosts.json` before or after |
 
+### Phase 10b — real self-tests (2026-10-22)
+
+The app's self-tests and the quit-leaves-work-running check, run against the real iTerm2 and
+the local tmux, as described in the Phase 10a section above.
+
+Environment: Neptuno, macOS 27.2, iTerm2 3.7.6 (API protocol 1.21), tmux 3.8, from the repo
+root, `TMUX_TMPDIR` unset. No `hosts.json` (the self-tests use an in-memory This Mac). No tmux
+server running and no iTerm2 tmux connection before the first run, so every run reported
+`0 tmux connection(s) this run did not open`. Before each run: `swift build`,
+`scripts/build-app.sh` and `codesign --verify --deep --strict build/muxFinder.app` (exit 0
+each), `.build/debug/muxfinder-probe iterm2 status` (exit 0). iTerm2 threads (`ps -M -p <pid>
+| wc -l`): 15 before the first run, then 18, 20 and 21 after each check.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Attach self-test | `env -u TMUX_TMPDIR build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local` | exit 0, `passed (6 steps)`: 1 create session 26 ms; 2 listed as `$0` on This Mac 107 ms; 3 open (5 clicks) 421 ms, confirmed on connection `tmux` with 1 launch for 5 clicks; 4 open again 106 ms, focused the same connection, still 1 launch; 5 detach from this Mac 9.7 s (one attachment, `detach-client`, the session kept running); 6 kill session 46 ms |
+| New session self-test | `env -u TMUX_TMPDIR build/muxFinder.app/Contents/MacOS/muxFinder --selftest new-session-local` | exit 0, `passed (5 steps)`: 1 This Mac listed 103 ms; 2 new session 419 ms, created `$0` and confirmed on connection `tmux`; 3 collision 106 ms, refused (`hasSession`) with "Open existing" offered and nothing launched; 4 detach from this Mac 9.8 s; 5 kill session 45 ms |
+| Quit leaves work running | `env -u TMUX_TMPDIR build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local --selftest-keep` in the background, then `kill -TERM <pid>` once it printed `waiting for SIGTERM` | steps 1–3 PASS (open confirmed, 1 launch for 5 clicks, 414 ms), then the keep line with the session, connection `tmux` and gateway ids and the two cleanup commands; after SIGTERM the app exited 0 with no child left; `tmux -u has-session -t '=<name>'` exit 0; `muxfinder-probe iterm2 list-connections` still listed connection `tmux` owned by the gateway session |
+| Keep-mode cleanup | `.build/debug/muxfinder-probe detach --connection tmux --gateway <session id>`, then `/opt/homebrew/bin/tmux -u kill-session -t '=<name>'` | detach exit 0 after its 10 s wait, `connectionClosed: true` (`clean: false`, as always without `--launch-id`: no helper result is awaited); kill exit 0; `iterm2 list-connections` then showed 0 connections |
+| Leftovers | `ls -A` of the launch directory, `ls -A /private/tmp`, `tmux ls` | after the two self-tests: launch directory empty, no `mfx.*`, no tmux server. After the keep-mode check: no tmux server, but one `<launch id>.result.json` in the launch directory — the helper wrote its result when the detach ended tmux, after the app that would have consumed it had quit. That is D14's design (the sweep before the next launch removes results older than 120 s); it holds only the helper's outcome, and was removed by hand so the folder ended empty |
+
+The run made no fix necessary. Still unverified for real: Show tab (a local attach never
+reaches "Still connecting"), and the "Set up SSH in iTerm2…" round trip, which needs an
+interactive ssh login and is owed to the user (see `PROGRESS.md`).
+
