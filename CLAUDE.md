@@ -31,8 +31,24 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - Build: `swift build`
 - Unit tests (hermetic): `swift test`
 - Format lint: `swift format lint -r Sources Tests`
-- App bundle: `scripts/build-app.sh` → `build/muxFinder.app` (signed with the first "Apple
-  Development" identity, or `MUXFINDER_SIGN_IDENTITY`)
+- App bundle: `scripts/build-app.sh` → `build/muxFinder.app` (release arm64, with
+  `muxfinder-launch` in `Contents/MacOS/`; signed with hardened runtime by the first "Apple
+  Development" identity, or `MUXFINDER_SIGN_IDENTITY`, else ad hoc with a warning; never
+  notarized). Check it with `codesign --verify --deep --strict build/muxFinder.app`.
+- Preview fixtures (no menu bar item, engine, host list or iTerm2; one normal window with
+  every popover state from synthetic data, shown without taking the focus):
+  `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures [--appearance light|dark]`
+  prints `muxFinder preview window <n> …`; capture only that window with
+  `screencapture -x -o -l <n> <file.png>`, then `kill -TERM` it (exit 0). With a locked
+  screen or a sleeping display `screencapture` fails: add `--preview-snapshot <file.png>`,
+  which renders the window into the PNG from inside the app and quits. Screenshots live in
+  `docs/screenshots/`; never capture the screen or another app's window.
+- App shell check (normal mode; contacts no iTerm2 while no host is enabled and the popover
+  stays closed; never through `open`/LaunchServices):
+  `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints the menu bar
+  item's windows after 2 s (macOS 27 draws the item outside the app, so `CGWindowList` does
+  not show it under the app's pid); then `kill -TERM <pid>` must exit 0 with no child left
+  and no `hosts.json` created. See `docs/TESTING.md` (Phase 8).
 - Discovery check (read-only, prints JSON; `--raw` prints the probe report):
   `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
   server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.

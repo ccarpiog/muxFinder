@@ -497,7 +497,8 @@ struct ITerm2APIClientTests {
   } // End of func disconnectDuringHandshake()
 
   /// A caller cancelled while it waits for the connection attempt fails at once with
-  /// `CancellationError`; the attempt carries on and its connection serves the next call.
+  /// `CancellationError`; an attempt already connecting carries on and its connection serves
+  /// the next call.
   @Test func cancelledCallerLeavesTheAttempt() async throws {
     let stream = FakeByteStream()
     let harness = Self.makeClient(streams: [stream])
@@ -513,6 +514,86 @@ struct ITerm2APIClientTests {
     #expect(harness.cookies.calls == 1)
     #expect(harness.connector.connects == 1)
   } // End of func cancelledCallerLeavesTheAttempt()
+
+  /// The popover-close finding (PLAN.md D13, D20): a caller cancelled during the cookie request
+  /// leaves the attempt without callers, so when the cookie arrives the attempt stops before
+  /// connecting; the next call starts a fresh attempt with a fresh cookie.
+  @Test func anAttemptEveryCallerLeftStopsBeforeConnecting() async throws {
+    let stream = FakeByteStream()
+    let cookies = GatedCookieProvider()
+    let connector = FakeConnector(streams: [stream])
+    let log = DiagnosticsLog(writesToSystemLog: false)
+    let client = ITerm2APIClient(
+      configuration: .init(socketPath: "/nonexistent/fake-socket"),
+      appControl: FakeAppControl(running: true), cookieProvider: cookies, connector: connector,
+      connectionSettings: fastConnectionSettings, diagnostics: log)
+    let call = Task { try await client.listSessions() }
+    try await waitUntil("the cookie was requested") { cookies.calls == 1 }
+    call.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await call.value }
+    #expect(await client.attemptWaiterCount == 0)
+    cookies.release()
+    try await waitUntil("the abandoned attempt ended") { await !log.events().isEmpty }
+    #expect(await log.events().map(\.detail) == ["iTerm2 API connection failed: cancelled"])
+    #expect(connector.connects == 0)
+    #expect(stream.written.isEmpty)
+
+    let again = Task { try await client.listSessions() }
+    let peer = try await Self.serve(stream, fixture: "list-sessions-response", expecting: 106)
+    _ = try await again.value
+    #expect(peer.handshakeHeader("x-iterm2-cookie") == "cookie-2")
+    #expect(cookies.calls == 2)
+    #expect(connector.connects == 1)
+  } // End of func anAttemptEveryCallerLeftStopsBeforeConnecting()
+
+  /// A caller cancelled while the attempt checks that iTerm2 runs leaves an attempt that asks
+  /// for no cookie at all and never connects.
+  @Test func anAttemptEveryCallerLeftAsksForNoCookie() async throws {
+    let appControl = GatedRunningCheck()
+    let cookies = FakeCookieProvider.numbered()
+    let connector = FakeConnector(streams: [FakeByteStream()])
+    let log = DiagnosticsLog(writesToSystemLog: false)
+    let client = ITerm2APIClient(
+      configuration: .init(socketPath: "/nonexistent/fake-socket"), appControl: appControl,
+      cookieProvider: cookies, connector: connector, connectionSettings: fastConnectionSettings,
+      diagnostics: log)
+    let call = Task { try await client.listSessions() }
+    try await waitUntil("the attempt checks that iTerm2 runs") { appControl.checks == 1 }
+    call.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await call.value }
+    appControl.release()
+    try await waitUntil("the abandoned attempt ended") { await !log.events().isEmpty }
+    #expect(await log.events().map(\.detail) == ["iTerm2 API connection failed: cancelled"])
+    #expect(cookies.calls == 0)
+    #expect(connector.connects == 0)
+  } // End of func anAttemptEveryCallerLeftAsksForNoCookie()
+
+  /// A caller that joins during the cookie request, after every earlier caller was cancelled,
+  /// keeps the attempt going: one cookie and one connection serve it (reopening the popover
+  /// during a cookie request asks for no second cookie).
+  @Test func aCallerJoiningBeforeTheCookieKeepsTheAttempt() async throws {
+    let stream = FakeByteStream()
+    let cookies = GatedCookieProvider()
+    let connector = FakeConnector(streams: [stream])
+    let client = ITerm2APIClient(
+      configuration: .init(socketPath: "/nonexistent/fake-socket"),
+      appControl: FakeAppControl(running: true), cookieProvider: cookies, connector: connector,
+      connectionSettings: fastConnectionSettings)
+    let first = Task { try await client.listSessions() }
+    try await waitUntil("the cookie was requested") { cookies.calls == 1 }
+    first.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await first.value }
+    let second = Task { try await client.listSessions() }
+    try await waitUntil("the second caller joined the attempt") {
+      await client.attemptWaiterCount == 1
+    }
+    cookies.release()
+    let peer = try await Self.serve(stream, fixture: "list-sessions-response", expecting: 106)
+    _ = try await second.value
+    #expect(peer.handshakeHeader("x-iterm2-cookie") == "cookie-1")
+    #expect(cookies.calls == 1)
+    #expect(connector.connects == 1)
+  } // End of func aCallerJoiningBeforeTheCookieKeepsTheAttempt()
 
   /// Connection outcomes are recorded without user data: the error kind only.
   @Test func diagnosticsRecordOutcomes() async throws {

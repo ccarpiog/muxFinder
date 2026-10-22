@@ -33,7 +33,10 @@ import Foundation
 /// - **Attachments.** With an index configured, an attachment check (PLAN.md D16) runs after
 ///   each applied result while the popover is visible (one at a time, at most one follow-up),
 ///   or once at the end of `refreshOnce(includeAttachments: true)`; never in the background, so
-///   iTerm2 is not contacted while the popover is closed.
+///   iTerm2 is not contacted while the popover is closed. Closing the popover cancels the
+///   automatic check in progress and its follow-up: the cancelled check contacts iTerm2 no
+///   further, its result is discarded, and a check started when the popover opens again runs
+///   at once instead of waiting for it.
 /// - **`stop()`** cancels everything and returns once every task it started has ended.
 public actor RefreshCoordinator {
   /// Timing and concurrency (PLAN.md D20).
@@ -206,7 +209,8 @@ public actor RefreshCoordinator {
   private var lastToken = 0
   /// The refresh scheduled after waking.
   private var wakeTimer: ScheduledTask?
-  /// The running attachment check.
+  /// The running attachment check. A cancelled one is no longer this, though its task may not
+  /// have ended yet.
   private var indexPass: IndexPass?
   /// The last attachment check number handed out.
   private var lastIndexPassID = 0
@@ -307,10 +311,13 @@ public actor RefreshCoordinator {
     publish()
   }
 
-  /// The popover closed: back to the background cadence and backoff.
+  /// The popover closed: back to the background cadence and backoff, and the automatic
+  /// attachment check in progress is cancelled (see `cancelAutomaticIndexPass()`), so nothing
+  /// contacts iTerm2 on its own once the popover is closed.
   public func popoverDidClose() {
     guard lifecycle != .stopped, isPopoverVisible else { return }
     isPopoverVisible = false
+    cancelAutomaticIndexPass()
     for id in hostOrder { reschedule(id) }
     publish()
   }
@@ -710,6 +717,23 @@ public actor RefreshCoordinator {
     attachmentIndex != nil && isPopoverVisible && !isAsleep && lifecycle != .stopped
   }
 
+  /// The popover closed: cancels the attachment check in progress and drops its follow-up,
+  /// unless a `refreshOnce` caller waits for either (an explicit request, left to run).
+  ///
+  /// The cancelled check is retired at once: it stops being the check in progress, so whatever
+  /// it returns is discarded, and a check started when the popover opens again runs at once
+  /// instead of waiting for it. Its task stays tracked until it has ended (`stop()` waits for
+  /// it). Cancelling its task is what stops its iTerm2 contact: no request is sent from a
+  /// cancelled task, and a connection attempt left without callers stops before asking for the
+  /// cookie or connecting (`ITerm2APIClient`).
+  private func cancelAutomaticIndexPass() {
+    guard indexWaiters.isEmpty else { return }
+    indexFollowUp = false
+    guard let pass = indexPass, pass.waiters.isEmpty else { return }
+    pass.task.cancel()
+    indexPass = nil
+  }
+
   /// Asks for an attachment check: started now, or marked as a follow-up of the running one.
   /// `waiter` is resumed when the check that serves it ends, or at once when none will.
   private func requestIndexPass(waiter: CheckedContinuation<Void, Never>?) {
@@ -758,7 +782,9 @@ public actor RefreshCoordinator {
   } // End of func check(_:hosts:)
 
   /// Handles the end of attachment check `id`: records the outcome, merges it into every
-  /// snapshot, resumes its waiters and starts the follow-up if one is still wanted.
+  /// snapshot, resumes its waiters and starts the follow-up if one is still wanted. The end of
+  /// a check that is no longer the one in progress (cancelled by sleep, `stop()` or the popover
+  /// closing) is ignored.
   private func indexPassEnded(_ id: Int, _ outcome: IndexOutcome) {
     guard let pass = indexPass, pass.id == id else { return }
     indexPass = nil

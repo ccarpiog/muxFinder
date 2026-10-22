@@ -1,34 +1,35 @@
 import AppKit
-import MuxFinderCore
+import MuxFinderUI
 import SwiftUI
 
-/// The muxFinder menu bar app. Placeholder: a menu bar item with an empty popover; hosts and
-/// sessions arrive in later phases.
+/// The entry point (PLAN.md D22): `--preview-fixtures` runs the fixture window on a plain
+/// `NSApplication` (no SwiftUI scene, so no menu bar item is ever created and nothing is
+/// recorded for one); every other launch runs the menu bar app.
 @main
-struct MuxFinderMenuBarApp: App {
-  /// The menu bar extra and its popover window.
-  var body: some Scene {
-    MenuBarExtra("muxFinder", systemImage: "terminal") {
-      PlaceholderPopover()
+enum MuxFinderMain {
+  /// Picks the mode from the command line and runs it; never returns.
+  @MainActor
+  static func main() {
+    let options = AppLaunchOptions.current
+    if options.previewFixtures {
+      PreviewAppDelegate.run(options: options)
+    } else {
+      MuxFinderMenuBarApp.main()
     }
-    .menuBarExtraStyle(.window)
   }
 }
 
-/// Popover content until the real session list exists.
-struct PlaceholderPopover: View {
-  /// A short note and a quit button.
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("muxFinder")
-        .font(.headline)
-      Text("No hosts configured yet.")
-        .foregroundStyle(.secondary)
-      Button("Quit muxFinder") {
-        NSApplication.shared.terminate(nil)
-      }
+/// The muxFinder menu bar app: a menu bar extra whose window is the popover. Lifecycle and
+/// quitting live in `AppDelegate`; model and views in MuxFinderUI.
+struct MuxFinderMenuBarApp: App {
+  /// Owns the model and the app's lifecycle.
+  @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+  /// The menu bar extra, an SF Symbol in the menu bar.
+  var body: some Scene {
+    MenuBarExtra("muxFinder", systemImage: "terminal") {
+      PopoverView(model: appDelegate.model, isLive: true)
     }
-    .padding()
-    .frame(width: 260, alignment: .leading)
-  } // End of var body
+    .menuBarExtraStyle(.window)
+  }
 }

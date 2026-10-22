@@ -1,0 +1,108 @@
+import AppKit
+import Foundation
+import MuxFinderUI
+import SwiftUI
+
+/// `--preview-fixtures` mode (PLAN.md D22): a plain `NSApplication` with one normal window
+/// showing every popover state from synthetic fixtures. No SwiftUI scene, menu bar item,
+/// refresh engine, host list or iTerm2 is involved, and nothing is written except the PNG a
+/// `--preview-snapshot` asks for.
+///
+/// The window is shown without activating the app (the keyboard focus stays where it was),
+/// its window number is printed on standard output for `screencapture -l`, and closing it,
+/// SIGTERM or SIGINT quits with status 0.
+@MainActor
+final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
+  /// How long the window settles (layout, measured list heights) before a snapshot.
+  static let snapshotDelay: Duration = .milliseconds(1_500)
+
+  /// The command-line options.
+  private let options: AppLaunchOptions
+  /// The SIGTERM and SIGINT sources.
+  private var signalSources: [any DispatchSourceSignal] = []
+  /// The preview window, kept alive.
+  private var window: NSWindow?
+
+  /// A delegate for `options`.
+  private init(options: AppLaunchOptions) {
+    self.options = options
+    super.init()
+  }
+
+  /// Runs the preview app; never returns (the process exits when it quits).
+  static func run(options: AppLaunchOptions) {
+    let app = NSApplication.shared
+    let delegate = PreviewAppDelegate(options: options)
+    app.delegate = delegate
+    app.setActivationPolicy(.accessory)
+    withExtendedLifetime(delegate) { app.run() }
+  }
+
+  /// Shows the window, and takes the snapshot if asked.
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    signalSources = QuitSignals.install()
+    QuitSignals.applyAppearance(options.appearance)
+    let hosting = NSHostingView(rootView: PreviewGallery())
+    let window = NSWindow(
+      contentRect: NSRect(origin: .zero, size: hosting.fittingSize),
+      styleMask: [.titled, .closable, .miniaturizable],
+      backing: .buffered,
+      defer: false)
+    window.title = "muxFinder preview fixtures"
+    window.isReleasedWhenClosed = false
+    window.isRestorable = false
+    window.contentView = hosting
+    window.center()
+    window.orderFrontRegardless()
+    self.window = window
+    let appearance = options.appearance?.rawValue ?? "system"
+    print("muxFinder preview window \(window.windowNumber) appearance \(appearance)")
+    if let path = options.previewSnapshotPath {
+      Task {
+        try? await Task.sleep(for: Self.snapshotDelay)
+        writeSnapshot(of: hosting, to: path)
+      }
+    }
+  } // End of func applicationDidFinishLaunching(_:)
+
+  /// Closing the window quits.
+  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    true
+  }
+
+  /// Draws `view` (the window's contents) into a PNG at `path` from inside the app, at the
+  /// window's backing scale, then quits: status 0 once written, 1 if it could not be. Unlike
+  /// `screencapture -l` it works while the screen is locked or the display sleeps.
+  private func writeSnapshot(of view: NSView, to path: String) {
+    view.layoutSubtreeIfNeeded()
+    let url = URL(fileURLWithPath: path)
+    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+      fail("could not create a bitmap for the preview window")
+      return
+    }
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    guard let data = bitmap.representation(using: .png, properties: [:]) else {
+      fail("could not encode the preview window as PNG")
+      return
+    }
+    do {
+      try data.write(to: url, options: .atomic)
+    } catch {
+      fail("could not write \(url.path): \(error.localizedDescription)")
+      return
+    }
+    print("muxFinder preview snapshot \(bitmap.pixelsWide)x\(bitmap.pixelsHigh) \(url.path)")
+    AppTermination.request()
+  } // End of func writeSnapshot(of:to:)
+
+  /// Prints why the snapshot failed and exits with status 1 (nothing to shut down here).
+  private func fail(_ reason: String) {
+    FileHandle.standardError.write(Data("muxFinder preview snapshot failed: \(reason)\n".utf8))
+    exit(1)
+  }
+
+  /// Writes one line to standard output at once (it may be a pipe or a file).
+  private func print(_ line: String) {
+    FileHandle.standardOutput.write(Data((line + "\n").utf8))
+  }
+}

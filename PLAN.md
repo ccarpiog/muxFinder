@@ -34,11 +34,15 @@ Sources/
     Diagnostics/              operation log (ring buffer + os.Logger), no terminal content
   muxfinder-launch/           helper executable that iTerm2 runs inside the launch tab
   muxfinder-probe/            developer/diagnostic CLI that drives the core without the GUI
-  MuxFinderApp/               SwiftUI menu bar app (MenuBarExtra .window style)
+  MuxFinderUI/                library: AppModel, popover content and views, preview
+                              fixtures (D22); tests import it
+  MuxFinderApp/               SwiftUI menu bar app (MenuBarExtra .window style): entry
+                              point, scene and app delegates only
 Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, never the
                               user's tmux server (one test uses real tmux on a private
                               socket directory and skips when tmux is absent)
   Fixtures/                   discovery outputs, protobuf golden bytes
+Tests/MuxFinderUITests/       Swift Testing, hermetic: the app model over fakes
 scripts/                      build-app.sh, install.sh, uninstall.sh, dev/ helpers
 docs/                         REQUIREMENTS, ARCHITECTURE, INTEGRATION-PROOF, TESTING
 ```
@@ -130,7 +134,8 @@ session, verifies its identity, and then activates the tab.
   iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
   Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `attach`,
   `new-session`, `e2e-*`, `hosts`, `refresh`; all but `discover`, `hosts` and `refresh` open
-  real iTerm2 windows),
+  real iTerm2 windows) and the app binary run from the shell (D22: the preview window and the
+  menu bar item check, neither of which contacts iTerm2),
   are run explicitly during verification, and their results are recorded in
   `docs/TESTING.md`. A mocked attachment is never reported as a real integration result.
 - **D12 — tmux output is always read through `tmux -u`** (decided in Phase 2, 2026-10-21).
@@ -162,11 +167,15 @@ session, verifies its identity, and then activates the tab.
   taken effect before its connection broke; only `notSent` and the connect-time errors
   guarantee it did not). Concurrent callers share one connection attempt; `disconnect()`
   invalidates the attempt in progress by generation, failing its callers with `disconnected`
-  and closing a connection it completes late. Connection order: running check, socket-file
-  check, cookie, connect, handshake, so no cookie is requested while iTerm2 is not running or
-  its API is off. Socket missing, refused or not a socket → `apiDisabled`; HTTP 401 →
-  `authRejected`. The client announces the library version `python 2.11` that the protocol
-  facts were checked against.
+  and closing a connection it completes late. A caller cancelled while it waits leaves the
+  attempt at once (`CancellationError`); right before asking for the cookie and right before
+  connecting, the attempt goes on only while it is still current and a caller still waits,
+  and otherwise stops, so a cancelled caller (the popover closing, D20) leaves nothing behind
+  that contacts iTerm2 later, while a caller that joins in time keeps it (no second cookie).
+  Connection order: running check, socket-file check, cookie, connect, handshake, so no
+  cookie is requested while iTerm2 is not running or its API is off. Socket missing, refused
+  or not a socket → `apiDisabled`; HTTP 401 → `authRejected`. The client announces the
+  library version `python 2.11` that the protocol facts were checked against.
 - **D14 — Launch protocol** (decided in Phase 4a, 2026-10-21; code in
   `Sources/MuxFinderCore/Launch/`).
   - **Files:** `launch/<uuid>.request.json` and `<uuid>.result.json`, the uuid only in
@@ -726,9 +735,9 @@ session, verifies its identity, and then activates the tab.
     (`DiscoveryProbe` in production, so This Mac runs `/bin/sh` and never ssh, D3/D6), time
     is `AttachClock` (monotonic instants for schedules, wall-clock dates for timestamps), and
     the attachment index is `AttachmentIndexing` (`AttachmentIndex` conforms; `nil` never
-    checks). Phase 8 reads `updates()`: an `AsyncStream<RefreshState>` per subscriber, the
-    current state first, then one after every change (newest only by default), finished by
-    `stop()`. Lifecycle: created idle (explicit requests and `refreshOnce` run, nothing is
+    checks). The app reads `updates()` (D22): an `AsyncStream<RefreshState>` per subscriber,
+    the current state first, then one after every change (newest only by default), finished
+    by `stop()`. Lifecycle: created idle (explicit requests and `refreshOnce` run, nothing is
     scheduled), `start()` begins the cadence, `stop()` ends everything for good.
   - **Slots and single flight:** at most 3 probes run at once (`Configuration
     .concurrencyLimit`), first come first served, so a slow host holds one slot and never
@@ -756,10 +765,10 @@ session, verifies its identity, and then activates the tab.
   - **Cadence and backoff:** `start()` refreshes every host at once; then each host's next
     attempt is due one step after its last attempt **ended**: 5 min in the background, 15 s
     while the popover is visible (`popoverDidOpen()` also refreshes every host at once;
-    `popoverDidClose()` reschedules from the last end). In the background only, a host whose
-    last attempt failed waits the backoff step for its consecutive failures instead of 5 min:
-    30 s, 1 min, 2 min, 5 min, then 15 min for every later failure; a success resets the
-    count. The visible cadence and every explicit request (`retry(_:)`, `retryAll()`, popover
+    `popoverDidClose()` reschedules from the last end and cancels the attachment check, below).
+    In the background only, a host whose last attempt failed waits the backoff step for its
+    consecutive failures instead of 5 min: 30 s, 1 min, 2 min, 5 min, then 15 min for every
+    later failure; a success resets the count. The visible cadence and every explicit request (`retry(_:)`, `retryAll()`, popover
     opening, wake, network change) ignore backoff; their failures still count. Successes are
     `ok` and `noServer`; every other status (including `tmuxNotFound`) is a failure.
   - **Sleep, wake, network:** `systemWillSleep()` retires every attempt, cancels every timer,
@@ -781,7 +790,7 @@ session, verifies its identity, and then activates the tab.
     under the lock (so a stop finishes that stream and waits for that reader), then installs
     its observers and monitor only if its generation is still current, and otherwise removes
     them itself before returning; events are forwarded only from the current generation's
-    observers and monitor. App wiring is Phase 8.
+    observers and monitor. The app wires it to `NSWorkspace`'s notification center (D22).
   - **Snapshots (`HostSnapshot`):** per enabled host: the config and its revision, freshness
     (`notChecked`, `live`, `stale`), the sessions, the last outcome (`sessionsListed`,
     `noServer`, or `failed` with the classified `HostStatus`), `lastAttempt` and `lastSuccess`
@@ -793,10 +802,17 @@ session, verifies its identity, and then activates the tab.
     entries.
   - **Attachments (D16):** a check runs only while the popover is visible (after each applied
     result, one at a time with at most one follow-up) or once at the end of
-    `refreshOnce(includeAttachments: true)`; never in the background, so the iTerm2 cookie is
-    not requested while the popover is closed. Hosts are given as their last success's node
-    name and servers (stale hosts too). Each session gets the connections the snapshot maps to
-    its key. The failure policy follows D16: iTerm2 not running is `iTermNotRunning` (nothing
+    `refreshOnce(includeAttachments: true)`; never in the background. Closing the popover
+    cancels the automatic check in progress and drops its follow-up (one a `refreshOnce`
+    caller waits for runs on). The cancelled check is retired at once: its result is
+    discarded, and a check started when the popover reopens runs at once instead of waiting
+    for it (`stop()` still waits for its task). Cancelling stops its iTerm2 contact: the index
+    asks no connection once cancelled, no request leaves a cancelled task, and its connection
+    attempt, left without callers, stops before the cookie or the connection (D13). So once
+    the popover has closed no cookie request, connection or identity question starts; one
+    already on the wire may finish, and its answer starts nothing. Hosts are given as their
+    last success's node name and servers (stale hosts too). Each session gets the connections
+    the snapshot maps to its key. The failure policy follows D16: iTerm2 not running is `iTermNotRunning` (nothing
     attached); any other listing failure is `failed(error)`: every session's attachments are
     cleared (an older check's are never kept) and the UI must read that as unknown, not "not
     open here"; connections without a usable answer are unmapped counts inside a `checked`
@@ -915,6 +931,95 @@ session, verifies its identity, and then activates the tab.
     shows the session with both tmux tabs; then a clean detach by connection. On any failure
     the step ends the plain client (stdin closed, up to 3 s, then SIGTERM and 2 s later SIGKILL
     to its group, which stays pinned until it is reaped), and cleanup does the same first.
+
+- **D22 — Menu bar app** (decided in Phase 8, 2026-10-22; code in `Sources/MuxFinderUI/` and
+  `Sources/MuxFinderApp/`).
+  - **Layers:** the `MuxFinderUI` library holds the model, the popover's content and views,
+    and the preview fixtures; `Tests/MuxFinderUITests/` imports it. The `MuxFinderApp`
+    executable keeps only the entry point, the `MenuBarExtra(.window)` scene (SF Symbol
+    `terminal`) and two app delegates. `PopoverContent` is a pure value computed from the
+    engine's `RefreshState`, the search text, per-session activities, the selection and
+    `now`; every displayed rule lives there and is tested without SwiftUI.
+  - **Model and engine:** `AppModel` (`@Observable @MainActor`) runs on an `AppEnvironment`
+    (host loading, engine and system-events factories, wall clock, terminate), so tests pass
+    fakes. `start()` loads the list with `HostStore.load()` (never writes; an unusable folder
+    gives an empty list and a notice), builds the `RefreshCoordinator` for it
+    (`DiscoveryProbe`; `AttachmentIndex` over one shared `ITerm2APIClient`), subscribes to
+    `updates()`, starts `RefreshSystemEvents` on `NSWorkspace`'s notification center, then
+    `start()`s the engine. Popover open/close, "Refresh" and "Retry" go through one queue read
+    by one task, so the engine sees them in order; once `shutdown()` has begun, requests still
+    queued are dropped, so a popover opening queued just before quitting starts nothing in the
+    engine about to stop. Relative times are measured against `now`, updated with every
+    engine state and when the popover opens.
+  - **What the popover shows:** host status "Checking…" until an attempt ends, then "This
+    Mac" for the local host after any success, "Reachable" (SSH, sessions) or "No sessions"
+    (SSH, no server or none), and for failures "Unreachable", "Sign-in needed", "Host key
+    problem", "tmux not found", or "Check failed" (`probeError`) with a one-line explanation
+    and "Retry". A refresh in progress keeps the last label and adds a spinner. The caption is
+    "Last checked <time>" from `lastSuccess` ("Not reached yet" without one). A stale host's
+    sessions read "Last seen <time> · not live"; live ones "4 windows · 1 client" or
+    "2 windows · Detached". "Open in iTerm2 here" comes only from the attachment index; a
+    failed check shows a notice and no badge, never "not open here". Only enabled hosts are
+    listed; none gives "No hosts turned on". Search keeps a host whose name matches with all
+    its sessions, else only matching sessions (case, diacritics and surrounding spaces
+    ignored). Per-session activity ("Opening…", "Waiting for iTerm2…", "Waiting for you in
+    iTerm2", a failure with "Retry") is model state; `SessionActivity.init?(_ state:)` maps
+    `AttachState` for Phase 10.
+  - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch. The only iTerm2 requests in
+    this phase are the engine's attachment checks, which run only while the popover is
+    visible and are cancelled when it closes (D20), and the client checks that iTerm2 runs
+    before it asks for the cookie (D13). So the cookie is requested when the popover opens
+    while iTerm2 runs, and (Phase 10) on an attach; never at launch, once the popover has
+    closed (a cookie request, connection or identity question the check had not made by then
+    is never made), or while iTerm2 is not running. Tested through the real `ITerm2APIClient`
+    with counting and gated cookie providers, a fake running check and fake connectors.
+  - **Popover visibility and keys:** `PopoverWindowBridge` follows the menu bar extra's
+    window: open while it is visible and not occluded, rechecked on becoming or resigning key,
+    occlusion changes and closing (repeats ignored). A local key-down monitor for that window
+    turns ↑/↓, Return, Esc, ⌘F, ⌘R, ⌘N and ⌘, (`PopoverKey`) into `AppModel.handle(_:)`
+    before the search field sees them (not while an input method composes); Esc closes the
+    window. The arrows move through the listed rows only. No unattended run can open the real
+    popover (no UI scripting), so this glue is checked by the model's tests and by hand only.
+  - **Placeholders:** opening a session and "New session" (Phase 10) and "Settings" (Phase 9)
+    only record a `DeferredIntent`: nothing is attached, launched or saved. "Retry" on a
+    session failure clears it and refreshes the session's host.
+  - **Quit:** "Quit", SIGTERM and SIGINT go through `AppTermination.request()`, which calls
+    `terminate(_:)` from a run-loop block. `applicationShouldTerminate` answers
+    `.terminateLater`, runs `AppModel.shutdown()` (the queue, dropping requests not yet handed
+    over, the system events adapter, then the engine, whose `stop()` cancels any attachment
+    check and kills any probe's process group) and replies, so the process
+    exits 0; a 5 s deadline replies anyway. Calling `terminate(_:)` from a main-queue block or a
+    main-actor task never returned: AppKit waits for the reply in a nested run loop, which
+    cannot drain the main queue while one of its blocks runs, and the shutdown task needs it.
+    Quitting detaches nothing, kills no session and sends iTerm2 nothing.
+  - **Preview fixtures:** `--preview-fixtures` runs a plain `NSApplication` (no SwiftUI scene,
+    so no status item, and nothing recorded for one; no engine, host list or iTerm2) with one
+    normal window of every state in `PreviewFixtures.all`: synthetic names, `*.example`
+    destinations, a fake socket path, a fixed `now`. It is shown without activating the app
+    and its window number is printed for `screencapture -l`. `--appearance light|dark` sets
+    `NSApp.appearance` only. `--preview-snapshot <file.png>` also draws the window's content
+    view into that PNG from inside the app (`cacheDisplay`) and quits; Phase 8's screenshots
+    were made so, because the screen was locked and the display asleep and both
+    `screencapture -l` and a single-window ScreenCaptureKit capture failed. Such a render
+    shows AppKit spinners as a still frame. The same fixtures back the SwiftUI previews.
+  - **Bundle:** `scripts/build-app.sh` builds release for `arm64-apple-macosx14.0` (checked
+    with `lipo`) and assembles `build/muxFinder.app`: `Contents/MacOS/muxFinder` and, next to
+    it where `LaunchHelperPath.locate()` looks, `Contents/MacOS/muxfinder-launch`; D7's
+    `Info.plist` keys; `PkgInfo`. Every bundle value is a constant of the script. It signs the
+    helper, then the app with the apple-events entitlement, both with hardened runtime and
+    `--timestamp=none`, choosing the first "Apple Development" identity by its SHA-1 hash
+    (codesign did not match this Mac's identity by its name, which holds "í"), or
+    `MUXFINDER_SIGN_IDENTITY`, else ad hoc with D7's warning; then `codesign --verify --deep
+    --strict`. `build/` is git-ignored.
+  - **Menu bar item check:** on macOS 26 and later the item is drawn outside the app's
+    process: `CGWindowListCopyWindowInfo` lists no window under the app's pid (its
+    `NSStatusBarWindow`s carry numbers that are not window-server ids), unlike older apps'
+    items. So `--report-menu-bar-item` prints, two seconds after launch, the app's own
+    status-bar-level windows with visibility and frames (read-only).
+  - **The app's own defaults:** AppKit records status-item state in the
+    `cc.carpio.muxfinder` defaults domain; a hidden item (as a preview with an un-inserted
+    `MenuBarExtra` once made) is stored as `NSStatusItem VisibleCC Item-0 = 0`. That is why
+    preview mode creates no status item. A normal run that changes nothing wrote nothing.
 
 ## Verified facts (planning session, 2026-10-21)
 

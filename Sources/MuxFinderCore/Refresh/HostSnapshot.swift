@@ -235,7 +235,8 @@ public struct RefreshState: Sendable, Hashable {
 /// implementation; tests pass a fake, so `swift test` never contacts iTerm2.
 public protocol AttachmentIndexing: Sendable {
   /// See `AttachmentIndex.snapshot(of:)`. Throws the listing's `ITerm2Error` (`notRunning`
-  /// when iTerm2 does not run) or `CancellationError`.
+  /// when iTerm2 does not run) or `CancellationError`. Once the calling task is cancelled (the
+  /// popover closed), it must not start any further iTerm2 contact.
   func snapshot(of hosts: [AttachmentIndex.Host]) async throws -> AttachmentSnapshot
 }
 

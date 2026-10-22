@@ -1,0 +1,109 @@
+import MuxFinderCore
+import SwiftUI
+
+/// The menu bar popover (PLAN.md Phase 8): a search field, notices, the hosts with their
+/// sessions (or a placeholder), and the footer.
+///
+/// With `isLive` the view also tracks its window, so the model learns when the popover opens
+/// and closes, and handles the popover's keys (`PopoverWindowBridge`). The preview window and
+/// SwiftUI previews pass `false`: a fixture never tells an engine anything.
+public struct PopoverView: View {
+  /// The popover's width, in points.
+  public static let width: CGFloat = 360
+  /// The tallest the host list grows before it scrolls, in points.
+  static let maximumListHeight: CGFloat = 440
+
+  /// The model shown.
+  @Bindable var model: AppModel
+  /// Whether this is the real popover (window tracking and keys).
+  let isLive: Bool
+  /// Whether the search field has the keyboard focus.
+  @FocusState private var isSearchFocused: Bool
+  /// The host list's natural height, measured.
+  @State private var listHeight: CGFloat = 0
+
+  /// A popover for `model`; `isLive` only in the menu bar extra.
+  public init(model: AppModel, isLive: Bool) {
+    self.model = model
+    self.isLive = isLive
+  }
+
+  /// The popover's layout.
+  public var body: some View {
+    let content = model.content
+    VStack(spacing: 0) {
+      searchField
+        .padding(10)
+      Divider()
+      if !content.notices.isEmpty {
+        NoticesView(notices: content.notices)
+        Divider()
+      }
+      if let placeholder = content.placeholder {
+        PlaceholderView(placeholder: placeholder, openSettings: model.openSettings)
+      } else {
+        hostList(content.sections)
+      }
+      Divider()
+      FooterView(model: model)
+    }
+    .frame(width: Self.width)
+    .background {
+      if isLive { PopoverWindowBridge(model: model) }
+    }
+    .onChange(of: model.searchFocusRequests) {
+      isSearchFocused = true
+    }
+  } // End of var body
+
+  /// The search field, with a clear button while it holds text.
+  private var searchField: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      TextField("Search hosts and sessions", text: $model.searchText)
+        .textFieldStyle(.plain)
+        .focused($isSearchFocused)
+        .accessibilityLabel("Search hosts and sessions")
+      if !model.searchText.isEmpty {
+        Button {
+          model.searchText = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Clear search")
+      }
+    } // End of HStack holding the search field
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.7)))
+  } // End of var searchField
+
+  /// The host groups, scrolling once taller than `maximumListHeight`, keeping the keyboard
+  /// selection in view.
+  private func hostList(_ sections: [HostSection]) -> some View {
+    ScrollViewReader { proxy in
+      ScrollView {
+        VStack(alignment: .leading, spacing: 12) {
+          ForEach(sections) { section in
+            HostSectionView(section: section, model: model)
+          }
+        }
+        .padding(.vertical, 10)
+        .onGeometryChange(for: CGFloat.self) { geometry in
+          geometry.size.height
+        } action: { height in
+          listHeight = height
+        }
+      } // End of ScrollView
+      .frame(height: min(max(listHeight, 1), Self.maximumListHeight))
+      .onChange(of: model.selection) { _, key in
+        guard let key else { return }
+        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(key) }
+      }
+    } // End of ScrollViewReader
+  } // End of func hostList(_:)
+}

@@ -133,8 +133,12 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   fails at once with `notSent(.disconnected)`, the invalidated attempt never connects, the next
   call uses the second cookie) and during the handshake (the late connection is closed with a
   1000 close frame and shut down, the next call opens a new one); a caller cancelled while
-  waiting for the attempt (`CancellationError` at once, the attempt's connection serves the
-  next call); diagnostics recording only the error kind.
+  waiting for an attempt that is connecting (`CancellationError` at once, the attempt's
+  connection serves the next call); an attempt every caller left during the cookie request
+  stopping before it connects (nothing written, the next call uses the second cookie), and
+  one left during the running check asking for no cookie; a caller joining during the cookie
+  request after the earlier one left keeping the attempt (one cookie, one connection);
+  diagnostics recording only the error kind.
 - **Cookie and fake** (`ITerm2CookieAndFakeTests`): strict `"<cookie> <key>"` parsing (12
   malformed shapes refused, including header injection), AppleScript error mapping (-1743 →
   `automationDenied`), the static script source, the real provider refusing to run while
@@ -587,7 +591,7 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   first-seen order across files; no `.ssh` or no config; CRLF, trailing spaces and form
   feeds; `~user` paths not expanded; every file's bytes, mode and mtime unchanged afterwards.
 - **Refresh engine** (`RefreshCoordinatorTests`, `RefreshScheduleTests`,
-  `RefreshSnapshotTests`; PLAN.md D20): a scripted prober whose calls wait until the test
+  `RefreshSnapshotTests`, `RefreshPopoverCloseTests`; PLAN.md D20): a scripted prober whose calls wait until the test
   answers them (optionally ignoring cancellation, like a probe that finished as it was
   cancelled), a fake attachment index, and `GatedAttachClock`, whose sleeps end only when the
   test advances virtual time, so every timer fires exactly when the test says and no test
@@ -620,13 +624,60 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   SSH host by `/usr/bin/ssh`; the sleep/wake adapter keeping order, a `stop()` run inside its
   `start()` leaving nothing observed, and the path filter;
   `stop()` cancelling a hung probe, a timer and a hung attachment check, leaving no task,
-  sleeper or running call and finishing the update stream. With the real
+  sleeper or running call and finishing the update stream. Closing the popover, with the
+  engine over the real `AttachmentIndex` and `ITerm2APIClient` (gated cookie provider, fake
+  connector and byte stream): closed while the check waits for the cookie, nothing connects
+  or is sent once the cookie arrives and nothing is published; closed after one connection
+  answered its identity question while the other's ownership listing is pending, that
+  connection is never asked even when the listing's answer comes (the next frame is the
+  test's own); reopened while the cancelled check (a held fake index that ignores
+  cancellation) has not ended, a fresh check runs at once and the stale answer is discarded.
+  Without the cancellation on close all three fail; without the client's checks before the
+  cookie and the connection, the cookie one does. With the real
   `PosixSpawnProcessRunner` and `DiscoveryProbe` against the fake tmux (`hang-pids`: a
   `sleep 30` child), both `stop()` and `systemWillSleep()` return only once the probe's
   process group has no live member, and every pid is gone soon after. Removing the stale
   result guards, the follow-up, the limit, the wait in `systemWillSleep()`, the per-host guard
   over retired probes, the `refreshOnce` work epoch, the adapter's start generation or the
   backoff steps makes these tests fail.
+- **App model and popover** (`Tests/MuxFinderUITests/`: `PopoverContentTests`,
+  `AppModelKeyboardTests`, `AppModelEngineTests`; PLAN.md D22). Content, from the preview
+  fixtures and hand-built snapshots: every host outcome to its status label (SSH and This
+  Mac, every unreachable reason, both host-key problems, `probeError`), a refresh keeping the
+  last label, the exact label texts and one explanation per failure; relative times at every
+  boundary ("just now" under a minute and for future dates, then minutes, hours, days) and
+  the "Last checked …" / "Last seen … · not live" sentences; counts ("4 windows · 1 client",
+  "1 window · Detached"); stale marking (an unreachable host's sessions kept, all stale, no
+  live counts, caption from the last success); the badge only from the attachment index (a
+  session with clients but no connection here has none, no row claims activity or
+  idleness), and a failed iTerm2 check showing a notice and no badge; accessibility labels
+  and values of rows and headers; search by session name across hosts, by host name (all
+  its sessions), ignoring case, diacritics and spaces, and no match; empty and never-checked
+  hosts, "Not reached yet", "Loading hosts…", "No hosts turned on", the host-list notices;
+  `AttachState` to row activity; the fixtures covering every status, activity, placeholder,
+  notice, badge, stale row, selection and empty host, with synthetic data only. Model over
+  fixtures: ↑/↓ through the listed rows across hosts, clamped at the ends, restarting when
+  the search hid the selection; Return opening only a listed selection; ⌘F, ⌘N, ⌘, and Esc;
+  the bounded placeholder log; a fixture model starting nothing; key-press mapping with and
+  without modifiers; the command-line flags. Model over a real `RefreshCoordinator` with fake
+  discovery and attachment index: start loading the list and turning hosts live; the
+  onboarding defaults discovering nothing; invalid and unreadable host lists; attachment
+  checks only while the popover is visible (none in the background or after closing, the
+  badge appearing after opening); an open before start applied after it, repeats ignored;
+  "Refresh" asking every host, "Retry" one, a session's Retry clearing its failure; sleep and
+  wake through `RefreshSystemEvents` on a private notification center; quit asking to
+  terminate and shutdown stopping the engine with no task left and no iTerm2 request; a
+  popover opening still queued when shutdown begins dropped (no attempt, no check started);
+  a shutdown during loading building no engine. The iTerm2 cookie, through the real
+  `ITerm2APIClient` (a counting cookie provider that refuses, a fake running check, a regular
+  file standing in for the socket, so nothing connects): no cookie and no running check at
+  start or with the popover closed (results applied, no attachment check started), a cookie
+  request once the popover opens while iTerm2 runs, and none (only the running check, never a
+  launch) while it does not; and, with a gated cookie provider and a counting connector,
+  closing the popover while the cookie request is pending: nothing connects once the cookie
+  arrives and nothing is published. Making `start()` open the popover in the engine makes the
+  first two cookie tests fail; undoing the cancellation on close fails the third, and handing
+  queued requests to the engine during shutdown fails the shutdown test.
 
 ## Helper test mode: argv digest
 
@@ -1163,4 +1214,47 @@ window was opened and no tmux connection queried (`--attachments` was not run).
 | Sessions through the engine | a second `mktemp -d` as a private `TMUX_TMPDIR` with one `muxfinder-test-<8 hex>` session (`tmux -u -f /dev/null new-session -d -s … 'sleep 600'`); `TMUX_TMPDIR=<it> .build/debug/muxfinder-probe refresh --once --config <dir>/hosts.json` | exit 0; This Mac `live`, outcome `ok`, 1 session: the test session, its key carrying This Mac's id and the private socket; Saturno `live`, `noServer` |
 | Cleanup | `kill-session -t '=muxfinder-test-…'` on the private server; `rm -r` both folders; `ls -A /private/tmp \| rg '^mfx\.'` | the private server ended with its session (`list-sessions`: no server running); nothing listed |
 | Unit tests | `swift test`, repeated | exit 0, 531 tests in 52 suites (26 new in `RefreshCoordinatorTests`, `RefreshScheduleTests`, `RefreshSnapshotTests`). On the final tree 19 of 20 runs passed, 13 of them in a row. The one failure was the existing `doesNotBlockTheMainActor` (fewer than 5 main-actor ticks in 0.9 s) at a load average of about 12. With the new suites skipped, the earlier 505 tests also failed 2 of 20 runs (`doesNotBlockTheMainActor`, `keepsTrailingSemicolonsOnAPrivateServer`). No refresh test failed in 36 full runs |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |
+
+### Phase 8 — menu bar app and popover (2026-10-22)
+
+The app binary runs from the shell only, never through `open` or Finder (LaunchServices would
+raise the Automation prompt, PLAN.md *Unattended-run rules*), and no check here opens the real
+popover: that needs a click, and UI scripting is never used. The popover's states are shown
+by the preview window and covered by the unit tests (PLAN.md D22).
+
+- **Screenshots.** `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures
+  --appearance light` (then `dark`) opens one normal window with every state from synthetic
+  fixtures, without taking the keyboard focus, and prints `muxFinder preview window <n>
+  appearance <a>`. Capture only that window, `screencapture -x -o -l <n>
+  docs/screenshots/popover-states-<a>.png`, look at the PNG, then `kill -TERM <pid>` (exit
+  0). `screencapture` needs a visible, unlocked screen and Screen Recording permission for
+  the terminal; otherwise add `--preview-snapshot <file.png>`: the app draws the window into
+  the PNG itself (spinners show as a still frame) and quits with 0. Never capture the screen
+  or another app's window, and never change a privacy setting to make a capture work.
+- **Shell check.** `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`;
+  after a few seconds the app prints its status-bar-level windows (the menu bar item, one per
+  display); `pgrep -P <pid>` lists no child; `kill -TERM <pid>` and `wait` give exit 0;
+  `ls -A ~/Library/Application\ Support/muxFinder` still shows no `hosts.json`. On this Mac
+  `CGWindowListCopyWindowInfo` lists no window under the app's pid: macOS 27 draws third-party
+  menu bar items outside the app (other, older apps' items are still listed at layer 25),
+  which is why the app reports its own.
+
+Environment: Neptuno, macOS 27.2, from the repo root. The screen was locked and the display
+asleep for the whole run (`CGSessionCopyCurrentDictionary` `CGSSessionScreenIsLocked = 1`,
+`CGDisplayIsAsleep` true, both read-only). No hosts are enabled here (no `hosts.json`, so the
+onboarding defaults, all off): the real app discovered nothing and contacted no iTerm2.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Bundle | `scripts/build-app.sh` | exit 0; release `arm64-apple-macosx14.0` (both binaries thin arm64), signed by "Apple Development: Carlos Carpio García (5XHQZ98534)" chosen by hash; not notarized |
+| Signature | `codesign --verify --deep --strict --verbose=2 build/muxFinder.app`; `codesign -d --entitlements - build/muxFinder.app`; `codesign -dvv` of the app and of `Contents/MacOS/muxfinder-launch` | exit 0, "valid on disk", "satisfies its Designated Requirement", the helper validated; entitlements exactly `com.apple.security.automation.apple-events = true`; both `flags=0x10000(runtime)` (hardened runtime), team `CXVKS8ZNCD` |
+| Info.plist | `plutil -p build/muxFinder.app/Contents/Info.plist` | `CFBundleIdentifier` `cc.carpio.muxfinder`, `CFBundleExecutable` `muxFinder`, `LSUIElement` true, `LSMinimumSystemVersion` `14.0`, `NSAppleEventsUsageDescription` set |
+| Screen capture permission | `CGPreflightScreenCaptureAccess()` from a script outside the repo | true |
+| `screencapture -l` | the preview window's number from its output line | exit 1, "could not create image from window" (screen locked, display asleep); a ScreenCaptureKit single-window capture of the same window failed with error -3811 |
+| Preview screenshots | `muxFinder --preview-fixtures --appearance light --preview-snapshot docs/screenshots/popover-states-light.png`, then `dark` | exit 0 both; 3904×1728 PNGs (1952×864 pt at 2x), ten states each, inspected: every status, the badge, stale rows, progress, a failure with Retry, search with and without matches, both global placeholders, both notices, loading; text readable in both appearances |
+| Preview leaves nothing | `ls ~/Library/Preferences ~/Library/Saved\ Application\ State \| rg -i muxfinder`; the support folder | nothing; `launch/` only. An earlier build that hid an un-inserted `MenuBarExtra` in preview mode had made AppKit write `NSStatusItem VisibleCC Item-0 = 0` to the app's own domain (and to `MuxFinderApp` for the unbundled debug binary); both domains were deleted and preview mode now creates no status item |
+| Shell check | `muxFinder --report-menu-bar-item &`; after 8 s the window listing, `pgrep -P`; `kill -TERM`; `wait` | 7 status-bar-level windows, all visible: 35×30 pt at y 1698 in the main display's menu bar, one on the second display, the rest parked off screen; `CGWindowListCopyWindowInfo` listed none under the pid; no child process; exit status 0 at once; no muxFinder process left |
+| Nothing written | `ls -la` of `~/Library/Application Support/muxFinder` and `launch/` before and after; preferences as above | identical: `launch/` only, empty, mtime unchanged; no `hosts.json`; no preference or saved-state file |
+| Unit tests | `swift test`, twice | exit 0 both times: 563 tests in 54 suites (core) and 44 in 3 suites (new `MuxFinderUITests`) |
 | Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |

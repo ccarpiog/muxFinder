@@ -118,11 +118,15 @@ public struct AttachmentIndex: Sendable {
   /// Lists iTerm2's tmux connections, asks each included one which host, server and session
   /// it shows, and maps the answers against `hosts`.
   ///
+  /// Cancelling the calling task (the popover closing, PLAN.md D20) stops the check: no
+  /// connection is asked once the task is cancelled, and a question in flight is withdrawn.
+  ///
   /// - Throws: the `ITerm2Error` of the connection listing (`notRunning` when iTerm2 does not
   ///   run: then nothing is attached in it), or `CancellationError` when the calling task is
   ///   cancelled. A connection's own failure never throws; it is counted as `stale`.
   public func snapshot(of hosts: [Host]) async throws -> AttachmentSnapshot {
     let listed = try await iTerm2.listTmuxConnections()
+    try Task.checkCancellation()
     let included = listed.filter { configuration.includes?($0) ?? true }
     let answers = await withTaskGroup(of: (Int, Identification).self) { group in
       for (offset, connection) in included.enumerated() {
@@ -178,6 +182,7 @@ public struct AttachmentIndex: Sendable {
   /// (iTerm2 drops its answer if it comes later) and the connection is `stale(.timedOut)`.
   ///
   /// - Throws: `CancellationError` only, when the calling task is cancelled before an outcome.
+  ///   A task cancelled before the command goes out sends nothing.
   public func identify(
     connectionID: String,
     owningSessionID: String
@@ -188,6 +193,7 @@ public struct AttachmentIndex: Sendable {
     let outcome = await withTaskGroup(of: Identification?.self) { group -> Identification? in
       group.addTask {
         do {
+          try Task.checkCancellation()
           let output = try await iTerm2.sendTmuxCommand(
             ConnectionIdentity.command, connectionID: connectionID, ownedBy: owningSessionID)
           switch ConnectionIdentity.read(output) {

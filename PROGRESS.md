@@ -20,6 +20,7 @@ file.
 | 6a | New session and vanished sessions | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-6a.md` | `docs/progress-archive/6a.md` |
 | 7a | Host configuration: `HostStore`, invariants, defaults, SSH config suggestions | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7a.md` | `docs/progress-archive/7a.md` |
 | 7b | Refresh engine: `RefreshCoordinator`, `HostSnapshot`, attachment merge, `refresh --once` | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7b.md` | `docs/progress-archive/7b.md` |
+| 8 | Menu bar app and popover: `MuxFinderUI`, `AppModel`, `build-app.sh`, preview fixtures | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-8.md` | `docs/progress-archive/8.md` |
 
 ## Current phase
 
@@ -27,47 +28,13 @@ file.
 worker): code, review and both blocker fixes are done, verified hermetically and committed. It
 is **not closed**: it still needs its real final-tree runs (first real `e2e-remote saturno-m4`
 with the Move here step, then `e2e-local` again on the final tree), which wait on iTerm2's thread
-count (*Next action*). Narrative so far: `docs/progress-archive/6b.md`. Phases 1–6a and 7a/7b
-are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
+count (*Next action*). Narrative so far: `docs/progress-archive/6b.md`. Phases 1–6a, 7a/7b
+and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
 
 ## Acceptance
 
-- Phase 1: all criteria met; evidence in `docs/progress-archive/1.md`.
-- Phase 2: all criteria met (fixture, hostile-name, malformed-input and classifier tests; every
-  real check in `docs/TESTING.md` observed as specified; no leftover sessions). Evidence in
-  `docs/progress-archive/2.md`.
-- Phase 3a: all criteria met (byte-for-byte request encodings against `api_pb2` fixtures,
-  response decodes, malformed-input typed errors, no fixture drift on regeneration, synthetic
-  values only). Evidence in `docs/progress-archive/3a.md`.
-- Phase 3b: all criteria met (hermetic fake-socket tests for fragmentation, partial reads,
-  ping/pong, close, 16 MiB cap, timeouts, id matching; live `iterm2 status`, `list-connections`,
-  `list-sessions`, `list-profiles` exit 0 with no prompt; nothing in iTerm2 or tmux touched).
-  Evidence in `docs/progress-archive/3b.md`.
-- Phase 4a: all criteria met (0700 dir / 0600 files / TTL / delete-on-read / ACL stripping
-  asserted by tests; guard gone, changed, tmux-missing, no-server, stalled-check and signal
-  cases against real tmux on a private `TMUX_TMPDIR`; data only as argv; nothing in iTerm2 or
-  the user's tmux touched). Evidence in `docs/progress-archive/4a.md`.
-- Phase 4b (acceptance narrowed by the 4b/4c split): coordinator with distinct states,
-  single-flight, typed failures, owned-connection detach and a 10 s minimum launch-tab age, all
-  covered by hermetic tests; probe `attach`, `detach`, `e2e-local` built; draft
-  `docs/INTEGRATION-PROOF.md`; build, 339 tests and lint pass — met. The two passing real
-  `e2e-local` runs were **not** met and are Phase 4c's acceptance. Evidence in
-  `docs/progress-archive/4b.md`.
-- Phase 4c: all criteria met — `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` exit 0
-  with 9/9 PASS in four separate real runs (two by the worker, two by the orchestrator, the last
-  on the final tree after the review fix); `iterm2 status` exit 0 after each; no leftover test
-  session, launch file or marker; `docs/INTEGRATION-PROOF.md` final; build, 346 tests and lint
-  pass. Evidence in `docs/progress-archive/4c.md`.
-- Phase 5a: all criteria met — hermetic tests for mapped, unknown, ambiguous, stale and
-  `nonUTF8` connections, the per-connection timeout, the focus path, index failure and
-  `detach(session:on:)`; real `e2e-local` exit 0 with 10/10 PASS including focus existing (no
-  tab or window opened) in five runs, the last on the final tree; no leftovers; build, 382 tests
-  and lint pass. Evidence in `docs/progress-archive/5a.md`.
-- Phase 5b: all criteria met — hermetic tests for the remote argv/D3 string, the 20 s budget,
-  `stillWaiting`, remote index mapping, remote detach and focus, the ssh-fails-fast hold and
-  the test launch delay; on the final tree `e2e-remote saturno-m4` exit 0 with 11/11 PASS
-  twice (focus existing included, step 10 with no login) and `e2e-local` 10/10 PASS; no
-  leftovers; build, 427 tests and lint pass. Evidence in `docs/progress-archive/5b.md`.
+- Phases 1–5b: all criteria met (4b narrowed by the 4b/4c split, its real runs met in 4c);
+  criteria and evidence in `docs/progress-archive/<phase>.md`.
 - Phase 6a: all criteria met — hermetic create/collision/name/ssh-class tests; real
   `e2e-local` 15/15 and `e2e-remote saturno-m4` 16/16 on the final tree; no leftovers.
   Evidence in `docs/progress-archive/6a.md`.
@@ -82,6 +49,12 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
   change, attachment merge and the three review regressions; real final-tree `refresh --once`
   against a private This Mac + Saturno `hosts.json` exit 0, both `live`; build, 534 tests and
   lint pass. Evidence in `docs/progress-archive/7b.md`.
+- Phase 8: all criteria met, two with recorded deviations — build, lint, 569 core + 46 UI
+  tests; `build-app.sh` and `codesign --verify --deep --strict` exit 0, apple-events
+  entitlement, hardened runtime; light/dark screenshots of 10 states rendered in-app via
+  `--preview-snapshot` (screen locked, `screencapture -l` failed); real binary from the shell
+  shows its item (`--report-menu-bar-item`, since macOS 27 draws it out of process), SIGTERM
+  exit 0, no `hosts.json`. Evidence in `docs/progress-archive/8.md`.
 - Phase 6b (open): met so far — explicit-confirmation `moveHere`, `-d` only for move here
   (local argv, static remote script, digest), old request files decode as attach,
   already/possibly-attached-here refusals, proof-based cross-kind single flight, 563 hermetic
@@ -157,6 +130,11 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
   `possiblyAttachedHere` refusals, proof-based tracking of launches that may still attach,
   `earlierLaunchPending` after the confirmation budget); D14–D17 edited —
   `docs/progress-archive/6b.md`.
+- Phase 8: new **D22** (menu bar app: `MuxFinderUI` library + thin executable, `AppModel` over
+  `AppEnvironment`, iTerm2/cookie only on popover open or attach, popover close cancels the
+  attachment check, placeholder intents for Phases 9/10, quit via `AppTermination.request()`,
+  preview fixtures with no menu bar item, helper bundled in `Contents/MacOS/`); D11, D13, D20
+  edited — `docs/progress-archive/8.md`.
 
 ## Open risks / deviations
 
@@ -243,48 +221,19 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
   `unknown` connection whose answer names another server or session does not block a move
   here; the ~120 s `e2e-remote` duration is an estimate until its first real run. The worker's
   `e2e-local` took iTerm2 from 25 to 42 threads (more than the usual ~12); 40 about 45 minutes
-  later.
+  later, 41 at the next run's start and still 40 an hour after that.
+- 8: the real popover (open, keys, Esc) never ran (needs a click; covered by model tests);
+  `screencapture -l` fails while the screen is locked (in-app `--preview-snapshot` used); the
+  worker deleted preference sets its own early preview runs created; a cancelled caller can
+  still let one iTerm2 connection open (no request sent on it); `createsOnAPrivateServer()`
+  (6a) failed once (`pane_current_path` race under load), then passed — look there first if the
+  suite flakes. Details in `docs/progress-archive/8.md`.
 
 ## Reviews
 
-- Phase 1: Codex → `ship-with-fixes`, 0 blockers, 1 should-fix fixed; `docs/reviews/phase-1.md`.
-- Phase 2: Codex → `ship-with-fixes`, 0 blockers, 3 should-fix (unbounded in-shell stderr
-  capture, cancelled-task test cleanup, strict harness inheriting `ControlPath`) — all fixed by
-  a fix worker with regression tests and re-verified; `docs/reviews/phase-2.md`.
-- Phase 3a: Codex → `ship-with-fixes`, 0 blockers, 2 should-fix (unknown fields replacing a
-  decoded envelope response; repeated embedded messages not merged per proto2) — both fixed by a
-  fix worker with reference-backed regression fixtures and re-verified; `docs/reviews/phase-3a.md`.
-- Phase 3b: Codex → `ship-with-fixes`, 1 blocker (cancelled/expired requests still sent later),
-  2 should-fix (`disconnect()` ignoring an in-flight connect; malformed close payloads accepted)
-  — all fixed by a fix worker with deterministic regression tests and re-verified;
-  `docs/reviews/phase-3b.md`.
-- Phase 4a: Codex → `ship-with-fixes`, 1 blocker (extended ACLs bypass the 0700/0600
-  boundary), 2 should-fix (forwarded signals orphan guard subprocesses; unbounded pre-attach
-  checks) — all fixed by a fix worker (ACL stripping/refusal; two-child design with a 10 s
-  process-group-bounded check, then tmux spawned directly) with regression tests and
-  re-verified; `docs/reviews/phase-4a.md`.
-- Phase 4b: Codex → `ship-with-fixes`, 3 blockers (identity-failure detach bypassing a minimum
-  tab age; detach by cached short connection id could hit a user attachment after an iTerm2
-  restart; harness rediscovery by `$id` alone could target a user session), 2 should-fix (an
-  older cancelled flight overwriting newer state; cancellation during `new-session` skipping
-  cleanup) — all fixed by a fix worker with regression tests and re-verified;
-  `docs/reviews/phase-4b.md`.
-- Phase 4c: Codex → `ship-with-fixes`, 0 blockers, 1 should-fix (SIGINT/SIGTERM bypassed the
-  helper's 10 s minimum lifetime) — fixed by a fix worker (only SIGHUP restored to default in
-  the waits; `LaunchWaitGate`; new pseudo-terminal suite that fails on the old behavior),
-  re-verified with a fourth real `e2e-local` run; `docs/reviews/phase-4c.md`.
-- Phase 5a: Codex → `ship-with-fixes`, 1 blocker (unknown tab age measured from call entry, so
-  a tab created during discovery could be detached seconds after opening), 2 should-fix
-  (identity assumed tab separators survive non-UTF-8 clients; focus activated by the reusable
-  connection id alone) — all fixed by a fix worker with regressions that fail on the old
-  behavior, re-verified with a real `e2e-local` run on the final tree; `docs/reviews/phase-5a.md`.
-- Phase 5b: Codex → `ship-with-fixes`, 0 blockers, 3 should-fix: unbounded stderr pumping and
-  blocking terminal writes in `TerminalChildRunner`; the still-waiting step not awaiting its
-  attach before cleanup; the real invalid-user login. A fix worker fixed all three: a bounded,
-  non-blocking relay; `withAwaitedTask`; and the test-mode launch delay. Each fix has
-  regressions (the relay and await tests fail on the old code; the delay tests cover new
-  behavior). Re-verified hermetically, then with three real runs on the final tree once
-  iTerm2's API answered again; `docs/reviews/phase-5b.md`.
+- Phases 1–5b: Codex reviewed each (`ship-with-fixes`); blockers and should-fix items and their
+  fixes are summarized in `docs/progress-archive/<phase>.md`, reports in
+  `docs/reviews/phase-<phase>.md`.
 - Phase 6a: Codex → `ship-with-fixes`, 1 blocker (the harness's identity check and kill were
   separate tmux calls, so a restarted server reusing `$N` could lose a user session), 2
   should-fix (a trailing `;` is a tmux command separator even in argv; ssh exit 255 after a
@@ -309,6 +258,12 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
   (`possiblyAttachedHere`; proof-based launch tracking with a bounded wait), each regression
   failing on the old code, re-verified hermetically; `docs/reviews/phase-6b.md`. The review is
   done; only 6b's real runs are owed.
+- Phase 8: Codex → `ship-with-fixes`, 1 blocker (closing the popover did not cancel a pending
+  attachment pass, so cookie/connection/identity requests could reach iTerm2 after close), 0
+  should-fix — fixed by a fix worker (engine cancels the pass and drops its follow-up; client
+  attempt stops before cookie and connect when all callers cancelled; index checks
+  cancellation), 8 regressions (7 fail on the old code, the 8th guards against a second
+  cookie), re-verified; `docs/reviews/phase-8.md`.
 
 ## Next action
 
@@ -322,11 +277,17 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
    estimates in `CLAUDE.md` and `docs/TESTING.md` if they differ, then mark 6b `done` (row
    moves to *Completed*, `PROGRESS.json` row `done`, phase 6 parent `done`). A failing step is
    a real bug: diagnose it before any rerun; substantial fixes become a corrective phase.
-2. While the count is above 38, run **Phase 8** (menu bar app and popover, `PLAN.md` "### Phase
-   8"; routine; no real iTerm2 windows; it consumes D20's `RefreshCoordinator.updates()` and
-   wires `RefreshSystemEvents`) meanwhile, then retry item 1 at the next phase boundary. If
-   nothing window-free is left and the count is still above 38, stop as `BLOCKED` and ask the
-   user whether to restart iTerm2 or accept a higher baseline.
+2. While the count is above 38 (40 at the last check, 2026-10-22 20:35), run **Phase 9**
+   (settings, onboarding, launch at login, diagnostics; `PLAN.md` "### Phase 9"; routine;
+   builds on D22's placeholder `openSettings()` and the `MuxFinderUI` library) meanwhile, then
+   retry item 1 at the next phase boundary. Phase 9's real checks stay window-free and
+   read-only: the "Set up SSH in iTerm2…" helper mode is proven hermetically (a real run would
+   open an iTerm2 tab and ssh — leave it for a later real-run window, Saturno only); for launch
+   at login only read `SMAppService.mainApp.status` unattended — registering or unregistering
+   changes the user's login items, so record the round trip as owed to the user rather than
+   doing it; never save the real `hosts.json` (use `HostStore` on a private folder). If nothing
+   window-free is left and the count is still above 38, stop as `BLOCKED` and ask the user
+   whether to restart iTerm2 or accept a higher baseline.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
@@ -334,7 +295,8 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
    if `status` times out or the count keeps growing across runs (*Open risks*, iTerm2 thread
    ratchet). Leftover checks: `ls -A` of the launch directory, `ls -A /private/tmp | rg
    '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno (`fd` is not installed).
-4. Then Phase 9.
+4. Then Phase 10 (attach UX; high; its self-tests open real iTerm2 windows, so the same thread
+   gate as item 1).
 
 ## Key paths
 
@@ -353,6 +315,10 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
 - Move here (D21): `moveHere(_:confirmation:)` in `Attach/AttachCoordinator.swift`,
   `MoveHereConfirmation` in `Attach/AttachModels.swift`, `moveHereScript` in
   `Launch/RemoteLaunch.swift`; e2e plain control client `Sources/muxfinder-probe/E2EControlClient.swift`.
+- Menu bar app (D22): `Sources/MuxFinderUI/` (`Model/AppModel.swift`, `PopoverContent.swift`,
+  `Views/`, `Preview/PreviewFixtures.swift`), `Sources/MuxFinderApp/` (entry point, app
+  delegates); tests `Tests/MuxFinderUITests/`; bundle script `scripts/build-app.sh` →
+  `build/muxFinder.app`; screenshots `docs/screenshots/`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
@@ -374,6 +340,11 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
   format lint -r Sources Tests` exit 0; `swift test` exit 0, 563 tests in 54 suites. Real
   `e2e-local` 16/16 exit 0 ran on the pre-fix tree only; real runs on this tree owed (*Next
   action* 1). iTerm2 threads 40 at checkpoint time.
+- Phase 8 (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
+  `swift format lint -r Sources Tests` exit 0; `swift test` 569 core + 46 UI tests — run 1 one
+  unrelated 6a flake (`createsOnAPrivateServer`), runs 2–3 all pass, the test alone passes;
+  `codesign --verify --deep --strict build/muxFinder.app` exit 0; support folder holds only
+  `launch/` — `docs/progress-archive/8.md`.
 
 ## Git state
 
@@ -395,5 +366,7 @@ are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
   `origin/main` (`7fda73e..228f8da`, success).
 - Phase 7b: code, review fixes and checkpoint `d512f47` (parent `e0fcbdd`), pushed to
   `origin/main`.
-- Phase 6b: code, review, fixes and checkpoint in the commit after `d512f47` (real runs still
-  owed); its SHA and push result are recorded by the next commit.
+- Phase 6b: code, review, fixes and checkpoint `ce26808` (parent `d512f47`), pushed to
+  `origin/main` (real runs still owed).
+- Phase 8: code, review fix and checkpoint in the commit after `ce26808`; its SHA and push
+  result are recorded by the next commit.

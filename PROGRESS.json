@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T18:29:16Z",
+  "updated": "2026-10-22T19:35:07Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -201,9 +201,13 @@
     {
       "id": "8",
       "title": "Menu bar app and popover",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
-      "summary": "Shows hosts and sessions in a menu bar popover."
+      "summary": "Menu bar popover shows hosts, sessions, statuses and badges; signed app bundle and preview screenshots.",
+      "review": "docs/reviews/phase-8.md",
+      "narrative": "docs/progress-archive/8.md",
+      "started": "2026-10-22T18:30:47Z",
+      "status_since": "2026-10-22T19:35:07Z"
     },
     {
       "id": "9",

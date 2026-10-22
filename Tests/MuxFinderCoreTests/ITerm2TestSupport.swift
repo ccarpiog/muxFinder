@@ -447,6 +447,61 @@ final class FakeAppControl: ITerm2AppControl {
   }
 }
 
+/// An app control whose running checks wait until the test calls `release()` and then report
+/// iTerm2 running; counts the checks. `launch()` is refused. As a safety net against a test
+/// that fails before releasing, waiting checks also resume on their own after 10 s.
+final class GatedRunningCheck: ITerm2AppControl {
+  /// Lock-protected state.
+  private struct State {
+    /// Checks so far.
+    var checks = 0
+    /// Whether `release()` ran.
+    var released = false
+    /// The checks waiting for `release()`.
+    var waiters: [CheckedContinuation<Void, Never>] = []
+  }
+
+  /// The state.
+  private let state = OSAllocatedUnfairLock(initialState: State())
+
+  /// How many running checks there were.
+  var checks: Int { state.withLock { $0.checks } }
+
+  /// Lets every waiting and later check answer.
+  func release() {
+    let waiters = state.withLock { state in
+      state.released = true
+      defer { state.waiters = [] }
+      return state.waiters
+    }
+    for waiter in waiters { waiter.resume() }
+  }
+
+  /// Waits until released, then reports iTerm2 running.
+  func isRunning() async -> Bool {
+    state.withLock { $0.checks += 1 }
+    let safetyNet = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(10))
+      self?.release()
+    }
+    defer { safetyNet.cancel() }
+    await withCheckedContinuation { continuation in
+      let resumeNow = state.withLock { state in
+        if state.released { return true }
+        state.waiters.append(continuation)
+        return false
+      }
+      if resumeNow { continuation.resume() }
+    }
+    return true
+  } // End of func isRunning()
+
+  /// Refuses: nothing in these tests may launch iTerm2.
+  func launch() async throws {
+    throw ITerm2Error.launchFailed("launching is not allowed in tests")
+  }
+}
+
 /// A connector that hands out queued fake streams.
 final class FakeConnector: ITerm2SocketConnector {
   /// Lock-protected state.

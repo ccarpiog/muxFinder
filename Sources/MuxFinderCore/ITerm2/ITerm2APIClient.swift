@@ -7,9 +7,12 @@ import Foundation
 /// and keeps the connection for later calls. When the connection ends (iTerm2 quit, a protocol
 /// error, a stall), the next call opens a new one with a new cookie. Concurrent callers share
 /// one connection attempt; each attempt has a generation, and `disconnect()` invalidates the
-/// attempt in progress, so a connection it completes late is closed rather than kept. Requests
-/// are never retried automatically: a request may already have taken effect when its connection
-/// broke (`ITerm2Error` says which failures mean it was not sent).
+/// attempt in progress, so a connection it completes late is closed rather than kept. An
+/// attempt whose callers were all cancelled stops before asking for the cookie or connecting,
+/// whichever comes next, and a cancelled task sends no request, so cancelling a caller (the
+/// popover closing) leaves nothing behind that contacts iTerm2 later. Requests are never
+/// retried automatically: a request may already have taken effect when its connection broke
+/// (`ITerm2Error` says which failures mean it was not sent).
 ///
 /// Connecting checks, in order: iTerm2 is running (`notRunning` otherwise; nothing is launched),
 /// the socket file exists (`apiDisabled`; no cookie is requested), the cookie request succeeds,
@@ -391,8 +394,9 @@ public actor ITerm2APIClient: ITerm2Integration {
   /// The open connection, or a new one. Concurrent callers share one connection attempt.
   ///
   /// - Throws: the attempt's failure; `disconnected` when `disconnect()` invalidates the attempt
-  ///   first; `CancellationError` when the calling task is cancelled while it waits (the
-  ///   attempt carries on for the other callers).
+  ///   first; `CancellationError` when the calling task is cancelled before or while it waits
+  ///   (the attempt carries on for the other callers, and stops before its next iTerm2 contact
+  ///   if none is left).
   private func openConnection() async throws -> ITerm2Connection {
     if let current = connection, await current.isOpen, current === connection { return current }
     let waiterID = nextWaiterID
@@ -425,10 +429,28 @@ public actor ITerm2APIClient: ITerm2Integration {
     attempt?.waiters[waiterID] = continuation
   } // End of func join(_:_:)
 
-  /// Fails a caller whose task was cancelled while it waited for the connection attempt.
+  /// Fails a caller whose task was cancelled while it waited for the connection attempt. The
+  /// attempt goes on, but stops at its next step that would contact iTerm2 if no caller waits
+  /// for it by then (`attemptIsWanted(_:)`).
   private func leave(_ waiterID: UInt64) {
     guard let continuation = attempt?.waiters.removeValue(forKey: waiterID) else { return }
     continuation.resume(throwing: CancellationError())
+  }
+
+  /// How many callers wait for the connection attempt in progress; 0 when none is (tests).
+  var attemptWaiterCount: Int { attempt?.waiters.count ?? 0 }
+
+  /// Whether connection attempt `generation` may go on to its next step that contacts iTerm2
+  /// (the cookie request, then the connection): it is still the attempt in progress (not
+  /// invalidated by `disconnect()`) and a caller still waits for it. An attempt every caller
+  /// has left (each cancelled) is abandoned here: it stops being the attempt in progress, so a
+  /// later caller starts a fresh one with a fresh cookie. A caller that joins before that keeps
+  /// it going, so reopening the popover during a cookie request asks for no second cookie.
+  private func attemptIsWanted(_ generation: UInt64) -> Bool {
+    guard let current = attempt, current.generation == generation else { return false }
+    guard current.waiters.isEmpty else { return true }
+    attempt = nil
+    return false
   }
 
   /// Runs the connection attempt of `generation` and hands its outcome to the attempt's
@@ -437,7 +459,7 @@ public actor ITerm2APIClient: ITerm2Integration {
   private func runAttempt(_ generation: UInt64) async {
     let result: Result<ITerm2Connection, any Error>
     do {
-      result = .success(try await establishConnection())
+      result = .success(try await establishConnection(generation))
     } catch {
       result = .failure(error)
     }
@@ -452,12 +474,12 @@ public actor ITerm2APIClient: ITerm2Integration {
     }
   } // End of func runAttempt(_:)
 
-  /// Opens and authenticates a new connection, recording the outcome in the diagnostics log
-  /// (the error kind only).
-  private func establishConnection() async throws -> ITerm2Connection {
+  /// Opens and authenticates a new connection for attempt `generation`, recording the outcome
+  /// in the diagnostics log (the error kind only).
+  private func establishConnection(_ generation: UInt64) async throws -> ITerm2Connection {
     let start = ContinuousClock.now
     do {
-      let connection = try await connectAndAuthenticate()
+      let connection = try await connectAndAuthenticate(generation)
       await diagnostics?.record(
         .iTerm2, outcome: .success, durationMs: Self.milliseconds(since: start),
         detail: "connected to the iTerm2 API")
@@ -471,14 +493,18 @@ public actor ITerm2APIClient: ITerm2Integration {
     }
   } // End of func establishConnection()
 
-  /// The connection steps, in order: running check, socket check, fresh cookie, connect,
-  /// handshake (the last two on a dedicated thread, bounded by `connectTimeout`). An attempt
-  /// cancelled by `disconnect()` stops before connecting once the cookie has arrived.
-  private func connectAndAuthenticate() async throws -> ITerm2Connection {
+  /// The connection steps of attempt `generation`, in order: running check, socket check,
+  /// fresh cookie, connect, handshake (the last two on a dedicated thread, bounded by
+  /// `connectTimeout`). Right before asking for the cookie and right before connecting, the
+  /// attempt makes sure it is still wanted (`attemptIsWanted(_:)`) and otherwise stops with
+  /// `CancellationError`: one invalidated by `disconnect()`, or left by every caller, contacts
+  /// iTerm2 no further.
+  private func connectAndAuthenticate(_ generation: UInt64) async throws -> ITerm2Connection {
     guard await appControl.isRunning() else { throw ITerm2Error.notRunning }
     guard connector.endpointExists() else { throw ITerm2Error.apiDisabled }
+    guard attemptIsWanted(generation) else { throw CancellationError() }
     let credentials = try await cookieProvider.requestCredentials()
-    try Task.checkCancellation()
+    guard attemptIsWanted(generation) else { throw CancellationError() }
     let handshake: WebSocketHandshake
     do throws(WebSocketError) {
       handshake = try Self.handshake(credentials: credentials)
