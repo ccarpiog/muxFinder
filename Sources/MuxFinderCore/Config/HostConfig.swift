@@ -2,10 +2,11 @@ import Foundation
 
 /// One configured host: a Mac whose default tmux server muxFinder discovers.
 ///
-/// This is the model only. Persistence (`hosts.json`, schema versioning, atomic writes) and the
-/// "exactly one This Mac" rule belong to the host store (PLAN.md Phase 7). Values the user types
-/// are stored as typed and validated when they are used (`Validation`), so an incomplete entry,
-/// such as an onboarding example with an empty destination, can still be saved.
+/// This is the model only. The list rules (unique ids, at most one This Mac, a valid destination
+/// for an enabled SSH host) belong to `HostList`, and persistence (`hosts.json`) to `HostStore`
+/// (PLAN.md D19). Values the user types are stored as typed and validated when they are used
+/// (`Validation`), so an incomplete entry, such as an onboarding example with an empty
+/// destination, can still be saved while it is disabled.
 public struct HostConfig: Sendable, Hashable, Codable, Identifiable {
   /// How muxFinder reaches the host's tmux server.
   public enum ConnectionMode: String, Sendable, Hashable, Codable, CaseIterable {

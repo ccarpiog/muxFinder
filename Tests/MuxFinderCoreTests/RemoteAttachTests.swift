@@ -532,8 +532,11 @@ struct RemoteAttachmentIndexTests {
       for: "remote")
     let index = AttachmentIndex(iTerm2: iTerm2, clock: clock)
     let snapshot = Task { try await index.snapshot(of: [Self.local, Self.remote]) }
-    try await waitUntil("the silent connection hangs and both timeouts wait") {
-      iTerm2.hangingNow == 1 && clock.waiting >= 1
+    // The remote connection's timeout is the only sleep cancellation can end before the clock
+    // moves (its answer won), so once one sleep was cancelled and one waits, the waiting one is
+    // the silent connection's and the remote answer is in.
+    try await waitUntil("the remote answer is in and the silent connection's timeout waits") {
+      iTerm2.hangingNow == 1 && clock.cancelled == 1 && clock.waiting == 1
     }
     clock.advance(by: .seconds(3))
     let result = try await snapshot.value

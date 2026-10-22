@@ -17,6 +17,7 @@ file.
 | 4c | Real local proof: e2e-local passing, final integration proof | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-4c.md` | `docs/progress-archive/4c.md` |
 | 5a | Existing-attachment detection, local | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-5a.md` | `docs/progress-archive/5a.md` |
 | 5b | Remote attach over SSH | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-5b.md` | `docs/progress-archive/5b.md` |
+| 7a | Host configuration: `HostStore`, invariants, defaults, SSH config suggestions | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7a.md` | `docs/progress-archive/7a.md` |
 
 ## Current phase
 
@@ -27,6 +28,9 @@ acceptance item is owed: a real `e2e-remote saturno-m4` run on the final tree.**
 because iTerm2's thread count ratcheted up with each real run and stopped decaying (*Open risks*,
 *Next action*). Phase 6 was split into 6a and 6b in `PLAN.md` before the first worker; 6b (Move
 here) is queued.
+
+Meanwhile **Phase 7a — host configuration** ran and closed (Phase 7 split into 7a/7b in
+`PLAN.md`; 7b, the refresh engine, is queued). By 7a's end iTerm2 was back at 15 threads.
 
 ## Acceptance
 
@@ -77,6 +81,11 @@ here) is queued.
   twice, but on the tree **before** the review fixes (the fixes changed the D3 script's
   semicolon escaping, the harness kill and ssh 255 classification) — **final-tree run owed**.
   D18, `docs/TESTING.md`, `CLAUDE.md` updated — met.
+- Phase 7a: all criteria met — hermetic tests for the round trip, 0600/0700 with ACLs
+  stripped, load writing nothing, backups of invalid and concurrently replaced files (fail on
+  the old code), the This Mac switch, defaults and every suggestion rule; real read-only `hosts
+  show` / `hosts suggestions` left the support directory and `~/.ssh` unchanged; build, 505
+  tests and lint pass. Evidence in `docs/progress-archive/7a.md`.
 
 ## Decisions
 
@@ -135,6 +144,14 @@ here) is queued.
   refused (tmux stores them doubled). The e2e harness kills a test session only through one
   `if-shell -F` command that checks id, created time, pid, start time, socket path and exact
   name in the same server connection.
+- Phase 7: split into 7a (host configuration) and 7b (refresh engine), recorded in `PLAN.md`
+  before the first worker; both run while 6a's remote check waits on iTerm2.
+- Phase 7a: new **D19** (`hosts.json` schema v1; load never writes; publication by
+  `RENAME_SWAP`/`RENAME_EXCL` with the *displaced* file kept as a backup unless it is valid and
+  identical to what the store last loaded or wrote; This Mac switch demotes the previous one to
+  SSH, disabled; suggestion rules). The launch layer's ACL/safe-write code moved to
+  `Config/PrivateStorage.swift` and `Config/ExtendedACL.swift`, shared by both stores —
+  `docs/progress-archive/7a.md`.
 
 ## Open risks / deviations
 
@@ -211,6 +228,12 @@ here) is queued.
   user's login shell); its path is the one the e2e steps exercise.
 - 6a: "Timeout, server … not responding" counts as unreachable for discovery but as
   `connectionLost` (may have created) for creation, because it appears only once connected.
+- 7a: the 4a ACL risk is only partly closed (a launch request that creates the `muxFinder`
+  directory first leaves its inherited ACL until the next host-list save); saves refuse a
+  symlinked, non-regular or >16 MiB `hosts.json`; no fallback where `RENAME_SWAP` is
+  unsupported; more in `docs/progress-archive/7a.md`.
+- 7a: the 5b test `aSilentRemoteConnectionIsStale()` flaked about once in 18 runs (a wait-
+  condition race); fixed with a cancelled-sleep count on `GatedAttachClock`, 20/20 runs since.
 
 ## Reviews
 
@@ -260,6 +283,10 @@ here) is queued.
   Regressions fail on the old code; private tmux server checks reproduced the `$0` reuse race
   and the `work;` mis-parse. Re-verified hermetically and with a real final-tree `e2e-local`;
   the final-tree `e2e-remote` is owed. `docs/reviews/phase-6a.md`.
+- Phase 7a: Codex → `ship-with-fixes`, 1 blocker (a save examined and backed up `hosts.json`,
+  then renamed over it unconditionally, so a file replaced in between was lost) — fixed by a
+  fix worker (swap publication, the displaced file kept), six regressions that fail on the old
+  code, re-verified; `docs/reviews/phase-7a.md`.
 
 ## Next action
 
@@ -270,13 +297,13 @@ here) is queued.
    `muxfinder-test-*` on Neptuno or Saturno, empty launch directory, no `/private/tmp/mfx.*`),
    record it under *Verification*, archive the 6a narrative to `docs/progress-archive/6a.md`,
    mark 6a `done` and commit. No new review: the phase's one review is done.
-2. **If the count is still above 25**, do not run anything that opens iTerm2 windows. Run
-   **Phase 7 — host configuration and refresh engine** (`PLAN.md` "### Phase 7", risk `high`)
-   meanwhile: its real check, `refresh --once`, is discovery only and opens no windows. If it
-   would query the user's tmux connections, keep the *Open risks* 5a caution. Recheck the count
-   at Phase 7's end and go back to item 1. 6b (Move here) follows 6a. If Phase 7 is done and
-   the count is still above 25, stop as `BLOCKED` and ask the user whether to restart iTerm2
-   or accept a higher baseline.
+2. **Then, or meanwhile if the count is above 25, Phase 7b — refresh engine** (`PLAN.md`
+   "### Phase 7" and its *Split* 7b bullet, risk `high`); 7a is done (D19, `HostStore`). Its
+   real check, `refresh --once`, is discovery only and opens no windows; if it would query the
+   user's tmux connections, keep the *Open risks* 5a caution. With the count above 25 run
+   nothing that opens iTerm2 windows, recheck at 7b's end and go back to item 1; if 7b is done
+   and the count is still above 25, stop as `BLOCKED` and ask the user whether to restart
+   iTerm2 or accept a higher baseline. 6b (Move here) follows 6a.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
@@ -318,6 +345,9 @@ here) is queued.
   saturno-m4` 16/16 twice (105.1 s, 104.0 s), no leftovers. After the fixes (fix worker):
   private tmux server checks for the check-and-kill and the `\;` escaping; no real runs.
 - **Owed:** `e2e-remote saturno-m4` on the final tree (*Next action* 1).
+- Phase 7a (final tree): build with `-warnings-as-errors` exit 0; `swift test` exit 0, 505
+  tests in 49 suites, 20 consecutive runs; lint exit 0; `hosts show` read-only — details in
+  `docs/progress-archive/7a.md`. iTerm2 thread count at 7a's end: 15.
 
 ## Git state
 
@@ -335,3 +365,5 @@ here) is queued.
 - Phase 6a (in progress): code, review, fixes and checkpoint `0210999` (parent `96c6ac8`),
   pushed to `origin/main` (`96c6ac8..0210999`, success). This SHA/push record is a follow-up
   commit on top; tree clean after it.
+- Phase 7a: code, review fix and this checkpoint committed together on top of `7fda73e`; its
+  SHA and push result are recorded by the next commit.

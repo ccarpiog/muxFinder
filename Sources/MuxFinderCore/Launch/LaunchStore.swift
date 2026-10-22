@@ -85,7 +85,8 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
 ///   directory is refused if that fails, since an ACL entry can grant access whatever the mode
 ///   says (`ExtendedACL`). Every file operation goes through a descriptor of the checked
 ///   directory (`openat`, `renameat`, `unlinkat`), so the directory cannot be swapped
-///   underneath.
+///   underneath. These directory and write rules are `PrivateStorage`'s, shared with
+///   `HostStore`.
 /// - Files are written atomically: a temporary file created with `O_CREAT | O_EXCL |
 ///   O_NOFOLLOW`, stripped of any inherited ACL and set to mode 0600 before a byte is written,
 ///   then renamed into place (`RENAME_EXCL` for requests, so an id is never reused).
@@ -110,9 +111,9 @@ public struct LaunchStore: Sendable {
   /// refused like an expired one.
   public static let futureTolerance: TimeInterval = 5
   /// Permissions of the launch directory.
-  public static let directoryPermissions: mode_t = 0o700
+  public static let directoryPermissions: mode_t = PrivateStorage.directoryPermissions
   /// Permissions of every launch file.
-  public static let filePermissions: mode_t = 0o600
+  public static let filePermissions: mode_t = PrivateStorage.filePermissions
   /// The largest file read, in bytes. Requests and results are a few hundred bytes.
   public static let maximumFileSize = 16 * 1024
   /// A regular file with this name in the launch directory turns on the helper's test mode
@@ -124,7 +125,7 @@ public struct LaunchStore: Sendable {
   /// File-name suffix of results.
   static let resultSuffix = ".result.json"
   /// File-name suffix of temporary files.
-  static let temporarySuffix = ".tmp"
+  static let temporarySuffix = PrivateStorage.temporarySuffix
 
   /// The launch directory.
   public let directory: URL
@@ -193,11 +194,7 @@ public struct LaunchStore: Sendable {
 
   /// The launch directory's path without a trailing slash (a trailing slash would make the
   /// kernel follow a symbolic link despite `O_NOFOLLOW`).
-  var directoryPath: String {
-    var path = directory.path(percentEncoded: false)
-    while path.count > 1, path.hasSuffix("/") { path.removeLast() }
-    return path
-  }
+  var directoryPath: String { PrivateStorage.path(of: directory) }
 
   // MARK: - Directory
 
@@ -211,70 +208,28 @@ public struct LaunchStore: Sendable {
   }
 
   /// Opens the launch directory after checking it, creating it first when `create` is set.
-  /// The caller closes the returned descriptor.
+  /// Every open tightens it to 0700 and removes any extended ACL (`directoryHasExtendedACL` if
+  /// that fails). The caller closes the returned descriptor.
   func openDirectory(create: Bool) throws(LaunchStoreError) -> Int32 {
+    if create, let root {
+      do {
+        try root.prepareApplicationSupportDirectory()
+      } catch AppPathsError.notADirectory {
+        throw .directoryNotADirectory
+      } catch {
+        throw .systemCallFailed(name: "mkdir", errno: PrivateStorage.posixCode(of: error))
+      }
+    }
     let path = directoryPath
-    if create {
-      if let root {
-        do {
-          try root.prepareApplicationSupportDirectory()
-        } catch AppPathsError.notADirectory {
-          throw .directoryNotADirectory
-        } catch {
-          throw .systemCallFailed(name: "mkdir", errno: Self.posixCode(of: error))
-        }
-      }
-      if mkdir(path, Self.directoryPermissions) != 0, errno != EEXIST {
-        let code = errno
-        throw code == ENOENT ? .directoryMissing : .systemCallFailed(name: "mkdir", errno: code)
-      }
-    } // End of directory creation
-    var linkInfo = stat()
-    guard lstat(path, &linkInfo) == 0 else {
-      let code = errno
-      throw code == ENOENT ? .directoryMissing : .systemCallFailed(name: "lstat", errno: code)
+    let ownerID = owner
+    return try Self.bridged { () throws(PrivateStorageError) -> Int32 in
+      try PrivateStorage.openDirectory(
+        atPath: path,
+        owner: ownerID,
+        access: create ? .createAndSecure : .secure
+      )
     }
-    if linkInfo.st_mode & S_IFMT == S_IFLNK { throw .directoryIsSymbolicLink }
-    guard linkInfo.st_mode & S_IFMT == S_IFDIR else { throw .directoryNotADirectory }
-    let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-    guard descriptor >= 0 else {
-      let code = errno
-      switch code {
-      case ENOENT: throw .directoryMissing
-      case ELOOP: throw .directoryIsSymbolicLink
-      case ENOTDIR: throw .directoryNotADirectory
-      default: throw .systemCallFailed(name: "open", errno: code)
-      }
-    }
-    do throws(LaunchStoreError) {
-      try checkDirectory(descriptor)
-    } catch {
-      Darwin.close(descriptor)
-      throw error
-    }
-    return descriptor
   } // End of func openDirectory(create:)
-
-  /// Checks that the open directory belongs to `owner`, tightens it to 0700 and removes any
-  /// extended ACL (`directoryHasExtendedACL` if that fails).
-  func checkDirectory(_ descriptor: Int32) throws(LaunchStoreError) {
-    var info = stat()
-    guard fstat(descriptor, &info) == 0 else {
-      throw .systemCallFailed(name: "fstat", errno: errno)
-    }
-    guard info.st_mode & S_IFMT == S_IFDIR else { throw .directoryNotADirectory }
-    guard info.st_uid == owner else { throw .directoryNotOwnedByUser }
-    if info.st_mode & 0o7777 != Self.directoryPermissions {
-      guard fchmod(descriptor, Self.directoryPermissions) == 0 else {
-        throw .systemCallFailed(name: "fchmod", errno: errno)
-      }
-    }
-    do throws(LaunchStoreError) {
-      try ExtendedACL.removeAll(from: descriptor)
-    } catch {
-      throw .directoryHasExtendedACL
-    }
-  } // End of func checkDirectory(_:)
 
   /// Runs `body` with a descriptor of the checked launch directory and closes it afterwards.
   func withDirectory<Value>(
@@ -477,78 +432,38 @@ public struct LaunchStore: Sendable {
     return data
   }
 
-  /// Writes `data` to `name` in `directory` through a temporary file and a rename. With
-  /// `exclusive`, an existing `name` is never replaced (`fileAlreadyExists`).
+  /// Writes `data` to `name` in `directory` through a temporary file and a rename
+  /// (`PrivateStorage.writeFile`). With `exclusive`, an existing `name` is never replaced
+  /// (`fileAlreadyExists`).
   static func writeFile(
     _ data: Data,
     named name: String,
     exclusive: Bool,
     in directory: Int32
   ) throws(LaunchStoreError) {
-    let temporary =
-      ".\(name).\(String(UInt64.random(in: .min ... .max), radix: 16))"
-      + temporarySuffix
-    let descriptor = openat(
-      directory,
-      temporary,
-      O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
-      filePermissions
-    )
-    guard descriptor >= 0 else { throw .systemCallFailed(name: "openat", errno: errno) }
-    var renamed = false
-    defer {
-      if !renamed { unlinkat(directory, temporary, 0) }
+    try bridged { () throws(PrivateStorageError) in
+      try PrivateStorage.writeFile(data, named: name, exclusive: exclusive, in: directory)
     }
-    // A new file inherits the directory's inheritable ACL entries; none may survive to the
-    // first byte written.
-    do throws(LaunchStoreError) {
-      try ExtendedACL.removeAll(from: descriptor)
-    } catch {
-      Darwin.close(descriptor)
-      throw error
-    }
-    // The umask can only remove permission bits; fchmod makes the mode exactly 0600.
-    guard fchmod(descriptor, filePermissions) == 0 else {
-      let code = errno
-      Darwin.close(descriptor)
-      throw .systemCallFailed(name: "fchmod", errno: code)
-    }
-    do throws(LaunchStoreError) {
-      try writeAll(data, to: descriptor)
-    } catch {
-      Darwin.close(descriptor)
-      throw error
-    }
-    Darwin.close(descriptor)
-    let code =
-      exclusive
-      ? renameatx_np(directory, temporary, directory, name, UInt32(RENAME_EXCL))
-      : renameat(directory, temporary, directory, name)
-    guard code == 0 else {
-      let failure = errno
-      throw failure == EEXIST
-        ? .fileAlreadyExists : .systemCallFailed(name: "renameat", errno: failure)
-    }
-    renamed = true
   } // End of func writeFile(_:named:exclusive:in:)
 
-  /// Writes all of `data` to `descriptor`, retrying on `EINTR`.
-  static func writeAll(_ data: Data, to descriptor: Int32) throws(LaunchStoreError) {
-    var offset = 0
-    while offset < data.count {
-      let written = data.withUnsafeBytes { bytes -> Int in
-        guard let base = bytes.baseAddress else { return 0 }
-        return Darwin.write(descriptor, base + offset, data.count - offset)
-      }
-      if written > 0 {
-        offset += written
-      } else if written < 0, errno == EINTR {
-        continue
-      } else {
-        throw .systemCallFailed(name: "write", errno: written < 0 ? errno : EIO)
-      }
-    } // End of loop over writes
-  } // End of func writeAll(_:to:)
+  /// The names in the open directory, without `.` and `..`.
+  static func entryNames(in directory: Int32) throws(LaunchStoreError) -> [String] {
+    try bridged { () throws(PrivateStorageError) -> [String] in
+      try PrivateStorage.entryNames(in: directory)
+    }
+  }
+
+  /// Runs a private storage operation and reports its failure as the matching
+  /// `LaunchStoreError`.
+  static func bridged<Value>(
+    _ body: () throws(PrivateStorageError) -> Value
+  ) throws(LaunchStoreError) -> Value {
+    do throws(PrivateStorageError) {
+      return try body()
+    } catch {
+      throw LaunchStoreError(error)
+    }
+  } // End of func bridged(_:)
 
   /// Opens `name` in `directory` without following links, deletes it, checks it (regular file,
   /// owner, mode, no extended ACL, size) and returns its bytes.
@@ -575,7 +490,8 @@ public struct LaunchStore: Sendable {
       if code == ENOENT { throw .fileMissing }
       // A deny entry in an extended ACL (`everyone deny delete`) blocks even the owner's
       // unlink. Such a file is refused anyway, so its ACL goes first, then the file.
-      if code == EPERM || code == EACCES, removeExtendedACL(of: descriptor, owner: owner),
+      if code == EPERM || code == EACCES,
+        PrivateStorage.removeExtendedACL(of: descriptor, owner: owner),
         unlinkat(directory, name, 0) == 0
       {
         throw .fileUnsafe(.extendedACL)
@@ -589,68 +505,29 @@ public struct LaunchStore: Sendable {
     guard info.st_mode & S_IFMT == S_IFREG else { throw .fileUnsafe(.notARegularFile) }
     guard info.st_uid == owner else { throw .fileUnsafe(.notOwnedByUser) }
     guard info.st_mode & 0o077 == 0 else { throw .fileUnsafe(.permissionsTooOpen) }
-    guard try !ExtendedACL.isPresent(on: descriptor) else { throw .fileUnsafe(.extendedACL) }
+    let hasACL = try bridged { () throws(PrivateStorageError) -> Bool in
+      try ExtendedACL.isPresent(on: descriptor)
+    }
+    guard !hasACL else { throw .fileUnsafe(.extendedACL) }
     guard info.st_size <= off_t(maximumFileSize) else { throw .fileUnsafe(.tooLarge) }
-    return try readAll(from: descriptor)
+    return try bridged { () throws(PrivateStorageError) -> Data in
+      try PrivateStorage.readAll(from: descriptor, limit: maximumFileSize)
+    }
   } // End of func takeFile(named:in:owner:)
+}
 
-  /// Removes the extended ACL of the open file if `owner` owns it and it has one. Returns
-  /// whether an ACL was removed.
-  static func removeExtendedACL(of descriptor: Int32, owner: uid_t) -> Bool {
-    var info = stat()
-    guard fstat(descriptor, &info) == 0, info.st_uid == owner,
-      (try? ExtendedACL.isPresent(on: descriptor)) == true
-    else { return false }
-    return (try? ExtendedACL.removeAll(from: descriptor)) != nil
-  }
-
-  /// Reads `descriptor` to end of file, at most `maximumFileSize` bytes.
-  static func readAll(from descriptor: Int32) throws(LaunchStoreError) -> Data {
-    var data = Data()
-    var buffer = [UInt8](repeating: 0, count: 4096)
-    while true {
-      let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
-      if count > 0 {
-        data.append(contentsOf: buffer[0..<count])
-        if data.count > maximumFileSize { throw .fileUnsafe(.tooLarge) }
-      } else if count == 0 {
-        return data
-      } else if errno != EINTR {
-        throw .systemCallFailed(name: "read", errno: errno)
-      }
-    } // End of loop over reads
-  } // End of func readAll(from:)
-
-  /// The names in the open directory, without `.` and `..`.
-  static func entryNames(in directory: Int32) throws(LaunchStoreError) -> [String] {
-    let copy = dup(directory)
-    guard copy >= 0 else { throw .systemCallFailed(name: "dup", errno: errno) }
-    guard let stream = fdopendir(copy) else {
-      let code = errno
-      Darwin.close(copy)
-      throw .systemCallFailed(name: "fdopendir", errno: code)
+extension LaunchStoreError {
+  /// The launch store's error for a failed private storage operation.
+  init(_ error: PrivateStorageError) {
+    switch error {
+    case .directoryMissing: self = .directoryMissing
+    case .directoryIsSymbolicLink: self = .directoryIsSymbolicLink
+    case .directoryNotADirectory: self = .directoryNotADirectory
+    case .directoryNotOwnedByUser: self = .directoryNotOwnedByUser
+    case .directoryHasExtendedACL: self = .directoryHasExtendedACL
+    case .fileAlreadyExists: self = .fileAlreadyExists
+    case .fileTooLarge: self = .fileUnsafe(.tooLarge)
+    case .systemCallFailed(let name, let code): self = .systemCallFailed(name: name, errno: code)
     }
-    defer { closedir(stream) }
-    rewinddir(stream)
-    var names: [String] = []
-    while let entry = readdir(stream) {
-      var raw = entry.pointee.d_name
-      let length = Int(entry.pointee.d_namlen)
-      let name = withUnsafeBytes(of: &raw) { String(decoding: $0.prefix(length), as: UTF8.self) }
-      if name != ".", name != ".." { names.append(name) }
-    } // End of loop over directory entries
-    return names
-  } // End of func entryNames(in:)
-
-  /// The POSIX error code inside `error`, or `EIO`.
-  static func posixCode(of error: any Error) -> Int32 {
-    let nsError = error as NSError
-    if nsError.domain == NSPOSIXErrorDomain { return Int32(nsError.code) }
-    if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
-      underlying.domain == NSPOSIXErrorDomain
-    {
-      return Int32(underlying.code)
-    }
-    return EIO
-  }
+  } // End of init(_:)
 }

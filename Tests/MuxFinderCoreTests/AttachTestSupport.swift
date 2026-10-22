@@ -85,6 +85,8 @@ final class GatedAttachClock: AttachClock {
     var nextID = 0
     /// How many sleeps ever started.
     var started = 0
+    /// How many sleeps cancellation ended or prevented.
+    var cancelled = 0
   }
 
   /// The real instant virtual time starts from.
@@ -109,12 +111,18 @@ final class GatedAttachClock: AttachClock {
       state.started += 1
       return state.nextID
     }
-    try Task.checkCancellation()
+    if Task.isCancelled {
+      state.withLock { $0.cancelled += 1 }
+      throw CancellationError()
+    }
     try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation {
         (continuation: CheckedContinuation<Void, any Error>) in
         let immediate = state.withLock { state -> Result<Void, any Error>? in
-          if state.cancelledEarly.remove(id) != nil { return .failure(CancellationError()) }
+          if state.cancelledEarly.remove(id) != nil {
+            state.cancelled += 1
+            return .failure(CancellationError())
+          }
           guard duration > .zero else { return .success(()) }
           state.waiters[id] = Waiter(deadline: state.offset + duration, continuation: continuation)
           return nil
@@ -127,6 +135,7 @@ final class GatedAttachClock: AttachClock {
           state.cancelledEarly.insert(id)
           return nil
         }
+        state.cancelled += 1
         return waiter
       }
       waiter?.continuation.resume(throwing: CancellationError())
@@ -149,6 +158,10 @@ final class GatedAttachClock: AttachClock {
 
   /// How many sleeps ever started.
   var started: Int { state.withLock { $0.started } }
+
+  /// How many sleeps cancellation ended or prevented (a sleep that ended on its deadline first
+  /// is not counted).
+  var cancelled: Int { state.withLock { $0.cancelled } }
 
   /// Virtual time elapsed so far.
   var elapsed: Duration { state.withLock { $0.offset } }

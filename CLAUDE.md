@@ -36,6 +36,14 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - Discovery check (read-only, prints JSON; `--raw` prints the probe report):
   `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
   server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
+- Host configuration check (read-only, prints JSON; creates no folder or file, runs no ssh,
+  never contacts iTerm2): `swift run muxfinder-probe hosts show [--config <path>]` (the host
+  list and its load state: `saved`, `notSavedYet` with the onboarding defaults, or `invalid`
+  with the problem, the file left as it is; `--config` needs a folder of yours that is not a
+  symbolic link, such as one from `mktemp -d`) and `hosts suggestions` (`Host` names from
+  `~/.ssh/config` and its includes; they are the user's, so never paste them into docs,
+  fixtures or logs). Test a save only through `HostStore` on a private folder, never on
+  `~/Library/Application Support/muxFinder/hosts.json`.
 - iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe
   iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`, `attachments`
   (sends every tmux connection the read-only identity `display-message`; in unattended runs

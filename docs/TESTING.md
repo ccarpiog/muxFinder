@@ -487,6 +487,62 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   killed after discovery, and a guard refusal (64, 65) after the tab opened. Exactly
   `sessionGone`, `sessionChanged` and `identityMismatch` (and the guard's 64 and 65) are
   refresh-triggering.
+- **Host list** (`HostListTests`, PLAN.md D19): the onboarding defaults exactly (Saturno,
+  Neptuno, Sirio, in order; SSH, empty destination, disabled, no override or profile, unique
+  ids, none This Mac); the This Mac switch (the host becomes local and enabled, the previous
+  one SSH and disabled with its destination kept, a repeat changes nothing, an unknown id
+  changes nothing); enabling an SSH host with an empty destination, a space, a leading `-`, a
+  line break, a tab or a control character refused by `setEnabled`, `update` and `add` with
+  the list unchanged, while the same values are kept on a disabled host; a local host enabled
+  without a destination; two This Mac hosts and repeated ids refused at creation and by every
+  change; add, update and remove keeping the order; messages that name no host.
+- **Host store** (`HostStoreTests`, private temporary folders only): save and load round trip
+  (`saved`, the same list, a schema 1 object with optional keys left out when unset, no
+  backup when the store's own file is replaced); the default path computed without creating it;
+  under a parent with an inheritable ACL the created folder (which inherits it) ends 0700 and
+  `hosts.json` 0600, neither with an ACL, and a folder made 0755 with an allow or deny-only
+  ACL is tightened and stripped by the next save; a folder whose ACL cannot be removed
+  (immutable) refused with nothing written; a folder that is a link, a file or another
+  user's refused by load and save; a missing folder or file gives the defaults as
+  `notSavedYet` with nothing created and an existing 0755 folder with an ACL left exactly as
+  it was (mode, ACL, entries, bytes). Fifteen invalid files (truncated, empty and binary
+  bytes; an array and a number; no version, a string version, no hosts; a bad host, a bad
+  mode; schema 2 with an unknown key; schema 0; two This Mac hosts; a repeated id; an enabled
+  host without a destination) are each reported with their problem and the defaults, the folder unchanged
+  by the load; the next save leaves a byte-identical 0600 backup without ACL named
+  `hosts.backup-<UTC stamp>.json` and the save after it no other. Group or other bits, an
+  allow or deny-only ACL (also together with loose bits) and a file over 1 MiB are reported
+  unsafe and left as they were, then backed up and replaced by a private file (with the ACL
+  removal before the swap disabled, the deny-delete case fails with `EACCES`). A link, a
+  folder and a FIFO at `hosts.json` are reported without being followed or blocking, and a
+  save refuses them with nothing written; another user's file is not trusted; two backups in
+  the same second get `-2`; an invalid list, an enabled host without destination and a list
+  over 1 MiB are refused before the folder is created; a missing parent folder is
+  `directoryMissing`; 16 concurrent saves leave one valid list and no temporary file. Files
+  changed between a save's check and its publication (the `beforePublishing` hook, no
+  timing): an invalid file and a valid list with other bytes renamed over it, a valid list
+  edited in place, and a file created where there was none are each kept byte for byte in a
+  0600 backup without ACL (with publication by a plain rename, as before the fix, these
+  tests fail: the file is lost); a link or folder that takes the name is kept as it was, its
+  target untouched; a file removed in that window is replaced with no backup. A store
+  deletes only a displaced file holding the bytes it last loaded or wrote (a store that has
+  done neither keeps a backup). With all 100 backup names taken, the save throws
+  `displacedFileNotKept` naming the hidden temporary file, which still holds the displaced
+  bytes, and the new list is in place.
+- **SSH config suggestions** (`SSHConfigSuggestionsTests`, a synthetic home per test, never
+  the user's `~/.ssh`): `Host` lines with several patterns; every keyword form (any case,
+  `Host=a`, `Host = a`, `Host =a`, `Host= a`, tabs, indentation; `Hostname` and
+  `HostKeyAlias` ignored); quotes and escapes (single, double, inside a word, `\"`, a quoted
+  space left out, an unterminated quote skipping its line); comment lines and a `#` starting
+  a word, while `#` inside a word or quotes is kept; `*`, `?`, `!` and a leading `-` left out;
+  `Include` with a glob relative to `~/.ssh/` in lexical order at its place, `~/`, an absolute
+  path, several paths per line and `Include=`; a home path holding `[`, `*` and `?` matched
+  literally; a chain of 20 nested includes read down to depth 16; a file including itself,
+  two files including each other and a link to a file already read; missing files, empty
+  globs, an unreadable file, a folder and a FIFO skipped; includes inside `Match` and `Host`
+  blocks; the size cap (a file at the cap read, one byte over skipped); de-duplication in
+  first-seen order across files; no `.ssh` or no config; CRLF, trailing spaces and form
+  feeds; `~user` paths not expanded; every file's bytes, mode and mtime unchanged afterwards.
 
 ## Helper test mode: argv digest
 
@@ -913,3 +969,30 @@ removed afterwards; the default servers were only discovered (both `noServer`).
 | Unit tests | `swift test` | exit 0, 457 tests in 46 suites, among them the new private-server tests (`killsOnlyTheRecordedSessionOnAPrivateServer`, `keepsTrailingSemicolonsOnAPrivateServer`). With the script's escaping removed and the old 255 classification and `mayHaveCreated` restored, `keepsTrailingSemicolonsOnAPrivateServer` (a false `has-session` collision), `escapesTrailingSemicolonsForTmux` (both cases), `connectionLossOrASignalMayHaveCreated` (61 issues) and `classifiesFailures` failed; the fix restored, all pass |
 | Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0, no output |
 | Real runs on the final tree | `env -u TMUX_TMPDIR .build/debug/muxfinder-probe e2e-local`, then `… e2e-remote saturno-m4` | not run: iTerm2's `ps -M` line count stayed at 23 from 14:53 to 15:32 (polled every minute for the 20 minutes the run rules allow), above the 18 they require; a read-only one-second `sample` showed 7 user-interactive GCD workers blocked in `-[NSAnimation _runBlocking]` that were not being reclaimed. `iterm2 status` exit 0 (protocol 1.21); the launch directory was empty; no `/private/tmp/mfx.*` |
+
+### Phase 7a — host configuration (2026-10-22)
+
+Read-only commands (PLAN.md D19); neither creates muxFinder's folder or any file, runs ssh or
+contacts iTerm2:
+
+- `swift run muxfinder-probe hosts show [--config <path>]` loads the host list and prints the
+  file, its state (`saved`, `notSavedYet` with the onboarding defaults, or `invalid` with the
+  problem's code and message and the defaults; the file is left as it is), the hosts and This
+  Mac's id. `--config` reads another file; its folder must be yours and not a symbolic link
+  (`mktemp -d` gives one).
+- `swift run muxfinder-probe hosts suggestions` prints `{"suggestions": [ … ]}`, the `Host`
+  names from `~/.ssh/config` and its includes. The names are the user's; never paste them into
+  docs, fixtures or logs.
+
+Environment: Neptuno, from the repo root after `swift build`, `TMUX_TMPDIR` unset. No iTerm2
+window was opened, no tmux connection queried, no ssh run.
+
+| Check | Command | Observed result |
+|---|---|---|
+| No saved list | `ls -la ~/Library/Application\ Support/muxFinder`; `swift run muxfinder-probe hosts show`; the same `ls` | exit 0; `"state" : "notSavedYet"`, the three onboarding hosts (SSH, empty destination, disabled), no This Mac. The folder listed only `launch/` before and after: no `hosts.json`, no backup, its mtime unchanged |
+| Invalid JSON | `mktemp -d /tmp/mfx.XXXXXX`; `printf '{"schemaVersion": 1, "hosts": [' > <dir>/hosts.json`; `chmod 600`; `shasum -a 256` and `ls -lae <dir>`; `.build/debug/muxfinder-probe hosts show --config <dir>/hosts.json`; `shasum` and `ls` again | exit 0; `"state" : "invalid"`, `"problem" : "notJSON"`, `"reason" : "The host list file isn't valid JSON."`, the defaults. The hash (`c008e8ae…92ad`) and the listing (one 31-byte 0600 file, no ACL) were identical after: nothing written, no backup |
+| Missing folder | `.build/debug/muxfinder-probe hosts show --config <dir>/missing/hosts.json`; `ls -la <dir>` | exit 0; `notSavedYet`; no `missing` folder created |
+| Suggestions | `.build/debug/muxfinder-probe hosts suggestions > <dir>/suggestions.json`, then a count of the array (names not printed) | exit 0; a JSON object whose only key is `suggestions`, one name. `ls -lae ~/.ssh` afterwards: every entry's mtime as before (the config's is months old) |
+| Cleanup | `rm -r <dir>` | the private directory removed |
+| Unit tests | `swift test` | exit 0, 499 tests in 49 suites (42 new: `HostListTests`, `HostStoreTests`, `SSHConfigSuggestionsTests`) |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |

@@ -18,7 +18,8 @@ One SwiftPM package. No `.xcodeproj`; the `.app` bundle is assembled by a script
 Package.swift                 swift-tools-version 6.0, macOS 14, Swift 6 language mode
 Sources/
   MuxFinderCore/              library: all logic, no SwiftUI, fully unit-testable
-    Config/                   HostConfig, HostStore (JSON), AppPaths
+    Config/                   HostConfig, HostList, HostStore (JSON), SSHConfigSuggestions,
+                              AppPaths, PrivateStorage + ExtendedACL (private files)
     Process/                  ProcessRunner protocol + posix_spawn implementation
     Shell/                    POSIX quoting, remote-command builder, input validation
     Tmux/                     tmux locator, discovery probe script, parser, models,
@@ -118,7 +119,8 @@ session, verifies its identity, and then activates the tab.
   ad-hoc fallback warns that macOS permission grants reset on every build. No notarization;
   never claim it. Target arm64 only, since all three Macs are Apple Silicon (M4, M4, M5).
 - **D8 — Storage.** Configuration lives in `~/Library/Application Support/muxFinder/`
-  (`hosts.json`, `launch/`, diagnostics), with directories 0700 and files 0600. The app owns
+  (`hosts.json`, `launch/`, diagnostics), with directories 0700 and files 0600, and no
+  extended ACL (D14 for `launch/`, D19 for the folder itself and `hosts.json`). The app owns
   exactly one iTerm2 file, `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json`.
   Never write iTerm2 preferences, other profiles, or shell startup files.
 - **D9 — Scope.** Only the current user's **default tmux server**; named sockets are deferred.
@@ -127,9 +129,9 @@ session, verifies its identity, and then activates the tab.
 - **D11 — Tests.** `swift test` is hermetic: fakes for the process runner, the clock and
   iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
   Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `attach`,
-  `new-session`, `e2e-*`; all but `discover` open real iTerm2 windows), are run explicitly
-  during verification, and their results are recorded in `docs/TESTING.md`. A mocked
-  attachment is never reported as a real integration result.
+  `new-session`, `e2e-*`, `hosts`; all but `discover` and `hosts` open real iTerm2 windows),
+  are run explicitly during verification, and their results are recorded in
+  `docs/TESTING.md`. A mocked attachment is never reported as a real integration result.
 - **D12 — tmux output is always read through `tmux -u`** (decided in Phase 2, 2026-10-21).
   A tmux client whose locale is not UTF-8 (the first set of `LC_ALL`, `LC_CTYPE`, `LANG` must
   contain "UTF-8") gets `-F` and `display-message -p` output with every tab, other control
@@ -180,15 +182,18 @@ session, verifies its identity, and then activates the tab.
     older than the TTL.
   - **ACLs:** mode bits alone are no private boundary on macOS, since an extended ACL entry
     grants access whatever they say and new files inherit their directory's inheritable
-    entries. So, through descriptors (`ExtendedACL`): every open of the launch directory
-    removes any extended ACL from it and refuses the directory (73) if that fails; every file
-    the store creates loses any inherited ACL before its first byte is written; and a file
+    entries. So, through descriptors (`ExtendedACL`; with the directory and atomic-write
+    primitives in `Config/PrivateStorage.swift`, shared with the host store, D19): every open
+    of the launch directory removes any extended ACL from it and refuses the directory (73) if
+    that fails; every file the store creates loses any inherited ACL before its first byte is
+    written; and a file
     being taken is refused (and deleted) if it carries any extended ACL entry, even a
     deny-only one. That strict rule works on a normal home directory: the ACL macOS puts on
     home folders (`group:everyone deny delete`) is not inheritable. A deny-delete entry also
     blocks the owner's unlink, so the store removes the ACL of a file the user owns before
-    deleting it. Only the launch directory and its files are covered, not the Application
-    Support root above it.
+    deleting it. The launch store covers only the launch directory and its files. The
+    Application Support root above it is created by `AppPaths` (0700, ACL untouched) and is
+    secured by every host-list save (D19).
   - **Exit codes:** guard 64 gone, 65 changed, 66 tmux missing (the D5 rule, discovery's
     `tmuxNotFound`), 67 tmux check failed, 68 guard usage. Helper 2 usage, 70 request missing,
     71 expired, 72 unreadable, 73 launch directory unusable, 74 spawn failed, 75 check timed
@@ -606,6 +611,99 @@ session, verifies its identity, and then activates the tab.
     pairing: `has-session` before `new-session` is advisory (`new-session` never replaces a
     session and its own duplicate check decides, inside the same command), and the attach of a
     created session goes through the D4 guard.
+
+- **D19 — Host configuration** (decided in Phase 7a, 2026-10-22; code in
+  `Sources/MuxFinderCore/Config/`: `HostList.swift`, `HostStore.swift`,
+  `SSHConfigSuggestions.swift`, and the D14 primitives moved to `PrivateStorage.swift` and
+  `ExtendedACL.swift`).
+  - **File:** `hosts.json` in muxFinder's folder (`HostStore`; the path is injectable). A
+    JSON object, schema 1: `{"schemaVersion": 1, "hosts": [ … ]}`, each host with `id` (UUID
+    string), `displayName`, `mode` (`local` or `ssh`), `sshDestination` (may be empty),
+    `isEnabled`, and `tmuxPathOverride` and `iTermProfileName` only when set. Written
+    pretty-printed with sorted keys and a final newline, at most 1 MiB (`maximumFileSize`);
+    unknown keys are ignored when read. Another format gets another `schemaVersion`.
+  - **Storage (D8, D14):** `HostStore` is an actor, so its file work runs off the main actor
+    and saves of one store never interleave; the app is meant to be the only writer, and a
+    change made by anything else is kept by the next save (*Backup rule*). A save creates the
+    `muxFinder` folder (0700; its parent must exist) or tightens it to 0700, removes any
+    extended ACL from it and refuses the folder (`directoryHasExtendedACL`) if that fails, and
+    refuses a folder that is a symbolic link, not a folder or another user's, exactly as D14
+    treats `launch/`. That closes the 4a open risk (the folder kept an inherited ACL) at the
+    first save; a folder first created by a launch request (`AppPaths`, 0700 only) keeps an
+    inherited ACL until then, which in the app is before any attach (only an enabled host has
+    sessions, and enabling one is a save). The list is written as D14 writes, to a temporary
+    file (`O_CREAT|O_EXCL|O_NOFOLLOW`), ACL removed, 0600, flushed (`F_FULLFSYNC`, else
+    `fsync`), then published as the *Backup rule* says.
+  - **Loading never writes anything:** the folder is only checked (not a link, a folder, the
+    user's), never tightened or stripped, and never created. The file is opened with
+    `O_NOFOLLOW|O_NONBLOCK` and trusted only under D14's rules for files read: a regular file
+    of the user's, no group or other bits, no extended ACL, at most 1 MiB. The result is
+    `saved` (the list), `notSavedYet` (no file or no folder: the onboarding defaults) or
+    `invalid(problem)` (the defaults, the file left untouched), where the problem is
+    `unsafe(reason)`, `notJSON`, `malformed` (no integer `schemaVersion`, wrong types, missing
+    fields), `newerSchemaVersion(n)`, `unsupportedSchemaVersion(n)` (zero or negative) or
+    `invariantBroken(error)`. Only an unusable folder or a failed system call throws.
+  - **Backup rule (a save never discards what it displaces):** before writing, a save looks
+    at `hosts.json` without reading it. A symbolic link or other non-regular file there is
+    never followed, read or replaced (`existingFileNotRegular`), and a file over 16 MiB
+    (`maximumBackupSize`) is not replaced either (`existingFileTooLarge`); both refuse the
+    save and need the user to move the file away. A regular file loses its ACL, since a
+    deny-delete entry makes the swap below fail (measured: `EACCES`). The temporary file is
+    then published with one `renamex_np`: `RENAME_SWAP` when a file was there, so whatever is
+    at `hosts.json` at that instant lands atomically at the temporary name, or `RENAME_EXCL`
+    when none was, so a file that appeared is never overwritten; `EEXIST` sends the save to
+    the swap and a swap's `ENOENT` to the exclusive rename, at most 8 renames
+    (`maximumPublishAttempts`). A file system without `RENAME_SWAP` fails the save with
+    nothing replaced. The backup decision is about the displaced entry, never about the file
+    looked at earlier: it is deleted only when it is a regular file that would load as `saved`
+    and holds exactly the bytes this store last loaded (as `saved`) or wrote. Anything else
+    is kept: an invalid or unsafe file, a newer schema, a valid file another program changed
+    or created, every file displaced by a store that has loaded or written none, and a link
+    or folder that took the name after the check. It is made 0600 without ACL and flushed
+    when it is the user's regular file (best effort), then renamed, never followed or copied,
+    to `hosts.backup-<UTC yyyyMMddTHHmmssZ>.json`, or with `-2`, `-3`, … when that name
+    exists (`RENAME_EXCL`, so a backup is never replaced). If no name is free or that rename
+    fails, the entry stays under its hidden temporary name, never deleted, and the save
+    throws `displacedFileNotKept` with that name although the new list is in place. A save
+    that fails before publication removes its temporary file. Tests change the file between
+    the check and the publication through the store's `beforePublishing` hook.
+  - **Invariants (`HostList`):** ids are unique; at most one host is in `local` mode ("This
+    Mac"); an enabled SSH host's destination passes `Validation.sshDestination` (not empty, no
+    whitespace or control characters, no leading `-`). A disabled SSH host may hold any
+    destination, so incomplete entries are kept; other fields are validated where they are
+    used (D5 for the override). Each change (`add`, `update`, `remove`, `setEnabled`,
+    `makeThisMac`) checks its result and throws a typed `HostListError` without changing the
+    list. A `HostList` cannot be built invalid; `save` checks again (`invalidList`) and refuses
+    a list over 1 MiB (`listTooLarge`), both before touching the disk.
+  - **This Mac switch:** `makeThisMac(id:)` on the current This Mac changes nothing.
+    Otherwise that host becomes local and enabled (local discovery needs no destination), and
+    the previous This Mac goes back to SSH mode, disabled, its destination kept, so nothing
+    starts connecting to it over SSH until the user turns it on again. This Mac can also be
+    removed, or edited back to SSH (then disabled or with a valid destination).
+  - **Onboarding defaults:** Saturno, Neptuno and Sirio, in that order: SSH, empty
+    destination, disabled, no override or profile, none of them This Mac, fresh ids on every
+    call. No user name, address or reachability is assumed.
+  - **SSH config suggestions (`SSHConfigSuggestions`):** read-only; it opens files for
+    reading and writes nothing, under `~/.ssh` or anywhere else. It collects `Host` names
+    from `~/.ssh/config` (the home directory is injectable) and its includes, following
+    OpenSSH's `readconf.c`. Keywords are case-insensitive, with `Keyword value`,
+    `Keyword=value` and `Keyword = value` forms. Arguments are split like `argv_split`:
+    single or double quotes, `\` escaping a quote, a backslash or (unquoted) a space, and an
+    unquoted `#` at the start of a word ending the line; a line with an unterminated quote
+    is skipped. Each `Host` word is a suggestion unless it contains `*` or `?`, starts with
+    `!`, or fails `Validation.sshDestination`. `Include` takes several paths, each a glob(3)
+    pattern expanded in lexical order: `~/` is the home directory, a relative path is under
+    `~/.ssh/`, and `~user` is not expanded. Includes are followed wherever they appear, inside
+    `Host` and `Match` blocks too, down to depth 16 (OpenSSH's limit; the user's config is
+    depth 0, deeper files are not read). Each file, by device and inode with links followed,
+    is read once, which ends cycles. Missing, unreadable and non-regular files, and files over
+    1 MiB, are skipped; at most 256 files are read. Names are de-duplicated in first-seen
+    order. They are suggestions only: the destination is stored as the user picks or types
+    it, and OpenSSH resolves it.
+  - **Probe:** `muxfinder-probe hosts show [--config <path>]` prints the file, the state, the
+    problem's code and message, the hosts and This Mac's id; `hosts suggestions` prints
+    `{"suggestions": [ … ]}`. Both are read-only: no folder or file is created, no ssh runs
+    and iTerm2 is not contacted.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -1283,6 +1381,23 @@ Acceptance:
   - no leaked tasks or processes after `stop()`;
   - the same session name on two hosts staying two entries.
 - `muxfinder-probe refresh --once` against real config with the local host and Saturno.
+
+Split (2026-10-22, before the first worker): Phase 7 is two sub-phases, each with its own
+worker, verification, review and commit. Neither opens iTerm2 windows, so both may run while
+6a's final-tree `e2e-remote` waits for iTerm2's thread count to fall.
+
+- **7a — host configuration (routine).** `HostStore` (`hosts.json` schema v1, atomic writes,
+  0700/0600 with ACLs stripped as in D14 — including the `muxFinder` directory itself, the 4a
+  open risk; loading never writes; a corrupt or unsupported file is preserved byte for byte in a
+  backup before anything replaces it, and the load result reports it), the host-list invariants
+  (at most one "This Mac"; an SSH host with no valid destination cannot be enabled), onboarding
+  defaults (Saturno, Neptuno and Sirio as SSH entries with empty destinations, disabled, none
+  local until the user picks "This Mac"), `SSHConfigSuggestions`, read-only probe commands
+  `hosts show [--config <path>]` and `hosts suggestions`, and hermetic tests.
+- **7b — refresh engine (high).** `RefreshCoordinator`, `HostSnapshot`, the `AttachmentIndex`
+  merge, sleep/wake/network-change entry points, `muxfinder-probe refresh --once [--config
+  <path>]`, the fake-prober/fake-clock tests in *Acceptance* above, and the real check against a
+  private `hosts.json` holding This Mac and Saturno (`saturno-m4`).
 
 ### Phase 8 — Menu bar app and popover (routine)
 
