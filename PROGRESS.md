@@ -258,5 +258,7 @@ None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it 
 - Phase 4c: `e631641`, pushed.
 - Phase 5a: `5b47e14`, pushed. From 3b on, commit messages carry no AI attribution trailer
   (user's global rule); earlier pushed commits are left as they are.
-- Phase 5b: code, review and fixes `6b1aedc` (parent `9a81b33`), pushed. The phase's closing
-  records (final-tree runs, archive, this checkpoint) are not committed yet.
+- Phase 5b: code, review and fixes `6b1aedc` (parent `9a81b33`), pushed. Closing records
+  (final-tree runs, archive, checkpoint) `dca1228` (parent `60d55ea`), pushed to `origin/main`
+  (`60d55ea..dca1228`, success). This SHA/push record is a follow-up commit on top; tree clean
+  after it.
