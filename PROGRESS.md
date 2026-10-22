@@ -227,6 +227,7 @@ complete, 5b is next.** `muxfinder-probe iterm2 status` connects (exit 0, last c
 - Phase 4a: `1f5a3be`, pushed.
 - Phase 4b: `f888a2c`, pushed.
 - Phase 4c: `e631641`, pushed.
-- Phase 5a: committed on `main` with this checkpoint (SHA and push result recorded by a
-  follow-up checkpoint commit). From 3b on, commit messages carry no AI attribution trailer
-  (user's global rule); earlier pushed commits are left as they are.
+- Phase 5a committed on `main` as `5b47e14` (parent `a2ee915`), pushed to `origin/main`
+  (`a2ee915..5b47e14`, success). This SHA/push record is a follow-up checkpoint commit on top;
+  tree clean after it. From 3b on, commit messages carry no AI attribution trailer (user's
+  global rule); earlier pushed commits are left as they are.
