@@ -158,17 +158,27 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 /// `muxfinder-launch attach <launch id>`: the helper iTerm2 runs in a launch tab (PLAN.md D2,
 /// D14).
 ///
-/// It takes (reads and deletes) the request and runs two children (PLAN.md D14):
+/// It takes (reads and deletes) the request. For a local host it runs two children (PLAN.md
+/// D14):
 /// 1. the **check**, `LaunchGuard` with piped output, its own process group and a hard
 ///    deadline (`checkTimeout`); its stderr (tmux's sanitized error line) is copied to the tab
 ///    as printable ASCII;
 /// 2. on success, the **attach**, `<tmux> -u -CC attach-session -t <id>` spawned directly
 ///    from the path the check printed, on the tab's own terminal, waited for until tmux exits.
 ///
+/// For an SSH host it runs one child on the tab's terminal (PLAN.md D17):
+/// `/usr/bin/ssh -t -o ConnectTimeout=10 -- <destination> <D3 string>` (`RemoteLaunch`),
+/// interactive (no `BatchMode`), so a person can answer a password or host-key prompt in the
+/// tab. The remote script runs the same D4 check and then `exec`s tmux; ssh exits with the
+/// guard's codes, tmux's status, or 255 for its own errors, classified from its standard error
+/// (relayed to the tab as it arrives).
+///
 /// Then it writes the `LaunchResult` and exits with `LaunchResult.exitStatus`. On failure it
 /// prints `LaunchFailure.explanation` and, when the terminal is interactive and was not hung
 /// up, waits for Return so the tab shows why. A signal before tmux attaches (the tab closed
-/// during the check) ends the launch as `interrupted` without attaching.
+/// during the check) ends the launch as `interrupted` without attaching. Every remote failure
+/// (ssh failing fast on authentication or an unreachable host, a guard refusal on the remote
+/// host) ends the same way, through the explanation, the wait and the hold below.
 ///
 /// On that same interactive, not hung-up terminal it never exits before it is
 /// `minimumLifetime` old, whatever the outcome: iTerm2 blocks its whole API behind a modal
@@ -182,8 +192,9 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 /// - `MUXFINDER_LAUNCH_DIRECTORY`: an absolute path used as the launch directory instead of
 ///   `~/Library/Application Support/muxFinder/launch`. A relative or empty value is refused as
 ///   `launchDirectoryUnusable`.
-/// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`); the
-///   `test-mode` marker file in the launch directory does the same.
+/// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`) and honor a
+///   request's `testLaunchDelaySeconds` (`testLaunchDelay(_:child:)`); the `test-mode` marker
+///   file in the launch directory does the same. Outside test mode that field is ignored.
 /// - `MUXFINDER_LAUNCH_NO_WAIT=1`: never wait for Return nor hold the tab open
 ///   (`StandardLaunchTerminal`).
 /// - `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS`: the minimum lifetime in milliseconds (1 to 7
@@ -335,7 +346,7 @@ public struct LaunchHelper: Sendable {
         detail: "Usage error (\(max(0, argv.count - 1)) arguments)."
       )
       terminal.write(Self.usage + "\n")
-      await explain(.usage, terminalHungUp: false)
+      await explain(.usage, host: .local, terminalHungUp: false)
       await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: false)
       return LaunchFailure.usage.exitStatus
     }
@@ -381,7 +392,8 @@ public struct LaunchHelper: Sendable {
     case failed(LaunchFailure)
   }
 
-  /// Takes the request for `id`, runs the check and the attach, and finishes.
+  /// Takes the request for `id`, runs the check and the attach (or, for an SSH host, the ssh
+  /// child that does both on the remote host), and finishes.
   func attach(_ id: LaunchToken, startedAt: Date) async -> Int32 {
     guard let store else {
       return await finish(
@@ -410,9 +422,9 @@ public struct LaunchHelper: Sendable {
     }
     _ = try? store.sweep()
     var child = ChildRecord(startedAt: now())
-    let tmuxPath: String
-    switch await check(request, child: &child) {
-    case .failed(let failure):
+    if let seconds = request.testLaunchDelaySeconds, isTestMode,
+      let failure = await testLaunchDelay(seconds, child: &child)
+    {
       return await finish(
         id,
         request: request,
@@ -421,15 +433,45 @@ public struct LaunchHelper: Sendable {
         startedAt: startedAt,
         resultStore: store
       )
-    case .attach(let path):
-      tmuxPath = path
+    }
+    let executable: String
+    let arguments: [String]
+    switch request.host {
+    case .local:
+      switch await check(request, child: &child) {
+      case .failed(let failure):
+        return await finish(
+          id,
+          request: request,
+          failure: failure,
+          child: child,
+          startedAt: startedAt,
+          resultStore: store
+        )
+      case .attach(let path):
+        (executable, arguments) = (path, LaunchGuard.attachArguments(for: request))
+      }
+    case .ssh:
+      // `takeRequest` accepted only a valid destination; refuse anything else all the same.
+      guard let sshArguments = RemoteLaunch.sshArguments(for: request) else {
+        return await finish(
+          id,
+          request: request,
+          failure: .requestUnreadable,
+          child: ChildRecord(),
+          startedAt: startedAt,
+          resultStore: store
+        )
+      }
+      (executable, arguments) = (RemoteLaunch.sshPath, sshArguments)
     }
     let outcome: LaunchChildOutcome
     do throws(ProcessRunnerError) {
       outcome = try await childRunner.run(
-        executable: tmuxPath,
-        arguments: LaunchGuard.attachArguments(for: request),
-        environment: childEnvironment
+        executable: executable,
+        arguments: arguments,
+        environment: childEnvironment,
+        relaysStandardError: request.host.isRemote
       )
     } catch {
       return await finish(
@@ -443,15 +485,55 @@ public struct LaunchHelper: Sendable {
     }
     child.termination = outcome.termination
     child.terminalHungUp = outcome.terminalHungUp
+    let failure = LaunchFailure.from(
+      outcome.termination, host: request.host, sshStandardError: outcome.capturedStandardError)
     return await finish(
       id,
       request: request,
-      failure: LaunchFailure.from(outcome.termination, host: request.host),
+      failure: failure,
       child: child,
       startedAt: startedAt,
       resultStore: store
     )
   } // End of func attach(_:startedAt:)
+
+  /// The test-only launch delay (PLAN.md D14 *Test mode*): in test mode, a request's
+  /// `testLaunchDelaySeconds` keeps the helper waiting that long before its first child, with
+  /// no check, tmux or ssh running, so the coordinator sees a launch tab that is open with no
+  /// connection and no result. The wait is a check-stage child, `/bin/sleep <seconds>`
+  /// (`testLaunchDelayRequest(seconds:environment:)`: its own process group, a deadline,
+  /// stdin `/dev/null`), so a signal for the helper ends it exactly as it ends a check: the
+  /// launch fails as `interrupted(n)` without attaching, and a SIGHUP (the tab closed) marks
+  /// the terminal as hung up. Returns that failure, or `nil` once the delay ran out (the launch
+  /// then goes on as usual). Callers check test mode first.
+  func testLaunchDelay(_ seconds: Int, child: inout ChildRecord) async -> LaunchFailure? {
+    terminal.write("muxFinder test mode: waiting \(seconds) s before starting.\n")
+    await log.record(.launch, outcome: .info, detail: "Test launch delay (\(seconds) s).")
+    let outcome: LaunchCheckOutcome
+    do throws(ProcessRunnerError) {
+      outcome = try await childRunner.runCheck(
+        Self.testLaunchDelayRequest(seconds: seconds, environment: childEnvironment))
+    } catch {
+      return .spawnFailed(errno: Self.errorNumber(of: error))
+    }
+    guard case .interrupted(let signals) = outcome else { return nil }
+    child.terminalHungUp = outcome.terminalHungUp
+    return .interrupted(signals.first ?? SIGTERM)
+  } // End of func testLaunchDelay(_:child:)
+
+  /// The child that waits out a test launch delay: `/bin/sleep <seconds>` with `environment`
+  /// and a deadline 5 s past the delay.
+  static func testLaunchDelayRequest(
+    seconds: Int,
+    environment: [String: String]
+  ) -> ProcessRequest {
+    ProcessRequest(
+      executableURL: URL(fileURLWithPath: "/bin/sleep"),
+      arguments: [String(seconds)],
+      environment: environment,
+      timeout: .seconds(seconds + 5)
+    )
+  } // End of func testLaunchDelayRequest(seconds:environment:)
 
   /// Runs the check for `request` and returns the tmux path to attach with, or the failure.
   /// Records the check's termination and any hang-up in `child`, and copies the check's stderr
@@ -555,7 +637,7 @@ public struct LaunchHelper: Sendable {
         durationMs: durationMs,
         detail: "Launch failed: \(failure.kind), exit status \(result.exitStatus)."
       )
-      await explain(failure, terminalHungUp: child.terminalHungUp)
+      await explain(failure, host: request?.host ?? .local, terminalHungUp: child.terminalHungUp)
     } else {
       await log.record(
         .launch,
@@ -569,9 +651,9 @@ public struct LaunchHelper: Sendable {
     return result.exitStatus
   } // End of func finish(_:request:failure:child:startedAt:resultStore:)
 
-  /// Prints the explanation and waits for Return when someone can see it.
-  func explain(_ failure: LaunchFailure, terminalHungUp: Bool) async {
-    terminal.write("\nmuxFinder: \(failure.explanation)\n")
+  /// Prints the explanation (worded for `host`) and waits for Return when someone can see it.
+  func explain(_ failure: LaunchFailure, host: LaunchHost, terminalHungUp: Bool) async {
+    terminal.write("\nmuxFinder: \(failure.explanation(for: host))\n")
     guard terminal.isInteractive, !terminalHungUp else { return }
     terminal.write("\nPress Return to close.")
     await terminal.waitForReturn()

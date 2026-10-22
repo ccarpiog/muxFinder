@@ -1,11 +1,12 @@
 import Foundation
 
 /// Attaches tmux sessions in iTerm2 through a launch tab and confirms the attachment, or
-/// focuses an attachment that exists already (PLAN.md Architecture, Phase 4, D15, D16; local
-/// hosts only until Phase 5b).
+/// focuses an attachment that exists already (PLAN.md Architecture, Phase 4, D15, D16, D17),
+/// for sessions on this Mac and on remote Macs reached with ssh from the launch tab.
 ///
 /// One attach runs these steps:
-/// 1. Revalidate the session through discovery (same key, same `session_created`).
+/// 1. Revalidate the session through discovery (same key, same `session_created`; for an SSH
+///    host, a valid destination first).
 ///    Then check for an existing attachment (`AttachmentIndex`, PLAN.md D16): when this Mac's
 ///    iTerm2 already shows the session, the attach becomes a focus: it activates that
 ///    connection's first tab (as in step 9, bound to the connection's owner), opens nothing
@@ -13,16 +14,20 @@ import Foundation
 ///    first, it activates nothing and fails (`attachmentChanged`). When iTerm2 is not running
 ///    nothing can be attached, so the launch goes on; when its connections cannot be listed,
 ///    the attach fails (`attachmentCheckFailed`) rather than risk a duplicate.
-/// 2. Write the launch request file (D2, D14).
+/// 2. Write the launch request file (D2, D14), with the host kind: local, or ssh and its
+///    destination (D17).
 /// 3. `ensureRunning()`: the only call that may launch iTerm2.
 /// 4. `CreateTab` in a new window, using the host's iTerm2 profile when one is set, whose
 ///    command is `<helper> attach <launch id>` and whose session closes when the helper exits.
 /// 5. The state becomes `launched(sessionID)`.
 /// 6. Poll `ListConnections` until a connection's `owning_session_id` is the launch tab's
 ///    session, or the helper's result file reports how it ended, within the confirmation budget
-///    (15 s).
+///    (15 s locally, 20 s for a remote host). A remote attach whose launch tab is still open
+///    past its budget (ssh waiting for a password in the tab, for example) publishes
+///    `stillWaiting`, never a success, and keeps watching until it confirms, fails, or reaches
+///    its wait limit (D17).
 /// 7. Check identity through that connection (`ConnectionIdentity.command`) against the
-///    revalidated key.
+///    revalidated key and the host's node name (`uname -n`).
 /// 8. The state becomes `confirmed(connectionID)`.
 /// 9. `Activate` the first tab carrying that `tmux_connection_id`, while the launch tab still
 ///    owns the connection.
@@ -59,10 +64,18 @@ public actor AttachCoordinator {
     case off
   }
 
-  /// Budgets and options. The defaults are PLAN.md's local values.
+  /// Budgets and options. The defaults are PLAN.md's values.
   public struct Configuration: Sendable {
-    /// How long after `launched` a connection (or a helper result) may take to appear.
+    /// How long after `launched` a connection (or a helper result) may take to appear, locally.
     public var confirmationBudget: Duration
+    /// The same for a remote host (PLAN.md Phase 5, D17): ssh connects and authenticates first.
+    /// When it runs out with the launch tab still open, the attach reports `stillWaiting`.
+    public var remoteConfirmationBudget: Duration
+    /// The pause between two polls while a remote attach is `stillWaiting`.
+    public var stillWaitingPollInterval: Duration
+    /// How long after `launched` a remote attach keeps watching a launch tab that is still
+    /// waiting, before it ends `waitLimitReached`.
+    public var remoteWaitLimit: Duration
     /// The pause between two polls.
     public var pollInterval: Duration
     /// How long after `confirmed` the connection's first tab may take to appear.
@@ -71,6 +84,11 @@ public actor AttachCoordinator {
     public var detachBudget: Duration
     /// How long after the connection closed the helper's result may take to appear.
     public var resultBudget: Duration
+    /// How long the helper's result may take to appear after a remote attach found its launch
+    /// tab closed. iTerm2 drops a closed tab from its listing at once but ends its processes
+    /// later: a forced close of a tab whose ssh waited for a password ended ssh about 5 s
+    /// after the close (PLAN.md *Verified facts*, Phase 5b).
+    public var closedTabResultBudget: Duration
     /// How old a launch tab must be before the coordinator ends its connection. iTerm2 3.7.6
     /// shows its blocking short-lived-session warning for a session that ends within 3 s of
     /// starting (its `shortLivedSessionDuration` default; seen after an end at about 1.5 s);
@@ -84,21 +102,29 @@ public actor AttachCoordinator {
     /// Creates a configuration.
     public init(
       confirmationBudget: Duration = .seconds(15),
+      remoteConfirmationBudget: Duration = .seconds(20),
+      stillWaitingPollInterval: Duration = .seconds(1),
+      remoteWaitLimit: Duration = .seconds(300),
       pollInterval: Duration = .milliseconds(200),
       tabBudget: Duration = .seconds(5),
       detachBudget: Duration = .seconds(10),
       resultBudget: Duration = .seconds(5),
+      closedTabResultBudget: Duration = .seconds(10),
       minimumLaunchTabAge: Duration = .seconds(10),
       activatesApp: Bool = true
     ) {
       self.confirmationBudget = confirmationBudget
+      self.remoteConfirmationBudget = remoteConfirmationBudget
+      self.stillWaitingPollInterval = stillWaitingPollInterval
+      self.remoteWaitLimit = remoteWaitLimit
       self.pollInterval = pollInterval
       self.tabBudget = tabBudget
       self.detachBudget = detachBudget
       self.resultBudget = resultBudget
+      self.closedTabResultBudget = closedTabResultBudget
       self.minimumLaunchTabAge = minimumLaunchTabAge
       self.activatesApp = activatesApp
-    } // End of init(confirmationBudget:pollInterval:tabBudget:detachBudget:resultBudget:…)
+    } // End of init(confirmationBudget:remoteConfirmationBudget:stillWaitingPollInterval:…)
   }
 
   /// Receives every state change of every launch, in order, on the coordinator's executor.
@@ -298,11 +324,15 @@ public actor AttachCoordinator {
   } // End of func run(_:launchID:flightID:)
 
   /// Steps 1–9. Returns the final state (`confirmed`, `focused` or `failed`); `launched`,
-  /// `confirmed` and `focused` are published on the way (a failure is published by the
-  /// caller).
+  /// `stillWaiting`, `confirmed` and `focused` are published on the way (a failure is published
+  /// by the caller).
   private func perform(_ progress: inout Run) async -> AttachState {
     let target = progress.target
-    guard target.host.mode == .local else { return .failed(.unsupportedHost) }
+    let launchHost: LaunchHost
+    switch Self.launchHost(for: target.host) {
+    case .success(let value): launchHost = value
+    case .failure(let failure): return .failed(failure)
+    }
     // 1. Revalidate.
     let session: DiscoveredSession
     let host: AttachmentIndex.Host?
@@ -325,7 +355,7 @@ public actor AttachCoordinator {
     // 2. Write the request.
     _ = try? store.sweep()
     let request = LaunchRequest(
-      id: progress.launchID, createdAt: clock.date(), host: .local,
+      id: progress.launchID, createdAt: clock.date(), host: launchHost,
       tmuxPathOverride: target.host.tmuxPathOverride, session: session)
     do throws(LaunchStoreError) {
       try store.writeRequest(request)
@@ -370,9 +400,10 @@ public actor AttachCoordinator {
     progress.gatewaySessionID = gatewaySessionID
     progress.timings.launched = clock.now() - progress.start
     publish(.launched(sessionID: gatewaySessionID), for: progress)
-    // 6. Wait for the connection or the helper's result.
+    // 6. Wait for the connection or the helper's result (a remote attach may report
+    // `stillWaiting` on the way).
     let connectionID: String
-    switch await waitForConnection(progress, gatewaySessionID: gatewaySessionID) {
+    switch await waitForConnection(&progress, gatewaySessionID: gatewaySessionID) {
     case .success(let found): connectionID = found
     case .failure(let failure): return .failed(failure)
     }
@@ -381,7 +412,7 @@ public actor AttachCoordinator {
     // 7. Identity.
     if let failure = await checkIdentity(
       connectionID: connectionID, gatewaySessionID: gatewaySessionID, launchedAt: launchedAt,
-      key: session.key)
+      key: session.key, host: host)
     {
       return .failed(failure)
     }
@@ -393,6 +424,21 @@ public actor AttachCoordinator {
     progress.timings.activated = clock.now() - progress.start
     return .confirmed(connectionID: connectionID)
   } // End of func perform(_:)
+
+  /// The launch host for `host`: local, or ssh with its destination once it passes
+  /// `Validation.sshDestination(_:)` (PLAN.md D17); otherwise `invalidDestination`.
+  static func launchHost(for host: HostConfig) -> Result<LaunchHost, AttachFailure> {
+    switch host.mode {
+    case .local:
+      return .success(.local)
+    case .ssh:
+      do throws(ValidationError) {
+        return .success(.ssh(destination: try Validation.sshDestination(host.sshDestination)))
+      } catch {
+        return .failure(.invalidDestination(error))
+      }
+    }
+  } // End of func launchHost(for:)
 
   /// Step 1: discovers the host again and returns the session as it is now, if it is still the
   /// one `target` names, with the host as the attachment index matches it (`nil` when the
@@ -475,17 +521,30 @@ public actor AttachCoordinator {
   } // End of func focus(_:_:)
 
   /// Step 6: polls the helper's result and iTerm2's tmux connections until the launch tab owns
-  /// a connection, the helper reports how it ended, or the budget runs out. Every failure
-  /// withdraws the request.
+  /// a connection, the helper reports how it ended, or the budget runs out (15 s locally).
+  /// Every failure but a helper result withdraws the request.
+  ///
+  /// A remote attach has `remoteConfirmationBudget` (20 s, PLAN.md D17). Once that runs out,
+  /// every round also asks whether the launch tab is still open, since it closes when its
+  /// helper exits: when it is, the helper still runs (ssh waiting for a password or a host-key
+  /// answer in the tab, for example), so the attach publishes `stillWaiting` once and goes on
+  /// polling every `stillWaitingPollInterval`: a connection that appears later is confirmed as
+  /// usual, a helper result fails the attach. A launch tab that closed can no longer attach;
+  /// the helper's result (written before it exits) is waited for within
+  /// `closedTabResultBudget`, and none is `timedOut`. After
+  /// `remoteWaitLimit` from the start of this step the attach ends `waitLimitReached`.
   private func waitForConnection(
-    _ progress: Run,
+    _ progress: inout Run,
     gatewaySessionID: String
   ) async -> Result<String, AttachFailure> {
-    let deadline = clock.now() + configuration.confirmationBudget
+    let remote = progress.target.host.mode == .ssh
+    let start = clock.now()
+    let budget = remote ? configuration.remoteConfirmationBudget : configuration.confirmationBudget
+    var waiting = false
     while true {
       do throws(LaunchStoreError) {
         if let result = try store.takeResult(progress.launchID) {
-          return .failure(result.failure.map(AttachFailure.from) ?? .helperEnded)
+          return .failure(Self.failure(forHelperResult: result))
         }
       } catch {
         return .failure(withdrawFailure(progress, .launchStore(error)))
@@ -500,25 +559,60 @@ public actor AttachCoordinator {
       } catch {
         return .failure(withdrawFailure(progress, Self.failure(for: error)))
       }
-      guard clock.now() < deadline else {
-        return .failure(withdrawFailure(progress, .timedOut))
+      if waiting || clock.now() >= start + budget {
+        guard remote else { return .failure(withdrawFailure(progress, .timedOut)) }
+        let tabOpen: Bool
+        do {
+          tabOpen = try await iTerm2.listSessions().allSessionIDs.contains(gatewaySessionID)
+        } catch {
+          return .failure(withdrawFailure(progress, Self.failure(for: error)))
+        }
+        guard tabOpen else {
+          // The tab is gone, so nothing can attach any more; the helper writes its result
+          // before it exits, which may be some seconds after the tab left iTerm2's listing.
+          guard
+            let result = await waitForResult(
+              progress.launchID, within: configuration.closedTabResultBudget)
+          else {
+            return .failure(withdrawFailure(progress, .timedOut))
+          }
+          return .failure(Self.failure(forHelperResult: result))
+        }
+        if !waiting {
+          waiting = true
+          progress.timings.stillWaiting = clock.now() - progress.start
+          publish(.stillWaiting(sessionID: gatewaySessionID), for: progress)
+        } else if clock.now() >= start + configuration.remoteWaitLimit {
+          return .failure(withdrawFailure(progress, .waitLimitReached))
+        }
       }
       do {
-        try await clock.sleep(for: configuration.pollInterval)
+        try await clock.sleep(
+          for: waiting ? configuration.stillWaitingPollInterval : configuration.pollInterval)
       } catch {
         return .failure(withdrawFailure(progress, .cancelled))
       }
     } // End of loop polling for the connection
   } // End of func waitForConnection(_:gatewaySessionID:)
 
-  /// Step 7: asks tmux through the connection (still owned by the launch tab) which server and
-  /// session it reached. A request failure is reported as is; an unreadable or different answer
-  /// detaches the connection once the launch tab, opened at `launchedAt`, is old enough.
+  /// The failure an attach reports for the helper's result before a connection was confirmed:
+  /// its failure (D14), or `helperEnded` when tmux ended normally.
+  static func failure(forHelperResult result: LaunchResult) -> AttachFailure {
+    result.failure.map(AttachFailure.from) ?? .helperEnded
+  }
+
+  /// Step 7: asks tmux through the connection (still owned by the launch tab) which host, server
+  /// and session it reached: the server and session must be `key`'s, and the host name the
+  /// revalidated host's node name (`uname -n`) when discovery reported one, so an SSH
+  /// destination that reached another Mac never confirms. A request failure is reported as is;
+  /// an unreadable or different answer detaches the connection once the launch tab, opened at
+  /// `launchedAt`, is old enough.
   private func checkIdentity(
     connectionID: String,
     gatewaySessionID: String,
     launchedAt: ContinuousClock.Instant,
-    key: SessionKey
+    key: SessionKey,
+    host: AttachmentIndex.Host?
   ) async -> AttachFailure? {
     let output: String
     do {
@@ -531,7 +625,7 @@ public actor AttachCoordinator {
     }
     let failure: AttachFailure
     if let reported = ConnectionIdentity.parse(output) {
-      if reported.matches(key) { return nil }
+      if reported.matches(key), host.map({ reported.host == $0.nodeName }) ?? true { return nil }
       failure = .identityMismatch
     } else {
       failure = .identityCheckFailed(nil)
@@ -539,7 +633,7 @@ public actor AttachCoordinator {
     await retire(
       connectionID: connectionID, gatewaySessionID: gatewaySessionID, launchedAt: launchedAt)
     return failure
-  } // End of func checkIdentity(connectionID:gatewaySessionID:launchedAt:key:)
+  } // End of func checkIdentity(connectionID:gatewaySessionID:launchedAt:key:host:)
 
   /// Step 9 and the focus: waits (within the tab budget) for the first tab of the connection
   /// `connectionID` and activates it. Every attempt is bound to `owningSessionID`
@@ -610,7 +704,9 @@ public actor AttachCoordinator {
   } // End of func detach(connectionID:gatewaySessionID:launchID:)
 
   /// Detaches every attachment of the session `key` in this Mac's iTerm2, whoever opened it
-  /// (PLAN.md D16), with `detach-client` (never by closing tabs).
+  /// (PLAN.md D16), with `detach-client` (never by closing tabs). The session may live on this
+  /// Mac or on a remote host (D17): the index matches remote connections by the remote node
+  /// name discovery reports.
   ///
   /// It discovers `host` (for its `uname -n` and current server), asks the attachment index
   /// which connections show `key`, then handles them one at a time, earliest first. Each one
@@ -625,7 +721,7 @@ public actor AttachCoordinator {
   ///
   /// Cancelling the caller during a wait sends nothing more (`cancelled`). No server, iTerm2
   /// not running, or no connection showing the session is `nothingAttached`, with nothing
-  /// sent. Hosts other than this Mac are `checkFailed` (`unsupportedHost`) until Phase 5b.
+  /// sent. An SSH host whose destination is not valid is `checkFailed` (`invalidDestination`).
   public func detach(session key: SessionKey, on host: HostConfig) async -> SessionDetachResult {
     let start = clock.now()
     let outcome = await detachAttachments(of: key, on: host)
@@ -646,8 +742,8 @@ public actor AttachCoordinator {
     of key: SessionKey,
     on host: HostConfig
   ) async -> SessionDetachResult {
-    guard host.mode == .local else {
-      return SessionDetachResult(key: key, outcome: .checkFailed, checkFailure: .unsupportedHost)
+    if case .failure(let failure) = Self.launchHost(for: host) {
+      return SessionDetachResult(key: key, outcome: .checkFailed, checkFailure: failure)
     }
     let indexHost: AttachmentIndex.Host
     switch await currentHost(host) {
@@ -807,7 +903,9 @@ public actor AttachCoordinator {
     } // End of loop waiting for the connection to close
     if result.connectionClosed {
       launches[gatewaySessionID] = nil
-      if let launchID { result.helperResult = await waitForResult(launchID) }
+      if let launchID {
+        result.helperResult = await waitForResult(launchID, within: configuration.resultBudget)
+      }
     }
   } // End of func sendDetach(_:launchID:)
 
@@ -833,9 +931,11 @@ public actor AttachCoordinator {
     return result
   } // End of func recordDetach(_:since:)
 
-  /// Waits (within the result budget) for the helper's result of `launchID`.
-  private func waitForResult(_ launchID: LaunchToken) async -> LaunchResult? {
-    let deadline = clock.now() + configuration.resultBudget
+  /// Waits (within `budget`) for the helper's result of `launchID`.
+  private func waitForResult(_ launchID: LaunchToken, within budget: Duration) async
+    -> LaunchResult?
+  {
+    let deadline = clock.now() + budget
     while true {
       if let result = try? store.takeResult(launchID) { return result }
       guard clock.now() < deadline,

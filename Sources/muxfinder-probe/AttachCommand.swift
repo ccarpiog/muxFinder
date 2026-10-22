@@ -1,21 +1,24 @@
 import Foundation
 import MuxFinderCore
 
-/// `muxfinder-probe attach --local --session <$id>`: attaches one session of this Mac's default
-/// tmux server through the real path (discovery, the existing-attachment check, launch request,
-/// a new iTerm2 window running `muxfinder-launch`, connection confirmation, identity check,
+/// `muxfinder-probe attach --local | --ssh <destination> --session <$id>`: attaches one session
+/// of the default tmux server of this Mac or of a remote host through the real path
+/// (discovery, the existing-attachment check, launch request, a new iTerm2 window running
+/// `muxfinder-launch`, which runs tmux or `ssh -t`, connection confirmation, identity check,
 /// activation) and prints the outcome as JSON. It opens a real iTerm2 window and leaves the
 /// session attached, or brings forward the tab of an existing attachment of the session.
 enum AttachCommand {
   /// Usage lines for this subcommand.
   static let usage = """
-      attach --local --session <$id> [--tmux-path <path>] [--profile <name>]
-          Attach one session of this Mac's default tmux server in a new iTerm2 window, the
-          way the app does, and print the outcome as JSON (state changes go to stderr). Opens
-          a real iTerm2 window and leaves the session attached; detach it from tmux. First
-          asks every iTerm2 tmux connection which session it shows (a read-only
-          display-message); when one shows this session, its tab is brought forward instead
-          and nothing opens (state focused).
+      attach --local | --ssh <destination> --session <$id> [--tmux-path <path>]
+             [--profile <name>]
+          Attach one session of the default tmux server of this Mac (--local) or of a remote
+          host (--ssh; the launch tab runs ssh -t there, so a password prompt appears in it)
+          in a new iTerm2 window, the way the app does, and print the outcome as JSON (state
+          changes go to stderr). Opens a real iTerm2 window and leaves the session attached;
+          detach it from tmux. First asks every iTerm2 tmux connection which session it shows
+          (a read-only display-message); when one shows this session, its tab is brought
+          forward instead and nothing opens (state focused).
           --session    The session's id, such as '$3' (quote it for the shell).
           --tmux-path  Use this tmux executable only (the host's override).
           --profile    Open the tab with this iTerm2 profile instead of the default one.
@@ -33,7 +36,7 @@ enum AttachCommand {
   struct Options {
     /// The session to attach.
     var sessionID: TmuxSessionID
-    /// The host, "This Mac".
+    /// The host: "This Mac", or the remote host by its destination.
     var host: HostConfig
   }
 
@@ -134,7 +137,8 @@ enum AttachCommand {
 
   /// Parses the subcommand's arguments.
   static func parse(_ arguments: [String]) throws -> Options {
-    var local = false
+    var mode: HostConfig.ConnectionMode?
+    var destination = ""
     var sessionID: TmuxSessionID?
     var tmuxPath: String?
     var profile: String?
@@ -142,7 +146,19 @@ enum AttachCommand {
     while let argument = remaining.popFirst() {
       switch argument {
       case "--local":
-        local = true
+        guard mode == nil else {
+          throw DiscoverCommand.UsageError(message: "use either --local or --ssh")
+        }
+        mode = .local
+      case "--ssh":
+        guard mode == nil else {
+          throw DiscoverCommand.UsageError(message: "use either --local or --ssh")
+        }
+        guard let value = remaining.popFirst() else {
+          throw DiscoverCommand.UsageError(message: "--ssh needs a destination")
+        }
+        mode = .ssh
+        destination = value
       case "--session":
         guard let value = remaining.popFirst(), let id = TmuxSessionID(value) else {
           throw DiscoverCommand.UsageError(message: "--session needs an id such as '$3'")
@@ -162,12 +178,11 @@ enum AttachCommand {
         throw DiscoverCommand.UsageError(message: "unknown option")
       }
     } // End of loop over arguments
-    guard local else {
-      throw DiscoverCommand.UsageError(message: "only --local is supported so far")
-    }
+    guard let mode else { throw DiscoverCommand.UsageError(message: "use --local or --ssh") }
     guard let sessionID else { throw DiscoverCommand.UsageError(message: "--session is required") }
     let host = HostConfig(
-      displayName: "This Mac", mode: .local, tmuxPathOverride: tmuxPath, iTermProfileName: profile)
+      displayName: mode == .local ? "This Mac" : "Remote host", mode: mode,
+      sshDestination: destination, tmuxPathOverride: tmuxPath, iTermProfileName: profile)
     return Options(sessionID: sessionID, host: host)
   } // End of func parse(_:)
 

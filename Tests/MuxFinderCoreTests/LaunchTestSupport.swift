@@ -67,10 +67,11 @@ enum LaunchTestSupport {
   /// A fixed request time with whole seconds, so JSON round trips compare equal.
   static let requestTime = Date(timeIntervalSince1970: 1_792_600_000)
 
-  /// A request for `$3` on a synthetic server.
+  /// A request for `$3` on a synthetic server, on this Mac unless `host` says otherwise.
   static func request(
     id: LaunchToken = LaunchToken(),
     createdAt: Date = requestTime,
+    host: LaunchHost = .local,
     tmuxPathOverride: String? = nil,
     sessionID: String = "$3",
     pid: Int32 = 4242,
@@ -80,7 +81,7 @@ enum LaunchTestSupport {
     LaunchRequest(
       id: id,
       createdAt: createdAt,
-      host: .local,
+      host: host,
       hostID: UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF")!,
       tmuxPathOverride: tmuxPathOverride,
       sessionID: TmuxSessionID(sessionID)!,
@@ -88,7 +89,7 @@ enum LaunchTestSupport {
       expectedServerStartTime: startTime,
       expectedSessionCreated: created
     )
-  } // End of func request(id:createdAt:tmuxPathOverride:sessionID:pid:startTime:created:)
+  } // End of func request(id:createdAt:host:tmuxPathOverride:sessionID:pid:startTime:created:)
 
   /// The identity line the fake tmux should print for `request`.
   static func identity(of request: LaunchRequest) -> String {
@@ -233,12 +234,15 @@ final class FakeLaunchChildRunner: LaunchChildRunner {
     var arguments: [String]
     /// The environment.
     var environment: [String: String]
+    /// Whether the child's standard error was to be relayed (the ssh child).
+    var relaysStandardError = false
   }
 
   /// What `run` (the attach) does.
   enum Behavior: Sendable {
-    /// End with this termination, after passing on these signals.
-    case termination(ProcessResult.Termination, forwarded: [Int32])
+    /// End with this termination, after passing on these signals, having written
+    /// `standardError` (returned as captured only when the call relays it).
+    case termination(ProcessResult.Termination, forwarded: [Int32], standardError: String = "")
     /// Fail to spawn with this error.
     case error(ProcessRunnerError)
   }
@@ -310,24 +314,29 @@ final class FakeLaunchChildRunner: LaunchChildRunner {
   func run(
     executable: String,
     arguments: [String],
-    environment: [String: String]
+    environment: [String: String],
+    relaysStandardError: Bool
   ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
     recorded.withLock {
-      $0.calls.append(Call(executable: executable, arguments: arguments, environment: environment))
+      $0.calls.append(
+        Call(
+          executable: executable, arguments: arguments, environment: environment,
+          relaysStandardError: relaysStandardError))
     }
     switch behavior {
-    case .termination(let termination, let forwarded):
+    case .termination(let termination, let forwarded, let standardError):
       return LaunchChildOutcome(
         processID: 777,
         termination: termination,
         startedAt: LaunchTestSupport.requestTime,
         endedAt: LaunchTestSupport.requestTime,
-        forwardedSignals: forwarded
+        forwardedSignals: forwarded,
+        capturedStandardError: relaysStandardError ? Data(standardError.utf8) : Data()
       )
     case .error(let error):
       throw error
     }
-  } // End of func run(executable:arguments:environment:)
+  } // End of func run(executable:arguments:environment:relaysStandardError:)
 }
 
 /// A `LaunchTerminal` that records what was written, and every wait for Return and hold, in

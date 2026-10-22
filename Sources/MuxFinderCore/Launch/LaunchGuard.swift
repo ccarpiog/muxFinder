@@ -54,9 +54,11 @@ public enum LaunchGuard {
   /// The format the guard asks `display-message` for (PLAN.md D4).
   public static let identityFormat = "#{session_id}:#{pid}:#{start_time}:#{session_created}"
 
-  /// The script after the locator fragment. The format literal must match `identityFormat`
-  /// (a unit test checks it).
-  static let body: StaticShellScript = #"""
+  /// The identity check after the locator fragment (steps 1–5), shared with the remote attach
+  /// (`RemoteLaunch.script`, PLAN.md D17): on a match it falls through with `t` holding the
+  /// tmux path and `id` the session id; every refusal exits with the guard's code. The format
+  /// literal must match `identityFormat` (a unit test checks it).
+  static let check: StaticShellScript = #"""
     unset TMUX TMUX_PANE
     PATH=${PATH:-/usr/bin:/bin}:/usr/bin:/bin
     export PATH
@@ -100,24 +102,38 @@ public enum LaunchGuard {
         exit 67
         ;;
     esac
+
+    """#
+
+  /// The local check's last step (6): print the tmux path the helper spawns.
+  static let printPath: StaticShellScript = #"""
     printf '%s\n' "$t"
 
     """#
 
+  /// The script after the locator fragment: the identity check, then the path on a match.
+  static let body: StaticShellScript = check + printPath
+
   /// The complete check: the tmux locator followed by the identity check.
   public static let script: StaticShellScript = TmuxLocator.script + body
 
-  /// The arguments after `/bin/sh` that run the check for `request`.
-  public static func arguments(for request: LaunchRequest) -> [String] {
+  /// The check's positional parameters for `request`, data only: the override (empty when the
+  /// host has none), the session id, the server pid and start time, and the creation time. The
+  /// remote attach passes the same ones (PLAN.md D17).
+  public static func checkArguments(for request: LaunchRequest) -> [String] {
     [
-      "-c", script.source, ShellQuoting.scriptName,
       request.tmuxPathOverride ?? "",
       request.sessionID.rawValue,
       String(request.expectedServerPID),
       String(request.expectedServerStartTime),
       String(request.expectedSessionCreated),
     ]
-  } // End of func arguments(for:)
+  } // End of func checkArguments(for:)
+
+  /// The arguments after `/bin/sh` that run the check for `request`.
+  public static func arguments(for request: LaunchRequest) -> [String] {
+    ["-c", script.source, ShellQuoting.scriptName] + checkArguments(for: request)
+  }
 
   /// The check child for `request`: `/bin/sh` with `arguments(for:)`, `environment`, stdin
   /// `/dev/null`, `timeout` and `outputLimit`.

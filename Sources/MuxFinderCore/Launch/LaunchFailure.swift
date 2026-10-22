@@ -39,12 +39,12 @@ public enum LaunchExitStatus {
   public static let checkTimedOut: Int32 = 75
   /// Added to the signal number when the child was killed by a signal (shell convention).
   public static let signalBase: Int32 = 128
-  /// The status ssh uses for its own errors (Phase 5).
+  /// The status ssh uses for its own errors (a remote attach, PLAN.md D17).
   public static let sshFailure: Int32 = 255
 }
 
-/// What kind of ssh failure ended a launch. Only the type exists so far: the ssh launch path
-/// and how its class is determined arrive in Phase 5.
+/// What kind of ssh failure ended a remote launch (ssh exited 255, PLAN.md D17), read from what
+/// ssh wrote on its standard error with discovery's patterns (`ErrorClassifier`).
 public enum SSHFailureClass: String, Sendable, Hashable, Codable, CaseIterable {
   /// The host could not be reached.
   case unreachable
@@ -54,6 +54,18 @@ public enum SSHFailureClass: String, Sendable, Hashable, Codable, CaseIterable {
   case hostKeyProblem
   /// ssh failed for a reason that was not classified.
   case other
+
+  /// The class of an ssh failure whose standard error was `standardError`: the case of the
+  /// first `ErrorClassifier` pattern it contains (a changed host key before a failed
+  /// verification), `other` when none matches.
+  public init(standardError: Data) {
+    switch ErrorClassifier.sshFailureStatus(stderr: standardError) {
+    case .unreachable: self = .unreachable
+    case .authFailed: self = .authFailed
+    case .hostKeyProblem: self = .hostKeyProblem
+    default: self = .other
+    }
+  }
 }
 
 /// Why a launch failed. Stored in result files as `{"kind": …}` plus the case's number, so
@@ -69,7 +81,8 @@ public enum LaunchFailure: Sendable, Hashable, Codable {
   case tmuxCheckFailed
   /// The guard was called incorrectly (guard exit 68).
   case guardUsage
-  /// ssh failed (Phase 5).
+  /// ssh itself failed (exit status 255 of a remote attach), with the class its standard error
+  /// showed (PLAN.md D17).
   case sshFailed(SSHFailureClass)
   /// The helper's arguments were not `attach <launch id>`.
   case usage
@@ -118,13 +131,15 @@ public enum LaunchFailure: Sendable, Hashable, Codable {
 
   /// Maps how the attach child ended to a failure, or `nil` for exit status 0.
   ///
-  /// Pure and total: 64–68 are the guard's codes (kept for a remote attach that runs the guard
-  /// in the same command, Phase 5), any other non-zero status is `childExited`, a signal is
-  /// `childSignaled`. `host` lets Phase 5 map ssh's 255 to `sshFailed`; for a local launch 255
-  /// is an ordinary exit status.
+  /// Pure and total: 64–68 are the guard's codes (a remote attach runs the guard in the same
+  /// command, and ssh exits with its status, PLAN.md D17), any other non-zero status is
+  /// `childExited`, a signal is `childSignaled`. For an SSH host, 255 is ssh's own error,
+  /// `sshFailed` with the class read from `sshStandardError` (what ssh wrote on its standard
+  /// error); for a local launch 255 is an ordinary exit status.
   public static func from(
     _ termination: ProcessResult.Termination,
-    host: LaunchHost
+    host: LaunchHost,
+    sshStandardError: Data = Data()
   ) -> LaunchFailure? {
     switch termination {
     case .signaled(let signal):
@@ -137,13 +152,13 @@ public enum LaunchFailure: Sendable, Hashable, Codable {
       case LaunchExitStatus.tmuxMissing: return .tmuxMissing
       case LaunchExitStatus.tmuxCheckFailed: return .tmuxCheckFailed
       case LaunchExitStatus.guardUsage: return .guardUsage
+      case LaunchExitStatus.sshFailure where host.isRemote:
+        return .sshFailed(SSHFailureClass(standardError: sshStandardError))
       default:
-        switch host {
-        case .local: return .childExited(status)
-        }
+        return .childExited(status)
       }
     }
-  } // End of func from(_:host:)
+  } // End of func from(_:host:sshStandardError:)
 
   /// The helper's exit status for this failure.
   public var exitStatus: Int32 {
@@ -209,9 +224,19 @@ public enum LaunchFailure: Sendable, Hashable, Codable {
         + "it. Any message from tmux is shown above."
     case .guardUsage:
       return "muxFinder started its session check incorrectly. This is a bug in muxFinder."
-    case .sshFailed(let failureClass):
-      return "ssh could not connect to the host (\(failureClass.rawValue)), so the session "
-        + "was not attached."
+    case .sshFailed(.unreachable):
+      return "ssh could not reach the host, so the session was not attached. Check that the "
+        + "host is on and connected, then try again."
+    case .sshFailed(.authFailed):
+      return "ssh could not log in to the host, so the session was not attached. Any message "
+        + "from ssh is shown above."
+    case .sshFailed(.hostKeyProblem):
+      return "ssh did not accept the host's key (it is unknown or changed), so the session was "
+        + "not attached. Check the message from ssh above; muxFinder never changes your known "
+        + "hosts."
+    case .sshFailed(.other):
+      return "ssh ended with an error, so the session was not attached. Any message from ssh "
+        + "is shown above."
     case .usage:
       return "This helper only runs in tabs that muxFinder opens. Start the session from "
         + "muxFinder instead."
@@ -243,6 +268,25 @@ public enum LaunchFailure: Sendable, Hashable, Codable {
       return "tmux ended with exit status \(status)."
     }
   } // End of var explanation
+
+  /// The explanation for a launch on `host`: `explanation`, with the wording that names this
+  /// Mac or tmux alone adjusted for a remote host (tmux missing there, ssh not started).
+  public func explanation(for host: LaunchHost) -> String {
+    guard host.isRemote else { return explanation }
+    switch self {
+    case .tmuxMissing:
+      return "muxFinder could not find tmux on the remote host. Install tmux there, or check the "
+        + "tmux path in muxFinder's host settings."
+    case .spawnFailed(let code):
+      return "muxFinder could not start ssh: \(String(cString: strerror(code)))."
+    case .childExited(let status):
+      return "The remote session ended with exit status \(status)."
+    case .childSignaled(let signal):
+      return "ssh was stopped by signal \(signal)."
+    default:
+      return explanation
+    }
+  } // End of func explanation(for:)
 
   /// The JSON keys.
   private enum CodingKeys: String, CodingKey {

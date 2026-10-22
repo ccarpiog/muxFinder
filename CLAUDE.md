@@ -46,7 +46,8 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `~/Library/Application Support/muxFinder/launch/`. For checks, set
   `MUXFINDER_LAUNCH_DIRECTORY=<absolute private dir>` and a private `TMUX_TMPDIR`.
   `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
-  argv digest; `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return and the 10 s minimum
+  argv digest and honors a request's `testLaunchDelaySeconds` (ignored outside test mode);
+  `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return and the 10 s minimum
   lifetime (on a terminal the helper never exits younger). Exit codes and the digest format:
   PLAN.md D14, `docs/TESTING.md`.
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
@@ -55,9 +56,12 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`, with
   `TMUX_TMPDIR` unset, after `swift build`: `swift run muxfinder-probe` does not rebuild the
   `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (10 steps, about
-  43 s; passed twice in Phase 5a; asks only its own launch tabs' connections), and `swift run
-  muxfinder-probe e2e-remote saturno-m4` once Phase 5b lands; one-off `attach --local
-  --session '<$id>'` (focuses instead when the session is attached already; asks every tmux
+  43 s) and `swift run muxfinder-probe e2e-remote saturno-m4` (11 steps, about 76 s; creates
+  and kills only its own session on Saturno over ssh; its `still waiting` step makes no login:
+  the helper's test launch delay keeps that tab waiting before ssh, then the step closes the
+  tab itself), both asking only their own launch tabs' connections; one-off
+  `attach --local | --ssh <dest> --session
+  '<$id>'` (focuses instead when the session is attached already; asks every tmux
   connection first, so the same caution as `iterm2 attachments`) and `detach --connection
   <id> --gateway <session id>` (see `docs/TESTING.md`). Check `muxfinder-probe iterm2 status`
   before and after; a timeout means a modal iTerm2 dialog: stop and report, never script the

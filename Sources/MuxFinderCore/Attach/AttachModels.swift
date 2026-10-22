@@ -2,7 +2,8 @@ import Foundation
 
 /// What to attach: a session discovery reported, on the host it was discovered on.
 public struct AttachTarget: Sendable, Hashable {
-  /// The host (`HostConfig.id` is `session.key.hostID`). Only `.local` hosts until Phase 5.
+  /// The host (`HostConfig.id` is `session.key.hostID`): this Mac, or a remote Mac reached with
+  /// ssh from the launch tab (PLAN.md D17).
   public var host: HostConfig
   /// The session as discovery last reported it; its key and `createdAt` are revalidated.
   public var session: DiscoveredSession
@@ -19,8 +20,9 @@ public struct AttachTarget: Sendable, Hashable {
 
 /// Why an attach failed. `message` is English, sentence case, without user data.
 public enum AttachFailure: Error, Sendable, Hashable {
-  /// The host is not a local host; SSH attaches arrive in Phase 5.
-  case unsupportedHost
+  /// The host's SSH destination is not usable (empty, whitespace or control characters, a
+  /// leading `-`); nothing was run or opened.
+  case invalidDestination(ValidationError)
   /// The session no longer exists or no tmux server runs (revalidation, or guard exit 64).
   case sessionGone
   /// The session id now belongs to another server or session (revalidation, or guard exit 65).
@@ -38,8 +40,13 @@ public enum AttachFailure: Error, Sendable, Hashable {
   /// The helper reported that tmux ended normally before muxFinder saw its connection.
   case helperEnded
   /// No tmux connection for the launch tab appeared, and the helper reported nothing, within
-  /// the confirmation budget (a modal iTerm2 dialog, for example). The request was withdrawn.
+  /// the confirmation budget (a modal iTerm2 dialog, for example), or the launch tab of a
+  /// remote attach closed without a result. The request was withdrawn.
   case timedOut
+  /// A remote attach was still waiting (`AttachState.stillWaiting`: ssh asking for a password,
+  /// for example) when its wait limit ran out. muxFinder stopped watching; the launch tab is
+  /// left to the user, and a later attachment shows up as existing (PLAN.md D17).
+  case waitLimitReached
   /// The identity check through the new connection failed: iTerm2's error, or `nil` when tmux's
   /// answer could not be read (the connection was then detached, once its launch tab was old
   /// enough).
@@ -73,7 +80,7 @@ public enum AttachFailure: Error, Sendable, Hashable {
   /// A short machine-readable name, such as `sessionChanged`.
   public var kind: String {
     switch self {
-    case .unsupportedHost: return "unsupportedHost"
+    case .invalidDestination: return "invalidDestination"
     case .sessionGone: return "sessionGone"
     case .sessionChanged: return "sessionChanged"
     case .tmuxMissing: return "tmuxMissing"
@@ -83,6 +90,7 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .helperFailed: return "helperFailed"
     case .helperEnded: return "helperEnded"
     case .timedOut: return "timedOut"
+    case .waitLimitReached: return "waitLimitReached"
     case .identityCheckFailed: return "identityCheckFailed"
     case .identityMismatch: return "identityMismatch"
     case .cancelled: return "cancelled"
@@ -107,14 +115,15 @@ public enum AttachFailure: Error, Sendable, Hashable {
   /// The user-facing explanation.
   public var message: String {
     switch self {
-    case .unsupportedHost:
-      return "muxFinder can only attach sessions on this Mac so far."
+    case .invalidDestination(let error):
+      return "muxFinder cannot reach this host: \(error.message)"
     case .sessionGone:
       return LaunchFailure.sessionGone.explanation
     case .sessionChanged:
       return LaunchFailure.sessionChanged.explanation
     case .tmuxMissing:
-      return LaunchFailure.tmuxMissing.explanation
+      return "muxFinder could not find tmux on the session's host. Install tmux, or check the "
+        + "tmux path in muxFinder's host settings."
     case .discoveryFailed:
       return "muxFinder could not check the session before attaching it. Refresh and try again."
     case .launchStore:
@@ -128,6 +137,9 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .timedOut:
       return "iTerm2 did not start the tmux session in time. If iTerm2 shows a message, "
         + "answer it and try again."
+    case .waitLimitReached:
+      return "The session's tab is still waiting, for example for a password, so muxFinder "
+        + "stopped watching it. Finish in the tab or close it, then refresh."
     case .identityCheckFailed:
       return "muxFinder could not confirm which tmux session iTerm2 attached."
     case .identityMismatch:
@@ -144,13 +156,19 @@ public enum AttachFailure: Error, Sendable, Hashable {
   } // End of var message
 }
 
-/// The observable state of one attach (PLAN.md Phase 4).
+/// The observable state of one attach (PLAN.md Phase 4, D17).
 public enum AttachState: Sendable, Hashable {
   /// The attach was asked for; the session is being revalidated and the launch prepared.
   case requested
   /// iTerm2 opened the launch tab; `sessionID` is the tab's iTerm2 session (the helper runs in
   /// it, and it becomes the tmux connection's owning session).
   case launched(sessionID: String)
+  /// A remote attach passed its confirmation budget (20 s) with its launch tab `sessionID`
+  /// still open and no connection or helper result: the helper is still running, for example
+  /// ssh waiting for a password or a host-key answer in the tab (PLAN.md D17). Never a
+  /// success. Published, never returned: the attach keeps watching and still ends `confirmed`
+  /// when the connection appears and its identity matches, or `failed`.
+  case stillWaiting(sessionID: String)
   /// A tmux connection owned by the launch tab exists and reached the expected session.
   case confirmed(connectionID: String)
   /// The session was already attached in this Mac's iTerm2 (`AttachmentIndex`): the attach
@@ -159,12 +177,13 @@ public enum AttachState: Sendable, Hashable {
   /// The attach ended without a confirmed or focused connection.
   case failed(AttachFailure)
 
-  /// A short machine-readable name: `requested`, `launched`, `confirmed`, `focused` or
-  /// `failed`.
+  /// A short machine-readable name: `requested`, `launched`, `stillWaiting`, `confirmed`,
+  /// `focused` or `failed`.
   public var kind: String {
     switch self {
     case .requested: return "requested"
     case .launched: return "launched"
+    case .stillWaiting: return "stillWaiting"
     case .confirmed: return "confirmed"
     case .focused: return "focused"
     case .failed: return "failed"
@@ -217,6 +236,9 @@ public struct AttachTimings: Sendable, Hashable {
   public var checked: Duration?
   /// iTerm2 opened the launch tab.
   public var launched: Duration?
+  /// A remote attach reported `stillWaiting` (its confirmation budget ran out with the helper
+  /// still running).
+  public var stillWaiting: Duration?
   /// The launch tab's tmux connection appeared.
   public var connected: Duration?
   /// The identity check passed, or the session was found already attached (`focused`).
@@ -364,8 +386,8 @@ public struct DetachResult: Sendable, Equatable {
   }
 }
 
-/// The outcome of `AttachCoordinator.detach(session:on:)`: every attachment of one session in
-/// this Mac's iTerm2, detached (PLAN.md D16).
+/// The outcome of `AttachCoordinator.detach(session:on:)`: every attachment of one session (on
+/// this Mac or a remote host) in this Mac's iTerm2, detached (PLAN.md D16, D17).
 public struct SessionDetachResult: Sendable, Equatable {
   /// How the detach ended, overall.
   public enum Outcome: String, Sendable, Hashable, CaseIterable {

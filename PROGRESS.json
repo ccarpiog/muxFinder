@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T09:28:15Z",
+  "updated": "2026-10-22T10:52:40Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -118,12 +118,13 @@
     {
       "id": "5b",
       "title": "Remote attach over SSH",
-      "status": "queued",
+      "status": "blocked",
       "risk": "high",
       "parent": "5",
-      "summary": "Attaches Saturno sessions over interactive SSH with a 20 s budget and proves it with e2e-remote.",
+      "summary": "Remote attach built, reviewed and fixed; final real runs wait for iTerm2's wedged API to be restarted by the user.",
       "added": "2026-10-22T08:22:57Z",
-      "status_since": "2026-10-22T08:22:57Z"
+      "started": "2026-10-22T09:29:09Z",
+      "status_since": "2026-10-22T10:52:40Z"
     },
     {
       "id": "6",

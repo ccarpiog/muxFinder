@@ -2,7 +2,7 @@ import Foundation
 
 /// Why a user-supplied value was rejected. `message` is the English, sentence-case text shown
 /// in the UI.
-public enum ValidationError: Error, Sendable, Equatable, LocalizedError {
+public enum ValidationError: Error, Sendable, Hashable, LocalizedError {
   /// The session name is empty after trimming whitespace.
   case sessionNameEmpty
   /// The session name is longer than `maximumLength` characters.

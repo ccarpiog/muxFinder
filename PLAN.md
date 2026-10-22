@@ -193,7 +193,8 @@ session, verifies its identity, and then activates the tab.
     `tmuxNotFound`), 67 tmux check failed, 68 guard usage. Helper 2 usage, 70 request missing,
     71 expired, 72 unreadable, 73 launch directory unusable, 74 spawn failed, 75 check timed
     out, 128 + n interrupted by signal n before tmux attached; otherwise tmux's own status (0
-    after a detach, 1 on errors), and 128 + n for signal n. 255 is left to ssh (Phase 5).
+    after a detach, 1 on errors), and 128 + n for signal n. For a remote attach ssh hands back
+    the remote status (the guard's codes, tmux's 0 or 1) and uses 255 for its own errors (D17).
     `LaunchFailure.fromCheck(_:timedOut:)` (the check child) and `LaunchFailure.from(_:host:)`
     (the attach child) are the pure mappings.
   - **Gone versus error:** in tmux 3.8, `display-message -t '$N'` for a missing id exits 0
@@ -221,7 +222,8 @@ session, verifies its identity, and then activates the tab.
     putting the shell in its own group would have stopped tmux with `SIGTTIN`. The price is
     the check-to-attach window described in D4.
   - **Helper process:** the attach child runs on the helper's own terminal: descriptors 0–2
-    are inherited (never pipes), the child stays in the helper's foreground process group (a
+    are inherited (the one exception is the ssh child's standard error, relayed through a pipe,
+    D17), the child stays in the helper's foreground process group (a
     background group would get `SIGTTIN`), and it starts with default dispositions. The helper
     ignores SIGHUP, SIGINT and SIGTERM for its whole life and watches them with
     `EVFILT_SIGNAL` from its first instructions (`TerminalChildControl.watchTerminalSignals()`,
@@ -251,6 +253,16 @@ session, verifies its identity, and then activates the tab.
     helper writes `launch/argv-<pid>.json` before parsing argv: the argument count, then each
     argument's byte length and SHA-256, plus the first canonical launch id found.
     `LaunchStore.takeArgvDigests()` reads them.
+  - **Test launch delay** (decided after the Phase 5b review, 2026-10-22): a request may carry
+    `testLaunchDelaySeconds` (1–120; any other value makes it unreadable, 72; absent from every
+    request the app writes). Only in test mode does the helper honor it: it prints one line
+    saying so and, before its first child, runs `/bin/sleep <seconds>` as a check-stage child
+    (own process group, a deadline 5 s past the delay, stdin `/dev/null`), so nothing else runs
+    meanwhile (no check, tmux or ssh) and a signal ends the wait exactly as it ends a check:
+    `interrupted(n)` without attaching, with the explanation, the wait for Return and the 10 s
+    hold unless the tab closed (SIGHUP). When the delay runs out the launch goes on as usual.
+    Outside test mode the field changes nothing, so it cannot be triggered by a request alone.
+    `e2e-remote`'s `still waiting` step uses it (D17 *Real-run safety*).
   - **Overrides and paths:** `MUXFINDER_LAUNCH_DIRECTORY` (absolute) replaces the launch
     directory for development and tests; a relative or empty value is refused (73).
     `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` (1 to 7 decimal digits, tests only) replaces the
@@ -313,7 +325,8 @@ session, verifies its identity, and then activates the tab.
     connection.
   - **Identity command:** D16's `ConnectionIdentity.command`, read on bytes (D16). The
     launch's client runs with `-u`, so its answer is exact; any other answer is unreadable. The
-    attach's check compares the server and the session only.
+    attach's check compares the server and the session and, when revalidation reported a node
+    name, `#{host}` with it (D17: an SSH destination that reached another Mac never confirms).
   - **Activation** is part of the result, not a state: the first tab carrying the connection id
     (waited for up to 5 s) is activated with `select_tab`, `order_window_front` and the app
     options, without `select_session` (iTerm2 refuses that for a tab target), bound to the
@@ -389,7 +402,8 @@ session, verifies its identity, and then activates the tab.
     connection maps; nothing sent), `detached`, `notSent`, `notClosed`, `cancelled` (during a
     wait; nothing more is sent) and `checkFailed` (discovery or the listing failed). The
     remaining race is the gap between the check and `detach-client`, two consecutive requests
-    on one API connection. Local hosts only until Phase 5b.
+    on one API connection. Remote hosts work the same way (D17); an SSH host whose destination
+    is not valid is `checkFailed` (`invalidDestination`) before anything runs.
   - **Seam:** `AttachCoordinator(existingAttachments:)` is `.standard` (an index over the
     coordinator's iTerm2 integration and clock; the default), `.index(_)` (a given one: a
     filtered index, or one with its own clock in tests) or `.off` (launch-path tests only).
@@ -400,6 +414,91 @@ session, verifies its identity, and then activates the tab.
     rejected: a connection the user opens between the check and the index would get the
     command. `muxfinder-probe attach` and `iterm2 attachments` ask every connection, so
     unattended runs use them only while `list-connections` shows none of the user's.
+- **D17 — Remote attach over SSH** (decided in Phase 5b, 2026-10-22; code in
+  `Sources/MuxFinderCore/Launch/RemoteLaunch.swift`, `LaunchHelper.swift`,
+  `TerminalChildRunner.swift` and `Attach/AttachCoordinator.swift`).
+  - **Request:** `LaunchHost.ssh(destination:)`, `{"kind":"ssh","destination":…}`. The
+    coordinator validates the destination (`Validation.sshDestination`: not empty, no
+    whitespace or control characters, no leading `-`) before discovery runs
+    (`invalidDestination` otherwise), and `takeRequest` refuses a request whose destination is
+    not valid (`requestUnreadable`, 72), so ssh never sees one.
+  - **ssh child:** the helper runs one child on the tab's terminal,
+    `/usr/bin/ssh -t -o ConnectTimeout=10 -- <destination> <D3 string>`: interactive, no
+    `BatchMode`, the user's configuration, keys and agent as they are, nothing that weakens
+    host-key checking, so password and host-key prompts appear in the tab (ssh writes them to
+    `/dev/tty`). `-t` because tmux's control mode needs a terminal (Phase 4a facts).
+    `ConnectTimeout=10` is the one option the plan's argv did not name: an unreachable host
+    fails in the tab within 10 s instead of the system's 75 s, inside the 20 s budget; it does
+    not limit authentication.
+  - **Remote script (D3, D4):** `RemoteLaunch.script` is `TmuxLocator.script`, the guard's own
+    identity check (`LaunchGuard.check`, the same static text as the local check) and
+    `exec "$t" -u -CC attach-session -t "$id"`; its arguments are the local check's five values
+    (override, id, pid, start time, creation time), each POSIX single-quoted. The check and the
+    attach are one remote process, so D4's window shrinks to the `exec`. The remote check has
+    no deadline of its own (a second ssh connection for a separate check would ask for a
+    password twice): a hung remote server leaves the tab waiting, which the coordinator reports
+    as `stillWaiting`, and closing the tab ends it.
+  - **Exit statuses:** ssh exits with the remote status: the guard's 64–68, tmux's 0 after a
+    detach or 1. 255 is ssh's own error, `sshFailed(class)`, the class read from ssh's
+    standard error with discovery's patterns (`ErrorClassifier.sshFailureStatus`):
+    `unreachable`, `authFailed`, `hostKeyProblem`, else `other` (a remote tmux killed by a
+    signal also comes back as 255). ssh killed by a signal is `childSignaled`. The tab shows a
+    remote wording (`LaunchFailure.explanation(for:)`: tmux missing "on the remote host", "could
+    not start ssh").
+  - **Standard error relay:** ssh's standard error is a pipe the helper copies to the tab as it
+    arrives, keeping the first 16 KiB for the classification only (never logged). With `-t` the
+    remote side's output arrives on ssh's standard output, so only ssh's own messages pass the
+    relay. After ssh exits the helper drains it for at most 0.5 s, so a `ProxyCommand` that
+    outlives ssh cannot hold the helper. The relay never stalls supervision (passing on
+    signals, noticing the exit, that deadline; decided after the Phase 5b review): each round
+    reads at most 64 KiB, and it never blocks on the tab: it writes through a descriptor of its
+    own opened on the tab's terminal with `O_NONBLOCK` (a separate open file description, so
+    ssh's descriptors stay blocking); a destination that is not a terminal is written only when
+    `poll` reports it writable, at most `PIPE_BUF` bytes at a time (a device `poll` does not
+    support, such as `/dev/null`, directly). Bytes the tab does not take wait in a 64 KiB
+    buffer; while it is full the relay stops reading (its read watch disabled, a one-shot write
+    watch armed), so ssh waits on the pipe as it would on a slow terminal while the loop goes
+    on. What still waits at the drain deadline, and everything after a failed write (the tab
+    is gone), is dropped from the tab, never from the capture.
+  - **Hold:** every remote outcome ends through D14: the result first, the explanation, the
+    wait for Return, then the hold until the helper is 10 s old. ssh failing fast
+    (authentication, an unreachable host, a host key, a guard refusal on the remote host) never
+    ends a visible launch tab inside iTerm2's 3 s window.
+  - **Budget and `stillWaiting`:** a remote attach has 20 s from `launched` to a connection
+    (local stays 15 s, with no `stillWaiting`). When the 20 s run out, each round also lists
+    iTerm2's sessions: a launch tab closes when its helper exits, so a listed tab with no
+    result means the helper still runs (ssh waiting for a password or a host-key answer, or a
+    hung remote check). The attach then publishes `stillWaiting(sessionID)` once, never a
+    success, and keeps polling every 1 s. `stillWaiting` is not terminal and is never
+    returned: a connection that appears later goes through the usual identity check and ends
+    `confirmed` (published then); a helper result ends `failed` with its failure; a launch tab
+    that left the listing can no longer attach, and its helper's result is waited for 10 s
+    (`closedTabResultBudget`: in the real runs iTerm2 ended ssh about 5 s after a forced
+    close), else `timedOut`; 300 s after `launched` the attach ends `waitLimitReached` and
+    leaves the tab to the user (an attachment made after that is found by the index). Callers
+    arriving meanwhile join the flight, so a waiting password prompt never gets a second tab;
+    cancelling every caller ends it `cancelled`.
+  - **Identity, index, focus, detach:** the attach's identity check also requires `#{host}` to
+    be the revalidated node name (D15). `AttachmentIndex` needs no remote special case: a remote
+    host is its discovery node name (the remote `uname -n`) and servers, and since the default
+    socket path is the same on every Mac with the same user id, the node name with the pid and
+    start time is what tells two Macs' servers apart. Focus and `detach(session:on:)` work for
+    remote hosts unchanged (D16).
+  - **Real-run safety (`e2e-remote`):** its tmux calls on the remote host go through ssh with
+    discovery's noninteractive options (`BatchMode=yes`), a static script and quoted arguments,
+    and only ever name its own `muxfinder-test-*` session by id; it writes no remote file. Its
+    index asks only its own launch tabs' connections. The `still waiting` step makes no login
+    attempt at all: it attaches the test session through the run's own destination with
+    requests that ask for the helper's test launch delay (60 s, D14 *Test launch delay*;
+    honored because the run turned test mode on), so the helper waits before it would start
+    ssh, its tab open with no prompt and no connection past the 20 s budget; once
+    `stillWaiting` arrived the step closes that launch tab itself, forced, once it is older
+    than 10 s, and the helper ends `interrupted` without having started ssh. The attach runs in
+    a task the step cancels and awaits on every way out (`withAwaitedTask`), so a signal while
+    its `CreateTab` is pending ends the step only after the launch tab is recorded for cleanup.
+    (Until the Phase 5b review the step logged in as `nonexistent-muxfinder@<host>` so ssh
+    waited at a password prompt; the review ruled that a real authentication attempt outside
+    the run rules.)
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -477,6 +576,44 @@ session, verifies its identity, and then activates the tab.
   U+0020–U+007E as lowercase `\uXXXX` (surrogate pairs above U+FFFF), `/` not escaped.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
+
+Verified in Phase 5b (2026-10-22, iTerm2 3.7.6, tmux 3.8 on Neptuno and Saturno, Saturno's
+default server holding only `muxfinder-test-*` sessions; `e2e-remote saturno-m4` passed twice,
+and a third run passed steps 1–9 before iTerm2's API stopped answering; details in
+`docs/INTEGRATION-PROOF.md`):
+
+- **tmux over `ssh -t`:** iTerm2 takes up the remote `tmux -u -CC attach-session` exactly like a
+  local one: connection id `tmux`, owned by the launch tab's session, each tmux window as its
+  own native window, the split as one two-leaf splitter, the launch tab staying in its window.
+  `detach-client` through it is answered, the remote tmux client exits 0, ssh exits 0, the
+  helper records success and the launch tab closes by itself (10.3–10.6 s old).
+- **`#{host}`** through the remote control connection is `Saturno-M4.local`, byte-identical to
+  discovery's remote `uname -n`, and the index mapped every remote attachment by it. Saturno's
+  default socket path is `/private/tmp/tmux-501/default`, the same path as this Mac's.
+- **Timings:** discovery over ssh about 0.7–0.76 s; from the attach call, the launch tab about
+  0.85–0.9 s, the connection 1.7–1.8 s, confirmed 1.8 s, activated 2.2–2.3 s; a focus of the
+  remote attachment ended 0.76–0.81 s after the call (discovery most of it). The remote guard's
+  refusal (`sessionChanged`, ssh exit 65) reached the coordinator 1.7 s after the call.
+- **ssh waiting for a password** (seen with the `still waiting` step's original design, since
+  replaced by the test launch delay, D17): with an unknown user
+  (`nonexistent-muxfinder@saturno-m4`, no
+  `BatchMode`) ssh waited at its password prompt in the launch tab; no connection appeared and
+  the attach published `stillWaiting` 21 s after the call (the tab 20.2–20.3 s old). After a
+  forced `Close` of that tab iTerm2 dropped it from `ListSessions` at once, but ssh ended (by
+  SIGHUP; helper result `childSignaled(1)`, exit 129) only about 5 s later, and the attach ended
+  5.2 s after the close. No dialog appeared.
+- **Remote session lifetime:** a session created with `new-session -d` over a noninteractive
+  ssh connection keeps its server after ssh ends; killing that only session ends the server
+  (`noServer` afterwards).
+- **iTerm2's API can stall without a modal:** after a day of e2e runs (iTerm2 up 15.7 h), its
+  API stopped answering in the third `e2e-remote` run, right after step 10's launch tab opened
+  (requests on an open connection and new handshakes timed out; `iterm2 status` exit 75). A
+  read-only `sample` showed the main thread idle in `-[NSApplication run]` (no modal run loop)
+  and 64 GCD worker threads, the pool's limit, each blocked in AppKit's
+  `-[NSAnimation _runBlocking]` with no iTerm2 frame. So the pool was exhausted and the API's
+  work queued behind it. What starts those animations, and whether the windows the runs open,
+  activate and close leak them, is not known yet (no UI was touched to find out). A restart of
+  iTerm2 by a person is the only remedy found; until then no real run can proceed.
 
 Verified in Phase 5a (2026-10-22, iTerm2 3.7.6, tmux 3.8, the default tmux server holding only
 `muxfinder-test-*` sessions; `e2e-local` with the focus-existing step passed twice, and once

@@ -59,47 +59,67 @@ public struct LaunchToken: Sendable, Hashable, Codable, CustomStringConvertible 
 
 /// Where the helper runs tmux.
 ///
-/// Encoded as an object with a `kind` field (`{"kind":"local"}`), so the ssh kind Phase 5 adds
-/// becomes one more case with its own fields, and a helper that does not know a kind refuses
+/// Encoded as an object with a `kind` field (`{"kind":"local"}`,
+/// `{"kind":"ssh","destination":"saturno-m4"}`), so a helper that does not know a kind refuses
 /// the request as unreadable instead of guessing.
 public enum LaunchHost: Sendable, Hashable, Codable {
   /// tmux on this Mac, run directly (never through ssh).
   case local
+  /// tmux on a remote Mac, reached with `/usr/bin/ssh -t` from the launch tab (PLAN.md D17).
+  /// The destination is a host name, `user@host` or an `~/.ssh/config` alias, valid per
+  /// `Validation.sshDestination(_:)` (checked when the request is written and when it is taken).
+  case ssh(destination: String)
 
   /// The `kind` values written to request files.
   private enum Kind: String, Codable {
     /// `LaunchHost.local`.
     case local
+    /// `LaunchHost.ssh(destination:)`.
+    case ssh
   }
 
   /// The JSON keys.
   private enum CodingKeys: String, CodingKey {
     /// The host kind.
     case kind
+    /// The SSH destination of `ssh`.
+    case destination
   }
 
-  /// Decodes `{"kind": …}`; an unknown kind is a decoding error.
+  /// Decodes `{"kind": …}` plus the kind's fields; an unknown kind is a decoding error.
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .local: self = .local
+    case .ssh: self = .ssh(destination: try container.decode(String.self, forKey: .destination))
     }
   }
 
-  /// Encodes `{"kind": …}`.
+  /// Encodes `{"kind": …}` plus the kind's fields.
   public func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
-    case .local: try container.encode(Kind.local, forKey: .kind)
+    case .local:
+      try container.encode(Kind.local, forKey: .kind)
+    case .ssh(let destination):
+      try container.encode(Kind.ssh, forKey: .kind)
+      try container.encode(destination, forKey: .destination)
     }
+  }
+
+  /// Whether tmux runs on another Mac, through ssh.
+  public var isRemote: Bool {
+    if case .ssh = self { return true }
+    return false
   }
 }
 
 /// What the app asks the helper to attach, written to a 0600 request file (PLAN.md D2).
 ///
-/// It holds ids, numbers and at most one path (the tmux override), never a session name or
-/// terminal content. The D4 expectations (`expectedServerPID`, `expectedServerStartTime`,
-/// `expectedSessionCreated`) are what the guard compares with tmux before attaching.
+/// It holds ids, numbers, at most one path (the tmux override) and, for a remote host, the SSH
+/// destination; never a session name or terminal content. The D4 expectations
+/// (`expectedServerPID`, `expectedServerStartTime`, `expectedSessionCreated`) are what the
+/// guard compares with tmux before attaching, locally or on the remote host (PLAN.md D17).
 public struct LaunchRequest: Sendable, Hashable, Codable {
   /// The format version this build writes and accepts.
   public static let currentFormatVersion = 1
@@ -124,6 +144,15 @@ public struct LaunchRequest: Sendable, Hashable, Codable {
   public var expectedServerStartTime: Int64
   /// The session's creation time seen by discovery (`#{session_created}`).
   public var expectedSessionCreated: Int64
+  /// Test mode only (PLAN.md D14 *Test mode*): how many seconds the helper waits before its
+  /// first child, with nothing running, so its launch tab stays open with no tmux connection
+  /// and no result (`e2e-remote`'s `still waiting` step). A helper not in test mode ignores
+  /// it. Absent (`nil`, not written to the file) in every request the app writes; when set it
+  /// must be within `testLaunchDelayRange`.
+  public var testLaunchDelaySeconds: Int? = nil
+
+  /// The values `testLaunchDelaySeconds` may take.
+  public static let testLaunchDelayRange = 1...120
 
   /// Creates a request from explicit values.
   public init(
@@ -172,16 +201,26 @@ public struct LaunchRequest: Sendable, Hashable, Codable {
   } // End of init(id:createdAt:host:tmuxPathOverride:session:)
 
   /// Whether every field is usable: the current format version, positive pid, non-negative
-  /// times and a valid override path (absolute, no control characters).
+  /// times, a test launch delay (if any) within `testLaunchDelayRange`, a valid override path
+  /// (absolute, no control characters) and, for an SSH host, a valid destination (not empty,
+  /// no whitespace or control characters, no leading `-`).
   public var isWellFormed: Bool {
     guard formatVersion == Self.currentFormatVersion, expectedServerPID > 0,
       expectedServerStartTime >= 0, expectedSessionCreated >= 0
     else { return false }
+    if let delay = testLaunchDelaySeconds, !Self.testLaunchDelayRange.contains(delay) {
+      return false
+    }
+    if case .ssh(let destination) = host,
+      (try? Validation.sshDestination(destination)) == nil
+    {
+      return false
+    }
     if let override = tmuxPathOverride {
       return (try? Validation.executablePath(override)) != nil
     }
     return true
-  }
+  } // End of var isWellFormed
 }
 
 /// What the helper reports when its child has ended (or could not start), written to a 0600

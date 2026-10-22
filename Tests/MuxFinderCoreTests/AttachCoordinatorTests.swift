@@ -496,15 +496,26 @@ struct AttachCoordinatorTests {
     #expect(await harness.iTerm2.calls.isEmpty)
   }
 
-  /// SSH hosts are not attached yet.
-  @Test func sshHostsAreUnsupported() async throws {
+  /// An SSH host whose destination is not valid (empty, option-like, whitespace, control
+  /// characters) is refused before discovery runs, anything is written or iTerm2 is asked.
+  @Test(arguments: [
+    ("", ValidationError.sshDestinationEmpty),
+    ("-oProxyCommand=touch /tmp/x", .sshDestinationContainsWhitespace),
+    ("-oProxyCommand=x", .sshDestinationStartsWithHyphen),
+    ("fixture host", .sshDestinationContainsWhitespace),
+    ("fixture\nhost", .sshDestinationContainsControlCharacter),
+  ])
+  func invalidDestinationsAreRefused(destination: String, error: ValidationError) async throws {
     let harness = Self.harness()
-    let host = HostConfig(displayName: "Remote", mode: .ssh, sshDestination: "fixture-host")
+    let host = HostConfig(
+      id: Support.host.id, displayName: "Remote", mode: .ssh, sshDestination: destination)
     let result = await harness.coordinator.attach(
       AttachTarget(host: host, session: harness.session))
-    #expect(result.failure == .unsupportedHost)
+    #expect(result.failure == .invalidDestination(error))
     #expect(harness.discovery.calls == 0)
-  }
+    #expect(harness.store.snapshot.written.isEmpty)
+    #expect(await harness.iTerm2.calls.isEmpty)
+  } // End of func invalidDestinationsAreRefused(destination:error:)
 
   /// A request that cannot be written ends the attach before iTerm2 is asked anything.
   @Test func requestWriteFailure() async throws {
@@ -694,10 +705,11 @@ struct AttachCoordinatorTests {
   /// Every failure has a kind and an English message; helper failures map as D14 says.
   @Test func failureDescriptions() {
     let failures: [AttachFailure] = [
-      .unsupportedHost, .sessionGone, .sessionChanged, .tmuxMissing, .discoveryFailed("probeError"),
-      .launchStore(.fileMissing), .iTerm2(.timedOut), .helperFailed(.checkTimedOut), .helperEnded,
-      .timedOut, .identityCheckFailed(nil), .identityMismatch, .cancelled,
-      .attachmentCheckFailed(.timedOut), .attachmentChanged,
+      .invalidDestination(.sshDestinationEmpty), .sessionGone, .sessionChanged, .tmuxMissing,
+      .discoveryFailed("probeError"), .launchStore(.fileMissing), .iTerm2(.timedOut),
+      .helperFailed(.checkTimedOut), .helperEnded, .timedOut, .waitLimitReached,
+      .identityCheckFailed(nil), .identityMismatch, .cancelled, .attachmentCheckFailed(.timedOut),
+      .attachmentChanged,
     ]
     #expect(Set(failures.map(\.kind)).count == failures.count)
     for failure in failures {

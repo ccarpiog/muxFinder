@@ -3,10 +3,24 @@ import Foundation
 import MuxFinderCore
 import os
 
-/// tmux for the e2e harness: the default server only (the one `muxfinder-launch` sees inside
-/// iTerm2), argv only, always `-u` (D12), `TMUX` and `TMUX_PANE` removed, a deadline on every
-/// call. The harness only ever names its own session, by id.
-struct TestTmux: Sendable {
+/// tmux as the e2e harness drives it, on this Mac (`TestTmux`) or on a remote host
+/// (`RemoteTestTmux`): the default server only, always `-u` (D12), a deadline on every call.
+/// The harness only ever names its own session, by id.
+protocol HarnessTmux: Sendable {
+  /// Where tmux runs, for the header: `at <path>` or `on <destination>`.
+  var location: String { get }
+  /// Whether tmux runs on this Mac (so pane processes can be checked with `kill(pid, 0)`).
+  var isLocal: Bool { get }
+  /// Runs `tmux -u <arguments>` with the implementation's deadline.
+  func run(_ arguments: [String]) async throws -> TestTmux.Output
+  /// `tmux -V`, or `nil`.
+  func version() async -> String?
+}
+
+/// tmux on this Mac for the e2e harness: the default server only (the one `muxfinder-launch`
+/// sees inside iTerm2), argv only, always `-u` (D12), `TMUX` and `TMUX_PANE` removed, a
+/// deadline on every call.
+struct TestTmux: HarnessTmux {
   /// The PLAN.md D5 search order, without the `command -v` fallback.
   static let candidates = [
     "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux",
@@ -49,8 +63,19 @@ struct TestTmux: Sendable {
     }
   } // End of struct Output
 
+  /// `at <path>`.
+  var location: String { "at \(path)" }
+
+  /// Always `true`.
+  var isLocal: Bool { true }
+
+  /// Runs `tmux -u <arguments>` with a 5 s deadline.
+  func run(_ arguments: [String]) async throws -> Output {
+    try await run(arguments, timeout: .seconds(5))
+  }
+
   /// Runs `tmux -u <arguments>`.
-  func run(_ arguments: [String], timeout: Duration = .seconds(5)) async throws -> Output {
+  func run(_ arguments: [String], timeout: Duration) async throws -> Output {
     let request = ProcessRequest(
       executableURL: URL(fileURLWithPath: path), arguments: ["-u"] + arguments,
       environment: environment, timeout: timeout)
@@ -68,6 +93,99 @@ struct TestTmux: Sendable {
     return output.lines.first
   }
 }
+
+/// tmux on a remote host for the e2e harness, over ssh (PLAN.md D3, D6):
+/// `/usr/bin/ssh <discovery's noninteractive options> -n -T -- <destination> <D3 string>`, the
+/// static `script` with every tmux argument POSIX single-quoted, and a 12 s deadline that kills
+/// the whole process group. On the remote host the script unsets `TMUX` and `TMUX_PANE`, locates
+/// tmux with the D5 rules and runs `tmux -u <arguments>`; it writes no file there itself.
+struct RemoteTestTmux: HarnessTmux {
+  /// The remote script: the tmux locator, then tmux with the script's positional parameters.
+  /// Exit 127 when no tmux is found.
+  static let script: StaticShellScript =
+    TmuxLocator.script
+      + #"""
+      unset TMUX TMUX_PANE
+      muxfinder_locate_tmux ''
+      if [ -z "$t" ]; then
+        printf 'tmux not found\n' >&2
+        exit 127
+      fi
+      exec "$t" -u "$@"
+
+      """#
+
+  /// The SSH destination, validated.
+  let destination: String
+  /// Runs ssh with its own process group and a hard deadline.
+  let runner = PosixSpawnProcessRunner()
+  /// This process's environment for local tools, without `TMUX` and `TMUX_PANE`.
+  let environment = DiscoveryProbe.localEnvironment(base: ProcessInfo.processInfo.environment)
+
+  /// `on <destination>`.
+  var location: String { "on \(destination)" }
+
+  /// Always `false`.
+  var isLocal: Bool { false }
+
+  /// Runs `tmux -u <arguments>` on the remote host. An ssh failure is exit status 255.
+  func run(_ arguments: [String]) async throws -> TestTmux.Output {
+    let command = ShellQuoting.remoteCommand(script: Self.script, args: arguments)
+    let request = ProcessRequest(
+      executableURL: DiscoveryProbe.sshURL,
+      arguments: DiscoveryProbe.sshOptions + ["-n", "-T", "--", destination, command],
+      environment: environment, timeout: DiscoveryProbe.defaultTimeout)
+    let result = try await runner.run(request)
+    return TestTmux.Output(
+      status: result.exitCode,
+      standardOutput: String(decoding: result.standardOutput, as: UTF8.self),
+      standardError: String(decoding: result.standardError, as: UTF8.self),
+      timedOut: result.timedOut)
+  } // End of func run(_:)
+
+  /// `tmux -V` on the remote host, or `nil` (also when ssh failed).
+  func version() async -> String? {
+    guard let output = try? await run(["-V"]), output.succeeded else { return nil }
+    return output.lines.first
+  }
+}
+
+/// The launch store of `e2e-remote`'s `still waiting` step: the real store, except that every
+/// request it writes asks for the helper's test-only launch delay
+/// (`LaunchRequest.testLaunchDelaySeconds`, PLAN.md D14 *Test mode*). The helper honors it
+/// only in test mode, which the run's setup turns on, and then waits that long before it would
+/// start ssh, so its launch tab stays open with no login and no tmux connection past the
+/// attach's 20 s budget.
+struct TestLaunchDelayStore: LaunchRequestStore {
+  /// The real store.
+  let base: LaunchStore
+  /// The delay every request asks for, in seconds (`LaunchRequest.testLaunchDelayRange`).
+  let seconds: Int
+
+  /// Writes `request` with the delay through the real store.
+  func writeRequest(_ request: LaunchRequest) throws(LaunchStoreError) {
+    var delayed = request
+    delayed.testLaunchDelaySeconds = seconds
+    try base.writeRequest(delayed)
+  }
+
+  /// The real store's `discardRequest(_:)`.
+  @discardableResult
+  func discardRequest(_ id: LaunchToken) throws(LaunchStoreError) -> Bool {
+    try base.discardRequest(id)
+  }
+
+  /// The real store's `takeResult(_:)`.
+  func takeResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? {
+    try base.takeResult(id)
+  }
+
+  /// The real store's `sweep()`.
+  @discardableResult
+  func sweep() throws(LaunchStoreError) -> Int {
+    try base.sweep()
+  }
+} // End of struct TestLaunchDelayStore
 
 /// Discovery that reports a wrong `session_created` for one session, so the coordinator writes
 /// a stale request and the helper's guard must refuse it (e2e step 8). Everything else is the
@@ -182,6 +300,19 @@ final class UpdateRecorder: Sendable {
   /// The state kinds of `launchID`'s updates, in order.
   func stateKinds(of launchID: LaunchToken) -> [String] {
     state.withLock { $0.updates.filter { $0.launchID == launchID }.map(\.state.kind) }
+  }
+
+  /// How many updates were recorded so far: a mark for `updates(after:)`.
+  var count: Int { state.withLock { $0.updates.count } }
+
+  /// The updates recorded after the first `mark` ones, oldest first.
+  func updates(after mark: Int) -> [AttachUpdate] {
+    state.withLock { Array($0.updates.dropFirst(mark)) }
+  }
+
+  /// When the launch tab `sessionID` was reported open, or `nil`.
+  func launchedAt(_ sessionID: String) -> ContinuousClock.Instant? {
+    state.withLock { $0.launchedAt[sessionID] }
   }
 
   /// How many `launched` states were reported for `key` so far.

@@ -13,6 +13,7 @@ let usage = """
   \(ITerm2Command.usage)
   \(AttachCommand.usage)
   \(E2ELocalCommand.usage)
+  \(E2ERemoteCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -35,6 +36,8 @@ case "detach":
   exit(await AttachCommand.runDetach(Array(arguments.dropFirst())))
 case "e2e-local":
   exit(await E2ELocalCommand.run(Array(arguments.dropFirst())))
+case "e2e-remote":
+  exit(await E2ERemoteCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

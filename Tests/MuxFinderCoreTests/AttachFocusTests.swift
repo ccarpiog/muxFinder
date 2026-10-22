@@ -551,8 +551,8 @@ struct AttachFocusTests {
     #expect(Self.commands(harness.iTerm2) == [ConnectionIdentity.command])
   } // End of func cancelledDuringTheWaitSendsNothing()
 
-  /// The attachments cannot be listed: discovery fails, iTerm2's listing fails, or the host is
-  /// not this Mac. Nothing is sent.
+  /// The attachments cannot be listed: discovery fails, iTerm2's listing fails, or the host's
+  /// SSH destination is not valid. Nothing is sent.
   @Test func checkFailures() async throws {
     let broken = Self.harness { script in script.listTmuxConnections = .init(.failure(.timedOut)) }
     let listing = await broken.coordinator.detach(session: broken.key, on: Support.host)
@@ -566,9 +566,11 @@ struct AttachFocusTests {
     #expect(await probe.fake.calls.isEmpty)
 
     let remote = Self.harness()
-    let ssh = HostConfig(displayName: "Remote", mode: .ssh, sshDestination: "fixture-host")
-    let unsupported = await remote.coordinator.detach(session: remote.key, on: ssh)
-    #expect(unsupported.checkFailure == .unsupportedHost)
+    let ssh = HostConfig(displayName: "Remote", mode: .ssh, sshDestination: "-oProxyCommand=x")
+    let invalid = await remote.coordinator.detach(session: remote.key, on: ssh)
+    #expect(invalid.outcome == .checkFailed)
+    #expect(invalid.checkFailure == .invalidDestination(.sshDestinationStartsWithHyphen))
     #expect(remote.discovery.calls == 0)
+    #expect(await remote.fake.calls.isEmpty)
   } // End of func checkFailures()
 }

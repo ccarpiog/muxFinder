@@ -1,11 +1,12 @@
-# Integration proof: local attach in iTerm2
+# Integration proof: attach in iTerm2, on this Mac and over SSH
 
 What muxFinder's attach path does against the real iTerm2 on this Mac (PLAN.md Phase 4, brief
 "Choose and validate the iTerm2 integration early", steps 1–4, and Phase 5a: focusing an
-existing attachment instead of opening another, and detaching a session by its key).
-Everything here was observed with `muxfinder-probe` from a shell inside iTerm2, on the default
-tmux server holding only `muxfinder-test-*` sessions. No terminal contents, window titles or
-user command lines are recorded; ids are shown only where their shape matters.
+existing attachment instead of opening another, and detaching a session by its key), and over
+SSH to Saturno (Phase 5b, brief step 5: *Over SSH* below). Everything here was observed with
+`muxfinder-probe` from a shell inside iTerm2, on default tmux servers holding only
+`muxfinder-test-*` sessions. No terminal contents, window titles or user command lines are
+recorded; ids are shown only where their shape matters.
 
 ## Versions
 
@@ -234,3 +235,118 @@ for the first tmux tab instead. Run 1's focus ended 51 ms after the call.
 Other timings from the passing runs: discovery 37–38 ms; a stale launch refused by the
 helper's guard and reported to the coordinator 139–156 ms after the attach call; cleanup
 26–30 ms (no launch tab was younger than 10 s by then, so it did not wait).
+
+## Over SSH (Phase 5b)
+
+`muxfinder-probe e2e-remote saturno-m4` runs the same kind of proof against Saturno's default
+tmux server (steps in `docs/TESTING.md`). Its launch tabs run
+`/usr/bin/ssh -t -o ConnectTimeout=10 -- saturno-m4 <D3 string>` (PLAN.md D17): interactive,
+key authentication through the user's agent, the remote script checking the session's identity
+and then `exec`ing `tmux -u -CC attach-session`. Saturno: tmux 3.8 at `/opt/homebrew/bin/tmux`,
+`uname -n` `Saturno-M4.local`, reached over Tailscale.
+
+### The `still waiting` step
+
+The step proves that a remote attach whose launch tab stays open with no connection past its
+20 s budget reports `stillWaiting`, never a success, and fails once the tab closes. It now
+attaches the test session through `saturno-m4` itself, with requests asking for the helper's
+60 s test launch delay (PLAN.md D14 *Test launch delay*), honored because the run turns the
+helper's test mode on: the helper prints one line and waits before it would start ssh, so the
+tab shows no password prompt and nothing logs in. After `stillWaiting` the test closes that tab
+(forced, once 10 s old) and the helper ends `interrupted` without having started ssh. This
+design has not had a real run yet: iTerm2's API stalled during run 3 below, and real runs wait
+for a person to restart iTerm2.
+
+All three runs below used the step's original design: an attach through
+`nonexistent-muxfinder@saturno-m4`, so ssh waited at a password prompt for a user that does
+not exist. The Phase 5b review replaced it, because it was a real authentication attempt on
+Saturno outside the run rules (only discovery and `muxfinder-test-*` sessions).
+
+### Runs of `e2e-remote`
+
+| Run | Result | Total | Steps (ms) |
+|---|---|---|---|
+| 1 | **exit 0: 11 of 11 PASS** | 75.9 s | 1: 3,464, 2: 716, 3: 2,194, 4: 5, 5: 10,608, 6: 2,899, 7: 1,480, 8: 9,075, 9: 14,139, 10: 28,351, 11: 2,098 |
+| 2 | **exit 0: 11 of 11 PASS** | 76.3 s | 1: 3,585, 2: 758, 3: 2,288, 4: 30, 5: 10,302, 6: 3,046, 7: 1,560, 8: 8,809, 9: 14,324, 10: 28,500, 11: 2,171 |
+| 3 | exit 1: 1–9 PASS, 10 and 11 FAIL | 92.2 s | 1: 3,607, 2: 763, 3: 2,256, 4: 7, 5: 10,760, 6: 3,052, 7: 1,578, 8: 8,890, 9: 14,280, 10: 11,597 (iTerm2's API stopped answering), 11: 34,450 |
+
+Run 3 was on the final tree (the closed-tab result wait raised to 10 s after run 2). Its step
+10 failed because iTerm2's API stopped answering right after that step's launch tab opened,
+not because of the remote path: the helper and its ssh were running as in runs 1 and 2, ssh at
+its password prompt. iTerm2's main thread was idle (no modal), and 64 GCD worker threads, the
+pool's limit, were each blocked in AppKit's `-[NSAnimation _runBlocking]` (*Verified facts*,
+Phase 5b). Cleanup killed the session and removed the marker, but could not close that launch
+tab; it waits for a person, as does restarting iTerm2.
+
+What the passing runs printed (the same in both, apart from timings, ids and pids):
+
+1. **create session** (over ssh, about 3.5 s for five tmux calls): `$0` with 2 windows and 3
+   panes running `sleep 600`.
+2. **discover** (over ssh, 0.72–0.76 s): `$0` with its name and 2 windows, the only session; the
+   remote `uname -n` `Saturno-M4.local`, which the index matches connections by.
+3. **attach:** the launch tab ran ssh to Saturno; confirmed on connection `tmux` (`requested →
+   launched → confirmed`, within the 20 s budget, so no `stillWaiting`), the first tmux tab
+   activated; the helper's argv digest showed 3 arguments as locally.
+4. **tabs and split:** 2 tabs carry connection `tmux` (tmux windows `0` and `1`), one with a
+   two-pane split (`vertical = false`), the other one pane; each tmux window opened as its own
+   new iTerm2 window; the launch tab stayed in its own window with `tmux_window_id` `"-1"`.
+5. **detach by session:** `detach(session:on:)` for the SSH host found the 1 attachment (1
+   mapped, 0 unmapped), checked its identity again and sent `detach-client` bound to the launch
+   tab: answered, the connection closed, ssh and the helper exited 0, the launch tab closed by
+   itself (10.6 and 10.3 s old), `$0` survived with 2 windows and 3 `sleep` panes.
+6. **reattach:** the same checks as steps 3 and 4 on a new launch tab and connection.
+7. **focus existing:** a second attach focused connection `tmux` (`requested → focused`, 1
+   mapped and nothing unmapped) and activated its tab; nothing opened: the run's 3 windows and 3
+   tabs, every other window and tab and the 1 connection unchanged, no launch tab, no argv
+   digest. It ended 0.76–0.81 s after the call, discovery over ssh taking most of it.
+8. **detach** (by connection): the same checks as step 5 (launch tab 10.4 and 10.3 s old).
+9. **stale guard:** revalidation refused the stale target without a tab; with discovery
+   reporting the same wrong `session_created`, the guard on Saturno refused it and ssh exited
+   65 (`sessionChanged`) 1.7 s after the call; no connection or tmux client appeared; the
+   helper kept the tab open with its explanation until the test closed it, 10.3 and 10.5 s old.
+10. **still waiting** (original design, see above): an attach through
+    `nonexistent-muxfinder@saturno-m4` (revalidated against
+    `saturno-m4`): ssh waited at its password prompt; no connection appeared; the attach
+    published `stillWaiting` 21.0 s after the call (the launch tab 20.3 and 20.2 s old),
+    never `confirmed`. The test closed that tab (forced); the attach then ended
+    `helperFailed(childSignaled)` (run 2: exit 129, SIGHUP) 5.2 s after the close, and `$0`
+    survived unattached.
+11. **cleanup** (about 2.1 s, mostly ssh): killed `$0`; Saturno's server exited with its last
+    session (`noServer` afterwards); the marker removed; nothing of the run left.
+
+### Observed behavior over SSH
+
+- **Native integration:** iTerm2 treats `tmux -u -CC` arriving through `ssh -t` like a local
+  one: the connection is named `tmux` and owned by the launch tab's session, the windows,
+  tabs and split tree look the same, and `detach-client` is a clean detach (ssh exits 0 with
+  the remote tmux client; the helper records success).
+- **Identity:** the D16 identity line through the remote control connection carried
+  `#{host}` `Saturno-M4.local`, byte-identical to the remote `uname -n` from discovery, and
+  Saturno's server pid and start time; the socket path `/private/tmp/tmux-501/default` is the
+  same path as this Mac's default socket, so the node name is what keeps the two apart.
+- **Timings** (from the attach call; discovery over ssh is most of the difference to the local
+  path):
+
+  | Step | Run 1, step 3 | Run 1, step 6 | Run 2, step 3 | Run 2, step 6 |
+  |---|---|---|---|---|
+  | Revalidated by discovery | 712 ms | 710 ms | 749 ms | 757 ms |
+  | Existing attachments checked | 713 ms | 710 ms | 751 ms | 758 ms |
+  | Launch tab opened (`launched`) | 848 ms | 843 ms | 883 ms | 878 ms |
+  | Connection listed | 1,693 ms | 1,685 ms | 1,758 ms | 1,718 ms |
+  | Identity confirmed (`confirmed`) | 1,772 ms | 1,764 ms | 1,839 ms | 1,785 ms |
+  | Tab activated | 2,193 ms | 2,188 ms | 2,288 ms | 2,290 ms |
+
+  The connection appears about 0.85 s after the tab (ssh connecting and authenticating with
+  the agent's key, then the remote check), and activation waited about 0.4 s for the first
+  tmux tab.
+- **ssh waiting for a password** (the step's original design): with no key for the user, ssh
+  asked for a password in the
+  launch tab and the attach reported `stillWaiting` once its 20 s ran out, not before and never
+  as a success. Closing that tab (forced, by its session id) removed it from `ListSessions` at
+  once, but ssh ended only about 5 s later (by SIGHUP), so the attach learned the helper's
+  result 5.2 s after the close; the closed-tab result wait is now 10 s (D17). Saturno closed
+  the unauthenticated connection on its own a few minutes later; ssh, still reading the
+  password prompt, only notices that when the prompt ends.
+- **Dialogs:** none in runs 1 and 2, nor on the forced closes. In run 3 iTerm2's main thread
+  was not in a modal run loop when its API stopped answering (see above); the screen was not
+  looked at, so a window-level sheet cannot be ruled out.
