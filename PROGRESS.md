@@ -23,8 +23,9 @@ file.
 plus review-fix worker). Status: BLOCKED on iTerm2.** The code, its one review and the review
 fixes are done, hermetically verified and committed (see *Git state*). What is still missing is
 the final-tree real runs: iTerm2's API stopped answering during the third real `e2e-remote`
-run, and `muxfinder-probe iterm2 status` has exited 75 (`timedOut`) ever since, last checked
-2026-10-22 ~12:00. Under the run rules that means stop and report, never script the UI.
+run. Since then `muxfinder-probe iterm2 status` has either exited 75 (`timedOut`) or not
+answered at all, last checked 2026-10-22 11:53. Under the run rules that means stop and
+report, never script the UI.
 
 - What was built: the helper runs `/usr/bin/ssh -t -o ConnectTimeout=10 -- <dest> <D3 string>`
   (no BatchMode). The remote side runs the D4 guard check and then `exec`s tmux. ssh's exit
@@ -283,8 +284,9 @@ run, and `muxfinder-probe iterm2 status` has exited 75 (`timedOut`) ever since, 
 - `swift build -Xswiftc -warnings-as-errors` → exit 0.
 - `swift test` → exit 0, 427 tests in 44 suites.
 - `swift format lint -r Sources Tests` → exit 0, no output.
-- `.build/debug/muxfinder-probe iterm2 status` → exit 75 (`timedOut`) at ~11:20 and again at
-  ~12:00, so iTerm2's API is wedged and no real run was possible.
+- `.build/debug/muxfinder-probe iterm2 status` → exit 75 (`timedOut`) at ~11:15. A second
+  check, started at ~11:45, had not answered after several minutes and was stopped at 11:53.
+  iTerm2's API is wedged, so no real run was possible.
 - Worker-reported checks on the pre-review tree: `e2e-remote saturno-m4` passed 11/11 twice,
   `e2e-local` passed 10/10, and run 3 failed at step 10 when iTerm2 stalled. After every run,
   Saturno and Neptuno showed `noServer`, the launch directory was empty with no marker, and no
