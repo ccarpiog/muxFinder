@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T16:13:50Z",
+  "updated": "2026-10-22T16:17:17Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -134,22 +134,23 @@
       "title": "Session operations: create, move here, disappeared sessions",
       "status": "in_progress",
       "risk": "high",
-      "summary": "Creates sessions, moves attached sessions here and handles vanished ones; split into 6a (create, vanished) and 6b (move here).",
+      "summary": "Creates sessions, moves attached sessions here and handles vanished ones; split into 6a (done) and 6b (Move here, queued).",
       "started": "2026-10-22T13:03:56Z",
       "status_since": "2026-10-22T13:03:56Z"
     },
     {
       "id": "6a",
       "title": "New session and vanished sessions",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
       "parent": "6",
-      "summary": "Creates sessions safely and reports vanished ones; reviewed and fixed, one final-tree e2e-remote run on Saturno still owed.",
+      "summary": "Creates sessions safely and reports vanished ones; e2e-local 15/15 and e2e-remote 16/16 passed on the final tree.",
       "commit": "0210999",
-      "review": "docs/reviews/phase-6a.md",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-6a.md",
+      "narrative": "docs/progress-archive/6a.md",
       "added": "2026-10-22T13:03:56Z",
       "started": "2026-10-22T13:03:56Z",
-      "status_since": "2026-10-22T13:03:56Z"
+      "status_since": "2026-10-22T16:17:17Z"
     },
     {
       "id": "6b",
