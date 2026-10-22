@@ -175,7 +175,8 @@ answers nothing (`.build/debug/muxfinder-probe iterm2 status` → exit 75 `timed
 
 - Phase 1: `bb086c9`, pushed. Phase 2: `c1ee43d`, pushed. Phase 3a: `745e36e`, pushed.
   Phase 3b: `0d3b65f`, pushed.
-- Phase 4a committed on `main` as `1f5a3be` (parent `a70e94c`), pushed to `origin/main`
-  (`a70e94c..1f5a3be`, success). This SHA/push record is a follow-up checkpoint commit on top;
+- Phase 4a: `1f5a3be`, pushed.
+- Phase 4b committed on `main` as `f888a2c` (parent `bc67e7b`), pushed to `origin/main`
+  (`bc67e7b..f888a2c`, success). This SHA/push record is a follow-up checkpoint commit on top;
   tree clean after it. From 3b on, commit messages carry no AI attribution trailer
   (user's global rule); earlier pushed commits are left as they are.
