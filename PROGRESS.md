@@ -299,5 +299,6 @@ run, and `muxfinder-probe iterm2 status` has exited 75 (`timedOut`) ever since, 
 - Phase 4c: `e631641`, pushed.
 - Phase 5a: `5b47e14`, pushed. From 3b on, commit messages carry no AI attribution trailer
   (user's global rule); earlier pushed commits are left as they are.
-- Phase 5b (code, review and fixes; phase still open): commit pending, recorded by the
-  follow-up checkpoint commit.
+- Phase 5b (code, review and fixes; phase still open): `6b1aedc` (parent `9a81b33`), pushed to
+  `origin/main` (`9a81b33..6b1aedc`, success). This SHA/push record is a follow-up checkpoint
+  commit on top; tree clean after it.
