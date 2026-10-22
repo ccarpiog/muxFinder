@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T20:40:02Z",
+  "updated": "2026-10-22T20:45:58Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -132,11 +132,11 @@
     {
       "id": "6",
       "title": "Session operations: create, move here, disappeared sessions",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Creates sessions, moves attached sessions here and handles vanished ones; split into 6a (done) and 6b (awaiting real runs).",
+      "summary": "Creates sessions, moves attached sessions here and handles vanished ones; split into 6a and 6b, both done.",
       "started": "2026-10-22T13:03:56Z",
-      "status_since": "2026-10-22T13:03:56Z"
+      "status_since": "2026-10-22T20:45:58Z"
     },
     {
       "id": "6a",
@@ -155,13 +155,16 @@
     {
       "id": "6b",
       "title": "Move here",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
       "parent": "6",
-      "summary": "Move here is built, reviewed and fixed; awaiting its real e2e-remote and final-tree e2e-local runs (iTerm2 thread gate).",
+      "summary": "Move here detaches other clients only on explicit confirmation; e2e-remote 17/17 and e2e-local 16/16 passed on the final tree.",
+      "commit": "ce26808",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-6b.md",
+      "narrative": "docs/progress-archive/6b.md",
       "added": "2026-10-22T13:03:56Z",
       "started": "2026-10-22T17:17:37Z",
-      "status_since": "2026-10-22T17:17:37Z"
+      "status_since": "2026-10-22T20:45:58Z"
     },
     {
       "id": "7",
@@ -228,6 +231,7 @@
       "summary": "Settings window with host editor, launch at login, diagnostics and fix-its; changed or unusable host files never overwritten silently.",
       "review": "Codex, ship-with-fixes, docs/reviews/phase-9a.md",
       "narrative": "docs/progress-archive/9a.md",
+      "commit": "ac1b9ee",
       "added": "2026-10-22T19:36:32Z",
       "started": "2026-10-22T19:36:32Z",
       "status_since": "2026-10-22T20:40:02Z"

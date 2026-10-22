@@ -94,7 +94,7 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`, with
   `TMUX_TMPDIR` unset, after `swift build`: `swift run muxfinder-probe` does not rebuild the
   `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (16 steps, about
-  63 s) and `swift run muxfinder-probe e2e-remote saturno-m4` (17 steps, about 120 s; creates
+  65 s) and `swift run muxfinder-probe e2e-remote saturno-m4` (17 steps, about 123 s; creates
   and kills only its own `muxfinder-test-*` sessions on Saturno over ssh and writes no file
   there; its `still waiting` step makes no login: the helper's test launch delay keeps that
   tab waiting before ssh, then the step closes the tab itself), both asking only their own

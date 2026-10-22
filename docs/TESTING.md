@@ -827,7 +827,7 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   focus step opens and ends nothing. The move-here step's plain control client attaches only
   to the run's session, by its exact name; on any failure the step closes its input and then
   ends its process group (SIGTERM, SIGKILL) before cleanup, which does the same first. A full
-  passing run takes about 63 s.
+  passing run takes about 65 s.
 - `swift run muxfinder-probe e2e-remote saturno-m4` — the integration proof over SSH (PLAN.md
   Phase 5b, D17); only `saturno-m4` is authorized for it. Its tmux calls on Saturno (create,
   split, list, display, kill) go through `/usr/bin/ssh` with discovery's noninteractive
@@ -874,9 +874,8 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   a signal or the time limit; exit 0 only when all 17 pass, 128 + n after signal n. Needs key
   authentication to the destination (setup fails when `tmux -V` over ssh in `BatchMode` does
   not answer). Every ssh login it makes is the run's own, with key authentication. A passing
-  run takes about 120 s (an estimate until the first Phase 6b run: 105 s before the move-here
-  step, which is about 15 s), 28.5 s of it the still-waiting step and 14 s the new-session
-  step.
+  run takes about 123 s, 28.7 s of it the still-waiting step, 16.6 s the move-here step and
+  14 s the new-session step.
 - `swift run muxfinder-probe attach --local | --ssh <destination> --session '<$id>'` — one
   real attach of a session of the default server of this Mac or of a remote host (the launch
   tab runs `ssh -t`, so any password prompt appears there), the way the app does it; prints
