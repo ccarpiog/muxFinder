@@ -39,6 +39,10 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
   case fileUnsafe(FileProblem)
   /// The file is not valid JSON for its type, is for another id, or has unusable values.
   case fileMalformed
+  /// The request is well formed but of another kind than the helper mode taking it asked for
+  /// (PLAN.md D24): an ssh setup request given to `attach`, or the other way round. It was
+  /// deleted like any refused request.
+  case requestKindMismatch(expected: LaunchRequestKind, found: LaunchRequestKind)
   /// A system call failed with this errno.
   case systemCallFailed(name: String, errno: Int32)
 
@@ -56,6 +60,9 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
     case .fileAlreadyExists: return "A launch request with this id already exists."
     case .fileUnsafe(let problem): return "The launch file is unsafe (\(problem.rawValue))."
     case .fileMalformed: return "The launch file is malformed."
+    case .requestKindMismatch(let expected, let found):
+      return "The launch request is for the helper's \(found.helperMode) mode, not "
+        + "\(expected.helperMode)."
     case .systemCallFailed(let name, let code):
       return "\(name) failed: \(String(cString: strerror(code)))."
     }
@@ -69,7 +76,8 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
       .directoryHasExtendedACL:
       return .launchDirectoryUnusable
     case .fileExpired: return .requestExpired
-    case .fileAlreadyExists, .fileUnsafe, .fileMalformed, .systemCallFailed:
+    case .fileAlreadyExists, .fileUnsafe, .fileMalformed, .requestKindMismatch,
+      .systemCallFailed:
       return .requestUnreadable
     }
   }
@@ -257,19 +265,57 @@ public struct LaunchStore: Sendable {
     }
   } // End of func writeRequest(_:)
 
-  /// Takes the request for `id`: deletes the file and returns its contents if it is safe,
-  /// well formed, for `id` and not expired. Never creates the directory.
+  /// Writes the ssh setup `request` (PLAN.md D24) atomically as `<id>.request.json` (0600),
+  /// creating the directory if needed, exactly as an attach request is written. A request that
+  /// is not well formed (its destination fails `Validation.sshDestination(_:)`) is refused as
+  /// `fileMalformed` before anything is created. Refuses an id that already has a request.
+  public func writeRequest(_ request: SSHSetupRequest) throws(LaunchStoreError) {
+    guard request.isWellFormed else { throw .fileMalformed }
+    let data = try Self.encode(request)
+    try withDirectory(create: true) { (directory) throws(LaunchStoreError) in
+      try Self.writeFile(
+        data,
+        named: Self.requestFileName(for: request.id),
+        exclusive: true,
+        in: directory
+      )
+    }
+  } // End of func writeRequest(_:) for ssh setup
+
+  /// Takes the attach request for `id` (see `takeRequestFile(_:)`). A well-formed request of
+  /// another kind is refused as `requestKindMismatch`, and is gone like any refused request.
   public func takeRequest(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchRequest {
+    let file = try takeRequestFile(id)
+    guard case .attach(let request) = file else {
+      throw .requestKindMismatch(expected: .attach, found: file.kind)
+    }
+    return request
+  }
+
+  /// Takes the ssh setup request for `id` (see `takeRequestFile(_:)`). A well-formed request of
+  /// another kind (an attach request) is refused as `requestKindMismatch`, and is gone like any
+  /// refused request.
+  public func takeSSHSetupRequest(_ id: LaunchToken) throws(LaunchStoreError) -> SSHSetupRequest {
+    let file = try takeRequestFile(id)
+    guard case .sshSetup(let request) = file else {
+      throw .requestKindMismatch(expected: .sshSetup, found: file.kind)
+    }
+    return request
+  }
+
+  /// Takes the request for `id`, whatever its kind: deletes the file and returns its contents
+  /// if it is safe, well formed for its kind (`LaunchRequestFile.decode(_:)`), for `id` and not
+  /// expired. Never creates the directory.
+  public func takeRequestFile(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchRequestFile {
     let data = try withDirectory(create: false) { (directory) throws(LaunchStoreError) in
       try Self.takeFile(named: Self.requestFileName(for: id), in: directory, owner: owner)
     }
-    guard let request = try? LaunchCoding.decoder().decode(LaunchRequest.self, from: data),
-      request.id == id, request.isWellFormed
+    guard let file = try? LaunchRequestFile.decode(data), file.id == id, file.isWellFormed
     else { throw .fileMalformed }
-    let age = now().timeIntervalSince(request.createdAt)
+    let age = now().timeIntervalSince(file.createdAt)
     guard age <= timeToLive, age >= -Self.futureTolerance else { throw .fileExpired }
-    return request
-  } // End of func takeRequest(_:)
+    return file
+  } // End of func takeRequestFile(_:)
 
   /// Deletes the request for `id` if it is still there (for example after iTerm2 refused to
   /// open the tab). Returns whether a file was removed.

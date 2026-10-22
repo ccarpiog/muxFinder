@@ -155,11 +155,19 @@ public struct StandardLaunchTerminal: LaunchTerminal {
   }
 }
 
-/// `muxfinder-launch attach <launch id>`: the helper iTerm2 runs in a launch tab (PLAN.md D2,
-/// D14).
+/// `muxfinder-launch attach <launch id>` and `muxfinder-launch ssh-setup <launch id>`: the
+/// helper iTerm2 runs in a launch tab (PLAN.md D2, D14, D24).
 ///
-/// It takes (reads and deletes) the request. For a local host it runs two children (PLAN.md
-/// D14):
+/// Each mode takes (reads and deletes) only a request of its own kind (`LaunchRequestKind`); a
+/// well-formed request of the other kind is refused as `requestUnreadable` (72) and runs
+/// nothing.
+///
+/// `ssh-setup` ("Set up SSH in iTerm2…", PLAN.md D24) runs one child on the tab's terminal,
+/// plain interactive `/usr/bin/ssh -- <destination>` (`SSHSetup`), its standard error relayed
+/// so a failure is classified, and then finishes exactly like an attach: the result, the
+/// explanation (worded for ssh), the wait for Return and the hold below.
+///
+/// `attach` takes the request. For a local host it runs two children (PLAN.md D14):
 /// 1. the **check**, `LaunchGuard` with piped output, its own process group and a hard
 ///    deadline (`checkTimeout`); its stderr (tmux's sanitized error line) is copied to the tab
 ///    as printable ASCII;
@@ -197,7 +205,7 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 ///   `~/Library/Application Support/muxFinder/launch`. A relative or empty value is refused as
 ///   `launchDirectoryUnusable`.
 /// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`, written again
-///   with the attach child just before it starts) and honor a
+///   with the attach child, or the ssh setup's ssh child, just before it starts) and honor a
 ///   request's `testLaunchDelaySeconds` (`testLaunchDelay(_:child:)`); the `test-mode` marker
 ///   file in the launch directory does the same. Outside test mode that field is ignored.
 /// - `MUXFINDER_LAUNCH_NO_WAIT=1`: never wait for Return nor hold the tab open
@@ -215,6 +223,16 @@ public struct LaunchHelper: Sendable {
     case help
     /// `attach <launch id>`.
     case attach(LaunchToken)
+    /// `ssh-setup <launch id>` (PLAN.md D24).
+    case sshSetup(LaunchToken)
+  }
+
+  /// What a launch is for, which decides the wording of its explanation.
+  enum Purpose: Equatable {
+    /// Attaching (or moving here) a session on this host.
+    case attach(LaunchHost)
+    /// "Set up SSH in iTerm2…": plain interactive ssh (PLAN.md D24).
+    case sshSetup
   }
 
   /// Overrides the launch directory (absolute path).
@@ -224,7 +242,7 @@ public struct LaunchHelper: Sendable {
   /// Prefix of the helper's own variables, removed from the child's environment.
   static let ownVariablePrefix = "MUXFINDER_LAUNCH_"
   /// The usage line.
-  public static let usage = "usage: muxfinder-launch attach <launch id>"
+  public static let usage = "usage: muxfinder-launch attach|ssh-setup <launch id>"
   /// The production `minimumLifetime`. iTerm2 3.7.6 warns about sessions that end within 3 s of
   /// starting (its `shortLivedSessionDuration` default); 10 s matches the attach coordinator's
   /// minimum launch tab age (PLAN.md D15).
@@ -319,15 +337,17 @@ public struct LaunchHelper: Sendable {
   }
 
   /// Parses argv (argv[0] first). Returns `nil` for anything but `help` or exactly
-  /// `attach <canonical launch id>`.
+  /// `attach <canonical launch id>` or `ssh-setup <canonical launch id>`.
   static func parse(_ argv: [[UInt8]]) -> Command? {
     let words = argv.dropFirst().map { String(decoding: $0, as: UTF8.self) }
     if words.count == 1, ["help", "-h", "--help"].contains(words[0]) { return .help }
-    guard words.count == 2, words[0] == "attach", let id = LaunchToken(words[1]) else {
-      return nil
+    guard words.count == 2, let id = LaunchToken(words[1]) else { return nil }
+    switch words[0] {
+    case LaunchRequestKind.attach.helperMode: return .attach(id)
+    case LaunchRequestKind.sshSetup.helperMode: return .sshSetup(id)
+    default: return nil
     }
-    return .attach(id)
-  }
+  } // End of static func parse(_:)
 
   /// Runs the helper for `arguments` (argv[0] first) and returns its exit status.
   public func run(arguments: [String]) async -> Int32 {
@@ -344,6 +364,8 @@ public struct LaunchHelper: Sendable {
       return LaunchExitStatus.success
     case .attach(let id):
       return await attach(id, startedAt: startedAt, argvDigest: digest)
+    case .sshSetup(let id):
+      return await sshSetup(id, startedAt: startedAt, argvDigest: digest)
     case nil:
       await log.record(
         .launch,
@@ -351,7 +373,7 @@ public struct LaunchHelper: Sendable {
         detail: "Usage error (\(max(0, argv.count - 1)) arguments)."
       )
       terminal.write(Self.usage + "\n")
-      await explain(.usage, host: .local, terminalHungUp: false)
+      await explain(.usage, purpose: .attach(.local), terminalHungUp: false)
       await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: false)
       return LaunchFailure.usage.exitStatus
     }
@@ -539,6 +561,70 @@ public struct LaunchHelper: Sendable {
     )
   } // End of func attach(_:startedAt:argvDigest:)
 
+  /// "Set up SSH in iTerm2…" (PLAN.md D24): takes the ssh setup request for `id` (an attach
+  /// request is refused as `requestUnreadable`, 72, and runs nothing), then runs plain
+  /// interactive `/usr/bin/ssh -- <destination>` on the tab's terminal with its standard error
+  /// relayed, and finishes like an attach: the result first, the explanation worded for ssh, the
+  /// wait for Return after a failure and the hold until the helper is `minimumLifetime` old, on
+  /// every way out. In test mode, `argvDigest` is written again with the ssh child just before
+  /// it starts.
+  func sshSetup(
+    _ id: LaunchToken,
+    startedAt: Date,
+    argvDigest: LaunchArgvDigest? = nil
+  ) async -> Int32 {
+    guard let store else {
+      return await finish(
+        id, hostID: nil, purpose: .sshSetup, failure: .launchDirectoryUnusable,
+        child: ChildRecord(), startedAt: startedAt, resultStore: nil)
+    }
+    let request: SSHSetupRequest
+    do throws(LaunchStoreError) {
+      request = try store.takeSSHSetupRequest(id)
+    } catch {
+      let failure = error.launchFailure
+      await log.record(.launch, outcome: .failure, detail: "SSH setup request refused: \(error)")
+      return await finish(
+        id, hostID: nil, purpose: .sshSetup, failure: failure, child: ChildRecord(),
+        startedAt: startedAt, resultStore: failure == .launchDirectoryUnusable ? nil : store)
+    }
+    _ = try? store.sweep()
+    // `takeSSHSetupRequest` accepted only a valid destination; refuse anything else all the
+    // same, before any process starts.
+    guard let arguments = SSHSetup.sshArguments(for: request) else {
+      return await finish(
+        id, hostID: request.hostID, purpose: .sshSetup, failure: .requestUnreadable,
+        child: ChildRecord(), startedAt: startedAt, resultStore: store)
+    }
+    if let argvDigest {
+      await recordAttachChild(
+        in: argvDigest, executable: SSHSetup.sshPath, arguments: arguments,
+        detachesOtherClients: false)
+    }
+    var child = ChildRecord(startedAt: now())
+    let outcome: LaunchChildOutcome
+    do throws(ProcessRunnerError) {
+      outcome = try await childRunner.run(
+        executable: SSHSetup.sshPath,
+        arguments: arguments,
+        environment: childEnvironment,
+        relaysStandardError: true
+      )
+    } catch {
+      return await finish(
+        id, hostID: request.hostID, purpose: .sshSetup,
+        failure: .spawnFailed(errno: Self.errorNumber(of: error)), child: child,
+        startedAt: startedAt, resultStore: store)
+    }
+    child.termination = outcome.termination
+    child.terminalHungUp = outcome.terminalHungUp
+    let failure = SSHSetup.failure(
+      for: outcome.termination, sshStandardError: outcome.capturedStandardError)
+    return await finish(
+      id, hostID: request.hostID, purpose: .sshSetup, failure: failure, child: child,
+      startedAt: startedAt, resultStore: store)
+  } // End of func sshSetup(_:startedAt:argvDigest:)
+
   /// The test-only launch delay (PLAN.md D14 *Test mode*): in test mode, a request's
   /// `testLaunchDelaySeconds` keeps the helper waiting that long before its first child, with
   /// no check, tmux or ssh running, so the coordinator sees a launch tab that is open with no
@@ -638,11 +724,28 @@ public struct LaunchHelper: Sendable {
     }
   }
 
-  /// Writes the result (when `resultStore` is set), logs, explains a failure, holds the tab
-  /// open until the helper is `minimumLifetime` old, and returns the exit status.
+  /// Finishes an attach of `request` (`nil` when none was taken), worded for its host: see
+  /// `finish(_:hostID:purpose:failure:child:startedAt:resultStore:)`.
   func finish(
     _ id: LaunchToken,
     request: LaunchRequest?,
+    failure: LaunchFailure?,
+    child: ChildRecord,
+    startedAt: Date,
+    resultStore: LaunchStore?
+  ) async -> Int32 {
+    await finish(
+      id, hostID: request?.hostID, purpose: .attach(request?.host ?? .local), failure: failure,
+      child: child, startedAt: startedAt, resultStore: resultStore)
+  } // End of func finish(_:request:failure:child:startedAt:resultStore:)
+
+  /// Writes the result (when `resultStore` is set), logs, explains a failure (worded for
+  /// `purpose`), holds the tab open until the helper is `minimumLifetime` old, and returns the
+  /// exit status. Every way a launch ends goes through here, so the hold is never skipped.
+  func finish(
+    _ id: LaunchToken,
+    hostID configuredHostID: UUID?,
+    purpose: Purpose,
     failure: LaunchFailure?,
     child: ChildRecord,
     startedAt: Date,
@@ -657,7 +760,7 @@ public struct LaunchHelper: Sendable {
       childTermination: child.termination,
       failure: failure
     )
-    let hostID = request?.hostID.uuidString
+    let hostID = configuredHostID?.uuidString
     if let resultStore {
       do throws(LaunchStoreError) {
         try resultStore.writeResult(result)
@@ -679,28 +782,34 @@ public struct LaunchHelper: Sendable {
         durationMs: durationMs,
         detail: "Launch failed: \(failure.kind), exit status \(result.exitStatus)."
       )
-      await explain(failure, host: request?.host ?? .local, terminalHungUp: child.terminalHungUp)
+      await explain(failure, purpose: purpose, terminalHungUp: child.terminalHungUp)
     } else {
       await log.record(
         .launch,
         outcome: .success,
         hostID: hostID,
         durationMs: durationMs,
-        detail: "tmux ended normally."
+        detail: purpose == .sshSetup ? "ssh ended normally." : "tmux ended normally."
       )
     }
     await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: child.terminalHungUp)
     return result.exitStatus
-  } // End of func finish(_:request:failure:child:startedAt:resultStore:)
+  } // End of func finish(_:hostID:purpose:failure:child:startedAt:resultStore:)
 
-  /// Prints the explanation (worded for `host`) and waits for Return when someone can see it.
-  func explain(_ failure: LaunchFailure, host: LaunchHost, terminalHungUp: Bool) async {
-    terminal.write("\nmuxFinder: \(failure.explanation(for: host))\n")
+  /// Prints the explanation (worded for `purpose`: an attach on its host, or ssh setup) and
+  /// waits for Return when someone can see it.
+  func explain(_ failure: LaunchFailure, purpose: Purpose, terminalHungUp: Bool) async {
+    let text: String
+    switch purpose {
+    case .attach(let host): text = failure.explanation(for: host)
+    case .sshSetup: text = failure.sshSetupExplanation
+    }
+    terminal.write("\nmuxFinder: \(text)\n")
     guard terminal.isInteractive, !terminalHungUp else { return }
     terminal.write("\nPress Return to close.")
     await terminal.waitForReturn()
     terminal.write("\n")
-  }
+  } // End of func explain(_:purpose:terminalHungUp:)
 
   /// When someone can see the tab (an interactive terminal that was not hung up), keeps the
   /// helper running until it is `minimumLifetime` old, counted from `startedAt`, so its tab

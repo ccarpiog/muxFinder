@@ -12,9 +12,9 @@ import os
 ///   then the engine's cadence. Nothing contacts iTerm2 at start.
 /// - **Popover:** `popoverDidOpen()` / `popoverDidClose()` tell the engine, which refreshes at
 ///   once and every 15 s while the popover is visible and runs attachment checks only then
-///   (D20); those checks are the only reason iTerm2 is contacted, and its cookie requested,
-///   in this phase. Closing cancels the check in progress, so no iTerm2 contact starts once
-///   the popover has closed.
+///   (D20); those checks are the only reason the popover contacts iTerm2, and requests its
+///   cookie, on its own (a click on "Set up SSH in iTerm2 first" does too, D24). Closing
+///   cancels the check in progress, so no iTerm2 contact starts once the popover has closed.
 /// - **Requests in order:** every engine request goes through one queue read by one task, so
 ///   an open followed by a close is never applied the other way round. Once `shutdown()` has
 ///   begun, requests still queued are dropped.
@@ -25,6 +25,12 @@ import os
 ///   Settings window for `settings` through `AppEnvironment.presentSettings`. A list saved there
 ///   becomes the engine's list (`RefreshCoordinator.setHosts(_:)`, through the same queue) and
 ///   the popover's load status turns `saved`.
+/// - **Onboarding** (PLAN.md D24): when the list loads as `notSavedYet` at launch (never when
+///   `saved`; an unusable file keeps Settings' banner), `start()` prepares `onboarding` from
+///   that load and shows its window through `AppEnvironment.presentOnboarding`. A list saved
+///   there is handled like one saved in Settings. Showing it contacts nothing.
+/// - **Set up SSH in iTerm2…** (PLAN.md D24): a host whose last check needed a sign-in or had a
+///   host key problem offers it in the popover (`setUpSSH(hostID:)`), through `sshSetup`.
 /// - **Fix-its:** an error with a fix-it (`FixIt`) shows its button; `perform(_:)` opens the
 ///   System Settings pane through `AppEnvironment.openURL` or shows the explanation.
 /// - **Placeholders:** opening a session and New session belong to Phase 10. Here they only
@@ -98,6 +104,10 @@ public final class AppModel {
   public let isPreview: Bool
   /// The Settings window's model (inert for a fixture or without settings seams).
   public let settings: SettingsModel
+  /// The onboarding window's model (inert for a fixture or without settings seams).
+  public let onboarding: OnboardingModel
+  /// The popover's "Set up SSH in iTerm2…" (no action for a fixture or without settings seams).
+  public let sshSetup: SSHSetupActions
 
   /// The dependencies; `nil` for a fixture.
   @ObservationIgnored private let environment: AppEnvironment?
@@ -128,9 +138,18 @@ public final class AppModel {
     settings =
       environment.settings.map { SettingsModel(environment: $0) }
       ?? SettingsModel(fixture: SettingsFixtures.blank)
+    onboarding =
+      environment.settings.map {
+        OnboardingModel(
+          environment: OnboardingEnvironment(
+            store: $0.store, sshSetup: $0.sshSetup, diagnostics: $0.diagnostics))
+      } ?? OnboardingModel(fixture: OnboardingFixtures.blank)
+    sshSetup = SSHSetupActions(opener: environment.settings?.sshSetup)
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     settings.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
-  }
+    onboarding.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
+    onboarding.onOpenSettings = { [weak self] in self?.openSettings() }
+  } // End of init(environment:)
 
   /// A model that renders `fixture` and never runs anything.
   public init(fixture: PreviewFixture) {
@@ -144,6 +163,8 @@ public final class AppModel {
     activities = fixture.activities
     shownExplanation = fixture.shownExplanation
     settings = SettingsModel(fixture: SettingsFixtures.blank)
+    onboarding = OnboardingModel(fixture: OnboardingFixtures.blank)
+    sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     commandSink.finish()
   } // End of init(fixture:)
@@ -158,7 +179,8 @@ public final class AppModel {
       query: searchText,
       activities: activities,
       selection: selection,
-      now: now)
+      now: now,
+      sshSetupStates: sshSetup.states)
   }
 
   // MARK: - Lifecycle
@@ -175,10 +197,14 @@ public final class AppModel {
   }
 
   /// The body of `start()`. Stops building as soon as `shutdown()` was called; whatever it
-  /// built by then, `shutdown()` stops once this returns.
+  /// built by then, `shutdown()` stops once this returns. A list loaded as `notSavedYet` shows
+  /// the onboarding window first (`OnboardingModel.prepare(_:)` decides; it reads nothing).
   private func performStart(_ environment: AppEnvironment) async {
-    let hosts = await loadHostList(environment)
+    let (hosts, loaded) = await loadHostList(environment)
     guard lifecycle == .starting else { return }
+    if let loaded, onboarding.prepare(loaded) {
+      environment.presentOnboarding(onboarding)
+    }
     let engine = environment.makeEngine(hosts)
     self.engine = engine
     let updates = await engine.updates()
@@ -197,11 +223,15 @@ public final class AppModel {
     if lifecycle == .starting { lifecycle = .running }
   } // End of func performStart(_:)
 
-  /// Loads the host list and records how it went (in the model and the operation log); an
-  /// unusable folder gives an empty list.
-  private func loadHostList(_ environment: AppEnvironment) async -> HostList {
+  /// Loads the host list and records how it went (in the model and the operation log); returns
+  /// the list and the load result (none when the folder was unusable, which gives an empty
+  /// list).
+  private func loadHostList(
+    _ environment: AppEnvironment
+  ) async -> (list: HostList, loaded: HostStoreLoadResult?) {
     let list: HostList
     let status: HostListStatus
+    var loaded: HostStoreLoadResult?
     do {
       let result = try await environment.loadHosts()
       switch result.state {
@@ -210,6 +240,7 @@ public final class AppModel {
       case .invalid(let problem): status = .invalid(problem)
       }
       list = result.hosts
+      loaded = result
     } catch {
       let message = (error as? LocalizedError)?.errorDescription ?? "The folder is not usable."
       status = .unreadable(message: message)
@@ -220,7 +251,7 @@ public final class AppModel {
       .settings, outcome: status == .saved || status == .notSavedYet ? .info : .failure,
       detail: "host list at launch: \(SettingsModel.statusCode(status)), "
         + "\(list.enabledHosts.count) of \(list.hosts.count) hosts turned on")
-    return list
+    return (list, loaded)
   } // End of func loadHostList(_:)
 
   /// Hands one request to the engine. Once `shutdown()` has begun, a request still queued is
@@ -259,7 +290,8 @@ public final class AppModel {
 
   /// Stops everything `start()` and Settings started and returns once it has ended: Settings'
   /// work (`SettingsModel.shutdown()`: no new work, its probes and window opening cancelled
-  /// and awaited, so their process groups are gone), the request queue (requests still queued
+  /// and awaited, so their process groups are gone), onboarding's and the popover's "Set up
+  /// SSH in iTerm2…" requests (cancelled and awaited), the request queue (requests still queued
   /// are dropped), the system events adapter and the engine, whose `stop()` cancels any
   /// attachment check and kills any running probe's process group. Quitting muxFinder never
   /// detaches a tmux client, ends a session or touches iTerm2. Later calls do nothing.
@@ -267,6 +299,8 @@ public final class AppModel {
     guard lifecycle != .stopped else { return }
     lifecycle = .stopped
     await settings.shutdown()
+    await onboarding.shutdown()
+    await sshSetup.shutdown()
     await startTask?.value
     commandSink.finish()
     await commandTask?.value
@@ -323,9 +357,22 @@ public final class AppModel {
     send(.refreshAll)
   }
 
-  /// "Retry" on a host's problem: that host now, whatever its backoff.
+  /// "Retry" on a host's problem: that host now, whatever its backoff. Its "Set up SSH in
+  /// iTerm2…" line is forgotten.
   public func retry(hostID: UUID) {
+    sshSetup.clear(hostID)
     send(.refresh(hostID))
+  }
+
+  /// "Set up SSH in iTerm2 first" on a host whose last check needed a sign-in or had a host key
+  /// problem (PLAN.md D24): opens a tab running ssh to the host's destination, as the engine
+  /// has it. Does nothing for a fixture, a host the engine does not list, or one the action is
+  /// not offered for.
+  public func setUpSSH(hostID: UUID) {
+    guard let host = refreshState?.hosts.first(where: { $0.host.id == hostID })?.host else {
+      return
+    }
+    sshSetup.open(host)
   }
 
   /// "Retry" on a session's failure. Placeholder until Phase 10 retries the attach: clears

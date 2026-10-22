@@ -16,9 +16,9 @@ import Foundation
 /// count and, per argument (argv[0] included), its byte length and SHA-256. No raw argument is
 /// stored except a launch id, which is safe: `launchID` is the first argument after argv[0]
 /// that is a canonical launch id. Right before it starts its attach child (tmux locally, ssh for
-/// a remote host), the helper writes the digest again with `attachChild`: that child's argv
-/// digested the same way, and whether it detaches the session's other clients (`-d`, a move
-/// here, PLAN.md D21).
+/// a remote host, or the plain ssh of `ssh-setup`, PLAN.md D24), the helper writes the digest
+/// again with `attachChild`: that child's argv digested the same way, and whether it detaches
+/// the session's other clients (`-d`, a move here, PLAN.md D21; never for ssh setup).
 public struct LaunchArgvDigest: Sendable, Hashable, Codable {
   /// One argument's digest.
   public struct Argument: Sendable, Hashable, Codable {

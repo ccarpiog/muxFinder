@@ -15,6 +15,7 @@ let usage = """
   \(ITerm2Command.usage)
   \(AttachCommand.usage)
   \(NewSessionCommand.usage)
+  \(SSHSetupCommand.usage)
   \(E2ELocalCommand.usage)
   \(E2ERemoteCommand.usage)
   """
@@ -41,6 +42,8 @@ case "attach":
   exit(await AttachCommand.run(Array(arguments.dropFirst())))
 case "new-session":
   exit(await NewSessionCommand.run(Array(arguments.dropFirst())))
+case "ssh-setup":
+  exit(await SSHSetupCommand.run(Array(arguments.dropFirst())))
 case "detach":
   exit(await AttachCommand.runDetach(Array(arguments.dropFirst())))
 case "e2e-local":

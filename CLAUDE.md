@@ -37,14 +37,16 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   notarized). Check it with `codesign --verify --deep --strict build/muxFinder.app`.
 - Preview fixtures (no menu bar item, engine, host list, login item or iTerm2; one normal
   window with every popover state, or with `--preview-gallery settings` every Settings window
-  state, from synthetic data, shown without taking the focus):
+  state, or with `--preview-gallery onboarding` every onboarding window state, from synthetic
+  data, shown without taking the focus):
   `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures [--preview-gallery
-  popover|settings] [--appearance light|dark]` prints `muxFinder preview window <n> …`;
-  capture only that window with `screencapture -x -o -l <n> <file.png>`, then `kill -TERM` it
-  (exit 0). With a locked screen or a sleeping display `screencapture` fails: add
-  `--preview-snapshot <file.png>`, which renders the window into the PNG from inside the app
-  and quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
-  `settings-states-*.png`); never capture the screen or another app's window.
+  popover|settings|onboarding] [--appearance light|dark]` prints `muxFinder preview window
+  <n> …`; capture only that window with `screencapture -x -o -l <n> <file.png>`, then
+  `kill -TERM` it (exit 0). With a locked screen or a sleeping display `screencapture` fails:
+  add `--preview-snapshot <file.png>`, which renders the window into the PNG from inside the
+  app and quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
+  `settings-states-*.png`, `onboarding-states-*.png`); never capture the screen or another
+  app's window.
 - Login item check (read-only; registers nothing, opens no window or menu bar item, reads no
   host list, never contacts iTerm2):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-login-item-status` prints
@@ -54,8 +56,9 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   stays closed; never through `open`/LaunchServices):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints the menu bar
   item's windows after 2 s (macOS 27 draws the item outside the app, so `CGWindowList` does
-  not show it under the app's pid); then `kill -TERM <pid>` must exit 0 with no child left
-  and no `hosts.json` created. See `docs/TESTING.md` (Phase 8).
+  not show it under the app's pid); without a `hosts.json` it also shows the onboarding
+  window, which contacts nothing; then `kill -TERM <pid>` must exit 0 with no child left
+  and no `hosts.json` created. See `docs/TESTING.md` (Phases 8 and 9b).
 - Discovery check (read-only, prints JSON; `--raw` prints the probe report):
   `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
   server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
@@ -81,7 +84,11 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `--socket <missing path>`, never by quitting iTerm2 or sending a bogus cookie.
 - Launch helper (iTerm2 runs it in a launch tab; by hand only for checks):
   `.build/debug/muxfinder-launch attach <uuid>` takes `<uuid>.request.json` from
-  `~/Library/Application Support/muxFinder/launch/`. For checks, set
+  `~/Library/Application Support/muxFinder/launch/`; `muxfinder-launch ssh-setup <uuid>`
+  ("Set up SSH in iTerm2…", PLAN.md D24) takes only an ssh setup request (`"kind":"sshSetup"`;
+  each mode refuses the other kind with 72) and runs plain interactive
+  `/usr/bin/ssh -- <destination>`, so never run it by hand with a real request: it starts a
+  real ssh login. For checks, set
   `MUXFINDER_LAUNCH_DIRECTORY=<absolute private dir>` and a private `TMUX_TMPDIR`.
   `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
   argv digest and honors a request's `testLaunchDelaySeconds` (ignored outside test mode);
@@ -104,7 +111,9 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   (focuses instead when the session is attached already; asks every tmux connection first,
   so the same caution as `iterm2 attachments`), `new-session --local | --ssh <dest> --name
   <name> [--dir <dir>]` (creates, then attaches; asks no connection; its pane runs the user's
-  shell) and `detach --connection <id> --gateway <session id>` (see `docs/TESTING.md`).
+  shell), `ssh-setup --ssh <dest> [--profile <name>]` (opens a tab running plain interactive
+  ssh, a real login; never in unattended runs, its real run owed with Saturno only) and
+  `detach --connection <id> --gateway <session id>` (see `docs/TESTING.md`).
   Check `muxfinder-probe iterm2 status` and iTerm2's thread count (`ps -M -p <pid> | wc -l`)
   before and after; each run adds about 12 blocked iTerm2 workers that are reclaimed within
   minutes, so let the count fall back between runs (the API stalls at 64 workers). A timeout

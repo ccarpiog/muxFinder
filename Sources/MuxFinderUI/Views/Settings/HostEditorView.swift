@@ -1,10 +1,11 @@
 import MuxFinderCore
 import SwiftUI
 
-/// The host editor (PLAN.md Phase 9a): name, This Mac or SSH, destination with suggestions,
-/// turned on, the tmux path with "Detect", the iTerm2 profile, "Test connection", and Remove,
-/// Revert and Save. Inline errors come from the model's `HostDraftIssues`; the whole editor is
-/// disabled while the list is not editable.
+/// The host editor (PLAN.md Phase 9a): name, This Mac or SSH, destination with suggestions and
+/// "Set up SSH in iTerm2…" (D24, under the connection test's result instead when that test
+/// needed a sign-in or had a host key problem), turned on, the tmux path with "Detect", the
+/// iTerm2 profile, "Test connection", and Remove, Revert and Save. Inline errors come from the
+/// model's `HostDraftIssues`; the whole editor is disabled while the list is not editable.
 struct HostEditorView: View {
   /// The model shown.
   let model: SettingsModel
@@ -70,6 +71,9 @@ struct HostEditorView: View {
           NoteText(
             text: "A host name, user@host, or a Host alias from your SSH configuration. "
               + "muxFinder uses your own SSH settings and keys.")
+          if !model.connectionTestOffersSSHSetup {
+            sshSetupControls(title: "Set up SSH in iTerm2…", draft: draft)
+          }
         }
       }
       FieldRow(label: "") {
@@ -158,6 +162,9 @@ struct HostEditorView: View {
         }
         if case .finished(let result) = model.connectionTest {
           ConnectionTestResultView(result: result)
+          if model.connectionTestOffersSSHSetup {
+            sshSetupControls(title: "Set up SSH in iTerm2 first", draft: draft)
+          }
         }
         NoteText(
           text: "Runs the same read-only check as the menu, with the values above; nothing is "
@@ -192,6 +199,22 @@ struct HostEditorView: View {
   } // End of func footer(_:)
 
   // MARK: - Helpers
+
+  /// "Set up SSH in iTerm2…" (PLAN.md D24) titled `title`, and its line: under the destination,
+  /// or, after a connection test that needed a sign-in or had a host key problem, under its
+  /// result instead.
+  private func sshSetupControls(title: String, draft: HostDraft) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Button(title) { model.setUpSSH() }
+        .disabled(!model.canSetUpSSH)
+        .help(
+          "Open a new iTerm2 window running ssh to this destination, so you can sign in or "
+            + "accept its host key")
+      if let state = model.sshSetup.states[draft.id] {
+        SSHSetupLine(state: state, perform: model.perform, shownExplanation: model.shownExplanation)
+      }
+    }
+  } // End of func sshSetupControls(title:draft:)
 
   /// The SSH configuration's host names, as a menu that fills the destination.
   @ViewBuilder private var suggestionsMenu: some View {

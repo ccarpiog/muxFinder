@@ -711,6 +711,48 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   popover. The app model: ⌘, and the footer present the Settings window; a list saved there
   reaches the engine and its host turns live. The Settings fixtures cover every required state
   with synthetic data, and the new flags parse.
+- **SSH setup, launch side** (`Tests/MuxFinderCoreTests/SSHSetupTests.swift`, PLAN.md D24).
+  The request kind: an attach request is still encoded without `kind`; request files as
+  earlier builds wrote them (no `kind`, a local or ssh host with its own nested `kind`) are
+  taken as the same attach request, `"kind":"attach"` too; an unknown kind, a number, or
+  `sshSetup` with an attach body is unreadable; an ssh setup request has exactly its six keys
+  and round-trips. Each typed take refuses the other kind (`requestKindMismatch`, 72) and the
+  file is gone. Destinations that are empty, start with `-` (`-oProxyCommand=…`, `-`, `--`)
+  or hold whitespace or control characters: the request is not well formed, the store writes
+  no file and refuses one written by hand, and no argv is built. The argv is exactly
+  `["--", <destination>]` after `/usr/bin/ssh`; the tab's command line is `<helper> ssh-setup
+  <uuid>`. ssh's outcome: 0, 1 and 130 are successes, 255 is classified from its standard
+  error (auth, host key, other), a signal is `childSignaled`. The helper over a fake child
+  runner and terminal: `ssh-setup <id>` runs only `/usr/bin/ssh -- <destination>` (no check,
+  standard error relayed, cleaned environment), writes the result, logs no destination and
+  holds 10 s; a 255 is explained with the ssh setup wording, waited for and held; every exit
+  path (success, ssh failure, spawn failure, expired, missing, the other kind) holds, and only
+  a SIGHUP skips the hold; a request of the other kind in either mode is refused (72) with
+  nothing run; a file with an option-like destination is refused before any process; bad
+  `ssh-setup` usage consumes nothing; the test-mode digest records the ssh child. The
+  launcher over a fake iTerm2 and a real store: one ssh setup request, `ensureRunning()`, then
+  one `CreateTab` in a new window with the host's profile, `<helper> ssh-setup <id>` and Close
+  Sessions On End; This Mac, invalid destinations, a missing helper and a cancelled caller
+  write and contact nothing; iTerm2 not starting, a refused `CreateTab` and a tab without a
+  session id withdraw the request. The real binary in a pseudo-terminal (`SSHSetupTerminalTests`):
+  `ssh-setup` given an attach request exits 72 only after its 3 s minimum lifetime even with
+  Return pressed at once, starts nothing and shows the ssh setup wording.
+- **Onboarding and the action in the UI** (`Tests/MuxFinderUITests/OnboardingTests.swift`,
+  PLAN.md D24). The examples (D19's defaults) and the fixed text (four expectations of one
+  line, the scope line, both iTerm2 requirements); only `notSavedYet` prepares the model, and
+  the app presents the window only then (not for saved, unusable or unreadable lists), with no
+  save, no ssh tab and no discovery. Editing: This Mac exclusive with D19's switch and "none";
+  the name and destination rules and the refused "Turned on"; a draft with an error never
+  saved. Saving through a real `HostStore` in a private folder: every edit reads back, the app
+  gets the list and the window closes; a file saved meanwhile is left byte for byte with no
+  backup, the save refused and editing stopped; closing or "Not now" creates no folder or
+  file. A list saved in onboarding reaches the engine. The action over a fake opener: offered
+  only for a valid SSH destination, sent once while opening, the opened and failed lines (with
+  the API fix-it), forgotten on a destination change, cancelled by closing the window and by
+  quitting; in the popover only for sign-in and host key problems on SSH hosts (Retry forgets
+  the line); in Settings under the destination and after a test that needed a sign-in or had
+  a host key problem, never for This Mac. The onboarding fixtures and `--preview-gallery
+  onboarding`.
 
 ## Helper test mode: argv digest
 
@@ -725,8 +767,9 @@ and read the digest it writes before parsing its arguments (PLAN.md D14):
   `arguments` (per argument, argv[0] first: `byteLength` and lowercase hex `sha256`),
   `launchID` (the first argument after argv[0] that is a canonical launch id, else absent),
   `helperPID` and `recordedAt`. No other raw argument is stored.
-- Right before the helper starts its attach child (tmux locally, ssh for a remote host), it
-  writes the same file again with `attachChild`: `argumentCount` and `arguments` of that
+- Right before the helper starts its attach child (tmux locally, ssh for a remote host, or the
+  plain `/usr/bin/ssh -- <destination>` of `ssh-setup`, PLAN.md D24), it writes the same file
+  again with `attachChild`: `argumentCount` and `arguments` of that
   child's argv (argv[0] the executable's path), digested the same way, and
   `detachesOtherClients` (`true` only for a move here, whose tmux gets `attach-session -d`,
   PLAN.md D21). A launch that ends before its attach child (a guard refusal, an interrupted
@@ -896,6 +939,18 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   It asks none of iTerm2's tmux connections anything (the existing-attachment check is
   skipped for a session created a moment ago), so it is safe while the user's connections
   exist; in unattended runs use only `muxfinder-test-*` names. Its panes run the user's shell.
+- `swift run muxfinder-probe ssh-setup --ssh <destination> [--profile <name>]` — "Set up SSH
+  in iTerm2…" the app's way (PLAN.md D24): writes an ssh setup request and opens a launch tab
+  in a new iTerm2 window whose helper (`muxfinder-launch ssh-setup <uuid>`) runs plain
+  interactive `/usr/bin/ssh -- <destination>`; prints `opened`, the tab's session id, or the
+  failure's kind and message as JSON (never the destination). It asks no tmux connection
+  anything, but it starts a real ssh login in that tab and leaves the tab to whoever ran it, so
+  it never runs in unattended windows. Its real run is owed: in a real-run window, Saturno only
+  (`--ssh saturno-m4`, key authentication, so ssh reaches a login shell at once): the tab must
+  show the remote shell, and it must end only once it is at least 10 s old (a person types
+  `exit`, so ssh exits 0 and the helper ends after its hold, or closes the tab; the probe has no
+  command that closes a tab by the printed session id yet, so an unattended run needs one
+  first); then check `iterm2 status`, the thread count and an empty launch directory.
 - `swift run muxfinder-probe iterm2 attachments` — read-only: discovers this Mac, asks every
   tmux connection which host, server and session it shows (the same `display-message`), and
   prints the mapped connections (session id, connection id, owning session) and the unmapped
@@ -1329,4 +1384,45 @@ Environment: Neptuno, macOS 27.2, from the repo root. The support folder held on
 | Shell check | `muxFinder --report-menu-bar-item &`; the window listing; `pgrep -P`; `kill -TERM` | 7 status-bar-level windows, all visible; no child process; exit status 0; no muxFinder process left |
 | Nothing written | `ls -la` of `~/Library/Application Support/muxFinder` and `launch/`; `ls ~/Library/Preferences ~/Library/Saved\ Application\ State \| rg -i muxfinder` | `launch/` only, empty, mtimes unchanged; no `hosts.json`; no preference or saved-state file |
 | Unit tests | `swift test`, twice | exit 0 both times: 569 tests in 55 suites (core) and 76 in 6 suites (UI; 30 new in 3 new suites) |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |
+
+### Phase 9b — Onboarding and SSH setup (2026-10-22)
+
+No check here opens the real onboarding window by a click, runs "Set up SSH in iTerm2…" for
+real (it opens an iTerm2 tab and an interactive ssh login: owed to a real-run window, Saturno
+only, see `muxfinder-probe ssh-setup` above), contacts iTerm2, or saves the real `hosts.json`.
+The onboarding states are shown by the preview window and covered by the unit tests (PLAN.md
+D24); saves are tested through `HostStore` in private temporary folders only, and the helper's
+`ssh-setup` mode through a fake child runner and, in a pseudo-terminal, with a request it
+refuses before starting anything.
+
+- **Screenshots.** As in Phase 8, with `--preview-gallery onboarding`:
+  `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery
+  onboarding --appearance light` (then `dark`) opens one window with every onboarding state,
+  each at its full height; capture it with `screencapture -x -o -l <n>
+  docs/screenshots/onboarding-states-<a>.png`, or, when that fails, add
+  `--preview-snapshot <file.png>`.
+- **Shell check.** As in Phase 8. With no `hosts.json` the app now also shows the onboarding
+  window at launch (and brings it forward); it must still contact nothing, create no
+  `hosts.json`, and exit 0 on `kill -TERM`. Its window can be seen read-only in
+  `CGWindowListCopyWindowInfo` under the app's pid (layer 0).
+- **Owed to a person:** the onboarding window's buttons and fields by hand (Save hosts writes
+  the real `hosts.json`; "Not now"; "Open Settings" after a refused save), "Set up SSH in
+  iTerm2…" from the onboarding window, the Settings editor and the popover, and the helper's
+  `ssh-setup` tab in a real iTerm2 (the remote shell appears; a failure is explained and held).
+
+Environment: Neptuno, macOS 27.2, from the repo root. The support folder held only an empty
+`launch/` before and after (no `hosts.json`).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Bundle | `scripts/build-app.sh` | exit 0; signed by the "Apple Development" identity; not notarized |
+| Signature | `codesign --verify --deep --strict build/muxFinder.app` | exit 0 |
+| `screencapture -l` | the onboarding preview window's number from its output line | exit 1, "could not create image from window" (as in Phases 8 and 9a); the preview then quit on `kill -TERM` |
+| Onboarding screenshots | `muxFinder --preview-fixtures --preview-gallery onboarding --appearance light --preview-snapshot docs/screenshots/onboarding-states-light.png`, then `dark` | exit 0 both; 6496×2916 PNGs, 7 states each, inspected (a host row cropped with `sips` into `/tmp`): the examples, This Mac chosen with a tab opened, validation errors with a refused "Turned on", a tab opening and one failing with the Python API explanation, saving, a list saved elsewhere with "Open Settings", a failed save; readable in both appearances |
+| Popover and Settings screenshots | `--preview-gallery popover` and `settings`, light and dark, with `--preview-snapshot` | exit 0 all four; "Set up SSH in iTerm2 first" under Saturno's sign-in and Sirio's host key problem (Saturno's tab opened), "Set up SSH in iTerm2…" under the editor's destination, and "Set up SSH in iTerm2 first" with its line under a "Sign-in needed" test |
+| Shell check | `muxFinder --report-menu-bar-item &`; the window listing; `pgrep -P`; the app's windows read-only; `kill -TERM`; `wait` | 7 status-bar-level windows, all visible; the onboarding window on screen (layer 0); no child process; exit status 0; no muxFinder process left |
+| Host list | `swift run muxfinder-probe hosts show` | exit 0; `notSavedYet` with the three examples; the support folder unchanged |
+| Nothing written | `ls -AR` of `~/Library/Application Support/muxFinder` before and after; `ls ~/Library/Preferences ~/Library/Saved\ Application\ State \| rg -i muxfinder` | `launch/` only, empty; no `hosts.json`; no preference or saved-state file |
+| Unit tests | `swift test`, twice | exit 0 both times: 587 tests in 57 suites (core; 16 new in 2 suites) and 98 in 7 suites (UI; 15 new in 1 suite) |
 | Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |

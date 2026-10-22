@@ -71,6 +71,11 @@ public struct HostSection: Sendable, Hashable, Identifiable {
   public var emptyState: String?
   /// The sessions shown (after search filtering).
   public var rows: [SessionRow]
+  /// Whether "Set up SSH in iTerm2 first" is offered next to the problem (a sign-in needed or
+  /// a host key problem on an SSH host with a valid destination, PLAN.md D24).
+  public var offersSSHSetup = false
+  /// That action's line, while it has one.
+  public var sshSetup: SSHSetupState?
 
   /// The VoiceOver label: the host name.
   public var accessibilityLabel: String { name }
@@ -153,7 +158,8 @@ public struct PopoverContent: Sendable, Hashable {
   public var selectableKeys: [SessionKey] { sections.flatMap { $0.rows.map(\.key) } }
 
   /// The content for `state` (`nil` while loading) with the search `query`, the sessions'
-  /// `activities`, the keyboard `selection`, and relative times seen at `now`.
+  /// `activities`, the keyboard `selection`, relative times seen at `now`, and the hosts'
+  /// "Set up SSH in iTerm2…" lines (`sshSetupStates`, by host id).
   ///
   /// Search: a host whose name contains the query shows all its sessions; any other host
   /// shows only the sessions whose names contain it, and is left out when none does. Matching
@@ -164,7 +170,8 @@ public struct PopoverContent: Sendable, Hashable {
     query: String,
     activities: [SessionKey: SessionActivity],
     selection: SessionKey?,
-    now: Date
+    now: Date,
+    sshSetupStates: [UUID: SSHSetupState] = [:]
   ) {
     notices = Self.notices(hostList: hostList, attachmentCheck: state?.attachmentCheck)
     guard let state else {
@@ -182,6 +189,7 @@ public struct PopoverContent: Sendable, Hashable {
     for snapshot in state.hosts {
       var section = Self.section(
         for: snapshot, activities: activities, selection: selection, now: now)
+      if section.offersSSHSetup { section.sshSetup = sshSetupStates[snapshot.host.id] }
       if !trimmed.isEmpty, !Self.matches(snapshot.host.displayName, query: trimmed) {
         section.rows = section.rows.filter { Self.matches($0.name, query: trimmed) }
         guard !section.rows.isEmpty else { continue }
@@ -191,7 +199,7 @@ public struct PopoverContent: Sendable, Hashable {
     } // End of loop over host snapshots
     sections = built
     placeholder = built.isEmpty ? .noMatches(query: trimmed) : nil
-  } // End of init(state:hostList:query:activities:selection:now:)
+  } // End of init(state:hostList:query:activities:selection:now:sshSetupStates:)
 
   /// Whether `text` contains `query`, ignoring case and diacritics.
   public static func matches(_ text: String, query: String) -> Bool {
@@ -255,8 +263,21 @@ public struct PopoverContent: Sendable, Hashable {
       caption: caption,
       problem: snapshot.lastError.flatMap(HostProblemText.explanation(for:)),
       emptyState: answered && rows.isEmpty ? emptyHostText : nil,
-      rows: rows)
+      rows: rows,
+      offersSSHSetup: offersSSHSetup(snapshot))
   } // End of func section(for:activities:selection:now:)
+
+  /// Whether `snapshot`'s host offers "Set up SSH in iTerm2 first" (PLAN.md D24): its last
+  /// check needed a sign-in or had a host key problem, and it is an SSH host with a valid
+  /// destination.
+  static func offersSSHSetup(_ snapshot: HostSnapshot) -> Bool {
+    switch snapshot.lastError {
+    case .authFailed, .hostKeyProblem:
+      return SSHSetupActions.isOffered(for: snapshot.host)
+    default:
+      return false
+    }
+  }
 
   /// The notices for the host list's load status and the last attachment check.
   static func notices(hostList: HostListStatus?, attachmentCheck: AttachmentCheck?) -> [Notice] {

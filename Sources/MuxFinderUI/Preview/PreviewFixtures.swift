@@ -21,6 +21,8 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var shownExplanation: FixIt?
   /// The time relative times are measured against.
   public var now: Date
+  /// "Set up SSH in iTerm2…" lines, by host id.
+  public var sshSetupStates: [UUID: SSHSetupState]
 
   /// Creates a fixture.
   public init(
@@ -32,7 +34,8 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     selection: SessionKey? = nil,
     activities: [SessionKey: SessionActivity] = [:],
     shownExplanation: FixIt? = nil,
-    now: Date = PreviewFixtures.now
+    now: Date = PreviewFixtures.now,
+    sshSetupStates: [UUID: SSHSetupState] = [:]
   ) {
     self.id = id
     self.title = title
@@ -43,7 +46,8 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.activities = activities
     self.shownExplanation = shownExplanation
     self.now = now
-  } // End of init(id:title:state:hostList:searchText:selection:activities:shownExplanation:now:)
+    self.sshSetupStates = sshSetupStates
+  } // End of init(id:title:state:hostList:searchText:selection:activities:shownExplanation:…)
 }
 
 /// Every popover state, built from synthetic data only: invented session names, made-up
@@ -194,7 +198,8 @@ public enum PreviewFixtures {
       id: "progress", title: "Progress and errors", state: state(hosts), activities: activities)
   }()
 
-  /// "Sign-in needed", "tmux not found" and "Host key problem", each with Retry.
+  /// "Sign-in needed", "tmux not found" and "Host key problem", each with Retry; the sign-in
+  /// and host key problems also offer "Set up SSH in iTerm2 first", Saturno's tab opened.
   public static let hostProblems = PreviewFixture(
     id: "host-problems", title: "Host problems",
     state: state([
@@ -203,7 +208,8 @@ public enum PreviewFixtures {
       snapshot(
         sirio, outcome: .failed(.hostKeyProblem(.unknown)), sessions: sirioSessions,
         lastSuccessAgo: 3_600 * 26, lastAttemptAgo: 30),
-    ]))
+    ]),
+    sshSetupStates: [saturno.id: .opened])
 
   /// "Checking…", This Mac with no sessions and an SSH host with "No sessions".
   public static let checkingAndEmpty = PreviewFixture(

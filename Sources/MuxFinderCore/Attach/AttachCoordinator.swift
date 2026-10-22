@@ -715,30 +715,17 @@ public actor AttachCoordinator {
       return withdraw(&progress, Self.failure(for: error))
     }
     guard !Task.isCancelled else { return withdraw(&progress, .cancelled) }
-    // 4. Open the launch tab. The request runs in a task of its own, so cancelling the attach
-    // never leaves a tab whose session id is unknown.
-    let tab = ITerm2API.CreateTabRequest(
-      profileName: target.host.iTermProfileName,
-      customProfileProperties: ITerm2API.ProfileProperty.customCommand(
-        helperPath.attachCommandLine(for: progress.launchID))
-        + [ITerm2API.ProfileProperty.closeSessionsOnEnd(true)])
-    let iTerm2 = self.iTerm2
+    // 4. Open the launch tab (`LaunchTab`, shared with ssh setup). The request runs in a task
+    // of its own, so cancelling the attach never leaves a tab whose session id is unknown.
+    let tab = LaunchTab.request(
+      commandLine: helperPath.attachCommandLine(for: progress.launchID),
+      profileName: target.host.iTermProfileName)
     progress.tabRequested = true
-    let created = await Task { () -> Result<ITerm2API.CreateTabResponse, any Error> in
-      do {
-        return .success(try await iTerm2.createTab(tab))
-      } catch {
-        return .failure(error)
-      }
-    }.value
     let gatewaySessionID: String
-    switch created {
+    switch await LaunchTab.open(tab, on: iTerm2) {
     case .failure(let error):
       return withdraw(&progress, Self.failure(for: error))
-    case .success(let response):
-      guard let sessionID = response.sessionID, !sessionID.isEmpty else {
-        return withdraw(&progress, .iTerm2(.protocolError("the new tab has no session id")))
-      }
+    case .success(let sessionID):
       gatewaySessionID = sessionID
     }
     // 5. Launched.

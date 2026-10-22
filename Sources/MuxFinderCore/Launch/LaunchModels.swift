@@ -114,12 +114,35 @@ public enum LaunchHost: Sendable, Hashable, Codable {
   }
 }
 
+/// What a request file asks the helper to do: its `kind` field (PLAN.md D24). Each kind is
+/// taken only by the helper mode of the same name (`helperMode`), so a request can never be
+/// used for anything but what the app wrote it for.
+///
+/// An attach request carries no `kind` field at all: every request file written before ssh
+/// setup existed, and every attach request written since, byte for byte, reads as an attach.
+public enum LaunchRequestKind: String, Sendable, Hashable, Codable, CaseIterable {
+  /// Attach a tmux session (`LaunchRequest`): `muxfinder-launch attach <launch id>`.
+  case attach
+  /// Run plain interactive ssh to a destination (`SSHSetupRequest`): `muxfinder-launch
+  /// ssh-setup <launch id>`, the "Set up SSH in iTerm2…" action.
+  case sshSetup
+
+  /// The helper's first argument for this kind.
+  public var helperMode: String {
+    switch self {
+    case .attach: return "attach"
+    case .sshSetup: return "ssh-setup"
+    }
+  }
+}
+
 /// What the app asks the helper to attach, written to a 0600 request file (PLAN.md D2).
 ///
 /// It holds ids, numbers, at most one path (the tmux override) and, for a remote host, the SSH
 /// destination; never a session name or terminal content. The D4 expectations
 /// (`expectedServerPID`, `expectedServerStartTime`, `expectedSessionCreated`) are what the
 /// guard compares with tmux before attaching, locally or on the remote host (PLAN.md D17).
+/// Its file has no `kind` field (`LaunchRequestKind.attach`, PLAN.md D24).
 public struct LaunchRequest: Sendable, Hashable, Codable {
   /// The format version this build writes and accepts.
   public static let currentFormatVersion = 1
@@ -230,6 +253,114 @@ public struct LaunchRequest: Sendable, Hashable, Codable {
     }
     return true
   } // End of var isWellFormed
+}
+
+/// What the app asks the helper to run for "Set up SSH in iTerm2…" (PLAN.md D24): plain
+/// interactive `/usr/bin/ssh -- <destination>` in a launch tab, so the user can answer a
+/// host-key question or sign in the way they always do. Written to a 0600 request file like an
+/// attach request, with `"kind":"sshSetup"`, and taken only by `muxfinder-launch ssh-setup`.
+///
+/// It holds the launch id, the time, the configured host's id (for diagnostics) and the SSH
+/// destination; nothing else, never terminal content. The destination must pass
+/// `Validation.sshDestination(_:)` (not empty, no whitespace or control characters, no leading
+/// `-`), checked before the request is written, when it is taken, and again before ssh starts.
+public struct SSHSetupRequest: Sendable, Hashable, Codable {
+  /// The format version this build writes and accepts.
+  public static let currentFormatVersion = 1
+
+  /// The file format version.
+  public var formatVersion: Int
+  /// Always `LaunchRequestKind.sshSetup`; written to the file so no other helper mode takes it.
+  public var kind: LaunchRequestKind
+  /// The launch id, also the file name and the helper's argument.
+  public var id: LaunchToken
+  /// When the request was written; it expires `LaunchStore.timeToLive` later.
+  public var createdAt: Date
+  /// The configured host (`HostConfig.id`), for diagnostics.
+  public var hostID: UUID
+  /// The SSH destination: a host name, `user@host` or an `~/.ssh/config` alias.
+  public var destination: String
+
+  /// Creates a request.
+  public init(
+    id: LaunchToken = LaunchToken(),
+    createdAt: Date,
+    hostID: UUID,
+    destination: String
+  ) {
+    formatVersion = Self.currentFormatVersion
+    kind = .sshSetup
+    self.id = id
+    self.createdAt = createdAt
+    self.hostID = hostID
+    self.destination = destination
+  } // End of init(id:createdAt:hostID:destination:)
+
+  /// Whether every field is usable: the current format version, the `sshSetup` kind and a
+  /// destination that passes `Validation.sshDestination(_:)`.
+  public var isWellFormed: Bool {
+    formatVersion == Self.currentFormatVersion && kind == .sshSetup
+      && (try? Validation.sshDestination(destination)) != nil
+  }
+}
+
+/// One request file as the store reads it (PLAN.md D24): its `kind` field decides how the rest
+/// is read. No `kind` (every attach request, including those written before ssh setup existed)
+/// or `"attach"` is a `LaunchRequest`; `"sshSetup"` is an `SSHSetupRequest`; any other value
+/// makes the file unreadable.
+public enum LaunchRequestFile: Sendable, Hashable {
+  /// An attach request.
+  case attach(LaunchRequest)
+  /// An ssh setup request.
+  case sshSetup(SSHSetupRequest)
+
+  /// Reads only the `kind` field.
+  private struct KindField: Decodable {
+    /// The kind, if the file names one.
+    var kind: LaunchRequestKind?
+  }
+
+  /// Decodes a request file's JSON by its kind. Throws a `DecodingError` for an unknown kind
+  /// or a body that does not fit it.
+  static func decode(_ data: Data) throws -> LaunchRequestFile {
+    let decoder = LaunchCoding.decoder()
+    switch try decoder.decode(KindField.self, from: data).kind ?? .attach {
+    case .attach: return .attach(try decoder.decode(LaunchRequest.self, from: data))
+    case .sshSetup: return .sshSetup(try decoder.decode(SSHSetupRequest.self, from: data))
+    }
+  }
+
+  /// The request's kind.
+  public var kind: LaunchRequestKind {
+    switch self {
+    case .attach: return .attach
+    case .sshSetup: return .sshSetup
+    }
+  }
+
+  /// The request's launch id.
+  public var id: LaunchToken {
+    switch self {
+    case .attach(let request): return request.id
+    case .sshSetup(let request): return request.id
+    }
+  }
+
+  /// When the request was written.
+  public var createdAt: Date {
+    switch self {
+    case .attach(let request): return request.createdAt
+    case .sshSetup(let request): return request.createdAt
+    }
+  }
+
+  /// Whether the request's fields are usable (its own `isWellFormed`).
+  public var isWellFormed: Bool {
+    switch self {
+    case .attach(let request): return request.isWellFormed
+    case .sshSetup(let request): return request.isWellFormed
+    }
+  }
 }
 
 /// What the helper reports when its child has ended (or could not start), written to a 0600

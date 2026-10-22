@@ -3,11 +3,12 @@ import Foundation
 import MuxFinderUI
 import SwiftUI
 
-/// `--preview-fixtures` mode (PLAN.md D22, D23): a plain `NSApplication` with one normal
+/// `--preview-fixtures` mode (PLAN.md D22, D23, D24): a plain `NSApplication` with one normal
 /// window showing every popover state, or with `--preview-gallery settings` every Settings
-/// window state, from synthetic fixtures. No SwiftUI scene, menu bar item, refresh engine, host
-/// list, login item or iTerm2 is involved, and nothing is written except the PNG a
-/// `--preview-snapshot` asks for.
+/// window state, or with `--preview-gallery onboarding` every onboarding window state, from
+/// synthetic fixtures. No SwiftUI scene, menu bar item, refresh engine, host list, login item
+/// or iTerm2 is involved, and nothing is written except the PNG a `--preview-snapshot` asks
+/// for.
 ///
 /// The window is shown without activating the app (the keyboard focus stays where it was),
 /// its window number is printed on standard output for `screencapture -l`, and closing it,
@@ -47,6 +48,7 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     switch options.previewGallery {
     case .popover: hosting = NSHostingView(rootView: PreviewGallery())
     case .settings: hosting = NSHostingView(rootView: SettingsGallery())
+    case .onboarding: hosting = NSHostingView(rootView: OnboardingGallery())
     }
     let window = NSWindow(
       contentRect: NSRect(origin: .zero, size: hosting.fittingSize),

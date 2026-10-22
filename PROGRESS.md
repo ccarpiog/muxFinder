@@ -23,31 +23,18 @@ file.
 | 7b | Refresh engine: `RefreshCoordinator`, `HostSnapshot`, attachment merge, `refresh --once` | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7b.md` | `docs/progress-archive/7b.md` |
 | 8 | Menu bar app and popover: `MuxFinderUI`, `AppModel`, `build-app.sh`, preview fixtures | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-8.md` | `docs/progress-archive/8.md` |
 | 9a | Settings window: host editor, launch at login, diagnostics, fix-its | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-9a.md` | `docs/progress-archive/9a.md` |
+| 9b | Onboarding window and "Set up SSH in iTerm2…" (`ssh-setup` helper mode) | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-9b.md` | `docs/progress-archive/9b.md` |
 
 ## Current phase
 
-None in progress. Phases 1–9a are done (6b closed 2026-10-22 by its real final-tree runs);
-next is **Phase 9b** (*Next action*). Phase 6 was split into 6a/6b, Phase 7 into 7a/7b and
-Phase 9 into 9a/9b in `PLAN.md`.
+None in progress. Phases 1–9b are done; next is **Phase 10** (*Next action*). Phase 6 was
+split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
 
 ## Acceptance
 
-- Phases 1–5b: all criteria met (4b narrowed by the 4b/4c split, its real runs met in 4c);
-  criteria and evidence in `docs/progress-archive/<phase>.md`.
-- Phase 6a: all criteria met — hermetic create/collision/name/ssh-class tests; real
-  `e2e-local` 15/15 and `e2e-remote saturno-m4` 16/16 on the final tree; no leftovers.
-  Evidence in `docs/progress-archive/6a.md`.
-- Phase 7a: all criteria met — hermetic tests for the round trip, 0600/0700 with ACLs
-  stripped, load writing nothing, backups of invalid and concurrently replaced files (fail on
-  the old code), the This Mac switch, defaults and every suggestion rule; real read-only `hosts
-  show` / `hosts suggestions` left the support directory and `~/.ssh` unchanged; build, 505
-  tests and lint pass. Evidence in `docs/progress-archive/7a.md`.
-- Phase 7b: all criteria met — every plan test (slow host, coalescing, late stale result,
-  config edit and removed host, backoff, stale marking, no leaked tasks or processes after
-  `stop()` with a real process group, same name on two hosts) plus limit 3, sleep/wake, network
-  change, attachment merge and the three review regressions; real final-tree `refresh --once`
-  against a private This Mac + Saturno `hosts.json` exit 0, both `live`; build, 534 tests and
-  lint pass. Evidence in `docs/progress-archive/7b.md`.
+- Phases 1–7b: all criteria met (4b narrowed by the 4b/4c split, its real runs met in 4c; 6a,
+  7a and 7b with real final-tree runs); criteria and evidence in
+  `docs/progress-archive/<phase>.md`.
 - Phase 8: all criteria met, two with recorded deviations — build, lint, 569 core + 46 UI
   tests; `build-app.sh` and `codesign --verify --deep --strict` exit 0, apple-events
   entitlement, hardened runtime; light/dark screenshots of 10 states rendered in-app via
@@ -65,6 +52,12 @@ Phase 9 into 9a/9b in `PLAN.md`.
   already/possibly-attached-here refusals, proof-based cross-kind single flight, 563 hermetic
   tests; real final-tree `e2e-remote saturno-m4` 17/17 (first real Move here over ssh) and
   `e2e-local` 16/16, no leftovers. Evidence in `docs/progress-archive/6b.md`.
+- Phase 9b: all criteria met hermetically, the real ssh-setup run owed — onboarding only for
+  `notSavedYet`, saves only via `save(_:expecting:)`, close writes nothing, no contact on open;
+  `sshSetup` request kind with old files decoding as attach, `/usr/bin/ssh -- <dest>` by argv,
+  validation at four points, the 10 s hold on every exit; 587 core + 100 UI tests, build,
+  lint, bundle, codesign, shell check (no `hosts.json`); onboarding screenshots via
+  `--preview-snapshot`. Evidence in `docs/progress-archive/9b.md`.
 
 ## Decisions
 
@@ -146,6 +139,11 @@ Phase 9 into 9a/9b in `PLAN.md`.
   unusable-file banners with Reload/Replace, diagnostics by display name and id only, profiles
   never launch iTerm2, `--report-login-item-status`); D19 gained `save(_:expecting:)` (a save
   refuses a file changed since it was loaded); D22 edited — `docs/progress-archive/9a.md`.
+- Phase 9b: new **D24** (onboarding only for `notSavedYet`, saved through
+  `save(_:expecting:)`; `sshSetup` request kind, attach files unchanged; helper mode
+  `ssh-setup` running `/usr/bin/ssh -- <dest>`, any exit but 255 a success; `LaunchTab`
+  factored out of `AttachCoordinator`; `SSHSetupLauncher`); D14, D15, D22, D23 edited —
+  `docs/progress-archive/9b.md`.
 
 ## Open risks / deviations
 
@@ -242,30 +240,16 @@ Phase 9 into 9a/9b in `PLAN.md`.
   bundle, the fix-it buttons opening System Settings, the window coming to the front, ⌘C/⌘V in
   its fields. Shutdown does not wait for a save already in progress; the changed-file banner
   has no preview fixture — `docs/progress-archive/9a.md`.
+- 9b: the real ssh-setup round trip (tab, interactive ssh, hold) is owed to a real-run window,
+  Saturno only (probe `ssh-setup --ssh <dest>` exists, but cannot close its own tab yet); a
+  destination saved in Settings does not clear the popover's pending ssh-setup line; clicking
+  through onboarding is owed to a person — `docs/progress-archive/9b.md`.
 
 ## Reviews
 
-- Phases 1–5b: Codex reviewed each (`ship-with-fixes`); blockers and should-fix items and their
-  fixes are summarized in `docs/progress-archive/<phase>.md`, reports in
-  `docs/reviews/phase-<phase>.md`.
-- Phase 6a: Codex → `ship-with-fixes`, 1 blocker (the harness's identity check and kill were
-  separate tmux calls, so a restarted server reusing `$N` could lose a user session), 2
-  should-fix (a trailing `;` is a tmux command separator even in argv; ssh exit 255 after a
-  successful create reported as "nothing created"). A fix worker fixed all three: one
-  `if-shell -F` check-and-kill, `\;` escaping in the static script, a `connectionLost` class.
-  Regressions fail on the old code; private tmux server checks reproduced the `$0` reuse race
-  and the `work;` mis-parse. Re-verified hermetically and with real final-tree `e2e-local`
-  and `e2e-remote` runs. `docs/reviews/phase-6a.md`.
-- Phase 7a: Codex → `ship-with-fixes`, 1 blocker (a save examined and backed up `hosts.json`,
-  then renamed over it unconditionally, so a file replaced in between was lost) — fixed by a
-  fix worker (swap publication, the displaced file kept), six regressions that fail on the old
-  code, re-verified; `docs/reviews/phase-7a.md`.
-- Phase 7b: Codex → `ship-with-fixes`, 0 blockers, 3 should-fix (sleep let a suspended
-  `refreshOnce` round submit its attachment check; an edited host's retired probe did not block
-  a second probe for the same host; `RefreshSystemEvents` start/stop could leave observers
-  installed) — all fixed by a fix worker (work epoch, retired probes in the per-host guard,
-  generation under a lock), each regression failing on the old code, re-verified;
-  `docs/reviews/phase-7b.md`.
+- Phases 1–7b: Codex reviewed each (`ship-with-fixes`); blockers and should-fix items and their
+  fixes (each regression failing on the old code) are summarized in
+  `docs/progress-archive/<phase>.md`, reports in `docs/reviews/phase-<phase>.md`.
 - Phase 6b: Codex → `ship-with-fixes`, 2 blockers (failed identification bypassed the
   already-attached check, so `-d` could detach this Mac's own connection; a cancelled move
   could run after a newer attach), 0 should-fix — both fixed by a fix worker
@@ -286,19 +270,26 @@ Phase 9 into 9a/9b in `PLAN.md`.
   with a changed-file banner, `SettingsModel.shutdown()`, an owned and cancelled opening task
   with window generations, preserve-on-remove), five regressions failing on the old code,
   re-verified; `docs/reviews/phase-9a.md`.
+- Phase 9b: Codex → `ship-with-fixes`, 0 blockers, 2 should-fix (closing a window dropped
+  in-flight ssh-setup task handles so quit could not await them; an edit during an opening
+  request let the old destination's result show under the edited host) — both fixed by a fix
+  worker (requests owned until they end and awaited on quit; per-host request link dropped on
+  edit/close), each regression failing on the old code, re-verified;
+  `docs/reviews/phase-9b.md`.
 
 ## Next action
 
-1. **Phase 9b** (onboarding and SSH setup; `PLAN.md` "### Phase 9", its 9a/9b split;
-   routine; builds on D23's Settings window and D19's `notSavedYet` onboarding defaults). Its
-   real checks stay window-free and read-only: the "Set up SSH in iTerm2…" helper mode
-   `ssh-setup <uuid>` is proven hermetically (a real run would open an iTerm2 tab and ssh —
-   owed to a later real-run window, Saturno only); never save the real `hosts.json` (use
-   `HostStore` on a private folder).
-2. Then Phase 10 (attach UX; high; its self-tests open real iTerm2 windows, so they run only
-   with iTerm2 at **38 threads or lower**, item 3). If the count stays above 38 with nothing
-   window-free left, stop as `BLOCKED` and ask the user whether to restart iTerm2 or accept a
-   higher baseline.
+1. **Phase 10** (attach UX; `PLAN.md` "### Phase 10"; high; builds on D22's `AppModel`, D15/
+   D16/D21's coordinator and D24's `LaunchTab`). Its self-tests open real iTerm2 windows, so
+   they run only with iTerm2 at **38 threads or lower** (item 3). If the count stays above 38
+   with nothing window-free left, stop as `BLOCKED` and ask the user whether to restart iTerm2
+   or accept a higher baseline. Consider splitting it (state machine and UI hermetic first,
+   real self-tests second) and record any split in `PLAN.md` before the first worker.
+2. Owed real run from 9b, in the same real-run window: the "Set up SSH in iTerm2…" round trip
+   against `saturno-m4` only (`muxfinder-probe ssh-setup --ssh saturno-m4`; the probe must
+   first learn to close its own tab by session id, never a user tab). It opens a login shell
+   on Saturno, so it needs explicit care under the remote-host rules (no commands sent, no
+   file writes); if that cannot be kept, record it as owed to the user.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
@@ -306,7 +297,7 @@ Phase 9 into 9a/9b in `PLAN.md`.
    if `status` times out or the count keeps growing across runs (*Open risks*, iTerm2 thread
    ratchet). Leftover checks: `ls -A` of the launch directory, `ls -A /private/tmp | rg
    '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno (`fd` is not installed).
-   iTerm2 was at 19 threads after 6b's closure runs (2026-10-22 ~21:45).
+   iTerm2 was at 16 threads after Phase 9b (2026-10-22 ~22:55).
 
 ## Key paths
 
@@ -333,6 +324,11 @@ Phase 9 into 9a/9b in `PLAN.md`.
   HostDraft,SettingsResults,LoginItem,FixIt,DiagnosticsReport}.swift`, `Views/Settings/`
   (`SettingsWindowController`), `Preview/{SettingsFixtures,SettingsGallery}.swift`; tests
   `Tests/MuxFinderUITests/{HostEditorTests,SettingsGeneralTests}.swift`.
+- Onboarding and SSH setup (D24): `Sources/MuxFinderUI/Model/{OnboardingModel,
+  SSHSetupActions}.swift`, `Views/Onboarding/`, `Preview/Onboarding{Fixtures,Gallery}.swift`;
+  `Sources/MuxFinderCore/Launch/SSHSetup.swift`, `Attach/{LaunchTab,SSHSetupLauncher}.swift`;
+  probe `Sources/muxfinder-probe/SSHSetupCommand.swift`; tests
+  `Tests/MuxFinderCoreTests/SSHSetupTests.swift`, `Tests/MuxFinderUITests/OnboardingTests.swift`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
@@ -345,37 +341,28 @@ Phase 9 into 9a/9b in `PLAN.md`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
+- Phase 9b (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
+  `swift format lint -r Sources Tests` exit 0; `swift test` (pipefail) exit 0, 587 core tests
+  in 57 suites + 100 UI tests in 7 suites; `scripts/build-app.sh` and `codesign --verify
+  --deep --strict build/muxFinder.app` exit 0; shell check SIGTERM exit 0, no child, support
+  folder only `launch/`; `hosts show` `notSavedYet` — `docs/progress-archive/9b.md`.
+
 - Phase 9a (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
   `swift format lint -r Sources Tests` exit 0; `swift test` exit 0, 571 core tests in 55
   suites + 83 UI tests in 6 suites; `codesign --verify --deep --strict build/muxFinder.app`
   exit 0; `--report-menu-bar-item` then SIGTERM exit 0, no child, support folder holds only
   `launch/` — `docs/progress-archive/9a.md`.
-
-- Phase 7b (final tree): `swift build -Xswiftc -warnings-as-errors` exit 0; `swift format lint
-  -r Sources Tests` exit 0; `swift test` exit 0, 534 tests in 52 suites, 6 consecutive runs;
-  real `env -u TMUX_TMPDIR swift run muxfinder-probe refresh --once --config
-  <mktemp dir>/hosts.json` exit 0, both hosts `live` (`noServer`); private folder removed, no
-  `/private/tmp/mfx.*` left — `docs/progress-archive/7b.md`.
 - Phase 6b closure (tree `ac1b9ee`, orchestrator): `swift build` exit 0; `iterm2 status` exit
   0 before and after each run; `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-remote
   saturno-m4` exit 0, 17/17 in 123.1 s; `env -u TMUX_TMPDIR swift run muxfinder-probe
   e2e-local` exit 0, 16/16 in 64.8 s; iTerm2 threads 16 → 16 → 19; launch directory empty,
   no `mfx.*`, no tmux server left on Neptuno or Saturno — `docs/progress-archive/6b.md`.
-- Phase 8 (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
-  `swift format lint -r Sources Tests` exit 0; `swift test` 569 core + 46 UI tests — run 1 one
-  unrelated 6a flake (`createsOnAPrivateServer`), runs 2–3 all pass, the test alone passes;
-  `codesign --verify --deep --strict build/muxFinder.app` exit 0; support folder holds only
-  `launch/` — `docs/progress-archive/8.md`.
 
 ## Git state
 
-- Phase 1: `bb086c9`, pushed. Phase 2: `c1ee43d`, pushed. Phase 3a: `745e36e`, pushed.
-  Phase 3b: `0d3b65f`, pushed.
-- Phase 4a: `1f5a3be`, pushed.
-- Phase 4b: `f888a2c`, pushed.
-- Phase 4c: `e631641`, pushed.
-- Phase 5a: `5b47e14`, pushed. From 3b on, commit messages carry no AI attribution trailer
-  (user's global rule); earlier pushed commits are left as they are.
+- Phases 1–5a, all pushed: 1 `bb086c9`, 2 `c1ee43d`, 3a `745e36e`, 3b `0d3b65f`, 4a
+  `1f5a3be`, 4b `f888a2c`, 4c `e631641`, 5a `5b47e14`. From 3b on, commit messages carry no AI
+  attribution trailer (user's global rule); earlier pushed commits are left as they are.
 - Phase 5b: code, review and fixes `6b1aedc` (parent `9a81b33`), pushed. Closing records
   (final-tree runs, archive, checkpoint) `dca1228` (parent `60d55ea`), pushed to `origin/main`
   (`60d55ea..dca1228`, success). This SHA/push record is a follow-up commit on top; tree clean
@@ -393,5 +380,7 @@ Phase 9 into 9a/9b in `PLAN.md`.
   `origin/main`.
 - Phase 9a: code, review fixes and checkpoint `ac1b9ee` (parent `dc1935d`), pushed to
   `origin/main`.
-- Phase 6b closure (real-run records, docs durations, checkpoint): the commit after `ac1b9ee`;
-  its SHA and push result are recorded by the next commit.
+- Phase 6b closure (real-run records, docs durations, checkpoint): `cb855c0`, then phase
+  summary refresh `880470f`, both pushed to `origin/main`.
+- Phase 9b: code, review, fixes and checkpoint: the commit after `880470f`; its SHA and push
+  result are recorded by the next commit.

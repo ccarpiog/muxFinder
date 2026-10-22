@@ -48,6 +48,8 @@ public struct SettingsFixture: Sendable, Identifiable {
   public var refreshState: RefreshState?
   /// The explaining fix-it whose text is shown.
   public var shownExplanation: FixIt?
+  /// "Set up SSH in iTerm2…" lines, by host id.
+  public var sshSetupStates: [UUID: SSHSetupState] = [:]
 
   /// A fixture of `hosts` with `configure` applied.
   public init(
@@ -147,8 +149,8 @@ public enum SettingsFixtures {
     $0.refreshState = refreshState
   }
 
-  /// Sirio's connection test asking for a sign-in, and the profile list refused by macOS
-  /// (Automation), with its fix-it.
+  /// Sirio's connection test asking for a sign-in, with "Set up SSH in iTerm2 first" and the
+  /// tab it opened, and the profile list refused by macOS (Automation), with its fix-it.
   public static let testFailed = SettingsFixture(
     id: "test-failed", title: "Test connection and a fix-it", hosts: hostList
   ) {
@@ -158,6 +160,7 @@ public enum SettingsFixtures {
         status: .signInNeeded, explanation: HostProblemText.explanation(for: .authFailed)))
     $0.profileChoices = .failed(.automationDenied)
     $0.refreshState = refreshState
+    $0.sshSetupStates = [Fixtures.sirio.id: .opened]
   }
 
   /// An unusable host list file: left as it is, shown with its problem, nothing editable.

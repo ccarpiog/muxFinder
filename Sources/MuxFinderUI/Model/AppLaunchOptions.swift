@@ -4,9 +4,9 @@ import Foundation
 ///
 /// - `--preview-fixtures`: no menu bar item, no refresh engine, no host list, no iTerm2; one
 ///   normal window renders every state from synthetic fixtures, for screenshots.
-/// - `--preview-gallery popover|settings` (or `--preview-gallery=…`; with
-///   `--preview-fixtures`): which states the window shows, the popover's (the default) or the
-///   Settings window's.
+/// - `--preview-gallery popover|settings|onboarding` (or `--preview-gallery=…`; with
+///   `--preview-fixtures`): which states the window shows, the popover's (the default), the
+///   Settings window's or the onboarding window's.
 /// - `--appearance light|dark` (or `--appearance=…`): forces the appearance of the app's own
 ///   windows (`NSApp.appearance`); the system appearance and every preference stay as they
 ///   are.
@@ -37,6 +37,8 @@ public struct AppLaunchOptions: Sendable, Hashable {
     case popover
     /// The Settings window's states.
     case settings
+    /// The onboarding window's states.
+    case onboarding
   }
 
   /// Whether to show the fixture gallery instead of the menu bar item.

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// Why the helper's path cannot be given to iTerm2. `message` is English, sentence case.
-public enum LaunchHelperPathError: Error, Sendable, Equatable, LocalizedError {
+public enum LaunchHelperPathError: Error, Sendable, Hashable, LocalizedError {
   /// The path does not start with `/`.
   case notAbsolute
   /// The path contains a character outside `[A-Za-z0-9._/-]` (PLAN.md D2).
@@ -79,7 +79,15 @@ public struct LaunchHelperPath: Sendable, Hashable, CustomStringConvertible {
   /// The command line iTerm2 runs in the launch tab: `<path> attach <launch id>`. Both parts
   /// are validated, so the line has exactly three words under any splitting rule.
   public func attachCommandLine(for id: LaunchToken) -> String {
-    "\(path) attach \(id.rawValue)"
+    commandLine(for: id, kind: .attach)
+  }
+
+  /// The command line of a launch tab for a request of `kind`: `<path> <mode> <launch id>`,
+  /// with the helper mode that takes that kind (`attach`, or `ssh-setup` for "Set up SSH in
+  /// iTerm2…", PLAN.md D24). The path and the id are validated and the mode is a constant, so
+  /// the line has exactly three words under any splitting rule.
+  public func commandLine(for id: LaunchToken, kind: LaunchRequestKind) -> String {
+    "\(path) \(kind.helperMode) \(id.rawValue)"
   }
 
   /// The path.

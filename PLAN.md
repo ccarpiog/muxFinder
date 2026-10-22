@@ -28,15 +28,17 @@ Sources/
                               (WebSocket over Unix socket + minimal protobuf codec)
     Launch/                   launch request/result files shared with muxfinder-launch
     Attach/                   AttachCoordinator (revalidate, launch, confirm, focus),
-                              AttachmentIndex (iTerm2 tmux connections -> session keys)
+                              AttachmentIndex (iTerm2 tmux connections -> session keys),
+                              LaunchTab (the shared launch tab), SSHSetupLauncher (D24)
     Refresh/                  RefreshCoordinator actor, backoff, live/stale snapshots
     Profiles/                 Persistent Work dynamic-profile generator/installer
     Diagnostics/              operation log (ring buffer + os.Logger), no terminal content
   muxfinder-launch/           helper executable that iTerm2 runs inside the launch tab
   muxfinder-probe/            developer/diagnostic CLI that drives the core without the GUI
   MuxFinderUI/                library: AppModel, popover content and views, the Settings
-                              window (SettingsModel, views, window controller), preview
-                              fixtures (D22, D23); tests import it
+                              window (SettingsModel, views, window controller), the
+                              onboarding window (OnboardingModel, view, window controller),
+                              preview fixtures (D22, D23, D24); tests import it
   MuxFinderApp/               SwiftUI menu bar app (MenuBarExtra .window style): entry
                               point, scene and app delegates only
 Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, never the
@@ -57,7 +59,9 @@ tell "open in iTerm2 on this Mac" from "attached somewhere". A click goes to
 `<bundle>/Contents/MacOS/muxfinder-launch attach <uuid>`. The helper reads the request, runs
 local tmux or `ssh -t` as its child inside that iTerm2 PTY, and writes a result file. The
 coordinator confirms attachment by finding a new iTerm2 tmux connection owned by the tab's
-session, verifies its identity, and then activates the tab.
+session, verifies its identity, and then activates the tab. "Set up SSH in iTerm2…" opens the
+same kind of launch tab with `muxfinder-launch ssh-setup <uuid>`, whose helper runs plain
+interactive `/usr/bin/ssh -- <destination>` there (D24).
 
 ## Decisions
 
@@ -188,7 +192,11 @@ session, verifies its identity, and then activates the tab.
     `createTestModeMarker`) creates it. The helper takes its request by opening it with
     `O_NOFOLLOW` and unlinking it at once (the first unlink wins, so a request is used once),
     then requires a regular file owned by the user, no group or other bits, no extended ACL and
-    at most 16 KiB. TTL: 120 s after `createdAt` (5 s future tolerance), on an injectable
+    at most 16 KiB. Each helper mode takes only requests of its own kind (D24): an attach
+    request has no `kind` field (so every file written before ssh setup existed reads exactly
+    as before), an ssh setup request has `"kind":"sshSetup"`, and a well-formed request of the
+    other kind is refused (72), gone like every refused request. TTL: 120 s after `createdAt`
+    (5 s future tolerance), on an injectable
     clock. The sweep removes request, result, argv-digest and temporary files whose mtime is
     older than the TTL.
   - **ACLs:** mode bits alone are no private boundary on macOS, since an extended ACL entry
@@ -207,8 +215,9 @@ session, verifies its identity, and then activates the tab.
     secured by every host-list save (D19).
   - **Exit codes:** guard 64 gone, 65 changed, 66 tmux missing (the D5 rule, discovery's
     `tmuxNotFound`), 67 tmux check failed, 68 guard usage. Helper 2 usage, 70 request missing,
-    71 expired, 72 unreadable, 73 launch directory unusable, 74 spawn failed, 75 check timed
-    out, 128 + n interrupted by signal n before tmux attached; otherwise tmux's own status (0
+    71 expired, 72 unreadable (also a request of the other kind, D24), 73 launch directory
+    unusable, 74 spawn failed, 75 check timed out, 128 + n interrupted by signal n before tmux
+    attached; otherwise tmux's own status (0
     after a detach, 1 on errors), and 128 + n for signal n. For a remote attach ssh hands back
     the remote status (the guard's codes, tmux's 0 or 1) and uses 255 for its own errors (D17).
     `LaunchFailure.fromCheck(_:timedOut:)` (the check child) and `LaunchFailure.from(_:host:)`
@@ -256,13 +265,15 @@ session, verifies its identity, and then activates the tab.
     whichever comes first).
   - **Minimum lifetime** (decided in Phase 4c, 2026-10-22): under that same condition the helper
     never exits before it is 10 s old (`LaunchHelper.minimumLifetime`, counted from its start),
-    whatever the outcome: it writes the result first, waits for Return if it failed, then holds
-    the rest (`LaunchTerminal.holdOpen(for:)`: closing the tab, SIGHUP, still ends it at once;
-    SIGINT and SIGTERM never end it, so Ctrl-C at the prompt or during the hold cannot end a
-    visible tab early). A launch tab that ends within 3 s of starting raises iTerm2's blocking
-    short-lived-session warning (*Verified facts*, Phase 4), and tmux can end right after
-    attaching (iTerm2 or someone detaching early, the session killed) or Return can be pressed
-    at once; the coordinator's own 10 s wait (D15) covers only the ends it causes.
+    whatever the outcome and in either mode (`attach` or `ssh-setup`, D24; every way out goes
+    through `LaunchHelper.finish`): it writes the result first, waits for Return if it failed,
+    then holds the rest (`LaunchTerminal.holdOpen(for:)`: closing the tab, SIGHUP, still ends it
+    at once; SIGINT and SIGTERM never end it, so Ctrl-C at the prompt or during the hold cannot
+    end a visible tab early). A launch tab that ends within 3 s of starting raises iTerm2's
+    blocking short-lived-session warning (*Verified facts*, Phase 4), and tmux can end right
+    after attaching (iTerm2 or someone detaching early, the session killed), ssh can fail at
+    once, or Return can be pressed at once; the coordinator's own 10 s wait (D15) covers only
+    the ends it causes.
   - **Test mode:** set by `MUXFINDER_LAUNCH_TEST_MODE=1`, or by a regular file
     `launch/test-mode` owned by the user. The marker is how 4b turns test mode on for helpers
     iTerm2 starts: the e2e run creates it (`LaunchStore.createTestModeMarker()`) and removes it
@@ -289,15 +300,18 @@ session, verifies its identity, and then activates the tab.
     10 s minimum lifetime, so tests can run the binary in a pseudo-terminal quickly; any other
     value keeps 10 s.
     `LaunchHelperPath.locate()` finds `muxfinder-launch` next to the running executable and
-    applies the D2 rule. The tab command is `LaunchHelperPath.attachCommandLine(for:)`, that
-    is `<path> attach <uuid>`.
+    applies the D2 rule. The tab command is `LaunchHelperPath.commandLine(for:kind:)`:
+    `<path> attach <uuid>` (`attachCommandLine(for:)`), or `<path> ssh-setup <uuid>` for "Set
+    up SSH in iTerm2…" (D24).
 - **D15 — Attach coordinator** (decided in Phase 4b, 2026-10-22; code in
   `Sources/MuxFinderCore/Attach/`).
   - **Launch tab:** `CreateTab` without `window_id`, so the tab opens in a new window and never
     in one of the user's, with the host's profile and `Close Sessions On End = true`: it closes
     by itself after a clean detach, and after a failure once the user pressed Return. The
     request runs in a task of its own, so cancelling an attach never loses the new tab's
-    session id (the result reports it on every failure after the tab opened).
+    session id (the result reports it on every failure after the tab opened). Both the request
+    and that task are `LaunchTab` (`Attach/LaunchTab.swift`), which "Set up SSH in iTerm2…"
+    uses too (D24), so muxFinder opens tabs in iTerm2 one way only.
   - **Seams:** iTerm2 (`ITerm2Integration`), discovery (`HostDiscovering`), the launch files
     (`LaunchRequestStore`) and the clock (`AttachClock`) are protocols, so the coordinator is
     tested hermetically with fakes and a manual clock.
@@ -952,7 +966,8 @@ session, verifies its identity, and then activates the tab.
   - **Model and engine:** `AppModel` (`@Observable @MainActor`) runs on an `AppEnvironment`
     (host loading, engine and system-events factories, wall clock, terminate), so tests pass
     fakes. `start()` loads the list with `HostStore.load()` (never writes; an unusable folder
-    gives an empty list and a notice), builds the `RefreshCoordinator` for it
+    gives an empty list and a notice), shows the onboarding window when it loaded as
+    `notSavedYet` (D24), builds the `RefreshCoordinator` for it
     (`DiscoveryProbe`; `AttachmentIndex` over one shared `ITerm2APIClient`), subscribes to
     `updates()`, starts `RefreshSystemEvents` on `NSWorkspace`'s notification center, then
     `start()`s the engine. Popover open/close, "Refresh" and "Retry" go through one queue read
@@ -974,14 +989,17 @@ session, verifies its identity, and then activates the tab.
     ignored). Per-session activity ("Opening…", "Waiting for iTerm2…", "Waiting for you in
     iTerm2", a failure with "Retry") is model state; `SessionActivity.init?(_ state:)` maps
     `AttachState` for Phase 10.
-  - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch. The popover's only iTerm2
-    requests are the engine's attachment checks, which run only while the popover is
-    visible and are cancelled when it closes (D20); the Settings window adds one, the profile
-    list, asked only when its window opens while iTerm2 runs (D23). The client checks that
-    iTerm2 runs before it asks for the cookie (D13). So the cookie is requested when the
-    popover or the Settings window opens while iTerm2 runs, and (Phase 10) on an attach; never
-    at launch, once the popover has closed (a cookie request, connection or identity question
-    the check had not made by then is never made), or while iTerm2 is not running. Tested
+  - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch, the onboarding window
+    included (D24). The popover's only iTerm2 requests on their own are the engine's
+    attachment checks, which run only while the popover is visible and are cancelled when it
+    closes (D20); the Settings window adds one, the profile list, asked only when its window
+    opens while iTerm2 runs (D23); "Set up SSH in iTerm2…" (D24) contacts iTerm2, and may
+    launch it, only when the user clicks it. The client checks that iTerm2 runs before it asks
+    for the cookie (D13). So the cookie is requested when the popover or the Settings window
+    opens while iTerm2 runs, when the user chooses "Set up SSH in iTerm2…", and (Phase 10) on
+    an attach; never at launch, once the popover has closed (a cookie request, connection or
+    identity question the check had not made by then is never made), or while iTerm2 is not
+    running. Tested
     through the real `ITerm2APIClient` with counting and gated cookie providers, a fake
     running check and fake connectors.
   - **Popover visibility and keys:** `PopoverWindowBridge` follows the menu bar extra's
@@ -993,11 +1011,13 @@ session, verifies its identity, and then activates the tab.
     popover (no UI scripting), so this glue is checked by the model's tests and by hand only.
   - **Placeholders:** opening a session and "New session" (Phase 10) only record a
     `DeferredIntent`: nothing is attached or launched. "Settings" and ⌘, open the Settings
-    window (D23). "Retry" on a session failure clears it and refreshes the session's host.
+    window (D23). "Retry" on a session failure clears it and refreshes the session's host. A
+    host's sign-in or host key problem also offers "Set up SSH in iTerm2 first" (D24).
   - **Quit:** "Quit", SIGTERM and SIGINT go through `AppTermination.request()`, which calls
     `terminate(_:)` from a run-loop block. `applicationShouldTerminate` answers
     `.terminateLater`, runs `AppModel.shutdown()` (Settings' `shutdown()`, which refuses new
-    work and cancels and awaits its probes and window opening, D23; the queue, dropping
+    work and cancels and awaits its probes and window opening, D23; onboarding's and the
+    popover's "Set up SSH in iTerm2…" requests, cancelled and awaited, D24; the queue, dropping
     requests not yet handed over; the system events adapter; then the engine, whose `stop()`
     cancels any attachment check and kills any probe's process group) and replies, so the process
     exits 0; a 5 s deadline replies anyway. Calling `terminate(_:)` from a main-queue block or a
@@ -1007,7 +1027,8 @@ session, verifies its identity, and then activates the tab.
   - **Preview fixtures:** `--preview-fixtures` runs a plain `NSApplication` (no SwiftUI scene,
     so no status item, and nothing recorded for one; no engine, host list or iTerm2) with one
     normal window of every state in `PreviewFixtures.all` (with `--preview-gallery settings`,
-    `SettingsFixtures.all` instead, D23): synthetic names, `*.example`
+    `SettingsFixtures.all` instead, D23; with `--preview-gallery onboarding`,
+    `OnboardingFixtures.all`, D24): synthetic names, `*.example`
     destinations, a fake socket path, a fixed `now`. It is shown without activating the app
     and its window number is printed for `screencapture -l`. `--appearance light|dark` sets
     `NSApp.appearance` only. `--preview-snapshot <file.png>` also draws the window's content
@@ -1050,12 +1071,13 @@ session, verifies its identity, and then activates the tab.
     task the model owns; closing it calls `windowDidClose()`: the opening is cancelled (with
     the profile request inside it, so the iTerm2 client stops before its next contact, and a
     cancelled `ITerm2ProfileSource` asks nothing), late results are dropped by window
-    generation and nothing more starts, probes are cancelled and dialogs dropped (unsaved
-    edits are lost, since the next opening reloads the list); becoming key reads the login
-    item status again. Quitting runs `SettingsModel.shutdown()` from `AppModel.shutdown()`
-    (D22): no opening, load, profile request, probe or save starts any more, the opening and
-    every probe still running (a replaced one too) are cancelled, and it returns only once
-    all have ended, so no probe's process group outlives the app. The window
+    generation and nothing more starts, probes and "Set up SSH in iTerm2…" requests (D24) are
+    cancelled and dialogs dropped (unsaved edits are lost, since the next opening reloads the
+    list); becoming key reads the login item status again. Quitting runs
+    `SettingsModel.shutdown()` from `AppModel.shutdown()` (D22): no opening, load, profile
+    request, probe, ssh tab or save starts any more, the opening, every probe still running (a
+    replaced one too) and any ssh tab request are cancelled, and it returns only once all have
+    ended, so no probe's process group outlives the app. The window
     handles ⌘X, ⌘C, ⌘V, ⌘A, ⌘Z, ⇧⌘Z and ⌘W itself (`SettingsWindow.performKeyEquivalent`),
     since a menu bar app shows no main menu. Rejected: a SwiftUI `Settings` scene, which an
     accessory menu bar app cannot reliably open and bring forward, and which preview mode's
@@ -1069,9 +1091,10 @@ session, verifies its identity, and then activates the tab.
     (`SSHConfigSuggestions`, read off the main actor), `LoginItemControlling`
     (`SystemLoginItem`, `SMAppService.mainApp`), the `DiagnosticsLog` (one per app, shared with
     the iTerm2 client, which records its connections in it), the pasteboard, `openURL`, the
-    versions and the clock. `AppEnvironment` gained `openURL`, `presentSettings`, `settings`
-    and `diagnostics`. Tests pass fakes for every one; saves are also tested through a real
-    `HostStore` in a private folder.
+    versions, the clock, and `SSHSetupOpening` (`SSHSetupLauncher`, D24; the onboarding window
+    and the popover use it from here too). `AppEnvironment` gained `openURL`,
+    `presentSettings`, `presentOnboarding` (D24), `settings` and `diagnostics`. Tests pass
+    fakes for every one; saves are also tested through a real `HostStore` in a private folder.
   - **Editing:** the editor works on a `HostDraft` with explicit "Save" and "Revert" (no
     autosave, so a half-typed destination is never stored). Inline rules (`HostDraftIssues`,
     sentence case): a name is required, at most 50 characters, without control characters
@@ -1109,7 +1132,9 @@ session, verifies its identity, and then activates the tab.
     which expects that same unusable file (one changed again refuses the save as above), and
     `HostStore` keeps the displaced file as a backup, since it never loaded it as `saved`
     (D19). An unreadable folder disables editing and offers "Try again". The examples
-    (`notSavedYet`) are editable, with a note that nothing is saved until a change.
+    (`notSavedYet`) are editable, with a note that nothing is saved until a change; at launch
+    the onboarding window offers them too (D24), and a list saved there makes a later save
+    here, from a window opened before it, refuse as a changed file.
   - **Detect and Test connection:** both run discovery on the draft as it stands, never on the
     saved file: Detect without the tmux path, filling the field with `ProbeReport.tmuxPath`
     ("Found tmux 3.8 at …"); Test connection with it, showing `HostStatusLabel` and
@@ -1145,13 +1170,115 @@ session, verifies its identity, and then activates the tab.
     `openURL`; `apiDisabled` gets "How to turn it on", an inline explanation (iTerm2 ›
     Settings, General › Magic, "Enable Python API") that never opens iTerm2; launch at login
     waiting for approval gets "Open Login Items settings". The popover's iTerm2-check notice
-    and session failures (`SessionActivity.failed(message:fixIt:)`), and Settings' profile
-    note and Diagnostics tab show them. The Automation URL was not opened in an unattended run.
+    and session failures (`SessionActivity.failed(message:fixIt:)`), Settings' profile note
+    and Diagnostics tab, and a failed "Set up SSH in iTerm2…" line (D24) show them. The
+    Automation URL was not opened in an unattended run.
   - **Preview fixtures:** `--preview-fixtures --preview-gallery settings` shows
     `SettingsFixtures.all` (11 states) in the same plain preview window, with the same
     `--appearance` and `--preview-snapshot` flags; screenshots
     `docs/screenshots/settings-states-{light,dark}.png`. Synthetic data only (`*.example`
     destinations, invented profile and suggestion names, a fixed log).
+
+- **D24 — Onboarding and "Set up SSH in iTerm2…"** (decided in Phase 9b, 2026-10-22; code in
+  `Sources/MuxFinderUI/Model/OnboardingModel.swift`, `SSHSetupActions.swift`,
+  `Views/Onboarding/`, `Preview/Onboarding{Fixtures,Gallery}.swift`;
+  `Sources/MuxFinderCore/Launch/LaunchModels.swift`, `LaunchStore.swift`, `SSHSetup.swift`,
+  `LaunchHelper.swift`; `Attach/LaunchTab.swift`, `Attach/SSHSetupLauncher.swift`).
+  - **When onboarding shows:** `AppModel.start()` hands the launch's load result to
+    `OnboardingModel.prepare(_:)`, which accepts only `notSavedYet` (no `hosts.json` yet), and
+    then shows the window through `AppEnvironment.presentOnboarding`
+    (`OnboardingWindowController.shared`: one AppKit window, "Welcome to muxFinder", 780×760
+    points, at least 700×480, resizable, not restorable, no saved frame, the Settings window's
+    class for its editing keys and ⌘W; `NSApp.activate()` brings it forward). Never for a
+    `saved` list; an `invalid` file keeps D23's banner and the popover's notice; an unreadable
+    folder shows nothing. Closing it without saving brings it back at the next launch, while
+    the list is still not saved. Preparing and opening it reads nothing more, contacts no
+    iTerm2 and runs no ssh or tmux; the examples are turned off, so the engine discovers
+    nothing either.
+  - **Content:** the examples (D19's defaults: Saturno, Neptuno and Sirio, SSH, no
+    destination, turned off) as rows with the name, the SSH destination (This Mac's row says it
+    is checked directly), "Set up SSH in iTerm2…", a "This Mac" checkbox and "Turned on"; then
+    the brief's four expectations one line each, the scope line (default tmux server only) and
+    the iTerm2 requirements (the Python API on; the one-time Automation permission)
+    (`OnboardingText`). The tmux path, the profile, adding and removing hosts stay in Settings.
+  - **Editing** reuses D23's `HostDraft` and `HostDraftIssues` (name required, at most 50
+    characters and unique among the rows; a destination empty or valid, required to turn an
+    SSH host on, `setEnabled(_:for:)` refusing with the reason). This Mac is exclusive and
+    follows D19's switch: the chosen row becomes local and turned on, the previous This Mac
+    goes back to SSH, turned off, its destination kept; unchecking leaves none.
+  - **Saving:** "Save hosts" builds a checked `HostList` from the rows and saves it only
+    through `HostListPersisting.save(_:expecting:)` (the app's `HostStore`) with the revision
+    of the launch's load. A file that appeared since (Settings saved, or another program) is
+    left as it is: nothing is written or backed up, the window says "The host list file
+    changed after muxFinder loaded it (for example, it was saved in Settings), so nothing was
+    saved here…", stops editing and offers "Open Settings". A saved list goes to the app like
+    one saved in Settings (load status `saved`, `RefreshCoordinator.setHosts(_:)`) and the
+    window closes. Closing the window, or "Not now", writes nothing. The log records the
+    outcome with counts only (hosts turned on, whether This Mac was chosen).
+  - **Request kind:** `LaunchRequestKind` (`attach`, `sshSetup`) is the request file's `kind`.
+    An attach request is still written without it, byte for byte as before;
+    `LaunchRequestFile.decode(_:)` reads a file without `kind` (every older file) or with
+    `"attach"` as a `LaunchRequest`, `"sshSetup"` as an `SSHSetupRequest` (`formatVersion`,
+    `kind`, `id`, `createdAt`, `hostID`, `destination`; nothing else), anything else as
+    unreadable (72). `LaunchStore.writeRequest(_:)` refuses an ssh setup request that is not
+    well formed before creating anything; `takeRequest(_:)` and `takeSSHSetupRequest(_:)` refuse
+    a well-formed request of the other kind (`requestKindMismatch`, 72), which, like every
+    refused request, is gone. Rejected: optional session fields on `LaunchRequest`, which
+    would have changed how attach requests decode.
+  - **Helper mode:** `muxfinder-launch ssh-setup <uuid>` (usage `attach|ssh-setup <launch id>`)
+    takes only an ssh setup request and runs one child on the tab's terminal, exactly
+    `/usr/bin/ssh -- <destination>` (`SSHSetup.sshArguments`), by argv: no option (no `-t`,
+    `ConnectTimeout` or `BatchMode`), no remote command (ssh starts the login shell), nothing
+    that weakens host-key checking, the user's configuration, keys and agent as they are, the
+    helper's cleaned environment (D14), ssh's standard error relayed and classified as in D17.
+    Any exit but 255 is a success (ssh connected and signed in; the status is the remote
+    shell's), 255 is `sshFailed(class)`, a signal `childSignaled`; the tab's wording is
+    `LaunchFailure.sshSetupExplanation`. Every way out goes through D14's finish: the result
+    file first (nobody waits for it; the sweep removes it), the explanation, the wait for
+    Return after a failure, and the hold until the helper is 10 s old, so ssh failing at once
+    never ends the tab inside iTerm2's 3 s window; only a closed tab (SIGHUP) ends it early.
+    In test mode the argv digest records the ssh child (`detachesOtherClients` false).
+  - **Validation:** the destination passes `Validation.sshDestination(_:)` (not empty, no
+    whitespace or control characters, no leading `-`) before the launcher writes anything or
+    contacts iTerm2, when the store writes and takes the request, and again before ssh starts;
+    a destination ssh could read as an option never reaches a process.
+  - **Opening the tab (`SSHSetupLauncher`, the `SSHSetupOpening` seam):** refuses This Mac, an
+    invalid destination or a missing helper before anything; sweeps, writes the request,
+    `ensureRunning()` (it may launch iTerm2: the user clicked), then `CreateTab` through
+    `LaunchTab` (D15: a new window, the host's profile, the command `<helper> ssh-setup
+    <uuid>`, Close Sessions On End), over the app's shared `ITerm2APIClient` and `LaunchStore`.
+    A failure after the write, or a caller cancelled before `ensureRunning()` or `CreateTab`,
+    withdraws the request. It returns `opened(sessionID)` or `failed(SSHSetupFailure)` and does
+    not watch the tab: what ssh does there is for the user to see. The UI says so honestly:
+    "iTerm2 opened a new window running ssh to this host. Sign in or answer the host key
+    question there, then check the host again." or "muxFinder couldn't open ssh in iTerm2.
+    <reason>", with D23's fix-it for an iTerm2 error. The log records the outcome kind,
+    duration and host id, never the destination. Rejected: a second iTerm2 route (AppleScript
+    or typed text), and waiting for the helper's result (the login can last hours).
+  - **Where it is offered (`SSHSetupActions`, one per window):** each onboarding row with an
+    SSH destination that passes validation (the destination as typed; nothing is saved for
+    it); the Settings host editor under the destination ("Set up SSH in iTerm2…"), replaced
+    by "Set up SSH in iTerm2 first" under a Test connection result of "Sign-in needed" or "Host
+    key problem"; the popover under a host whose last check failed `authFailed` or
+    `hostKeyProblem` ("Set up SSH in iTerm2 first"; "Retry" forgets its line). One request
+    per host at a time while its line shows; each line waits for one request's result only,
+    so changing the destination or mode (or "Retry") forgets the line and drops the result of
+    a request still running, asked for the old values, and a new request may start at once;
+    closing the window cancels the requests still running and forgets the lines. A cancelled
+    or dropped request may still run (once `CreateTab` was sent, the launcher waits for
+    iTerm2's answer), so each window keeps every request until it ends, and quitting cancels
+    and awaits all of them, a closed window's too.
+  - **Real runs:** `muxfinder-probe ssh-setup --ssh <dest> [--profile <name>]` opens the tab
+    the app's way and prints the outcome (no destination). It opens a real iTerm2 window and
+    starts a real ssh login, so it never ran unattended: the real run (Saturno only; its tab
+    must end at least 10 s old, and an unattended run first needs a way to close its own tab
+    by the printed session id) is owed to a real-run window.
+  - **Preview fixtures:** `--preview-fixtures --preview-gallery onboarding` shows
+    `OnboardingFixtures.all` (7 states: the examples, This Mac chosen with a tab opened,
+    validation errors, a tab opening and one failing with its fix-it, saving, a list saved
+    elsewhere, a failed save); screenshots `docs/screenshots/onboarding-states-{light,dark}.png`.
+    The popover's "Host problems" and Settings' "Test connection and a fix-it" fixtures show the
+    action too.
 
 ## Verified facts (planning session, 2026-10-21)
 

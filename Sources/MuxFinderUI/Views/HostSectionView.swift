@@ -22,6 +22,11 @@ struct HostSectionView: View {
         }
         .padding(.horizontal, 6)
       }
+      if section.offersSSHSetup {
+        sshSetupLine
+          .padding(.leading, 24)
+          .padding(.trailing, 6)
+      }
       if let emptyState = section.emptyState {
         Text(emptyState)
           .font(.callout)
@@ -37,6 +42,21 @@ struct HostSectionView: View {
     } // End of VStack holding the group
     .padding(.horizontal, 8)
   } // End of var body
+
+  /// "Set up SSH in iTerm2 first" under a sign-in or host key problem (PLAN.md D24), and what
+  /// it did.
+  private var sshSetupLine: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Button("Set up SSH in iTerm2 first") { model.setUpSSH(hostID: section.id) }
+        .controlSize(.small)
+        .disabled(section.sshSetup == .opening)
+        .help(
+          "Open a new iTerm2 window running ssh to this host, so you can sign in or check its key")
+      if let state = section.sshSetup {
+        SSHSetupLine(state: state, perform: model.perform, shownExplanation: model.shownExplanation)
+      }
+    }
+  } // End of var sshSetupLine
 
   /// Name and "Last checked …" on the left, a spinner while refreshing and the status on the
   /// right. One accessibility element, marked as a header.

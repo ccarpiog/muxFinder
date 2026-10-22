@@ -32,7 +32,8 @@ enum SettingsTestSupport {
     seams: SeamRecorder = SeamRecorder(),
     diagnostics: DiagnosticsLog = DiagnosticsLog(
       writesToSystemLog: false, now: { UITestSupport.now }),
-    suggestions: [String] = ["build-box.example"]
+    suggestions: [String] = ["build-box.example"],
+    sshSetup: (any SSHSetupOpening)? = nil
   ) -> SettingsEnvironment {
     SettingsEnvironment(
       store: store,
@@ -45,7 +46,8 @@ enum SettingsTestSupport {
       openURL: { seams.openedURLs.append($0) },
       appVersion: "1.2.3 (45)",
       systemVersion: "Version 27.2 (Build 27C00)",
-      now: { UITestSupport.now })
+      now: { UITestSupport.now },
+      sshSetup: sshSetup)
   } // End of static func environment(store:discovery:profiles:loginItem:seams:diagnostics:…)
 
   /// A model over fakes whose store loads `hosts`, opened (list, login item, profiles,
@@ -479,4 +481,61 @@ final class FakeLoginItem: LoginItemControlling {
 struct FakeLoginItemError: LocalizedError {
   /// The description.
   var errorDescription: String? { "Operation not permitted." }
+}
+
+/// "Set up SSH in iTerm2…" in memory (PLAN.md D24): records every host it was asked to open a
+/// tab for and answers a scripted result. With a closed `gate`, calls wait there. By default a
+/// call whose task is cancelled stops waiting and answers `cancelled`, as the real launcher
+/// withdraws its request before `CreateTab` once its caller is cancelled; with
+/// `stopsWhenCancelled` false it waits on until the gate opens and answers as usual, as the
+/// real launcher does once `CreateTab` was sent (`LaunchTab.open` waits for iTerm2's answer
+/// whatever its caller). Never opens a tab, contacts iTerm2 or runs ssh.
+final class FakeSSHSetupOpener: SSHSetupOpening {
+  /// Lock-protected state.
+  private struct State {
+    /// The hosts asked about, oldest first.
+    var calls: [HostConfig] = []
+    /// What every call answers.
+    var result = SSHSetupResult.opened(sessionID: "fixture-session")
+    /// Calls that returned.
+    var finishedCalls = 0
+    /// Calls that returned although their task was cancelled.
+    var cancelledCalls = 0
+  }
+
+  /// The state.
+  private let state = OSAllocatedUnfairLock(initialState: State())
+  /// Where calls wait while it is closed.
+  let gate = TestGate()
+  /// Whether a cancelled call stops waiting at the gate.
+  private let stopsWhenCancelled: Bool
+
+  /// An opener that answers `opened`; see the type for `stopsWhenCancelled`.
+  init(stopsWhenCancelled: Bool = true) {
+    self.stopsWhenCancelled = stopsWhenCancelled
+  }
+
+  /// The hosts asked about, oldest first.
+  var calls: [HostConfig] { state.withLock { $0.calls } }
+  /// Calls that returned.
+  var finishedCalls: Int { state.withLock { $0.finishedCalls } }
+  /// Calls that returned although their task was cancelled.
+  var cancelledCalls: Int { state.withLock { $0.cancelledCalls } }
+
+  /// Makes every later call answer `result`.
+  func answer(_ result: SSHSetupResult) {
+    state.withLock { $0.result = result }
+  }
+
+  /// Records `host`, waits at the gate, and answers (see the type).
+  func openSSHSetup(for host: HostConfig) async -> SSHSetupResult {
+    state.withLock { $0.calls.append(host) }
+    let passed = await gate.pass(cancellable: stopsWhenCancelled)
+    let isCancelled = Task.isCancelled
+    return state.withLock { state in
+      state.finishedCalls += 1
+      if isCancelled { state.cancelledCalls += 1 }
+      return passed ? state.result : .failed(.cancelled)
+    }
+  } // End of func openSSHSetup(for:)
 }

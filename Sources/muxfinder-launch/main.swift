@@ -1,5 +1,6 @@
 // muxfinder-launch: the helper iTerm2 runs inside a launch tab, as
-// `<path>/muxfinder-launch attach <launch id>` (PLAN.md D2, D14). All logic lives in
+// `<path>/muxfinder-launch attach <launch id>` (PLAN.md D2, D14) or, for "Set up SSH in
+// iTerm2…", `<path>/muxfinder-launch ssh-setup <launch id>` (D24). All logic lives in
 // `LaunchHelper` in MuxFinderCore; this file only wires the process to it.
 
 import Darwin

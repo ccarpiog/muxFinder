@@ -24,6 +24,10 @@ import Observation
 /// - **Probes:** "Detect" and "Test connection" run discovery through
 ///   `SettingsEnvironment.discovery`; a newer request, another host or a changed mode,
 ///   destination or tmux path cancels the one running and drops its result.
+/// - **Set up SSH in iTerm2…** (PLAN.md D24): for an SSH draft with a valid destination, opens a
+///   tab running ssh to it as typed (`sshSetup`, through `SettingsEnvironment.sshSetup`), also
+///   offered next to a connection test that needed a sign-in or had a host key problem.
+///   Closing the window cancels a request still running.
 /// - **Window and quitting:** the window's opening runs in a task the model owns; closing the
 ///   window cancels it (and the profile request inside it) and drops late results by window
 ///   generation. `shutdown()` (from `AppModel.shutdown()`) refuses new work, cancels every
@@ -193,6 +197,8 @@ public final class SettingsModel {
   public private(set) var isWindowOpen = false
   /// Whether this model renders a fixture.
   public let isPreview: Bool
+  /// "Set up SSH in iTerm2…" for the hosts edited here.
+  public let sshSetup: SSHSetupActions
 
   /// Called after every successful save with the list now on disk (`AppModel` hands it to the
   /// engine).
@@ -225,6 +231,7 @@ public final class SettingsModel {
   public init(environment: SettingsEnvironment) {
     self.environment = environment
     isPreview = false
+    sshSetup = SSHSetupActions(opener: environment.sshSetup)
   }
 
   /// A model that shows `fixture` and never runs anything.
@@ -251,6 +258,7 @@ public final class SettingsModel {
     copyNotice = fixture.copyNotice
     refreshState = fixture.refreshState
     shownExplanation = fixture.shownExplanation
+    sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
   } // End of init(fixture:)
 
   // MARK: - Window
@@ -298,6 +306,7 @@ public final class SettingsModel {
     openTask?.cancel()
     openTask = nil
     cancelProbes()
+    sshSetup.cancelAll()
     if profileChoices == .loading { profileChoices = .notLoaded }
     pendingSelection = nil
     pendingRemoval = nil
@@ -306,9 +315,9 @@ public final class SettingsModel {
   } // End of func windowDidClose()
 
   /// Quitting (`AppModel.shutdown()`): refuses new work from now on (no opening, load, profile
-  /// request, probe or save), cancels the window's opening and every probe, and returns once
-  /// all of them have ended. A discovery probe ends only after its process group was killed
-  /// and reaped. Later calls only wait again.
+  /// request, probe, ssh tab or save), cancels the window's opening, every probe and any ssh
+  /// tab request, and returns once all of them have ended. A discovery probe ends only after
+  /// its process group was killed and reaped. Later calls only wait again.
   public func shutdown() async {
     isShutDown = true
     windowGeneration += 1
@@ -320,6 +329,7 @@ public final class SettingsModel {
       task.cancel()
       await task.value
     }
+    await sshSetup.shutdown()
   } // End of func shutdown()
 
   /// Starts `work` as a task kept in `runningTasks` until it ends, and returns it.
@@ -582,7 +592,8 @@ public final class SettingsModel {
   }
 
   /// Applies `change` to the draft while the list is editable. A change of mode, destination
-  /// or tmux path stops the probes and clears their results, which were about the old values.
+  /// or tmux path stops the probes and clears their results, and a change of mode or
+  /// destination forgets the "Set up SSH in iTerm2…" line: all were about the old values.
   private func edit(_ change: (inout HostDraft) -> Void) {
     guard isEditable, var updated = draft else { return }
     let before = updated
@@ -591,6 +602,29 @@ public final class SettingsModel {
     saveNotice = nil
     if updated.canTurnOn { enableRefusal = nil }
     if updated.discoveryDiffers(from: before) { cancelProbes() }
+    if updated.mode != before.mode || updated.trimmedDestination != before.trimmedDestination {
+      sshSetup.clear(updated.id)
+    }
+  } // End of func edit(_:)
+
+  /// Whether "Set up SSH in iTerm2…" is offered for the draft: an SSH host with a valid
+  /// destination (saved or not), while no request for it runs and the window may work.
+  public var canSetUpSSH: Bool {
+    guard let draft, !isShutDown else { return false }
+    return SSHSetupActions.isOffered(for: draft.config) && !sshSetup.isOpening(draft.id)
+  }
+
+  /// "Set up SSH in iTerm2…": opens a tab running ssh to the draft's destination as typed.
+  public func setUpSSH() {
+    guard canSetUpSSH, let draft else { return }
+    sshSetup.open(draft.config)
+  }
+
+  /// Whether the connection test's result offers "Set up SSH in iTerm2 first": it needed a
+  /// sign-in or had a host key problem.
+  public var connectionTestOffersSSHSetup: Bool {
+    guard case .finished(let result) = connectionTest else { return false }
+    return result.status == .signInNeeded || result.status == .hostKeyProblem
   }
 
   /// The note shown when choosing This Mac turns another host back into an SSH host.

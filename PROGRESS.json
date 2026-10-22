@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T20:46:31Z",
+  "updated": "2026-10-22T21:35:35Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -216,11 +216,11 @@
     {
       "id": "9",
       "title": "Settings, onboarding, launch at login, diagnostics",
-      "status": "in_progress",
+      "status": "done",
       "risk": "routine",
-      "summary": "Adds settings, onboarding, launch at login and diagnostics; split into 9a (Settings window, done) and 9b (onboarding and SSH setup).",
+      "summary": "Split into 9a (Settings window) and 9b (onboarding and SSH setup), both done.",
       "started": "2026-10-22T19:36:32Z",
-      "status_since": "2026-10-22T19:36:32Z"
+      "status_since": "2026-10-22T21:35:35Z"
     },
     {
       "id": "9a",
@@ -239,12 +239,15 @@
     {
       "id": "9b",
       "title": "Onboarding and SSH setup",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "9",
-      "summary": "Adds the first-run onboarding window and the Set up SSH in iTerm2 action with its helper mode.",
+      "summary": "Onboarding window for a first launch and a Set up SSH in iTerm2 action that opens a plain ssh login tab.",
+      "review": "docs/reviews/phase-9b.md",
+      "narrative": "docs/progress-archive/9b.md",
       "added": "2026-10-22T19:36:32Z",
-      "status_since": "2026-10-22T19:36:32Z"
+      "started": "2026-10-22T20:47:10Z",
+      "status_since": "2026-10-22T21:35:31Z"
     },
     {
       "id": "10",
