@@ -23,9 +23,12 @@ file.
 
 ## Current phase
 
-None in progress. Phase 7b (refresh engine) closed; Phases 1–7b are done. Next: **Phase 6b —
-Move here** if iTerm2's thread count allows, else **Phase 8** (*Next action*). Phase 6 was split
-into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase still queued.
+**Phase 6b — Move here** (risk `high`, worker model opus: implementation worker + review fix
+worker): code, review and both blocker fixes are done, verified hermetically and committed. It
+is **not closed**: it still needs its real final-tree runs (first real `e2e-remote saturno-m4`
+with the Move here step, then `e2e-local` again on the final tree), which wait on iTerm2's thread
+count (*Next action*). Narrative so far: `docs/progress-archive/6b.md`. Phases 1–6a and 7a/7b
+are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
 
 ## Acceptance
 
@@ -79,6 +82,12 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
   change, attachment merge and the three review regressions; real final-tree `refresh --once`
   against a private This Mac + Saturno `hosts.json` exit 0, both `live`; build, 534 tests and
   lint pass. Evidence in `docs/progress-archive/7b.md`.
+- Phase 6b (open): met so far — explicit-confirmation `moveHere`, `-d` only for move here
+  (local argv, static remote script, digest), old request files decode as attach,
+  already/possibly-attached-here refusals, proof-based cross-kind single flight, 563 hermetic
+  tests, real `e2e-local` 16/16 before the review fixes. **Not yet met:** real `e2e-remote
+  saturno-m4` with the Move here step (never run: thread gate) and a final-tree `e2e-local`.
+  Criteria and evidence in `docs/progress-archive/6b.md`.
 
 ## Decisions
 
@@ -143,6 +152,11 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
   generation + revision + work-epoch discard; cadence and background-only backoff; attachment
   checks only while the popover is visible; probe `refresh --once` with opt-in
   `--attachments`) — `docs/progress-archive/7b.md`.
+- Phase 6b: new **D21** (Move here: `MoveHereConfirmation.detachOtherClients(of:)`, request
+  field `detachOtherClients`, static `moveHereScript` remotely, `alreadyAttachedHere` /
+  `possiblyAttachedHere` refusals, proof-based tracking of launches that may still attach,
+  `earlierLaunchPending` after the confirmation budget); D14–D17 edited —
+  `docs/progress-archive/6b.md`.
 
 ## Open risks / deviations
 
@@ -224,6 +238,12 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
   the suite flakes. `refresh --once --attachments` never ran for real (it queries the user's
   iTerm2 tmux connections); remote sessions through the engine were not seen (Saturno had no
   server); more in `docs/progress-archive/7b.md`.
+- 6b: a launch that never settles (a tab left waiting for a password) makes later conflicting
+  calls for that session fail `earlierLaunchPending` until the tab ends or attaches; an
+  `unknown` connection whose answer names another server or session does not block a move
+  here; the ~120 s `e2e-remote` duration is an estimate until its first real run. The worker's
+  `e2e-local` took iTerm2 from 25 to 42 threads (more than the usual ~12); 40 about 45 minutes
+  later.
 
 ## Reviews
 
@@ -283,17 +303,30 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
   installed) — all fixed by a fix worker (work epoch, retired probes in the per-host guard,
   generation under a lock), each regression failing on the old code, re-verified;
   `docs/reviews/phase-7b.md`.
+- Phase 6b: Codex → `ship-with-fixes`, 2 blockers (failed identification bypassed the
+  already-attached check, so `-d` could detach this Mac's own connection; a cancelled move
+  could run after a newer attach), 0 should-fix — both fixed by a fix worker
+  (`possiblyAttachedHere`; proof-based launch tracking with a bounded wait), each regression
+  failing on the old code, re-verified hermetically; `docs/reviews/phase-6b.md`. The review is
+  done; only 6b's real runs are owed.
 
 ## Next action
 
-1. **Phase 6b — Move here** (`PLAN.md` "### Phase 6", the *Split* 6b bullet; risk `high`),
-   which opens real iTerm2 windows. First check iTerm2's thread count (item 3): run 6b's real
-   checks only at **25 or lower**. If it stays above 25, run **Phase 8** (menu bar app and
-   popover, `PLAN.md` "### Phase 8"; routine; no real iTerm2 windows; it consumes D20's
-   `RefreshCoordinator.updates()` and wires `RefreshSystemEvents`) meanwhile. If nothing
-   window-free is left and the count is still above 25, stop as `BLOCKED` and ask the user
-   whether to restart iTerm2 or accept a higher baseline.
-2. Then whichever of 6b and 8 is left, then Phase 9.
+1. **Close Phase 6b with its real final-tree runs** (no code change expected; its review is
+   done, so no new review). Check iTerm2's thread count (item 3). At **38 or lower**: `swift
+   build`, then `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-remote saturno-m4` (17 steps,
+   first real run of its Move here step). Then, once the count is back at 38 or lower,
+   `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` (16 steps). Both must exit 0 with
+   every step `PASS`, `iterm2 status` exit 0 after each, no leftovers. Record step results,
+   durations and thread counts in `docs/progress-archive/6b.md`, fix the ~120 s / ~63 s
+   estimates in `CLAUDE.md` and `docs/TESTING.md` if they differ, then mark 6b `done` (row
+   moves to *Completed*, `PROGRESS.json` row `done`, phase 6 parent `done`). A failing step is
+   a real bug: diagnose it before any rerun; substantial fixes become a corrective phase.
+2. While the count is above 38, run **Phase 8** (menu bar app and popover, `PLAN.md` "### Phase
+   8"; routine; no real iTerm2 windows; it consumes D20's `RefreshCoordinator.updates()` and
+   wires `RefreshSystemEvents`) meanwhile, then retry item 1 at the next phase boundary. If
+   nothing window-free is left and the count is still above 38, stop as `BLOCKED` and ask the
+   user whether to restart iTerm2 or accept a higher baseline.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
@@ -301,6 +334,7 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
    if `status` times out or the count keeps growing across runs (*Open risks*, iTerm2 thread
    ratchet). Leftover checks: `ls -A` of the launch directory, `ls -A /private/tmp | rg
    '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno (`fd` is not installed).
+4. Then Phase 9.
 
 ## Key paths
 
@@ -316,6 +350,9 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
 - Session creation: `Sources/MuxFinderCore/Tmux/TmuxCommands.swift`, `Tmux/CreatedSession.swift`
   (D18); `createAndAttach` in `Attach/AttachCoordinator.swift`; probe
   `Sources/muxfinder-probe/NewSessionCommand.swift`.
+- Move here (D21): `moveHere(_:confirmation:)` in `Attach/AttachCoordinator.swift`,
+  `MoveHereConfirmation` in `Attach/AttachModels.swift`, `moveHereScript` in
+  `Launch/RemoteLaunch.swift`; e2e plain control client `Sources/muxfinder-probe/E2EControlClient.swift`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
@@ -333,6 +370,10 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
   real `env -u TMUX_TMPDIR swift run muxfinder-probe refresh --once --config
   <mktemp dir>/hosts.json` exit 0, both hosts `live` (`noServer`); private folder removed, no
   `/private/tmp/mfx.*` left — `docs/progress-archive/7b.md`.
+- Phase 6b (post-review-fix tree): `swift build -Xswiftc -warnings-as-errors` exit 0; `swift
+  format lint -r Sources Tests` exit 0; `swift test` exit 0, 563 tests in 54 suites. Real
+  `e2e-local` 16/16 exit 0 ran on the pre-fix tree only; real runs on this tree owed (*Next
+  action* 1). iTerm2 threads 40 at checkpoint time.
 
 ## Git state
 
@@ -352,5 +393,7 @@ into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`; 6b is the only earlier phase sti
   `origin/main`.
 - Phase 7a: code, review fix and checkpoint `228f8da` (parent `7fda73e`), pushed to
   `origin/main` (`7fda73e..228f8da`, success).
-- Phase 7b: code, review fixes and checkpoint in the commit after `e0fcbdd`; its SHA and push
-  result are recorded by the next commit.
+- Phase 7b: code, review fixes and checkpoint `d512f47` (parent `e0fcbdd`), pushed to
+  `origin/main`.
+- Phase 6b: code, review, fixes and checkpoint in the commit after `d512f47` (real runs still
+  owed); its SHA and push result are recorded by the next commit.

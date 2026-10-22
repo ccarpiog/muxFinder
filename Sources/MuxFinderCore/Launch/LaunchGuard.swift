@@ -4,8 +4,8 @@ import Foundation
 /// The guard: a static `/bin/sh` script the helper runs as its **check** child right before
 /// attaching. It locates tmux, repeats the D4 identity check and, on success, prints the tmux
 /// path it used (PLAN.md D4, D5, D12, D14). The **attach** child, `tmux -u -CC attach-session
-/// -t <id>`, is spawned by the helper itself from that path (`attachArguments(for:)`), never
-/// through a shell.
+/// -t <id>` (with `-d` for a move here, D21), is spawned by the helper itself from that path
+/// (`attachArguments(for:)`), never through a shell.
 ///
 /// The check runs locally as `/bin/sh -c <script> muxfinder <override> <id> <pid> <start>
 /// <created>`, data only as argv (D3): never a login shell, never string-built source.
@@ -151,10 +151,14 @@ public enum LaunchGuard {
     )
   } // End of func checkRequest(for:environment:timeout:)
 
-  /// The attach child's arguments after the tmux path: `-u -CC attach-session -t <id>`. D12's
-  /// `-u` applies to control mode too, so the formats iTerm2 requests keep UTF-8 and tabs.
+  /// The attach child's arguments after the tmux path: `-u -CC attach-session -t <id>`, or
+  /// `-u -CC attach-session -d -t <id>` when the request moves the session here (PLAN.md D21:
+  /// tmux then detaches the session's other clients as it attaches). Only a request whose
+  /// `detachOtherClients` is `true` gets `-d`. D12's `-u` applies to control mode too, so the
+  /// formats iTerm2 requests keep UTF-8 and tabs.
   public static func attachArguments(for request: LaunchRequest) -> [String] {
-    ["-u", "-CC", "attach-session", "-t", request.sessionID.rawValue]
+    ["-u", "-CC", "attach-session"] + (request.detachesOtherClients ? ["-d"] : [])
+      + ["-t", request.sessionID.rawValue]
   }
 
   /// The tmux path a successful check printed, or `nil` if the output is not usable.

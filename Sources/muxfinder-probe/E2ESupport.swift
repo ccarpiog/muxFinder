@@ -15,6 +15,26 @@ protocol HarnessTmux: Sendable {
   func run(_ arguments: [String]) async throws -> TestTmux.Output
   /// `tmux -V`, or `nil`.
   func version() async -> String?
+  /// The command of a plain control client, `tmux -u -C attach-session -t '=<name>'`, attached
+  /// to the session named exactly `name` (one of the run's `muxfinder-test-*` names), for
+  /// `BackgroundControlClient` (the Move here step, PLAN.md D21).
+  func controlClientCommand(attachingTo name: String) -> HarnessCommand
+}
+
+/// One process the harness starts itself: the executable, its arguments after argv[0], and
+/// its complete environment.
+struct HarnessCommand: Sendable {
+  /// The absolute path of the executable.
+  let executable: String
+  /// The arguments after argv[0].
+  let arguments: [String]
+  /// The environment.
+  let environment: [String: String]
+}
+
+/// The tmux arguments of a plain control client attached to the session named exactly `name`.
+func controlClientArguments(attachingTo name: String) -> [String] {
+  ["-C", "attach-session", "-t", "=" + name]
 }
 
 /// tmux on this Mac for the e2e harness: the default server only (the one `muxfinder-launch`
@@ -92,6 +112,13 @@ struct TestTmux: HarnessTmux {
     guard let output = try? await run(["-V"]), output.succeeded else { return nil }
     return output.lines.first
   }
+
+  /// `<path> -u -C attach-session -t =<name>`, argv only, with the local environment.
+  func controlClientCommand(attachingTo name: String) -> HarnessCommand {
+    HarnessCommand(
+      executable: path, arguments: ["-u"] + controlClientArguments(attachingTo: name),
+      environment: environment)
+  }
 }
 
 /// tmux on a remote host for the e2e harness, over ssh (PLAN.md D3, D6):
@@ -148,6 +175,26 @@ struct RemoteTestTmux: HarnessTmux {
     guard let output = try? await run(["-V"]), output.succeeded else { return nil }
     return output.lines.first
   }
+
+  /// The ssh options of the background control client: discovery's noninteractive ones
+  /// (`BatchMode=yes`, the connect timeout, the keepalive) plus no connection sharing
+  /// (`ControlMaster=no`, `ControlPath=none`), so the client is one ssh connection of its own
+  /// that ends with it and never becomes or uses a shared master. `-T`: no terminal (a plain
+  /// control client needs none), and no `-n`, since its standard input is the harness's pipe.
+  static let controlClientSSHOptions =
+    DiscoveryProbe.sshOptions + ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-T"]
+
+  /// `/usr/bin/ssh <controlClientSSHOptions> -- <destination> <D3 string>`: the static `script`
+  /// with the control client's tmux arguments single-quoted, so the remote side runs
+  /// `tmux -u -C attach-session -t =<name>` and writes no file.
+  func controlClientCommand(attachingTo name: String) -> HarnessCommand {
+    let command = ShellQuoting.remoteCommand(
+      script: Self.script, args: controlClientArguments(attachingTo: name))
+    return HarnessCommand(
+      executable: DiscoveryProbe.sshURL.path(percentEncoded: false),
+      arguments: Self.controlClientSSHOptions + ["--", destination, command],
+      environment: environment)
+  } // End of func controlClientCommand(attachingTo:)
 }
 
 /// The launch store of `e2e-remote`'s `still waiting` step: the real store, except that every

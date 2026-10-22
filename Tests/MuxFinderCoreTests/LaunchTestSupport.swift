@@ -13,7 +13,9 @@ import os
 ///   instead, like a stuck server: it ignores HUP, INT and TERM, starts a background
 ///   `sleep 30` (which inherits that), writes `<own pid> <sleep pid> <pgid> <pgid leader's
 ///   parent>` to `$MUXFINDER_FAKE_DIR/stall` and waits; only SIGKILL ends it early.
-/// - `-u -CC attach-session -t <id>` writes `<id> <pgid> <ppid>` to `$MUXFINDER_FAKE_DIR/attach`.
+/// - `-u -CC attach-session -t <id>` writes `<id> <pgid> <ppid>` to `$MUXFINDER_FAKE_DIR/attach`;
+///   `-u -CC attach-session -d -t <id>` (a move here) also creates
+///   `$MUXFINDER_FAKE_DIR/detach-others` first, so a test can tell the two apart.
 ///   Then, with `MUXFINDER_FAKE_ATTACH=wait`, it traps TERM (exit 43) and HUP (exit 44),
 ///   creates `$MUXFINDER_FAKE_DIR/ready` and waits (at most 30 s, then exit 45). Otherwise it
 ///   reads one line from stdin, prints `stdin:<line>` to stdout and `stderr-ok` to stderr, and
@@ -43,7 +45,12 @@ let fakeLaunchTmuxScript = #"""
       fi
       printf '%s\n' "${MUXFINDER_FAKE_IDENTITY-}"
       exit 0 ;;
-    -CC:attach-session:-t)
+    -CC:attach-session:-t | -CC:attach-session:-d)
+      if [ "$4" = -d ]; then
+        if [ "$5" != -t ]; then echo "unexpected call" >&2; exit 97; fi
+        : > "$MUXFINDER_FAKE_DIR/detach-others"
+        shift
+      fi
       printf '%s %s %s\n' "$5" "$(ps -o pgid= -p $$ | tr -d ' ')" "$PPID" > "$MUXFINDER_FAKE_DIR/attach"
       if [ "${MUXFINDER_FAKE_ATTACH-}" = wait ]; then
         trap 'exit 43' TERM

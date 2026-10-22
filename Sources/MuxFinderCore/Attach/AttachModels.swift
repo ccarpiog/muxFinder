@@ -18,6 +18,23 @@ public struct AttachTarget: Sendable, Hashable {
   public var key: SessionKey { session.key }
 }
 
+/// The explicit confirmation `AttachCoordinator.moveHere(_:confirmation:)` requires (PLAN.md
+/// D21): the user agreed that tmux detaches every other client of this one session, wherever
+/// it is, as the session attaches here. It has one case and no default, so a call that moves a
+/// session always spells it out, and it names the session, so a confirmation given for one
+/// session can never move another (`AttachFailure.moveHereNotConfirmed`, nothing run).
+public enum MoveHereConfirmation: Sendable, Hashable {
+  /// Detach the other clients of the session `key` and attach it in iTerm2 on this Mac.
+  case detachOtherClients(of: SessionKey)
+
+  /// The session this confirmation is for.
+  public var key: SessionKey {
+    switch self {
+    case .detachOtherClients(let key): return key
+    }
+  }
+}
+
 /// Why an attach failed. `message` is English, sentence case, without user data.
 public enum AttachFailure: Error, Sendable, Hashable {
   /// The host's SSH destination is not usable (empty, whitespace or control characters, a
@@ -66,6 +83,31 @@ public enum AttachFailure: Error, Sendable, Hashable {
   /// connection (PLAN.md D16). Nothing was activated and nothing was opened, since the session
   /// may still be attached elsewhere; attaching again checks afresh.
   case attachmentChanged
+  /// Move here only: the confirmation names another session than the target, so nothing was
+  /// checked, written, opened or detached (PLAN.md D21).
+  case moveHereNotConfirmed
+  /// Move here only: the session is attached in this Mac's iTerm2 already (`AttachmentIndex`),
+  /// through the tmux connection `connectionID` owned by the iTerm2 session `owningSessionID`
+  /// (the first one listed). `attach-session -d` would detach that connection too, so nothing
+  /// was run, written or opened (PLAN.md D21). The caller can bring it forward (`attach(_:)`
+  /// focuses it) or detach it (`detach(connectionID:gatewaySessionID:launchID:)` with these
+  /// ids, or `detach(session:on:)`) and then move the session here.
+  case alreadyAttachedHere(connectionID: String, owningSessionID: String)
+  /// Move here only: `unresolved` tmux connections in this Mac's iTerm2 could not be ruled out
+  /// as showing the session (`AttachmentSnapshot.unresolvedConnections(for:)`: no usable answer
+  /// within the index's timeout, an answer through a client not in UTF-8 mode, or an answer
+  /// naming the session's server and session whose host name matched no host). The session
+  /// may be attached here already and `attach-session -d` would detach that attachment too, so
+  /// nothing was run, written or opened (PLAN.md D21). An attach never fails this way.
+  case possiblyAttachedHere(unresolved: Int)
+  /// An earlier launch of the session that conflicts with this call (a move here, before an
+  /// attach or another move here; an attach, before a move here) ended without proof that it
+  /// can no longer attach the session in this Mac's iTerm2: its helper took the request and
+  /// neither its result, nor its connection, nor the end of its launch tab was seen within the
+  /// confirmation budget (15 s locally, 20 s for a remote host). Its `-d`, or this call's,
+  /// could detach the other's attachment here, so nothing was run, written or opened (PLAN.md
+  /// D21). Calling again checks afresh.
+  case earlierLaunchPending
 
   /// The failure an attach reports for a failure in the helper's result file (PLAN.md D14).
   public static func from(_ failure: LaunchFailure) -> AttachFailure {
@@ -108,6 +150,10 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .cancelled: return "cancelled"
     case .attachmentCheckFailed: return "attachmentCheckFailed"
     case .attachmentChanged: return "attachmentChanged"
+    case .moveHereNotConfirmed: return "moveHereNotConfirmed"
+    case .alreadyAttachedHere: return "alreadyAttachedHere"
+    case .possiblyAttachedHere: return "possiblyAttachedHere"
+    case .earlierLaunchPending: return "earlierLaunchPending"
     }
   } // End of var kind
 
@@ -164,6 +210,19 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .attachmentChanged:
       return "This session's tab in iTerm2 changed while muxFinder was bringing it forward, so "
         + "muxFinder did not open another one. Try again."
+    case .moveHereNotConfirmed:
+      return "muxFinder did not move this session, because the confirmation was for another "
+        + "session. Try again."
+    case .alreadyAttachedHere:
+      return "This session is already open in iTerm2 on this Mac, so muxFinder did not move it. "
+        + "Bring its tab forward, or detach it first."
+    case .possiblyAttachedHere:
+      return "Some tmux connections in iTerm2 on this Mac did not say which session they show, "
+        + "so this session may already be open here and muxFinder did not move it. Try again "
+        + "in a moment."
+    case .earlierLaunchPending:
+      return "An earlier launch of this session may still attach it in iTerm2, so muxFinder did "
+        + "not start another. Finish or close that launch tab, then try again."
     }
   } // End of var message
 }

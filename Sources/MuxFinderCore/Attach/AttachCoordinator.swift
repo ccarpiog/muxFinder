@@ -47,6 +47,19 @@ import Foundation
 /// attached anywhere yet, so the user's tmux connections are not asked (PLAN.md D18). A
 /// creation that fails never opens a tab.
 ///
+/// `moveHere(_:confirmation:)` (PLAN.md D21) runs the same steps, but the launch request asks
+/// for `attach-session -d`, so tmux detaches every other client of the session (on any Mac) as
+/// the launch tab attaches it. It needs an explicit `MoveHereConfirmation` naming the session.
+/// Its existing-attachment check always runs: when this Mac's iTerm2 shows the session already,
+/// it runs nothing and fails `alreadyAttachedHere` (`-d` would detach that attachment too), and
+/// when a connection there cannot be ruled out as showing it (no usable answer, for example),
+/// `possiblyAttachedHere`. `attach(_:)` and `createAndAttach(_:)` never ask for `-d`. A call
+/// never joins a launch of the other kind, and never starts while a conflicting launch of the
+/// session (a move here, for an attach; any launch, for a move here) may still attach it: it
+/// waits until that launch ended and is settled (its helper's result, its connection or the
+/// end of its launch tab seen, or its request withdrawn before a helper took it), within a
+/// bounded time (`earlierLaunchPending`), then starts its own.
+///
 /// Ending a connection ends its launch tab, and iTerm2 blocks its whole API behind a modal
 /// warning when a session ends within 3 s of starting (PLAN.md *Verified facts*, Phase 4).
 /// So the coordinator never sends `detach-client` (after a failed identity check, or for
@@ -66,7 +79,8 @@ public actor AttachCoordinator {
     /// This index (a filtered one, as in `e2e-local`, or one with its own clock in tests).
     case index(AttachmentIndex)
     /// No check: every attach launches. Only for tests of the launch path itself;
-    /// `detach(session:on:)` then uses the standard index.
+    /// `detach(session:on:)` and `moveHere(_:confirmation:)` (which never skips its check) then
+    /// use the standard index.
     case off
   }
 
@@ -160,6 +174,31 @@ public actor AttachCoordinator {
     var waiters: Int
     /// How many of them were cancelled; when all were, the launch is cancelled.
     var cancelledWaiters: Int
+    /// Whether it is a move here (`attach-session -d`); only callers of the same kind join it.
+    let detachesOtherClients: Bool
+
+    /// Whether callers still wait for it (it is not winding down after all were cancelled).
+    var isLive: Bool { cancelledWaiters < waiters }
+  }
+
+  /// A launch that may still attach its session in this Mac's iTerm2 (PLAN.md D21): its run
+  /// goes on (live or winding down), or it ended without proof that its helper ended or can
+  /// never start. A conflicting call waits these out.
+  private struct PendingLaunch {
+    /// The flight that runs (or ran) it.
+    let flightID: UInt64
+    /// Its launch id: the names of its request and result files.
+    let launchID: LaunchToken
+    /// Whether its request asks for `attach-session -d`.
+    let detachesOtherClients: Bool
+    /// Whether its host is reached with ssh (it then gets the remote confirmation budget).
+    let remote: Bool
+    /// Whether its run goes on.
+    var running = true
+    /// Its launch tab, once `CreateTab` reported one.
+    var gatewaySessionID: String?
+    /// When its launch tab was first seen gone from iTerm2.
+    var tabGoneAt: ContinuousClock.Instant?
   }
 
   /// The iTerm2 backend.
@@ -180,7 +219,8 @@ public actor AttachCoordinator {
   private let onUpdate: UpdateHandler?
   /// The index an attach checks before launching; `nil` when the check is off.
   private let attachCheckIndex: AttachmentIndex?
-  /// The index `detach(session:on:)` uses (the attach check's, or the standard one).
+  /// The index `detach(session:on:)` and `moveHere(_:confirmation:)` use (the attach check's, or
+  /// the standard one).
   private let detachIndex: AttachmentIndex
   /// Creates sessions for `createAndAttach(_:)`.
   private let sessionCreator: any SessionCreating
@@ -190,6 +230,8 @@ public actor AttachCoordinator {
   private var lastFlightID: UInt64 = 0
   /// The id of each session's latest launch; only that launch changes `states`.
   private var latestFlightIDs: [SessionKey: UInt64] = [:]
+  /// The launches of each session that may still attach it, oldest first.
+  private var pendingLaunches: [SessionKey: [PendingLaunch]] = [:]
   /// The latest state of every session attached so far.
   private var states: [SessionKey: AttachState] = [:]
   /// The launch tabs this coordinator opened, by their session id.
@@ -246,6 +288,11 @@ public actor AttachCoordinator {
     flights[key]?.cancelledWaiters ?? 0
   }
 
+  /// How many launches of `key` ended but may still attach it (PLAN.md D21). For tests.
+  func unsettledLaunchCount(for key: SessionKey) -> Int {
+    pendingLaunches[key]?.filter { !$0.running }.count ?? 0
+  }
+
   // MARK: - Attach
 
   /// Attaches `target`'s session and returns how it ended: `confirmed`, `focused` (it was
@@ -255,10 +302,47 @@ public actor AttachCoordinator {
   /// every caller waiting for a launch is cancelled, the launch stops at its next step and
   /// fails with `cancelled` (a `CreateTab` already sent still completes, so its session id is
   /// reported); a call arriving after that starts a new launch, and from then on only the new
-  /// launch changes `state(of:)`.
+  /// launch changes `state(of:)`. An attach never asks tmux to detach other clients; a call
+  /// while a move here of the session is in progress, or after one that may still attach it,
+  /// waits until that launch ended and is settled, then attaches (and so focuses the moved
+  /// attachment, if it attached); when it does not settle within the confirmation budget, the
+  /// call fails `earlierLaunchPending` and runs nothing (PLAN.md D21).
   public func attach(_ target: AttachTarget) async -> AttachResult {
-    await attach(target, checksExistingAttachments: true)
+    await attach(target, checksExistingAttachments: true, detachesOtherClients: false)
   }
+
+  /// Moves `target`'s session here (PLAN.md D21): attaches it through a launch tab exactly as
+  /// `attach(_:)` does (revalidation, request, launch tab, confirmation by connection, identity
+  /// check, activation, the same budgets and typed failures, locally or over ssh), except that
+  /// the helper runs `attach-session -d`, so tmux detaches every other client of the session,
+  /// on this Mac or any other, as it attaches.
+  ///
+  /// It runs only with `confirmation` naming this session
+  /// (`.detachOtherClients(of: target.key)`); any other confirmation fails
+  /// `moveHereNotConfirmed` before anything runs. Its existing-attachment check always runs
+  /// (with the standard index when the coordinator's check is off): when this Mac's iTerm2
+  /// shows the session already, it fails `alreadyAttachedHere` with that connection and runs,
+  /// writes and opens nothing, because `-d` would detach that attachment too; when a connection
+  /// there cannot be ruled out as showing the session
+  /// (`AttachmentSnapshot.unresolvedConnections(for:)`), it fails `possiblyAttachedHere` the
+  /// same way. Concurrent move here calls for the session share one launch; a call while
+  /// another launch of the session is in progress (an attach, or a move here whose callers
+  /// were all cancelled), or after one that may still attach it, waits until that launch ended
+  /// and is settled, then starts (and so finds that attachment, if it attached). A launch that
+  /// does not settle within the confirmation budget fails the call `earlierLaunchPending`; a
+  /// caller cancelled during the wait gets `cancelled`; either way nothing started.
+  public func moveHere(
+    _ target: AttachTarget,
+    confirmation: MoveHereConfirmation
+  ) async -> AttachResult {
+    guard confirmation.key == target.key else {
+      let result = AttachResult(
+        key: target.key, launchID: LaunchToken(), state: .failed(.moveHereNotConfirmed))
+      await record(result, hostID: target.host.id, detachesOtherClients: true)
+      return result
+    }
+    return await attach(target, checksExistingAttachments: true, detachesOtherClients: true)
+  } // End of func moveHere(_:confirmation:)
 
   /// Creates the session `request` describes and attaches it (PLAN.md D18). Creation runs
   /// first, through the coordinator's `SessionCreating` (noninteractive, bounded, never
@@ -285,20 +369,60 @@ public actor AttachCoordinator {
       .attach, outcome: .success, hostID: request.host.id.uuidString,
       durationMs: Self.milliseconds(clock.now() - start), detail: "new session created")
     let result = await attach(
-      created.attachTarget(on: request.host), checksExistingAttachments: false)
+      created.attachTarget(on: request.host), checksExistingAttachments: false,
+      detachesOtherClients: false)
     return CreateAndAttachResult(created: created, attach: result)
   } // End of func createAndAttach(_:)
 
-  /// `attach(_:)`, with the existing-attachment check (step 1b) run only when
-  /// `checksExistingAttachments` is set and the coordinator has an index.
+  /// `attach(_:)` and `moveHere(_:confirmation:)`: the existing-attachment check (step 1b) runs
+  /// when `checksExistingAttachments` is set and the coordinator has an index, and always for a
+  /// move here (`detachesOtherClients`, whose request asks for `attach-session -d`). A caller
+  /// joins a live launch of the same kind; conflicting launches (`conflictingLaunches(of:…)`)
+  /// are waited out first, and the wait for an ended one is bounded (`earlierLaunchPending`).
   private func attach(
     _ target: AttachTarget,
-    checksExistingAttachments: Bool
+    checksExistingAttachments: Bool,
+    detachesOtherClients: Bool
   ) async -> AttachResult {
     let key = target.key
+    // Never join a launch of the other kind (an attach must not end up detaching other
+    // clients, a move here must not end up not doing so), and never start while a conflicting
+    // launch may still attach the session: its `-d`, or this one's, would detach the other's
+    // attachment in this Mac's iTerm2. A running launch ends within its own budgets; one that
+    // ended unsettled gets the confirmation budget from the moment this caller first saw it.
+    // The last check and the start below run without a suspension in between.
+    var unsettledSince: [UInt64: ContinuousClock.Instant] = [:]
+    while true {
+      let conflicting = conflictingLaunches(of: key, detachesOtherClients: detachesOtherClients)
+      if conflicting.isEmpty { break }
+      let ended = conflicting.filter { !$0.running }
+      if !ended.isEmpty {
+        for launch in ended where unsettledSince[launch.flightID] == nil {
+          unsettledSince[launch.flightID] = clock.now()
+        }
+        if await settle(ended.map(\.flightID), of: key) { continue }
+        let now = clock.now()
+        let overdue = (pendingLaunches[key] ?? []).contains { launch in
+          guard !launch.running, let since = unsettledSince[launch.flightID] else { return false }
+          return now >= since + confirmationBudget(remote: launch.remote)
+        }
+        if overdue {
+          return await refuseBeforeLaunch(
+            target, .earlierLaunchPending, detachesOtherClients: detachesOtherClients)
+        }
+      }
+      do {
+        try await clock.sleep(for: configuration.pollInterval)
+      } catch {
+        return await refuseBeforeLaunch(
+          target, .cancelled, detachesOtherClients: detachesOtherClients)
+      }
+    } // End of loop waiting out conflicting launches
     let flight: Flight
-    // A launch whose callers were all cancelled is winding down; a new caller starts afresh.
-    if var current = flights[key], current.cancelledWaiters < current.waiters {
+    // A launch whose callers were all cancelled is winding down; a new caller of the same kind
+    // starts afresh (only an attach gets here while one runs: it does not conflict with an
+    // attach).
+    if var current = flights[key], current.isLive {
       current.waiters += 1
       flights[key] = current
       flight = current
@@ -306,12 +430,19 @@ public actor AttachCoordinator {
       lastFlightID += 1
       let flightID = lastFlightID
       let launchID = LaunchToken()
+      pendingLaunches[key, default: []].append(
+        PendingLaunch(
+          flightID: flightID, launchID: launchID, detachesOtherClients: detachesOtherClients,
+          remote: target.host.mode == .ssh))
       let task = Task {
         await self.run(
           target, launchID: launchID, flightID: flightID,
-          checksExistingAttachments: checksExistingAttachments)
+          checksExistingAttachments: checksExistingAttachments,
+          detachesOtherClients: detachesOtherClients)
       }
-      flight = Flight(id: flightID, task: task, waiters: 1, cancelledWaiters: 0)
+      flight = Flight(
+        id: flightID, task: task, waiters: 1, cancelledWaiters: 0,
+        detachesOtherClients: detachesOtherClients)
       flights[key] = flight
       latestFlightIDs[key] = flightID
     }
@@ -322,7 +453,7 @@ public actor AttachCoordinator {
     } onCancel: {
       Task { await self.waiterCancelled(key: key, flightID: flightID) }
     }
-  } // End of func attach(_:checksExistingAttachments:)
+  } // End of func attach(_:checksExistingAttachments:detachesOtherClients:)
 
   /// Counts a cancelled caller and cancels the launch once every caller was cancelled.
   private func waiterCancelled(key: SessionKey, flightID: UInt64) {
@@ -331,6 +462,125 @@ public actor AttachCoordinator {
     flights[key] = flight
     if flight.cancelledWaiters >= flight.waiters { flight.task.cancel() }
   }
+
+  /// The launches of `key` a new caller must wait out before it joins or starts one (PLAN.md
+  /// D21): none when a live launch of its own kind runs (it joins that one, which waited out
+  /// every conflict before it started); otherwise every pending launch it conflicts with,
+  /// running or ended: for a move here (`detachesOtherClients`), every one, since its `-d`
+  /// would detach their attachments and theirs its own; for an attach, every move here. An
+  /// attach never waits for another attach (PLAN.md D15).
+  private func conflictingLaunches(
+    of key: SessionKey,
+    detachesOtherClients: Bool
+  ) -> [PendingLaunch] {
+    if let current = flights[key], current.isLive,
+      current.detachesOtherClients == detachesOtherClients
+    {
+      return []
+    }
+    return (pendingLaunches[key] ?? []).filter { detachesOtherClients || $0.detachesOtherClients }
+  } // End of func conflictingLaunches(of:detachesOtherClients:)
+
+  /// Looks for proof that the ended launches `flightIDs` of `key` can no longer attach the
+  /// session in this Mac's iTerm2, forgets every one that has it, and returns whether any did.
+  /// Proof is the helper's result (the helper ended), a tmux connection owned by the launch tab
+  /// (it attached: its `-d`, if any, ran, and the existing-attachment check now sees it), or the
+  /// launch tab gone from iTerm2 (or iTerm2 not running) for `closedTabResultBudget` without a
+  /// result: the tab closes when the helper ends, the helper writes its result first, and a
+  /// helper may end some seconds after its tab left the listing (D17). A listing that fails
+  /// proves nothing.
+  private func settle(_ flightIDs: [UInt64], of key: SessionKey) async -> Bool {
+    let candidates = (pendingLaunches[key] ?? []).filter {
+      !$0.running && flightIDs.contains($0.flightID)
+    }
+    var settled: Set<UInt64> = []
+    for launch in candidates {
+      // Taking the result deletes it; nothing else waits for the result of an ended launch.
+      if (try? store.takeResult(launch.launchID)) != nil { settled.insert(launch.flightID) }
+    }
+    var tabsGone: Set<UInt64> = []
+    let watched = candidates.filter {
+      !settled.contains($0.flightID) && $0.gatewaySessionID != nil
+    }
+    if !watched.isEmpty {
+      let owners: Set<String>?
+      do {
+        owners = Set(
+          try await iTerm2.listTmuxConnections().compactMap { connection in
+            connection.connectionID?.isEmpty == false ? connection.owningSessionID : nil
+          })
+      } catch ITerm2Error.notRunning {
+        owners = []
+      } catch {
+        owners = nil
+      }
+      let attached = watched.filter { owners?.contains($0.gatewaySessionID ?? "") == true }
+      settled.formUnion(attached.map(\.flightID))
+      if attached.count < watched.count {
+        let open: Set<String>?
+        do {
+          open = try await iTerm2.listSessions().allSessionIDs
+        } catch ITerm2Error.notRunning {
+          open = []
+        } catch {
+          open = nil
+        }
+        for launch in watched where !settled.contains(launch.flightID) {
+          if let open, !open.contains(launch.gatewaySessionID ?? "") {
+            tabsGone.insert(launch.flightID)
+          }
+        }
+      }
+    } // End of the look at the launch tabs
+    // The state may have changed during the requests; apply the findings to it as it is now.
+    let now = clock.now()
+    var pending = pendingLaunches[key] ?? []
+    for index in pending.indices where tabsGone.contains(pending[index].flightID) {
+      let since = pending[index].tabGoneAt ?? now
+      pending[index].tabGoneAt = since
+      if now >= since + configuration.closedTabResultBudget {
+        settled.insert(pending[index].flightID)
+      }
+    }
+    pending.removeAll { settled.contains($0.flightID) }
+    pendingLaunches[key] = pending.isEmpty ? nil : pending
+    return !settled.isEmpty
+  } // End of func settle(_:of:)
+
+  /// Ends a call that started no launch with `failure` (`cancelled` or `earlierLaunchPending`):
+  /// records it and returns its result, with a launch id nothing used and no state published.
+  private func refuseBeforeLaunch(
+    _ target: AttachTarget,
+    _ failure: AttachFailure,
+    detachesOtherClients: Bool
+  ) async -> AttachResult {
+    let result = AttachResult(key: target.key, launchID: LaunchToken(), state: .failed(failure))
+    await record(result, hostID: target.host.id, detachesOtherClients: detachesOtherClients)
+    return result
+  }
+
+  /// How long a connection (or a helper result) may take to appear after `launched`: the remote
+  /// budget for a host reached with ssh, the local one otherwise.
+  private func confirmationBudget(remote: Bool) -> Duration {
+    remote ? configuration.remoteConfirmationBudget : configuration.confirmationBudget
+  }
+
+  /// Records how the launch of `progress` ended: forgotten when it can no longer attach
+  /// (`Run.mayStillAttach`), otherwise kept as ended with its launch tab, for the conflicting
+  /// calls that wait it out.
+  private func endLaunch(_ progress: Run) {
+    let key = progress.target.key
+    guard var pending = pendingLaunches[key],
+      let index = pending.firstIndex(where: { $0.flightID == progress.flightID })
+    else { return }
+    if progress.mayStillAttach {
+      pending[index].running = false
+      pending[index].gatewaySessionID = progress.gatewaySessionID
+    } else {
+      pending.remove(at: index)
+    }
+    pendingLaunches[key] = pending.isEmpty ? nil : pending
+  } // End of func endLaunch(_:)
 
   /// The progress of one launch, collected into its result.
   private struct Run {
@@ -344,6 +594,9 @@ public actor AttachCoordinator {
     let start: ContinuousClock.Instant
     /// Whether step 1b (the existing-attachment check) runs.
     let checksExistingAttachments: Bool
+    /// Whether this is a move here: the request asks for `attach-session -d`, and step 1b
+    /// always runs and refuses (`alreadyAttachedHere`) instead of focusing.
+    let detachesOtherClients: Bool
     /// The launch tab's session, once created.
     var gatewaySessionID: String?
     /// The connection, once found.
@@ -354,6 +607,20 @@ public actor AttachCoordinator {
     var existingAttachments: AttachmentSnapshot.Counts?
     /// Step timings.
     var timings = AttachTimings()
+    /// Whether `CreateTab` was sent, so a launch tab may run the helper with this launch's id.
+    var tabRequested = false
+    /// Whether the request was withdrawn before a helper took it (`discardRequest` removed the
+    /// file, and the first unlink wins, D14), so no helper can ever use it.
+    var requestWithdrawn = false
+    /// Whether the helper's result was taken: the helper ended.
+    var helperEnded = false
+
+    /// Whether the launch may still attach the session after its run ended: a launch tab was
+    /// asked for, and neither its connection, nor the helper's result, nor a withdrawal before
+    /// a helper took the request settled it (PLAN.md D21).
+    var mayStillAttach: Bool {
+      tabRequested && connectionID == nil && !helperEnded && !requestWithdrawn
+    }
   }
 
   /// Runs one launch (the flight's task), publishes its states and removes the flight.
@@ -361,24 +628,27 @@ public actor AttachCoordinator {
     _ target: AttachTarget,
     launchID: LaunchToken,
     flightID: UInt64,
-    checksExistingAttachments: Bool
+    checksExistingAttachments: Bool,
+    detachesOtherClients: Bool
   ) async -> AttachResult {
     var progress = Run(
       target: target, launchID: launchID, flightID: flightID, start: clock.now(),
-      checksExistingAttachments: checksExistingAttachments)
+      checksExistingAttachments: checksExistingAttachments,
+      detachesOtherClients: detachesOtherClients)
     publish(.requested, for: progress)
     let finalState = await perform(&progress)
     progress.timings.finished = clock.now() - progress.start
     if case .failed = finalState { publish(finalState, for: progress) }
     if flights[target.key]?.id == flightID { flights[target.key] = nil }
+    endLaunch(progress)
     let result = AttachResult(
       key: target.key, launchID: launchID, state: finalState,
       gatewaySessionID: progress.gatewaySessionID, connectionID: progress.connectionID,
       activation: progress.activation, existingAttachments: progress.existingAttachments,
       timings: progress.timings)
-    await record(result, hostID: target.host.id)
+    await record(result, hostID: target.host.id, detachesOtherClients: detachesOtherClients)
     return result
-  } // End of func run(_:launchID:flightID:checksExistingAttachments:)
+  } // End of func run(_:launchID:flightID:checksExistingAttachments:detachesOtherClients:)
 
   /// Steps 1–9. Returns the final state (`confirmed`, `focused` or `failed`); `launched`,
   /// `stillWaiting`, `confirmed` and `focused` are published on the way (a failure is published
@@ -398,36 +668,53 @@ public actor AttachCoordinator {
     case .failure(let failure): return .failed(failure)
     }
     progress.timings.revalidated = clock.now() - progress.start
-    // 1b. Already attached in this Mac's iTerm2? Then focus it and open nothing. Skipped for a
-    // session `createAndAttach(_:)` just created, which nothing can have attached yet.
-    if progress.checksExistingAttachments, let index = attachCheckIndex {
-      switch await existingAttachments(of: session.key, host: host, index: index) {
+    // 1b. Already attached in this Mac's iTerm2? Then focus it and open nothing; a move here
+    // runs nothing at all (`-d` would detach that attachment too), nor when a connection there
+    // cannot be ruled out as showing the session. Skipped for a session `createAndAttach(_:)`
+    // just created, which nothing can have attached yet; never skipped for a move here.
+    let checkIndex =
+      progress.detachesOtherClients
+      ? attachCheckIndex ?? detachIndex
+      : progress.checksExistingAttachments ? attachCheckIndex : nil
+    if let checkIndex {
+      switch await existingAttachments(of: session.key, host: host, index: checkIndex) {
       case .failure(let failure):
         return .failed(failure)
-      case .success((let counts, let existing)):
-        progress.existingAttachments = counts
+      case .success(let check):
+        progress.existingAttachments = check.counts
         progress.timings.checked = clock.now() - progress.start
-        if !existing.isEmpty { return await focus(existing, &progress) }
+        if progress.detachesOtherClients {
+          if let first = check.attachments.first {
+            return .failed(
+              .alreadyAttachedHere(
+                connectionID: first.connectionID, owningSessionID: first.owningSessionID))
+          }
+          if check.unresolved > 0 {
+            return .failed(.possiblyAttachedHere(unresolved: check.unresolved))
+          }
+        }
+        if !check.attachments.isEmpty { return await focus(check.attachments, &progress) }
       }
-    }
-    // 2. Write the request.
+    } // End of the existing-attachment check
+    // 2. Write the request (asking for `attach-session -d` only for a move here).
     _ = try? store.sweep()
-    let request = LaunchRequest(
+    var request = LaunchRequest(
       id: progress.launchID, createdAt: clock.date(), host: launchHost,
       tmuxPathOverride: target.host.tmuxPathOverride, session: session)
+    if progress.detachesOtherClients { request.detachOtherClients = true }
     do throws(LaunchStoreError) {
       try store.writeRequest(request)
     } catch {
       return .failed(.launchStore(error))
     }
-    guard !Task.isCancelled else { return withdraw(progress, .cancelled) }
+    guard !Task.isCancelled else { return withdraw(&progress, .cancelled) }
     // 3. iTerm2 must run.
     do {
       try await iTerm2.ensureRunning()
     } catch {
-      return withdraw(progress, Self.failure(for: error))
+      return withdraw(&progress, Self.failure(for: error))
     }
-    guard !Task.isCancelled else { return withdraw(progress, .cancelled) }
+    guard !Task.isCancelled else { return withdraw(&progress, .cancelled) }
     // 4. Open the launch tab. The request runs in a task of its own, so cancelling the attach
     // never leaves a tab whose session id is unknown.
     let tab = ITerm2API.CreateTabRequest(
@@ -436,6 +723,7 @@ public actor AttachCoordinator {
         helperPath.attachCommandLine(for: progress.launchID))
         + [ITerm2API.ProfileProperty.closeSessionsOnEnd(true)])
     let iTerm2 = self.iTerm2
+    progress.tabRequested = true
     let created = await Task { () -> Result<ITerm2API.CreateTabResponse, any Error> in
       do {
         return .success(try await iTerm2.createTab(tab))
@@ -446,10 +734,10 @@ public actor AttachCoordinator {
     let gatewaySessionID: String
     switch created {
     case .failure(let error):
-      return withdraw(progress, Self.failure(for: error))
+      return withdraw(&progress, Self.failure(for: error))
     case .success(let response):
       guard let sessionID = response.sessionID, !sessionID.isEmpty else {
-        return withdraw(progress, .iTerm2(.protocolError("the new tab has no session id")))
+        return withdraw(&progress, .iTerm2(.protocolError("the new tab has no session id")))
       }
       gatewaySessionID = sessionID
     }
@@ -527,23 +815,37 @@ public actor AttachCoordinator {
     }
   } // End of func revalidate(_:)
 
-  /// Step 1b: asks `index` which sessions this Mac's iTerm2 shows and returns its counts and
-  /// the attachments of `key`, in listing order (none when it is not attached). iTerm2 not
-  /// running means nothing is attached (empty counts); any other listing failure fails the
+  /// What step 1b found for one session.
+  private struct ExistingCheck {
+    /// The index's counts.
+    var counts = AttachmentSnapshot.Counts()
+    /// The session's attachments, in listing order (none when it is not attached).
+    var attachments: [AttachmentSnapshot.Attachment] = []
+    /// How many unmapped connections cannot be ruled out as showing the session
+    /// (`AttachmentSnapshot.unresolvedConnections(for:)`); only a move here acts on it.
+    var unresolved = 0
+  }
+
+  /// Step 1b: asks `index` which sessions this Mac's iTerm2 shows and returns its counts, the
+  /// attachments of `key` and how many connections cannot be ruled out as showing it. iTerm2
+  /// not running means nothing is attached (empty counts); any other listing failure fails the
   /// attach, so a tab is never opened without knowing whether one exists. Unmapped connections
-  /// do not block the attach.
+  /// do not block an attach; a move here refuses unresolved ones (`perform(_:)`).
   private func existingAttachments(
     of key: SessionKey,
     host: AttachmentIndex.Host?,
     index: AttachmentIndex
-  ) async -> Result<(AttachmentSnapshot.Counts, [AttachmentSnapshot.Attachment]), AttachFailure> {
+  ) async -> Result<ExistingCheck, AttachFailure> {
     // A `.ok` discovery result always carries its report; without one nothing could match.
     guard let host else { return .failure(.discoveryFailed("noReport")) }
     do {
       let snapshot = try await index.snapshot(of: [host])
-      return .success((snapshot.counts, snapshot.attachments(of: key)))
+      return .success(
+        ExistingCheck(
+          counts: snapshot.counts, attachments: snapshot.attachments(of: key),
+          unresolved: snapshot.unresolvedConnections(for: key).count))
     } catch ITerm2Error.notRunning {
-      return .success((AttachmentSnapshot.Counts(), []))
+      return .success(ExistingCheck())
     } catch let error as ITerm2Error {
       return .failure(.attachmentCheckFailed(error))
     } catch {
@@ -602,10 +904,11 @@ public actor AttachCoordinator {
     while true {
       do throws(LaunchStoreError) {
         if let result = try store.takeResult(progress.launchID) {
+          progress.helperEnded = true
           return .failure(Self.failure(forHelperResult: result))
         }
       } catch {
-        return .failure(withdrawFailure(progress, .launchStore(error)))
+        return .failure(withdrawFailure(&progress, .launchStore(error)))
       }
       do {
         let connections = try await iTerm2.listTmuxConnections()
@@ -615,15 +918,15 @@ public actor AttachCoordinator {
           return .success(connectionID)
         }
       } catch {
-        return .failure(withdrawFailure(progress, Self.failure(for: error)))
+        return .failure(withdrawFailure(&progress, Self.failure(for: error)))
       }
       if waiting || clock.now() >= start + budget {
-        guard remote else { return .failure(withdrawFailure(progress, .timedOut)) }
+        guard remote else { return .failure(withdrawFailure(&progress, .timedOut)) }
         let tabOpen: Bool
         do {
           tabOpen = try await iTerm2.listSessions().allSessionIDs.contains(gatewaySessionID)
         } catch {
-          return .failure(withdrawFailure(progress, Self.failure(for: error)))
+          return .failure(withdrawFailure(&progress, Self.failure(for: error)))
         }
         guard tabOpen else {
           // The tab is gone, so nothing can attach any more; the helper writes its result
@@ -632,8 +935,9 @@ public actor AttachCoordinator {
             let result = await waitForResult(
               progress.launchID, within: configuration.closedTabResultBudget)
           else {
-            return .failure(withdrawFailure(progress, .timedOut))
+            return .failure(withdrawFailure(&progress, .timedOut))
           }
+          progress.helperEnded = true
           return .failure(Self.failure(forHelperResult: result))
         }
         if !waiting {
@@ -641,14 +945,14 @@ public actor AttachCoordinator {
           progress.timings.stillWaiting = clock.now() - progress.start
           publish(.stillWaiting(sessionID: gatewaySessionID), for: progress)
         } else if clock.now() >= start + configuration.remoteWaitLimit {
-          return .failure(withdrawFailure(progress, .waitLimitReached))
+          return .failure(withdrawFailure(&progress, .waitLimitReached))
         }
       }
       do {
         try await clock.sleep(
           for: waiting ? configuration.stillWaitingPollInterval : configuration.pollInterval)
       } catch {
-        return .failure(withdrawFailure(progress, .cancelled))
+        return .failure(withdrawFailure(&progress, .cancelled))
       }
     } // End of loop polling for the connection
   } // End of func waitForConnection(_:gatewaySessionID:)
@@ -1061,13 +1365,14 @@ public actor AttachCoordinator {
 
   /// Withdraws the request (so a launch tab that starts late cannot attach) and returns the
   /// failed state.
-  private func withdraw(_ progress: Run, _ failure: AttachFailure) -> AttachState {
-    .failed(withdrawFailure(progress, failure))
+  private func withdraw(_ progress: inout Run, _ failure: AttachFailure) -> AttachState {
+    .failed(withdrawFailure(&progress, failure))
   }
 
-  /// Withdraws the request and returns `failure`.
-  private func withdrawFailure(_ progress: Run, _ failure: AttachFailure) -> AttachFailure {
-    _ = try? store.discardRequest(progress.launchID)
+  /// Withdraws the request, noting in `progress` whether that removed it before a helper took
+  /// it, and returns `failure`.
+  private func withdrawFailure(_ progress: inout Run, _ failure: AttachFailure) -> AttachFailure {
+    if (try? store.discardRequest(progress.launchID)) == true { progress.requestWithdrawn = true }
     return failure
   }
 
@@ -1082,22 +1387,25 @@ public actor AttachCoordinator {
       AttachUpdate(key: key, launchID: progress.launchID, state: state, isCurrent: isCurrent))
   }
 
-  /// Records the outcome of an attach: its state and failure kinds and its duration only.
-  private func record(_ result: AttachResult, hostID: UUID) async {
+  /// Records the outcome of an attach or a move here (`detachesOtherClients`): its state and
+  /// failure kinds and its duration only.
+  private func record(_ result: AttachResult, hostID: UUID, detachesOtherClients: Bool) async {
     guard let diagnostics else { return }
     let duration = Self.milliseconds(result.timings.finished ?? .zero)
+    let operation = detachesOtherClients ? "move here" : "attach"
     if let failure = result.failure {
       let detail = failure.detail.map { " (\($0))" } ?? ""
       await diagnostics.record(
         .attach, outcome: failure == .timedOut ? .timedOut : .failure,
         hostID: hostID.uuidString, durationMs: duration,
-        detail: "attach failed: \(failure.kind)\(detail)")
+        detail: "\(operation) failed: \(failure.kind)\(detail)")
     } else {
       await diagnostics.record(
         .attach, outcome: .success, hostID: hostID.uuidString, durationMs: duration,
-        detail: result.isFocused ? "attach focused an existing attachment" : "attach confirmed")
+        detail: result.isFocused
+          ? "\(operation) focused an existing attachment" : "\(operation) confirmed")
     }
-  } // End of func record(_:hostID:)
+  } // End of func record(_:hostID:detachesOtherClients:)
 
   /// The failure for an error thrown by an iTerm2 request.
   static func failure(for error: any Error) -> AttachFailure {

@@ -391,4 +391,20 @@ public struct AttachmentSnapshot: Sendable, Hashable {
 
   /// Every session that has at least one attachment.
   public var attachedKeys: Set<SessionKey> { Set(attachments.map(\.key)) }
+
+  /// The unmapped connections that cannot be ruled out as showing `key` (PLAN.md D21), in
+  /// listing order: every `stale` and `nonUTF8` one (no exact answer), and every `unknown` or
+  /// `ambiguous` one whose exact answer names `key`'s server and session (only the host name
+  /// failed to match). An exact answer naming another server or session rules its connection
+  /// out, since `attach-session -d` detaches only clients of `key`'s session; so does a filter
+  /// (`excludedCount`: never asked, on the word of the filter's owner). A move here runs only
+  /// when this is empty; an attach ignores it.
+  public func unresolvedConnections(for key: SessionKey) -> [Unmapped] {
+    unmapped.filter { entry in
+      switch entry.kind {
+      case .stale, .nonUTF8: return true
+      case .unknown, .ambiguous: return entry.reported?.matches(key) ?? true
+      }
+    }
+  } // End of func unresolvedConnections(for:)
 }

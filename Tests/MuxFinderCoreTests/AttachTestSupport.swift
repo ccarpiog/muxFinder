@@ -269,6 +269,9 @@ final class FakeLaunchStore: LaunchRequestStore {
     var resultAfterTakes = 0
     /// The error `writeRequest(_:)` throws, if any.
     var writeError: LaunchStoreError?
+    /// Whether a helper took every written request first, so `discardRequest(_:)` finds none
+    /// to remove (`false`) and the request is not withdrawn in time.
+    var helperTakesRequests = false
   }
 
   /// The state.
@@ -292,11 +295,11 @@ final class FakeLaunchStore: LaunchRequestStore {
     if let error { throw error }
   }
 
-  /// Records the discard.
+  /// Records the discard; returns whether a file was removed (not when a helper took it).
   func discardRequest(_ id: LaunchToken) throws(LaunchStoreError) -> Bool {
     state.withLock { state in
       state.discarded.append(id)
-      return true
+      return !state.helperTakesRequests
     }
   }
 

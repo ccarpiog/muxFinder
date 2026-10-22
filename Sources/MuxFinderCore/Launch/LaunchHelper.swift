@@ -164,12 +164,16 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 ///    deadline (`checkTimeout`); its stderr (tmux's sanitized error line) is copied to the tab
 ///    as printable ASCII;
 /// 2. on success, the **attach**, `<tmux> -u -CC attach-session -t <id>` spawned directly
-///    from the path the check printed, on the tab's own terminal, waited for until tmux exits.
+///    from the path the check printed, on the tab's own terminal, waited for until tmux exits;
+///    `attach-session -d -t <id>` when the request moves the session here (its
+///    `detachOtherClients` is `true`, PLAN.md D21), so tmux detaches the session's other
+///    clients.
 ///
 /// For an SSH host it runs one child on the tab's terminal (PLAN.md D17):
 /// `/usr/bin/ssh -t -o ConnectTimeout=10 -- <destination> <D3 string>` (`RemoteLaunch`),
 /// interactive (no `BatchMode`), so a person can answer a password or host-key prompt in the
-/// tab. The remote script runs the same D4 check and then `exec`s tmux; ssh exits with the
+/// tab. The remote script (`RemoteLaunch.moveHereScript` for a move here, whose tmux gets
+/// `-d`) runs the same D4 check and then `exec`s tmux; ssh exits with the
 /// guard's codes, tmux's status, or 255 for its own errors, classified from its standard error
 /// (relayed to the tab as it arrives).
 ///
@@ -192,7 +196,8 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 /// - `MUXFINDER_LAUNCH_DIRECTORY`: an absolute path used as the launch directory instead of
 ///   `~/Library/Application Support/muxFinder/launch`. A relative or empty value is refused as
 ///   `launchDirectoryUnusable`.
-/// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`) and honor a
+/// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`, written again
+///   with the attach child just before it starts) and honor a
 ///   request's `testLaunchDelaySeconds` (`testLaunchDelay(_:child:)`); the `test-mode` marker
 ///   file in the launch directory does the same. Outside test mode that field is ignored.
 /// - `MUXFINDER_LAUNCH_NO_WAIT=1`: never wait for Return nor hold the tab open
@@ -332,13 +337,13 @@ public struct LaunchHelper: Sendable {
   /// Runs the helper for the raw `argv` (argv[0] first) and returns its exit status.
   public func run(argv: [[UInt8]]) async -> Int32 {
     let startedAt = now()
-    if isTestMode { await recordArgvDigest(argv, at: startedAt) }
+    let digest = isTestMode ? await recordArgvDigest(argv, at: startedAt) : nil
     switch Self.parse(argv) {
     case .help:
       terminal.write(Self.usage + "\n")
       return LaunchExitStatus.success
     case .attach(let id):
-      return await attach(id, startedAt: startedAt)
+      return await attach(id, startedAt: startedAt, argvDigest: digest)
     case nil:
       await log.record(
         .launch,
@@ -357,9 +362,9 @@ public struct LaunchHelper: Sendable {
     environment[Self.testModeVariable] == "1" || (store?.testModeMarkerExists() ?? false)
   }
 
-  /// Writes the argv digest; failures are only logged.
-  func recordArgvDigest(_ argv: [[UInt8]], at time: Date) async {
-    guard let store else { return }
+  /// Writes the argv digest and returns it (`nil` without a store); failures are only logged.
+  func recordArgvDigest(_ argv: [[UInt8]], at time: Date) async -> LaunchArgvDigest? {
+    guard let store else { return nil }
     let digest = LaunchArgvDigest(argv: argv, helperPID: processID, recordedAt: time)
     do throws(LaunchStoreError) {
       try store.writeArgvDigest(digest)
@@ -371,7 +376,32 @@ public struct LaunchHelper: Sendable {
     } catch {
       await log.record(.launch, outcome: .failure, detail: "Argv digest not written: \(error)")
     }
+    return digest
   } // End of func recordArgvDigest(_:at:)
+
+  /// Writes `digest` again with the attach child (`executable` and `arguments`, and whether it
+  /// detaches the session's other clients), just before that child starts (test mode only, so
+  /// a check can tell a move here from a normal attach, PLAN.md D21); failures are only logged.
+  func recordAttachChild(
+    in digest: LaunchArgvDigest,
+    executable: String,
+    arguments: [String],
+    detachesOtherClients: Bool
+  ) async {
+    guard let store else { return }
+    var updated = digest
+    updated.attachChild = LaunchArgvDigest.AttachChild(
+      executable: executable, arguments: arguments, detachesOtherClients: detachesOtherClients)
+    do throws(LaunchStoreError) {
+      try store.writeArgvDigest(updated)
+      await log.record(
+        .launch, outcome: .info,
+        detail: "Argv digest written with the attach child (\(arguments.count + 1) arguments, "
+          + "detaching other clients: \(detachesOtherClients)).")
+    } catch {
+      await log.record(.launch, outcome: .failure, detail: "Argv digest not written: \(error)")
+    }
+  } // End of func recordAttachChild(in:executable:arguments:detachesOtherClients:)
 
   /// What the helper knows about its children when it finishes.
   struct ChildRecord {
@@ -393,8 +423,15 @@ public struct LaunchHelper: Sendable {
   }
 
   /// Takes the request for `id`, runs the check and the attach (or, for an SSH host, the ssh
-  /// child that does both on the remote host), and finishes.
-  func attach(_ id: LaunchToken, startedAt: Date) async -> Int32 {
+  /// child that does both on the remote host), and finishes. The attach detaches the session's
+  /// other clients (`-d`) only when the request asks for it (a move here, PLAN.md D21). In
+  /// test mode, `argvDigest` (the digest already written) is written again with the attach
+  /// child just before it starts.
+  func attach(
+    _ id: LaunchToken,
+    startedAt: Date,
+    argvDigest: LaunchArgvDigest? = nil
+  ) async -> Int32 {
     guard let store else {
       return await finish(
         id,
@@ -465,6 +502,11 @@ public struct LaunchHelper: Sendable {
       }
       (executable, arguments) = (RemoteLaunch.sshPath, sshArguments)
     }
+    if let argvDigest {
+      await recordAttachChild(
+        in: argvDigest, executable: executable, arguments: arguments,
+        detachesOtherClients: request.detachesOtherClients)
+    }
     let outcome: LaunchChildOutcome
     do throws(ProcessRunnerError) {
       outcome = try await childRunner.run(
@@ -495,7 +537,7 @@ public struct LaunchHelper: Sendable {
       startedAt: startedAt,
       resultStore: store
     )
-  } // End of func attach(_:startedAt:)
+  } // End of func attach(_:startedAt:argvDigest:)
 
   /// The test-only launch delay (PLAN.md D14 *Test mode*): in test mode, a request's
   /// `testLaunchDelaySeconds` keeps the helper waiting that long before its first child, with

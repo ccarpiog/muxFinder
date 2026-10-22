@@ -487,6 +487,49 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   killed after discovery, and a guard refusal (64, 65) after the tab opened. Exactly
   `sessionGone`, `sessionChanged` and `identityMismatch` (and the guard's 64 and 65) are
   refresh-triggering.
+- **Move here: launch side** (`MoveHereLaunchTests`, PLAN.md D21): a normal request is encoded
+  without `detachOtherClients` and decodes as a normal attach; `true` decodes as a move here,
+  `false` and `null` as a normal attach, `"yes"`, `1` or `[]` make it undecodable; the real
+  store keeps the choice. The local attach argv is exactly `-u -CC attach-session -t $3`, or
+  `-u -CC attach-session -d -t $3` for a move here only. The remote D3 string uses
+  `RemoteLaunch.script` or `RemoteLaunch.moveHereScript`, which differ only in their last step,
+  with the same five quoted values; both run through `/bin/sh` against the fake tmux, which
+  marks a `-d` attach. The helper (fake child runner, test mode) spawns `-d` only for a move
+  here, locally and over ssh, and its digest's `attachChild` holds the exact child argv and
+  `detachesOtherClients`; a guard refusal leaves no `attachChild`; a digest without one still
+  decodes. The built `muxfinder-launch` against the fake tmux attaches with `-d` only for a move
+  here.
+- **Move here: coordinator** (`MoveHereCoordinatorTests`): a confirmation naming another key
+  (another host entry, session or server) fails `moveHereNotConfirmed` with no discovery,
+  iTerm2 call, request or state; a confirmed move here goes `requested` → `launched` →
+  `confirmed` with a request whose `detachOtherClients` is `true` (also for an SSH host, whose
+  remote script is then `moveHereScript`); `attach` and `createAndAttach` write no such field and
+  no `-d`. Attached in this Mac's iTerm2 already (also with the coordinator's check `.off`): it
+  fails `alreadyAttachedHere` with that connection and owner, nothing activated, written or
+  opened, the identity check the only tmux command; iTerm2 not running: it launches. One
+  connection that cannot be ruled out (an unreadable answer, a failed request, no answer
+  before the index's timeout, no owner in the listing, a client not in UTF-8 mode, or an exact
+  answer naming the session's server and session from an unknown host name) makes it fail
+  `possiblyAttachedHere(unresolved: 1)` with nothing written, opened or sent but the identity
+  check, while an attach with the same connections launches; connections of another session or
+  server, and one the index's filter leaves out, do not block it, and
+  `AttachmentSnapshot.unresolvedConnections(for:)` keeps exactly the stale, non-UTF-8 and
+  same-server-and-session unknown or ambiguous entries. Seven
+  failures (gone, changed, tmux missing, the check failing, the tab refused, the guard's 64,
+  no connection) end the same for an attach and a move here, with the same states and request
+  handling. Two move here calls share one launch; a move here waits out an attach in progress
+  and then ends `alreadyAttachedHere`, an attach waits out a move here and then focuses it, and
+  a move here cancelled while waiting starts nothing. A move here cancelled during its held
+  `CreateTab` (on a gated clock) keeps a later attach or move here from revalidating, writing
+  or opening anything until it is settled: withdrawn before its helper took the request (the
+  later call launches as soon as the run ended), its helper's result or its tab gone for 10 s
+  (it launches), its connection (an attach focuses it, a move here ends `alreadyAttachedHere`),
+  or nothing within 15 s (`earlierLaunchPending`, the launch still pending); a move here after
+  a cancelled attach whose connection appears ends `alreadyAttachedHere` with no `-d` written;
+  an attach after a cancelled attach still launches at once. With the confirmation guard
+  removed, or with `attach` asking for `-d`, these tests fail (checked by mutation), and the
+  unresolved-connection and pending-launch tests fail with the Phase 6b review's fixes
+  reverted (checked).
 - **Host list** (`HostListTests`, PLAN.md D19): the onboarding defaults exactly (Saturno,
   Neptuno, Sirio, in order; SSH, empty destination, disabled, no override or profile, unique
   ids, none This Mac); the This Mac switch (the host becomes local and enabled, the previous
@@ -598,10 +641,18 @@ and read the digest it writes before parsing its arguments (PLAN.md D14):
   `arguments` (per argument, argv[0] first: `byteLength` and lowercase hex `sha256`),
   `launchID` (the first argument after argv[0] that is a canonical launch id, else absent),
   `helperPID` and `recordedAt`. No other raw argument is stored.
+- Right before the helper starts its attach child (tmux locally, ssh for a remote host), it
+  writes the same file again with `attachChild`: `argumentCount` and `arguments` of that
+  child's argv (argv[0] the executable's path), digested the same way, and
+  `detachesOtherClients` (`true` only for a move here, whose tmux gets `attach-session -d`,
+  PLAN.md D21). A launch that ends before its attach child (a guard refusal, an interrupted
+  test launch delay) leaves none.
 - `LaunchStore.takeArgvDigests()` reads the digests (and deletes them), oldest first. To check
   a run, compare `argumentCount` with 3, `arguments[0]` with the helper path's length and
   SHA-256, and `launchID` with the request's id. `muxfinder-probe e2e-local` does exactly that
-  for every launch it makes.
+  for every launch it makes, and checks that no attach child of a normal attach used `-d`;
+  for its attaches and its move here it also compares `attachChild` with the exact argv it
+  expects.
 - Test mode also honors a request's `testLaunchDelaySeconds` (1–120): the helper prints
   `muxFinder test mode: waiting <n> s before starting.` and waits that long in a `/bin/sleep`
   child before its first real child, so its tab stays open with nothing running; closing the
@@ -617,8 +668,8 @@ muxfinder-probe` builds only the probe, and iTerm2 runs the `muxfinder-launch` b
 it, which may be older. Check `muxfinder-probe iterm2 status` before and after: a timeout
 (exit 75) means a modal iTerm2 dialog is open; stop and report which step caused it.
 
-- `swift run muxfinder-probe e2e-local` — the local integration proof (PLAN.md Phases 4 and
-  5a). It creates `muxfinder-test-<8 hex digits>` on the default server (two windows, the first
+- `swift run muxfinder-probe e2e-local` — the local integration proof (PLAN.md Phases 4, 5a,
+  6a and 6b). It creates `muxfinder-test-<8 hex digits>` on the default server (two windows, the first
   split in two, every pane `sleep 600`), turns on the helper's test mode (the
   `launch/test-mode` marker, through `LaunchStore`), and prints one `PASS`/`FAIL` line per
   step: 1 create, 2 discover, 3 attach (the existing-attachment check finding nothing, states,
@@ -652,11 +703,24 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   `requested` → `launched` → `confirmed`, the
   existing-attachment check skipped, activated, the argv digest; the exact name stored, the
   pane's `#{pane_current_path}` byte-equal to the directory, discovery listing it with one
-  window and one control client; then a clean detach by connection and a kill by id), 15
-  cleanup (also kills any extra session of the run, found by its exact name if its output was
-  lost, and removes the private directory). Notes under the steps record what iTerm2 did
+  window and one control client; then a clean detach by connection and a kill by id), then
+  the Phase 6b step (PLAN.md D21): 15 move here (the harness starts a plain control client on
+  the unattached test session, `tmux -u -C attach-session -t '=<name>'` with stdin a pipe it
+  holds open and its output drained, never logged, and waits until `list-clients` shows it as
+  the session's only client, by its pid; a move here confirmed for another key must fail
+  `moveHereNotConfirmed` with no state and no digest, the plain client still attached; the
+  confirmed move here must end `confirmed` (`requested` → `launched` → `confirmed`,
+  activated, the check finding nothing of the run's) with `attachChild` exactly
+  `<tmux> -u -CC attach-session -d -t <id>`; the plain client must print `%exit` and exit by
+  itself within 10 s; the session's only client must then be another control client, and 2 s
+  later the launch tab must still own its connection, which still shows the session with both
+  tmux tabs; then a clean detach by connection, the session surviving unattached), 16
+  cleanup (first ends the plain control client if it still runs; also kills any extra session
+  of the run, found by its exact name if its output was lost, and removes the private
+  directory). Steps 3 and 7 also compare their attach child with the exact argv without
+  `-d`. Notes under the steps record what iTerm2 did
   (argv split, placement, tab fields, the check's counts and timings, whether the launch tab
-  closed, how old each launch tab was when it ended). Exit 0 only when all 15 pass; 128 + n
+  closed, how old each launch tab was when it ended). Exit 0 only when all 16 pass; 128 + n
   after signal n. Safety: only its own session, which every later step (rediscovery
   before each attach, the survival checks, the kill) accepts only if its server pid, start
   time, socket path, id, creation time and exact generated name are those `new-session -P`
@@ -676,7 +740,10 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   (the coordinator waits before `detach-client`, the harness before it kills the session or
   closes a tab, and the helper does not exit younger), because iTerm2 shows a blocking modal
   warning for sessions that end within 3 s of starting (see `docs/INTEGRATION-PROOF.md`). The
-  focus step opens and ends nothing. A full passing run takes about 53 s.
+  focus step opens and ends nothing. The move-here step's plain control client attaches only
+  to the run's session, by its exact name; on any failure the step closes its input and then
+  ends its process group (SIGTERM, SIGKILL) before cleanup, which does the same first. A full
+  passing run takes about 63 s.
 - `swift run muxfinder-probe e2e-remote saturno-m4` — the integration proof over SSH (PLAN.md
   Phase 5b, D17); only `saturno-m4` is authorized for it. Its tmux calls on Saturno (create,
   split, list, display, kill) go through `/usr/bin/ssh` with discovery's noninteractive
@@ -706,17 +773,26 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   directory `~/Library/Application Support` (an existing directory with a space; the run writes
   no file on Saturno), its `#{pane_current_path}` compared with the server's `HOME` (from
   `show-environment -g HOME`) plus `/Library/Application Support`, the name's trailing `;`
-  kept, 16 cleanup (detaches leftovers, kills the run's sessions by id with the identity check
+  kept, 16 move here (as in `e2e-local`; the plain control client runs on Saturno through
+  `/usr/bin/ssh` with discovery's noninteractive options plus `ControlMaster=no`,
+  `ControlPath=none` and `-T`, its stdin the harness's pipe, and `RemoteTestTmux`'s static
+  D3 script, so it writes no file there; its tmux client pid is the remote one, so the step
+  tells it apart from iTerm2's client by that pid; the expected attach child is
+  `/usr/bin/ssh -t -o ConnectTimeout=10 -- saturno-m4 <D3 string>` with
+  `RemoteLaunch.moveHereScript`), 17 cleanup (ends the plain control client first if it still
+  runs, detaches leftovers, kills the run's sessions by id with the identity check
   in the same tmux command, one ssh invocation each — never
   `kill-server`; the server exits by itself when it was the last session — closes the run's
   leftover launch tabs once 10 s old, removes the marker). The same safety rules as
   `e2e-local`: only its own session, recognized by server, id, creation time and name; its
   index asks only its own launch tabs' connections; every wait bounded (ssh calls 12 s, the
-  whole run 300 s); cleanup after a failure, a signal or the time limit; exit 0 only when all
-  16 pass, 128 + n after signal n. Needs key authentication to the destination (setup fails
-  when `tmux -V` over ssh in `BatchMode` does not answer). Every ssh login it makes is the
-  run's own, with key authentication. A passing run takes about 105 s, 28.5 s of it the
-  still-waiting step and 14 s the new-session step.
+  plain client 15 s to attach and 10 s to exit, the whole run 300 s); cleanup after a failure,
+  a signal or the time limit; exit 0 only when all 17 pass, 128 + n after signal n. Needs key
+  authentication to the destination (setup fails when `tmux -V` over ssh in `BatchMode` does
+  not answer). Every ssh login it makes is the run's own, with key authentication. A passing
+  run takes about 120 s (an estimate until the first Phase 6b run: 105 s before the move-here
+  step, which is about 15 s), 28.5 s of it the still-waiting step and 14 s the new-session
+  step.
 - `swift run muxfinder-probe attach --local | --ssh <destination> --session '<$id>'` — one
   real attach of a session of the default server of this Mac or of a remote host (the launch
   tab runs `ssh -t`, so any password prompt appears there), the way the app does it; prints
@@ -1010,6 +1086,24 @@ removed afterwards; the default servers were only discovered (both `noServer`).
 | Unit tests | `swift test` | exit 0, 457 tests in 46 suites, among them the new private-server tests (`killsOnlyTheRecordedSessionOnAPrivateServer`, `keepsTrailingSemicolonsOnAPrivateServer`). With the script's escaping removed and the old 255 classification and `mayHaveCreated` restored, `keepsTrailingSemicolonsOnAPrivateServer` (a false `has-session` collision), `escapesTrailingSemicolonsForTmux` (both cases), `connectionLossOrASignalMayHaveCreated` (61 issues) and `classifiesFailures` failed; the fix restored, all pass |
 | Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0, no output |
 | Real runs on the final tree | `env -u TMUX_TMPDIR .build/debug/muxfinder-probe e2e-local`, then `… e2e-remote saturno-m4` | not run: iTerm2's `ps -M` line count stayed at 23 from 14:53 to 15:32 (polled every minute for the 20 minutes the run rules allow), above the 18 they require; a read-only one-second `sample` showed 7 user-interactive GCD workers blocked in `-[NSAnimation _runBlocking]` that were not being reclaimed. `iterm2 status` exit 0 (protocol 1.21); the launch directory was empty; no `/private/tmp/mfx.*` |
+
+### Phase 6b — Move here (2026-10-22)
+
+Environment: Neptuno and Saturno as in Phase 6a, iTerm2 3.7.6 (the same process). Every real
+run followed `swift build` and ran with `TMUX_TMPDIR` unset; `iterm2 status` and iTerm2's
+`ps -M -p <pid> | wc -l` were read before and after each one. Before the runs no tmux server ran
+on Neptuno and the launch directory was empty.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Plain control client, locally | a private `TMUX_TMPDIR` server under `/tmp` with one `muxfinder-test-*` session: `tmux -u -C attach-session -t '=<name>'` with stdin a FIFO held open, `list-clients`, then a second control client with `attach-session -d`, then the second one's stdin closed; the session killed and the directory removed | the first client was listed with its own pid, control mode 1; the `-d` attach made it print `%exit` and exit 0, leaving only the second client; closing the second one's input also made it print `%exit` and exit 0 |
+| Plain control client over ssh | the same on Saturno's default server through `/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -o ControlMaster=no -o ControlPath=none -T`, a `muxfinder-test-exp*` session created and killed by exact name | the remote client was listed (control mode 1); the second client's `-d` made it print `%exit`, and ssh exited 0; stderr empty; no `muxfinder-test-*` session left |
+| Before `e2e-local` | `.build/debug/muxfinder-probe iterm2 status`; `ps -M -p <iTerm2 pid> \| wc -l` | exit 0 (protocol 1.21); 25 lines |
+| `e2e-local`, run 1 | `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` | exit 0, 16 of 16 steps PASS in 63.2 s. Steps 1–14 as in Phase 6a (attach child of steps 3 and 7: exactly the expected 6 arguments, no `-d`); 15 move here 10.6 s: the refused confirmation ran nothing; the move here was launched at 145 ms and confirmed at 537 ms, its attach child exactly the expected 7 arguments with `attach-session -d`; the plain client (its own pid as tmux's client pid) had printed `%exit` and exited 0 by the time the call returned; 2 s later the session's only client was the launch tab's, its connection still showing the session with both tabs; the detach by connection was clean (launch tab 10.3 s old); 16 cleanup |
+| After `e2e-local` | `iterm2 status`; `ps -M`; `ls -A` of the launch directory; `ls -A /private/tmp \| rg '^mfx\.'`; `/opt/homebrew/bin/tmux ls` | exit 0; 42 lines; launch directory empty; no `mfx.*`; no server running |
+| `e2e-remote saturno-m4` | not run by the phase worker | the run rules start it only at 38 lines or fewer; the count stayed at 40–41 for about 30 minutes after `e2e-local` (polled read-only), `iterm2 status` exit 0 throughout; left for a later run. `ssh saturno-m4 /opt/homebrew/bin/tmux ls` (read-only): no server running |
+| Unit tests | `swift test`, twice | exit 0 both times, 557 tests in 54 suites (23 new in `MoveHereLaunchTests` and `MoveHereCoordinatorTests`) |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0, no output |
 
 ### Phase 7a — host configuration (2026-10-22)
 

@@ -150,9 +150,18 @@ public struct LaunchRequest: Sendable, Hashable, Codable {
   /// it. Absent (`nil`, not written to the file) in every request the app writes; when set it
   /// must be within `testLaunchDelayRange`.
   public var testLaunchDelaySeconds: Int? = nil
+  /// Move here (PLAN.md D21): whether tmux detaches the session's other clients as it attaches
+  /// (`attach-session -d`). Absent (`nil`, not written to the file) in every request of a
+  /// normal attach, so a request without the field, including one written before Move here
+  /// existed, attaches normally; `false` means the same. Only
+  /// `AttachCoordinator.moveHere(_:confirmation:)` writes `true`.
+  public var detachOtherClients: Bool? = nil
 
   /// The values `testLaunchDelaySeconds` may take.
   public static let testLaunchDelayRange = 1...120
+
+  /// Whether the attach detaches the session's other clients (`detachOtherClients` is `true`).
+  public var detachesOtherClients: Bool { detachOtherClients == true }
 
   /// Creates a request from explicit values.
   public init(

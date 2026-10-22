@@ -5,8 +5,9 @@ import Foundation
 /// `/usr/bin/ssh -t -o ConnectTimeout=10 -- <destination> <D3 string>`, never with
 /// `BatchMode`, so a person can answer a password or host-key prompt in the tab.
 ///
-/// The D3 string is `ShellQuoting.remoteCommand(script: script, args: …)`: the static `script`
-/// and the same five positional parameters as the local check (`LaunchGuard.checkArguments(for:)`:
+/// The D3 string is `ShellQuoting.remoteCommand(script: …, args: …)`: the static `script` (or,
+/// for a move here, the static `moveHereScript`, PLAN.md D21) and the same five positional
+/// parameters as the local check (`LaunchGuard.checkArguments(for:)`:
 /// override, session id, server pid, server start time, creation time), each POSIX
 /// single-quoted. No runtime value is ever part of shell source; the destination is one argv
 /// element after `--`, validated first (`Validation.sshDestination(_:)`: no leading `-`, no
@@ -14,8 +15,9 @@ import Foundation
 ///
 /// On the remote host the script locates tmux (`TmuxLocator`, D5), runs the guard's D4 identity
 /// check (`LaunchGuard.check`, exit 64 gone, 65 changed, 66 tmux missing, 67 check failed, 68
-/// usage) and, on a match, `exec`s `tmux -u -CC attach-session -t <id>` on the remote
-/// pseudo-terminal, so the check and the attach are one process a few instructions apart. ssh
+/// usage) and, on a match, `exec`s `tmux -u -CC attach-session -t <id>` (`-d -t <id>` for a
+/// move here) on the remote pseudo-terminal, so the check and the attach are one process a few
+/// instructions apart. ssh
 /// exits with the remote status (the guard's codes, or tmux's 0 after a detach) or 255 for its
 /// own errors, which `LaunchFailure.from(_:host:sshStandardError:)` maps.
 public enum RemoteLaunch {
@@ -39,12 +41,32 @@ public enum RemoteLaunch {
 
     """#
 
+  /// The last step of a move here (PLAN.md D21): the same attach with `-d`, so tmux detaches the
+  /// session's other clients as it attaches.
+  static let moveHereTail: StaticShellScript = #"""
+    exec "$t" -u -CC attach-session -d -t "$id"
+
+    """#
+
   /// The complete remote script: the tmux locator, the guard's identity check, then the attach.
   public static let script: StaticShellScript = TmuxLocator.script + LaunchGuard.check + attachTail
 
+  /// The remote script of a move here: `script` with `moveHereTail` as its last step. A second
+  /// static script rather than a switch inside one: the choice is made here, and the remote
+  /// shell only ever receives constant text plus the five quoted check values (D3).
+  public static let moveHereScript: StaticShellScript =
+    TmuxLocator.script + LaunchGuard.check + moveHereTail
+
+  /// The remote script for `request`: `moveHereScript` when it detaches the session's other
+  /// clients (`LaunchRequest.detachesOtherClients`), otherwise `script`.
+  public static func remoteScript(for request: LaunchRequest) -> StaticShellScript {
+    request.detachesOtherClients ? moveHereScript : script
+  }
+
   /// The D3 command string ssh hands the remote login shell for `request`.
   public static func command(for request: LaunchRequest) -> String {
-    ShellQuoting.remoteCommand(script: script, args: LaunchGuard.checkArguments(for: request))
+    ShellQuoting.remoteCommand(
+      script: remoteScript(for: request), args: LaunchGuard.checkArguments(for: request))
   }
 
   /// The ssh arguments after argv[0] for `request`, or `nil` when it is not an SSH request with

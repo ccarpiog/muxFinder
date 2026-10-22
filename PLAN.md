@@ -221,7 +221,8 @@ session, verifies its identity, and then activates the tab.
     followed), and with an override only the override itself, else `tmuxCheckFailed`. The D2
     character rule does not apply: the path is only ever argv. The check's stderr (tmux's
     sanitized first line) is copied to the tab as printable ASCII, never to the logs. The
-    **attach** is `<path> -u -CC attach-session -t <id>`, spawned directly with no shell.
+    **attach** is `<path> -u -CC attach-session -t <id>` (`attach-session -d -t <id>` when the
+    request moves the session here, D21), spawned directly with no shell.
     D12's `-u` applies to control mode too, so the formats iTerm2 requests keep UTF-8 and
     tabs. This replaced a single guard that `exec`ed tmux: its locator and `display-message`
     subprocesses had no deadline and were out of reach of a signal sent to the shell, and
@@ -257,7 +258,10 @@ session, verifies its identity, and then activates the tab.
     iTerm2 starts: the e2e run creates it (`LaunchStore.createTestModeMarker()`) and removes it
     in cleanup (`removeTestModeMarker()`), and the sweep leaves it alone. In test mode the
     helper writes `launch/argv-<pid>.json` before parsing argv: the argument count, then each
-    argument's byte length and SHA-256, plus the first canonical launch id found.
+    argument's byte length and SHA-256, plus the first canonical launch id found. Right before
+    it starts its attach child (tmux locally, ssh remotely) it writes the file again with
+    `attachChild`: that child's argv digested the same way and whether it detaches the
+    session's other clients (D21); a launch that ends first has none.
     `LaunchStore.takeArgvDigests()` reads them.
   - **Test launch delay** (decided after the Phase 5b review, 2026-10-22): a request may carry
     `testLaunchDelaySeconds` (1–120; any other value makes it unreadable, 72; absent from every
@@ -287,12 +291,15 @@ session, verifies its identity, and then activates the tab.
   - **Seams:** iTerm2 (`ITerm2Integration`), discovery (`HostDiscovering`), the launch files
     (`LaunchRequestStore`) and the clock (`AttachClock`) are protocols, so the coordinator is
     tested hermetically with fakes and a manual clock.
-  - **Single flight** by `SessionKey`: concurrent callers share one launch and one result; when
-    every waiting caller is cancelled, the launch stops at its next step (`cancelled`). A caller
-    arriving while such a launch winds down (its `CreateTab` still pending) starts a new one;
-    from then on only the newest launch of the session sets `state(of:)`. The older launch's
-    updates are still delivered, with `AttachUpdate.isCurrent == false`, so its launch tab
-    stays known.
+  - **Single flight** by `SessionKey`: concurrent callers of the same kind (attach, or move
+    here, D21) share one launch and one result; a caller of the other kind waits until that
+    launch ended and is settled (D21), then starts its own. When
+    every waiting caller is cancelled, the launch stops at its next step (`cancelled`). An
+    attach arriving while such an attach winds down (its `CreateTab` still pending) starts a
+    new one; from then on only the newest launch of the session sets `state(of:)`. The older
+    launch's updates are still delivered, with `AttachUpdate.isCurrent == false`, so its launch
+    tab stays known. A move here, and an attach after a move here, instead wait until such a
+    launch ended and is settled (D21).
   - **Failures:** every failure before a connection was found withdraws the request file, so a
     tab that starts late cannot attach. The read-only polls (`ListConnections`, `ListSessions`)
     end the attach at their first failure rather than retry it; `CreateTab`, the identity
@@ -393,7 +400,8 @@ session, verifies its identity, and then activates the tab.
   - **When the index fails:** iTerm2 not running means nothing is attached, so the launch goes
     on (`ensureRunning` launches it). Any other listing failure ends the attach with
     `attachmentCheckFailed(error)` before anything is written or opened. Unmapped connections
-    never block an attach; a duplicate is possible only when a connection showing the session
+    never block an attach (a move here refuses those that cannot be ruled out as showing the
+    session, D21); a duplicate is possible only when a connection showing the session
     gave no usable answer within 3 s (the result reports the counts).
   - **`detach(session:on:)`:** discovers the host, runs the index, and handles every attachment
     of the key, whoever opened it, the earliest allowed end first. Each waits until its owning
@@ -412,7 +420,8 @@ session, verifies its identity, and then activates the tab.
     is not valid is `checkFailed` (`invalidDestination`) before anything runs.
   - **Seam:** `AttachCoordinator(existingAttachments:)` is `.standard` (an index over the
     coordinator's iTerm2 integration and clock; the default), `.index(_)` (a given one: a
-    filtered index, or one with its own clock in tests) or `.off` (launch-path tests only).
+    filtered index, or one with its own clock in tests) or `.off` (launch-path tests only; a
+    move here still checks, with the standard index, D21).
   - **Real-run safety:** `e2e-local` gives its coordinators an index whose filter admits only
     connections owned by launch tabs this run opened, so no other connection ever gets a
     command, not even the read-only one. It does not refuse to start when other connections
@@ -438,7 +447,9 @@ session, verifies its identity, and then activates the tab.
     not limit authentication.
   - **Remote script (D3, D4):** `RemoteLaunch.script` is `TmuxLocator.script`, the guard's own
     identity check (`LaunchGuard.check`, the same static text as the local check) and
-    `exec "$t" -u -CC attach-session -t "$id"`; its arguments are the local check's five values
+    `exec "$t" -u -CC attach-session -t "$id"`; a move here sends the static
+    `RemoteLaunch.moveHereScript` instead, the same with `attach-session -d` (D21). Its
+    arguments are the local check's five values
     (override, id, pid, start time, creation time), each POSIX single-quoted. The check and the
     attach are one remote process, so D4's window shrinks to the `exec`. The remote check has
     no deadline of its own (a second ssh connection for a separate check would ask for a
@@ -797,6 +808,113 @@ session, verifies its identity, and then activates the tab.
     timestamps and sessions) and stops it. Without `--attachments` iTerm2 is never contacted;
     with it the check sends the read-only identity `display-message` to every iTerm2 tmux
     connection, the user's included (the 5a caution applies).
+
+- **D21 — Move here** (decided in Phase 6b, 2026-10-22; code in
+  `Sources/MuxFinderCore/Attach/AttachCoordinator.swift`, `AttachModels.swift`,
+  `AttachmentIndex.swift`, and
+  `Launch/LaunchModels.swift`, `LaunchGuard.swift`, `RemoteLaunch.swift`, `LaunchHelper.swift`,
+  `LaunchArgvDigest.swift`).
+  - **API:** `AttachCoordinator.moveHere(_:confirmation:)` with
+    `MoveHereConfirmation.detachOtherClients(of: SessionKey)`: one case, no default, naming the
+    session. A confirmation for any other key fails `moveHereNotConfirmed` before anything runs
+    (no discovery, no iTerm2 request, no file, no state published). Otherwise it is an attach
+    (D15, D17: revalidation, request, `ensureRunning`, launch tab, confirmation by connection
+    within 15 s locally or 20 s and `stillWaiting` remotely, identity check, activation, the
+    10 s minimum tab age before any end the coordinator causes, the same `AttachResult` and
+    typed failures) whose request asks for `attach-session -d`. Rejected: a defaulted `Bool`
+    (a call could move a session without saying so) and a confirmation without a key (one
+    given for one session could move another). Phase 10 puts the user's confirmation dialog in
+    front of it.
+  - **Request and helper:** `LaunchRequest.detachOtherClients` (`Bool?`) is written only as
+    `true`, by a move here; an attach request is without it, byte for byte what earlier builds
+    wrote, and a request without it (or with `false`) is a normal attach; any other value makes
+    the file unreadable (72). Locally the attach child becomes
+    `<tmux> -u -CC attach-session -d -t <id>` (the check is unchanged). Remotely the D3 string
+    carries a second static script, `RemoteLaunch.moveHereScript` (`TmuxLocator.script`,
+    `LaunchGuard.check`, `exec "$t" -u -CC attach-session -d -t "$id"`), with the same five
+    quoted check values: the helper picks the constant, so nothing at run time selects
+    anything in the remote shell. A validated token argument was rejected because it would
+    change the five-argument contract of the check shared with the local guard.
+    `attach(_:)` and `createAndAttach(_:)` never set the field.
+  - **What `-d` does:** tmux detaches every other client of that one session, wherever it runs,
+    as the launch tab's client attaches; a plain control client gets `%exit` and exits 0
+    (verified on a private server and on Saturno before the e2e steps). Never
+    `detach-client -a` (server-wide) or `-s` (it would include this attach).
+  - **Already attached in this Mac's iTerm2:** a move here always runs the existing-attachment
+    check (D16; the standard index when the coordinator's check is `.off`). When this Mac's
+    iTerm2 shows the session, it fails `alreadyAttachedHere(connectionID:owningSessionID:)`
+    (the first listed attachment) and runs, writes, opens and activates nothing: `-d` would
+    detach that attachment too, and detaching and reattaching inside the same iTerm2 is not a
+    move. The UI offers to bring it forward (`attach(_:)` focuses it) or detach it
+    (`detach(connectionID:gatewaySessionID:launchID:)` with those ids, or
+    `detach(session:on:)`) first. iTerm2 not running means nothing is attached here, so the
+    launch goes on; a listing failure is `attachmentCheckFailed`, nothing opened.
+  - **Connections that cannot be ruled out** (decided after the Phase 6b review, 2026-10-22):
+    unlike an attach, a move here also refuses when a connection in this Mac's iTerm2 may show
+    the session, since `-d` would detach it and it may be this Mac's own attachment.
+    `AttachmentSnapshot.unresolvedConnections(for:)` lists every `stale` connection (no id or
+    owner in the listing, a failed request including `tmuxConnectionNotOwned`, an unreadable
+    answer, no answer within 3 s), every `nonUTF8` one, and every `unknown` or `ambiguous` one
+    whose exact answer names the session's server and session (only its host name matched no
+    host, as after a host name change). When any exists the move here fails
+    `possiblyAttachedHere(unresolved:)` and runs, writes, opens and activates nothing; the
+    result carries the check's counts. An exact answer naming another server or session rules
+    its connection out (`-d` detaches only clients of that session), and so does an index
+    filter (`excluded` connections are never asked; only `e2e-local`'s index has one, admitting
+    its own launch tabs' connections). An attach keeps D16's policy: unmapped connections never
+    block it. Rejected: refusing on every `unknown` connection, which would block every move
+    here while a session of another host is attached in iTerm2 (the check runs the index over
+    the target's host alone).
+  - **Single flight across kinds, and launches that may still attach** (the second part
+    decided after the Phase 6b review, 2026-10-22): callers of the same kind share one live
+    launch (D15). A caller never joins a live launch of the other kind (an attach must never
+    end up detaching others, a move here never end up not doing so), and never starts while a
+    conflicting launch of the session may still attach it in this Mac's iTerm2: for a move
+    here every other launch conflicts (its `-d` would detach that launch's attachment, or that
+    launch's `-d` this one's), for an attach every move here; an attach never waits for
+    another attach (D15). A launch is pending from its start until its run ends settled: a
+    connection found, the helper's result taken, no `CreateTab` sent, or the withdrawal
+    removed the request (`discardRequest` returned `true`; the first unlink wins, D14, so no
+    helper can use it). A launch whose callers were all cancelled still sends its `CreateTab`
+    (D15) and its helper may take the request before the withdrawal, so it can end unsettled,
+    as can a timed-out one. A conflicting caller polls every `pollInterval` on the
+    coordinator's clock: a running launch is waited out (it ends within its own budgets); for
+    an ended one it looks for proof that it can no longer attach: the helper's result (the
+    helper ended), a connection owned by its launch tab (it attached, its `-d` ran, and the
+    check now sees it), or its launch tab gone from iTerm2 (or iTerm2 not running) for
+    `closedTabResultBudget` (10 s, D17) without a result. Proof forgets the launch; without it
+    within the confirmation budget (15 s, 20 s for a remote launch) from when the caller first
+    saw the launch ended, the call fails `earlierLaunchPending` and runs nothing, and the
+    launch stays pending for the next call. Once nothing conflicts, the caller starts its own
+    launch, whose check sees the other's outcome (an attach after a move here focuses it; a
+    move here after an attach ends `alreadyAttachedHere`). A caller cancelled while it waits
+    gets `cancelled` and starts nothing. Only a conflicting caller looks for proof, so a
+    pending launch costs nothing until then. Rejected: holding the ended launch's own run
+    until it settles, which would make its cancelled callers wait and change an attach's
+    timing.
+  - **Failures:** `moveHereNotConfirmed`, `alreadyAttachedHere`, `possiblyAttachedHere` and
+    `earlierLaunchPending` are not refresh-triggering; every other failure, state sequence and
+    request withdrawal is the attach's (tested side by side). Diagnostics say "move here"
+    instead of "attach".
+  - **Test mode:** the argv digest gains `attachChild` (D14): the attach child's argv digested
+    like the helper's own, and `detachesOtherClients`.
+  - **Real-run safety (the e2e `move here` step):** on the run's own session, with nothing
+    attached, the harness starts a plain control client (`BackgroundControlClient`:
+    `tmux -u -C attach-session -t '=<exact generated name>'`, argv only, its own process group
+    with default signal dispositions and only descriptors 0–2, stdin a pipe the harness holds
+    open, stdout and stderr drained by threads; stdout is only scanned for a line starting
+    `%exit` and never kept, stderr keeps at most 200 bytes of printable ASCII for a failure
+    message). Remotely it is `/usr/bin/ssh` with discovery's options plus `ControlMaster=no`,
+    `ControlPath=none` and `-T` (no `-n`: stdin is the pipe) and `RemoteTestTmux`'s static D3
+    script, so no file is written there and no shared ssh master is created or used. The step
+    checks that the plain client is the session's only client (locally by its pid), that a
+    move here confirmed for another key runs nothing, that the confirmed move here is
+    confirmed with `-d` in the digest's exact attach-child argv, that the plain client printed
+    `%exit` and exited by itself within 10 s, that the session's only client is then another
+    control client, and, 2 s later, that the launch tab still owns its connection, which still
+    shows the session with both tmux tabs; then a clean detach by connection. On any failure
+    the step ends the plain client (stdin closed, up to 3 s, then SIGTERM and 2 s later SIGKILL
+    to its group, which stays pinned until it is reaped), and cleanup does the same first.
 
 ## Verified facts (planning session, 2026-10-21)
 

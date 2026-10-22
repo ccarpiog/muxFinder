@@ -70,12 +70,14 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.
 - Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`, with
   `TMUX_TMPDIR` unset, after `swift build`: `swift run muxfinder-probe` does not rebuild the
-  `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (15 steps, about
-  53 s) and `swift run muxfinder-probe e2e-remote saturno-m4` (16 steps, about 105 s; creates
+  `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (16 steps, about
+  63 s) and `swift run muxfinder-probe e2e-remote saturno-m4` (17 steps, about 120 s; creates
   and kills only its own `muxfinder-test-*` sessions on Saturno over ssh and writes no file
   there; its `still waiting` step makes no login: the helper's test launch delay keeps that
   tab waiting before ssh, then the step closes the tab itself), both asking only their own
-  launch tabs' connections; one-off `attach --local | --ssh <dest> --session '<$id>'`
+  launch tabs' connections; their `move here` step attaches a plain `tmux -C` client of
+  their own to their own session (over ssh with BatchMode remotely) and ends it on every way
+  out; one-off `attach --local | --ssh <dest> --session '<$id>'`
   (focuses instead when the session is attached already; asks every tmux connection first,
   so the same caution as `iterm2 attachments`), `new-session --local | --ssh <dest> --name
   <name> [--dir <dir>]` (creates, then attaches; asks no connection; its pane runs the user's

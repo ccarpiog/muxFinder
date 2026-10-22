@@ -45,6 +45,11 @@ recorded; ids are shown only where their shape matters.
 | Phase 5a, run 2 | **exit 0: 10 of 10 PASS** | 43.3 s | 1: 35, 2: 38, 3: 584, 4: 7, 5: 107, 6: 10,008, 7: 10,653, 8: 10,872, 9: 10,785, 10: 30 |
 | Phase 5a, run 3 | **exit 0: 10 of 10 PASS** | 42.2 s | 1: 32, 2: 42, 3: 603, 4: 0, 5: 88, 6: 9,839, 7: 10,503, 8: 10,453, 9: 10,454, 10: 27 |
 | Phase 5b, final tree | **exit 0: 10 of 10 PASS** | 43.1 s | 1: 59, 2: 64, 3: 831, 4: 13, 5: 195, 6: 9,702, 7: 10,726, 8: 10,691, 9: 10,499, 10: 56 |
+| Phase 6b, run 1 | **exit 0: 16 of 16 PASS** | 63.2 s | 1: 32, 2: 38, 3: 560, 4: 0, 5: 90, 6: 10,024, 7: 10,432, 8: 10,383, 9: 10,327, 10: 98, 11: 25, 12: 3, 13: 21, 14: 10,366, 15: 10,573, 16: 32 |
+
+From Phase 6a on, steps 10–14 create sessions and attach vanished ones (PLAN.md D18), and
+from Phase 6b step 15 moves the session here (D21; see *Move here* below); `docs/TESTING.md`
+lists every step and records the Phase 6a runs.
 
 The 4b run detached about one second after the attach, so the launch tab and the tmux tabs
 ended within about 1.5 s of their start; iTerm2 opened its modal short-lived-session warning
@@ -188,6 +193,17 @@ and 10.7 s old (4c run 2), 10.4, 10.3 and 10.5 s old (5a run 1, steps 6–8) and
 Two attaches of the same session started together share one launch (single flight): one
 request file, one launch tab, one argv digest, one new connection with its two tmux tabs, and
 the same confirmed result for both callers. No second tab opened, so nothing had to end one.
+
+### Move here
+
+With a plain `tmux -u -C` client of the harness attached to the session (its stdin a pipe the
+harness held open), the move here's launch tab ran `tmux -u -CC attach-session -d -t $0` (the
+argv digest's attach child: 7 arguments, `-d` among them). iTerm2 behaved as for any attach:
+the connection appeared and was confirmed 537 ms after the call, with both tmux tabs and no
+dialog. By the time the call returned, the plain client had printed `%exit` and exited 0, and
+`list-clients` showed only the launch tab's client; 2 s later that was still so and the
+connection still showed the session. The detach by connection that followed was clean (the
+launch tab 10.3 s old).
 
 ### Dialogs
 

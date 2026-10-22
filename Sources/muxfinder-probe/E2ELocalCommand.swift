@@ -1,7 +1,7 @@
 import Foundation
 import MuxFinderCore
 
-/// `muxfinder-probe e2e-local`: the real local integration proof (PLAN.md Phases 4, 5a, 6a). It
+/// `muxfinder-probe e2e-local`: the real local integration proof (PLAN.md Phases 4, 5a, 6a, 6b). It
 /// opens real iTerm2 windows, so it only runs when asked for, never from `swift test`. The
 /// steps and their safety rules are `E2ERun`'s.
 enum E2ELocalCommand {
@@ -15,9 +15,12 @@ enum E2ELocalCommand {
           at once and tries a stale launch; then attaches a session killed after discovery
           (sessionGone, nothing opened), creates one with the existing name (sessionExists),
           with invalid names (nothing run) and in a missing directory (directoryMissing),
-          and finally creates and attaches muxfinder-test-<random>-new in a private
-          directory with spaces and Unicode, printing a PASS or FAIL line per step. Cleans up
-          after itself, also on failure or Ctrl-C. Asks only its own launch tabs' tmux
+          creates and attaches muxfinder-test-<random>-new in a private directory with
+          spaces and Unicode, and finally moves its session here: a plain tmux control
+          client it started on that session must be detached by the move here
+          (attach-session -d) while the iTerm2 attachment stays, printing a PASS or FAIL
+          line per step. Cleans up after itself, also on failure or Ctrl-C. Asks only its
+          own launch tabs' tmux
           connections which session they show; other connections get no command. Needs
           iTerm2 running with its API on, and TMUX_TMPDIR unset (the helper in iTerm2 always
           uses the default server). Run swift build first: iTerm2 runs the muxfinder-launch
@@ -52,7 +55,7 @@ enum E2ELocalCommand {
 }
 
 /// `muxfinder-probe e2e-remote <destination>`: the real integration proof over SSH (PLAN.md
-/// Phase 5b, D17). It opens real iTerm2 windows on this Mac whose launch tabs run ssh to the
+/// Phases 5b, 6a, 6b; D17). It opens real iTerm2 windows on this Mac whose launch tabs run ssh to the
 /// destination, so it only runs when asked for, never from `swift test`. The steps and their
 /// safety rules are `E2ERun`'s.
 enum E2ERemoteCommand {
@@ -70,7 +73,9 @@ enum E2ERemoteCommand {
           prompt; the attach must report stillWaiting after its 20 s budget, never success,
           until the test closes that tab); then the session-creation steps of e2e-local, with
           ~/Library/Application Support as the existing directory and a missing one under ~
-          (nothing is written there), printing a PASS or FAIL line per step. Cleans up after
+          (nothing is written there), and the move here of e2e-local, its plain control
+          client started over ssh (BatchMode, no connection sharing), printing a PASS or
+          FAIL line per step. Cleans up after
           itself (kills only its own sessions), also on failure or Ctrl-C. Asks only
           its own launch tabs' tmux connections which session they show. Needs key
           authentication to the destination, tmux there, iTerm2 running with its API on.

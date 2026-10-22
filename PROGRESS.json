@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T17:15:33Z",
+  "updated": "2026-10-22T18:29:16Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -134,7 +134,7 @@
       "title": "Session operations: create, move here, disappeared sessions",
       "status": "in_progress",
       "risk": "high",
-      "summary": "Creates sessions, moves attached sessions here and handles vanished ones; split into 6a (done) and 6b (Move here, queued).",
+      "summary": "Creates sessions, moves attached sessions here and handles vanished ones; split into 6a (done) and 6b (awaiting real runs).",
       "started": "2026-10-22T13:03:56Z",
       "status_since": "2026-10-22T13:03:56Z"
     },
@@ -155,12 +155,13 @@
     {
       "id": "6b",
       "title": "Move here",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
       "parent": "6",
-      "summary": "Attaches a session here while detaching every other client, only with explicit confirmation.",
+      "summary": "Move here is built, reviewed and fixed; awaiting its real e2e-remote and final-tree e2e-local runs (iTerm2 thread gate).",
       "added": "2026-10-22T13:03:56Z",
-      "status_since": "2026-10-22T13:03:56Z"
+      "started": "2026-10-22T17:17:37Z",
+      "status_since": "2026-10-22T17:17:37Z"
     },
     {
       "id": "7",

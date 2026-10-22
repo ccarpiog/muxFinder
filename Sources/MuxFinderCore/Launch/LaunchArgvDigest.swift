@@ -15,7 +15,10 @@ import Foundation
 /// one, as `argv-<helper pid>.json` (0600) in the launch directory. It holds the argument
 /// count and, per argument (argv[0] included), its byte length and SHA-256. No raw argument is
 /// stored except a launch id, which is safe: `launchID` is the first argument after argv[0]
-/// that is a canonical launch id.
+/// that is a canonical launch id. Right before it starts its attach child (tmux locally, ssh for
+/// a remote host), the helper writes the digest again with `attachChild`: that child's argv
+/// digested the same way, and whether it detaches the session's other clients (`-d`, a move
+/// here, PLAN.md D21).
 public struct LaunchArgvDigest: Sendable, Hashable, Codable {
   /// One argument's digest.
   public struct Argument: Sendable, Hashable, Codable {
@@ -30,6 +33,28 @@ public struct LaunchArgvDigest: Sendable, Hashable, Codable {
       sha256 = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
   }
+
+  /// The attach child the helper started (PLAN.md D21): the argv it spawned, digested the same
+  /// way, and whether that argv asks tmux to detach the session's other clients. Recorded just
+  /// before the child starts, so a check, a test launch delay or a refused request that ends
+  /// the launch first leaves none.
+  public struct AttachChild: Sendable, Hashable, Codable {
+    /// Whether the child attaches with `attach-session -d` (a move here): the local tmux argv
+    /// holds `-d`, or the ssh command runs `RemoteLaunch.moveHereScript`.
+    public var detachesOtherClients: Bool
+    /// The child's `argc`.
+    public var argumentCount: Int
+    /// One entry per argument, argv[0] (the executable's path: tmux, or `/usr/bin/ssh`) first.
+    public var arguments: [Argument]
+
+    /// Digests the child `executable` with `arguments` (argv after argv[0]).
+    public init(executable: String, arguments: [String], detachesOtherClients: Bool) {
+      self.detachesOtherClients = detachesOtherClients
+      let argv = [executable] + arguments
+      argumentCount = argv.count
+      self.arguments = argv.map { Argument(bytes: Array($0.utf8)) }
+    }
+  } // End of struct AttachChild
 
   /// The format version this build writes.
   public static let currentFormatVersion = 1
@@ -50,6 +75,9 @@ public struct LaunchArgvDigest: Sendable, Hashable, Codable {
   public var arguments: [Argument]
   /// The first canonical launch id among the arguments after argv[0], if any.
   public var launchID: LaunchToken?
+  /// The attach child, once the helper is about to start it (the digest file is then written
+  /// again with it); absent before, and for a launch that ended without one.
+  public var attachChild: AttachChild?
 
   /// Digests `argv` (raw bytes, argv[0] first).
   public init(argv: [[UInt8]], helperPID: Int32, recordedAt: Date) {

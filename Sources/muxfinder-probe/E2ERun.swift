@@ -13,12 +13,14 @@ struct StepFailure: Error {
   }
 }
 
-/// One real end-to-end run, `e2e-local` or `e2e-remote` (PLAN.md Phases 4, 5a, 5b and 6a): its
-/// parts, what it created, and the steps.
+/// One real end-to-end run, `e2e-local` or `e2e-remote` (PLAN.md Phases 4, 5a, 5b, 6a and 6b):
+/// its parts, what it created, and the steps.
 ///
 /// Safety (PLAN.md *Unattended-run rules*): it creates, attaches, detaches and kills only its
 /// own `muxfinder-test-<random>` session (and, for the Phase 6a steps, sessions whose names
-/// start with that name) on the default tmux server of this Mac or of the remote host, and
+/// start with that name) on the default tmux server of this Mac or of the remote host (the
+/// move-here step's plain control client attaches only to that session, by its exact name,
+/// and is ended on every way out), and
 /// finds each again (to attach, inspect or kill it) only if its server, id, creation time and
 /// name are still those `new-session` reported (`CreatedSession`), so a restarted server whose
 /// new session reuses the id is never touched; a kill makes that check inside the same tmux
@@ -99,6 +101,9 @@ actor E2ERun {
   /// `e2e-local`'s private directory under `/private/tmp` (`mfx.XXXXXX`) for the working
   /// directory checks, once made; cleanup removes it.
   private var privateDirectory: String?
+  /// The move-here step's plain control client while it may still run; the step's failure path
+  /// and cleanup end it (`stopControlClient()`).
+  private var controlClient: BackgroundControlClient?
 
   /// The test session as `new-session` reported it (or as cleanup found it by its name).
   private var created: CreatedSession?
@@ -127,11 +132,11 @@ actor E2ERun {
     switch kind {
     case .local:
       name = "e2e-local"
-      stepCount = 15
+      stepCount = 16
       host = HostConfig(displayName: "This Mac", mode: .local)
     case .remote(let destination):
       name = "e2e-remote"
-      stepCount = 16
+      stepCount = 17
       host = HostConfig(displayName: "Remote host", mode: .ssh, sshDestination: destination)
     }
     let recorder = self.recorder
@@ -185,7 +190,8 @@ actor E2ERun {
         await step(11, "collision", { try await self.collision() }),
         await step(12, "invalid name", { try await self.invalidName() }),
         await step(13, "missing directory", { try await self.missingDirectory() }),
-        await step(14, "new session", { try await self.newSession() })
+        await step(14, "new session", { try await self.newSession() }),
+        await step(15, "move here", { try await self.moveHereStep() })
       else { return }
     case .remote:
       guard await step(1, "create session", { try await self.createSession() }),
@@ -202,7 +208,8 @@ actor E2ERun {
         await step(12, "collision", { try await self.collision() }),
         await step(13, "invalid name", { try await self.invalidName() }),
         await step(14, "missing directory", { try await self.missingDirectory() }),
-        await step(15, "new session", { try await self.newSession() })
+        await step(15, "new session", { try await self.newSession() }),
+        await step(16, "move here", { try await self.moveHereStep() })
       else { return }
     }
   } // End of func runSteps()
@@ -404,7 +411,9 @@ actor E2ERun {
       throw StepFailure(
         "the existing-attachment check found \(String(describing: result.existingAttachments))")
     }
-    let argv = try checkArgvDigest(for: result.launchID)
+    let argv = try checkArgvDigest(
+      for: result.launchID,
+      expectedChild: expectedAttachChild(for: target.session, detachesOtherClients: false))
     if step == 3 { notes.append(argv) }
     let timings = result.timings
     notes.append(
@@ -501,8 +510,15 @@ actor E2ERun {
   }
 
   /// Takes the argv digests and checks the one of `launchID`: three arguments, `attach` and the
-  /// launch id; reports whether argv[0] is the helper's path.
-  private func checkArgvDigest(for launchID: LaunchToken) throws -> String {
+  /// launch id; reports whether argv[0] is the helper's path. Its attach child, when the helper
+  /// started one, must detach the session's other clients exactly when `detachesOtherClients`
+  /// (a move here, PLAN.md D21); with `expectedChild` (argv, argv[0] first) it must exist and
+  /// have exactly that argv.
+  private func checkArgvDigest(
+    for launchID: LaunchToken,
+    expectedChild: [String]? = nil,
+    detachesOtherClients: Bool = false
+  ) throws -> String {
     let digests = try store.takeArgvDigests()
     let mine = digests.filter { $0.launchID == launchID }
     guard mine.count == 1, digests.count == 1, let digest = mine.first else {
@@ -518,10 +534,57 @@ actor E2ERun {
     else {
       throw StepFailure("the helper got \(digest.argumentCount) arguments, not <path> attach <id>")
     }
+    if let child = digest.attachChild, child.detachesOtherClients != detachesOtherClients {
+      throw StepFailure(
+        "the helper's attach child \(child.detachesOtherClients ? "used" : "did not use") "
+          + "attach-session -d")
+    }
+    var childNote = ""
+    if let expectedChild, let executable = expectedChild.first {
+      let wanted = LaunchArgvDigest.AttachChild(
+        executable: executable, arguments: Array(expectedChild.dropFirst()),
+        detachesOtherClients: detachesOtherClients)
+      guard digest.attachChild == wanted else {
+        throw StepFailure(
+          "the helper's attach child argv (\(digest.attachChild?.argumentCount ?? 0) arguments) "
+            + "is not the expected \(wanted.argumentCount)")
+      }
+      childNote =
+        "; its attach child had exactly the expected \(wanted.argumentCount) arguments, "
+        + (detachesOtherClients ? "with attach-session -d" : "without -d")
+    }
     let argv0 = digest.arguments[0] == expected[0] ? "the helper's absolute path" : "not the path"
     return "iTerm2 split the Command property into 3 arguments: argv[0] \(argv0), "
-      + "argv[1] attach, argv[2] the launch id"
-  } // End of func checkArgvDigest(for:)
+      + "argv[1] attach, argv[2] the launch id\(childNote)"
+  } // End of func checkArgvDigest(for:expectedChild:detachesOtherClients:)
+
+  /// The argv the helper's attach child must have for `session` (the session the launch
+  /// revalidated), written out here rather than taken from the code under test (except the two
+  /// static remote scripts): locally `<tmux> -u -CC attach-session [-d] -t <id>` with the tmux
+  /// the D5 order finds first, remotely `/usr/bin/ssh -t -o ConnectTimeout=10 -- <destination>
+  /// <D3 string>` with `RemoteLaunch.script`, or `RemoteLaunch.moveHereScript` for a move here,
+  /// and the five check values.
+  private func expectedAttachChild(
+    for session: DiscoveredSession,
+    detachesOtherClients: Bool
+  ) -> [String]? {
+    let id = session.key.sessionID.rawValue
+    switch kind {
+    case .local:
+      guard let local = tmux as? TestTmux else { return nil }
+      return [local.path, "-u", "-CC", "attach-session"] + (detachesOtherClients ? ["-d"] : [])
+        + ["-t", id]
+    case .remote(let destination):
+      let script = detachesOtherClients ? RemoteLaunch.moveHereScript : RemoteLaunch.script
+      let command = ShellQuoting.remoteCommand(
+        script: script,
+        args: [
+          "", id, String(session.key.server.pid), String(session.key.server.startTime),
+          String(session.createdAt),
+        ])
+      return ["/usr/bin/ssh", "-t", "-o", "ConnectTimeout=10", "--", destination, command]
+    }
+  } // End of func expectedAttachChild(for:detachesOtherClients:)
 
   /// The tabs and split step.
   private func checkTabsStep() async throws -> String {
@@ -1267,9 +1330,208 @@ actor E2ERun {
     return path
   } // End of func makePrivateDirectory()
 
+  // MARK: - Phase 6b: move here
+
+  /// How long the plain control client may take to show up in `list-clients` (remotely ssh
+  /// connects and logs in first).
+  static let controlClientAttachBudget: Duration = .seconds(15)
+  /// How long the plain control client may take to exit after the move here returned.
+  static let controlClientExitBudget: Duration = .seconds(10)
+  /// How long after the move here the iTerm2 attachment must still be there.
+  static let attachmentHoldTime: Duration = .seconds(2)
+
+  /// The move-here step (PLAN.md D21) on the run's own test session, which no client is
+  /// attached to: the harness starts a plain control client on it (`BackgroundControlClient`,
+  /// `tmux -u -C attach-session -t '=<name>'`, remotely through noninteractive ssh with no
+  /// connection sharing) and checks through `list-clients` that it is the session's one client.
+  /// A move here whose confirmation names another key must fail `moveHereNotConfirmed` with
+  /// nothing run. The confirmed move here must then be confirmed (`requested` → `launched` →
+  /// `confirmed`, activated, the existing-attachment check finding nothing of this run's), its
+  /// helper's attach child must have used `attach-session -d` (the argv digest, the exact
+  /// argv), the plain client must exit by itself within `controlClientExitBudget` after
+  /// printing `%exit`, the session's only client must then be a control client other than the
+  /// plain one, and `attachmentHoldTime` later the launch tab must still own its connection,
+  /// which must still show the session (the identity check through it) with both tmux tabs.
+  /// Last, a clean detach by connection, the session surviving unattached. On any failure the
+  /// plain client is ended (`stop()`: its input closed, then its process group ended) before
+  /// the step reports; cleanup detaches and kills as usual.
+  private func moveHereStep() async throws -> String {
+    do {
+      return try await moveHere()
+    } catch {
+      await stopControlClient()
+      throw error
+    }
+  }
+
+  /// The body of `moveHereStep()`.
+  private func moveHere() async throws -> String {
+    guard current == nil else { throw StepFailure("the test session is still attached") }
+    _ = try await checkSurvives()
+    let (session, result) = try await discover()
+    let id = session.key.sessionID
+    let command = tmux.controlClientCommand(attachingTo: sessionName)
+    let plain = try BackgroundControlClient.start(
+      executable: command.executable, arguments: command.arguments,
+      environment: command.environment)
+    controlClient = plain
+    let plainPID = try await waitForPlainClient(plain, session: id)
+    // A confirmation for another key (the same tmux session, another host entry) runs nothing.
+    let target = AttachTarget(host: host, session: session)
+    let otherKey = SessionKey(hostID: UUID(), server: target.key.server, sessionID: id)
+    let mark = recorder.count
+    let refused = await coordinator.moveHere(
+      target, confirmation: .detachOtherClients(of: otherKey))
+    guard refused.failure == .moveHereNotConfirmed, recorder.count == mark,
+      try store.takeArgvDigests().isEmpty, try await clientPIDs(of: id) == [plainPID]
+    else {
+      throw StepFailure(
+        "a move here confirmed for another key ended \(refused.failure?.kind ?? "attached")")
+    }
+    // The confirmed move here.
+    let moved = await coordinator.moveHere(
+      target, confirmation: .detachOtherClients(of: target.key))
+    current = moved
+    guard moved.isConfirmed, let connectionID = moved.connectionID,
+      let gateway = moved.gatewaySessionID
+    else {
+      throw StepFailure(
+        "the move here ended \(moved.state.kind): \(moved.failure?.kind ?? "?") "
+          + "\(moved.failure?.detail ?? "")")
+    }
+    let states = recorder.stateKinds(of: moved.launchID)
+    guard states == ["requested", "launched", "confirmed"], case .activated = moved.activation,
+      let counts = moved.existingAttachments, counts.mapped == 0, counts.unmapped == 0
+    else {
+      throw StepFailure(
+        "states \(states.joined(separator: " → ")), activation "
+          + "\(String(describing: moved.activation)), check "
+          + "\(String(describing: moved.existingAttachments))")
+    }
+    notes.append(
+      try checkArgvDigest(
+        for: moved.launchID,
+        expectedChild: expectedAttachChild(for: session, detachesOtherClients: true),
+        detachesOtherClients: true))
+    let exitWait = ContinuousClock.now
+    guard let ended = await plain.waitForExit(within: Self.controlClientExitBudget) else {
+      throw StepFailure(
+        "the plain control client was still running \(Self.controlClientExitBudget) after the "
+          + "move here")
+    }
+    guard plain.sawExitNotification else {
+      throw StepFailure("the plain control client ended (\(ended)) without printing %exit")
+    }
+    notes.append(
+      "the plain control client (tmux client pid \(plainPID)) printed %exit and ended by itself "
+        + "(\(ended)), \(milliseconds(ContinuousClock.now - exitWait)) ms after the move here "
+        + "returned; the move here was confirmed \(ms(moved.timings.confirmed)) ms after the "
+        + "call (launched \(ms(moved.timings.launched)) ms)")
+    let remaining = try await poll(timeout: .seconds(3)) { () -> [String]? in
+      let clients = try await self.clientLines(of: id)
+      return clients.count == 1 ? clients : nil
+    }
+    guard let only = remaining?.first, only.hasSuffix("\t1"), !only.hasPrefix("\(plainPID)\t")
+    else {
+      throw StepFailure(
+        "the session's clients after the move here: \(remaining?.count ?? -1), not one control "
+          + "client other than the plain one")
+    }
+    let survival = try await checkAttachmentHolds(
+      connectionID: connectionID, gateway: gateway, key: target.key, host: result,
+      client: only)
+    controlClient = nil
+    let detached = try await detachAndCheck()
+    return "a plain control client was attached; a move here confirmed for another key ran "
+      + "nothing; the confirmed move here attached through the launch tab with "
+      + "attach-session -d (requested → launched → confirmed), the plain client got %exit and "
+      + "ended by itself, \(survival); \(detached)"
+  } // End of func moveHere()
+
+  /// Waits (within `controlClientAttachBudget`) until `plain` is the only client of the session
+  /// `id` (a control client; locally with `plain`'s own pid) and returns its tmux client pid.
+  private func waitForPlainClient(
+    _ plain: BackgroundControlClient,
+    session id: TmuxSessionID
+  ) async throws -> String {
+    let found = try await poll(timeout: Self.controlClientAttachBudget) { () -> String? in
+      guard plain.isRunning else {
+        throw StepFailure(
+          "the plain control client ended before attaching (\(plain.errorText.prefix(120)))")
+      }
+      let clients = try await self.clientLines(of: id)
+      guard clients.count == 1, let line = clients.first, line.hasSuffix("\t1") else { return nil }
+      return String(line.dropLast(2))
+    }
+    guard let pid = found else {
+      throw StepFailure(
+        "the plain control client did not attach within \(Self.controlClientAttachBudget)")
+    }
+    if tmux.isLocal, pid != String(plain.processID) {
+      throw StepFailure("the session's one client is not the plain control client")
+    }
+    return pid
+  } // End of func waitForPlainClient(_:session:)
+
+  /// After `attachmentHoldTime`: the launch tab `gateway` still owns `connectionID`, which
+  /// still shows `key` on the host discovery reported (the identity check through it, bound to
+  /// the launch tab), with the session's two tmux tabs and split; the session's one client is
+  /// still `client` (`<pid>\t<control mode>`).
+  private func checkAttachmentHolds(
+    connectionID: String,
+    gateway: String,
+    key: SessionKey,
+    host result: DiscoveryResult,
+    client: String
+  ) async throws -> String {
+    try await Task.sleep(for: Self.attachmentHoldTime)
+    let connections = try await self.client.listTmuxConnections()
+    guard
+      connections.contains(where: {
+        $0.connectionID == connectionID && $0.owningSessionID == gateway
+      })
+    else { throw StepFailure("the iTerm2 connection was gone \(Self.attachmentHoldTime) later") }
+    guard let indexHost = AttachmentIndex.Host(result) else {
+      throw StepFailure("discovery gave no report to match the connection against")
+    }
+    guard
+      case .reported(let reported) = try await index.identify(
+        connectionID: connectionID, owningSessionID: gateway),
+      AttachmentIndex.map(reported, among: [indexHost]) == .mapped(key)
+    else { throw StepFailure("the iTerm2 connection no longer shows the session") }
+    let tabs = try await checkTabs(connectionID: connectionID, gateway: gateway, observe: false)
+    guard try await clientLines(of: key.sessionID) == [client] else {
+      throw StepFailure("the session's clients changed after the move here")
+    }
+    return "\(Self.attachmentHoldTime) later the session's only client was still the "
+      + "launch tab's control client and connection \(connectionID) still showed it; \(tabs)"
+  } // End of func checkAttachmentHolds(connectionID:gateway:key:host:client:)
+
+  /// `list-clients` of the session `id`: one `<client pid>\t<control mode>` line per client.
+  private func clientLines(of id: TmuxSessionID) async throws -> [String] {
+    let listed = try await tmux.run([
+      "list-clients", "-t", id.rawValue, "-F", "#{client_pid}\t#{client_control_mode}",
+    ])
+    guard listed.succeeded else { throw StepFailure("list-clients failed") }
+    return listed.lines
+  }
+
+  /// The client pids of the session `id`.
+  private func clientPIDs(of id: TmuxSessionID) async throws -> [String] {
+    try await clientLines(of: id).map { String($0.prefix { $0 != "\t" }) }
+  }
+
+  /// Ends the plain control client, if one runs (`BackgroundControlClient.stop()`).
+  private func stopControlClient() async {
+    guard let plain = controlClient else { return }
+    controlClient = nil
+    await plain.stop()
+  }
+
   // MARK: - Cleanup
 
-  /// The last step: detaches connections owned by this run's launch tabs, kills the test session (by
+  /// The last step: ends the move-here step's plain control client if it still runs, detaches
+  /// connections owned by this run's launch tabs, kills the test session (by
   /// id, only if its server, id, creation time and name are the recorded ones, checked in the
   /// same tmux command as the kill; when a signal cut `new-session` short, it is first found by
   /// its exact generated name),
@@ -1280,6 +1542,12 @@ actor E2ERun {
     let start = ContinuousClock.now
     var problems: [String] = []
     var actions: [String] = []
+    // End the move-here step's plain control client first (its input closed, then its process
+    // group), so nothing of this run's stays attached to the test session.
+    if controlClient != nil {
+      await stopControlClient()
+      actions.append("ended the plain control client")
+    }
     let gateways = Set(recorder.gatewaySessionIDs)
     // Ending a launch tab too soon makes iTerm2 show a modal warning (see
     // `launchTabMinimumAge`), so wait for the youngest one first. Not cancellable.
