@@ -5,8 +5,8 @@ import Testing
 @testable import MuxFinderCore
 @testable import MuxFinderUI
 
-/// `AppModel` over fixtures: keyboard selection across filtered rows, the key commands, and
-/// the placeholder intents. No engine runs.
+/// `AppModel` over fixtures: keyboard selection across filtered rows and the key commands. A
+/// fixture model opens nothing (the session actions are `AttachFlowTests`'). No engine runs.
 @Suite("App model: keyboard and intents")
 @MainActor
 struct AppModelKeyboardTests {
@@ -67,47 +67,38 @@ struct AppModelKeyboardTests {
     #expect(model.selection == nil)
   } // End of func arrowsFollowTheFilter()
 
-  /// Return opens the selected row when it is listed (a recorded Phase 10 placeholder) and
-  /// does nothing for a hidden or missing selection.
-  @Test func returnOpensTheSelection() {
+  /// Return on a fixture selects nothing new and opens nothing: a fixture model never builds
+  /// an attach coordinator.
+  @Test func returnOnAFixtureOpensNothing() {
     let model = Self.model()
     #expect(model.handle(.open) == .handled)
-    #expect(model.deferredIntents.isEmpty)
     _ = model.handle(.down)
     _ = model.handle(.open)
-    #expect(model.deferredIntents == [.open(Fixtures.saturnoSessions[0].key)])
-    model.searchText = "notes"
-    _ = model.handle(.open)
-    #expect(model.deferredIntents.count == 1)
-  } // End of func returnOpensTheSelection()
+    #expect(model.selection == Fixtures.saturnoSessions[0].key)
+    #expect(model.finishedActions.isEmpty)
+    #expect(model.activities.isEmpty)
+  }
 
-  /// ⌘F asks for the search focus, ⌘N records its placeholder, ⌘, is handled (a fixture model
-  /// presents no window and records nothing), ⌘R is accepted and Esc closes the popover.
+  /// ⌘F asks for the search focus, ⌘N shows no sheet on a fixture, ⌘, is handled (a fixture
+  /// model presents no window), ⌘R is accepted and Esc closes the popover.
   @Test func commandKeys() {
     let model = Self.model()
     #expect(model.handle(.find) == .handled)
     #expect(model.searchFocusRequests == 1)
     #expect(model.handle(.newSession) == .handled)
+    #expect(model.panel == nil)
     #expect(model.handle(.settings) == .handled)
-    #expect(model.deferredIntents == [.newSession])
     #expect(model.handle(.refresh) == .handled)
     #expect(model.handle(.close) == .closePopover)
   }
 
-  /// Clicking a row selects it and records the open request.
-  @Test func clickOpens() {
+  /// Clicking a row of a fixture selects it and opens nothing.
+  @Test func clickSelects() {
     let model = Self.model()
     let key = Fixtures.neptunoSessions[0].key
     model.open(key)
     #expect(model.selection == key)
-    #expect(model.deferredIntents == [.open(key)])
-  }
-
-  /// Only the latest placeholder requests are kept.
-  @Test func deferredIntentsAreBounded() {
-    let model = Self.model()
-    for _ in 0..<(AppModel.deferredIntentLimit + 5) { model.newSession() }
-    #expect(model.deferredIntents.count == AppModel.deferredIntentLimit)
+    #expect(model.activities[key] == nil)
   }
 
   /// A fixture model never quits, refreshes or starts anything, and keeps its fixed time.
@@ -124,12 +115,13 @@ struct AppModelKeyboardTests {
     await model.shutdown()
   } // End of func fixtureModelIsInert()
 
-  /// Phase 10 sets activities; Retry on a failed session clears it.
+  /// A row shows its session's activity; Retry on a failure no action caused clears it.
   @Test func activities() {
     let model = Self.model()
     let key = Fixtures.saturnoSessions[1].key
-    model.setActivity(.failed(message: "No."), for: key)
-    #expect(model.content.sections[0].rows[1].activity == .failed(message: "No."))
+    let failure = SessionActivity.failed(SessionProblem(message: "No."))
+    model.setActivity(failure, for: key)
+    #expect(model.content.sections[0].rows[1].activity == failure)
     model.retry(session: key)
     #expect(model.activities[key] == nil)
   }
@@ -180,7 +172,29 @@ struct AppModelKeyboardTests {
     #expect(snapshot.previewFixtures)
     #expect(!snapshot.reportsMenuBarItem)
     #expect(AppLaunchOptions(arguments: ["--report-menu-bar-item"]).reportsMenuBarItem)
+    #expect(
+      AppLaunchOptions(arguments: ["--preview-gallery", "attach"]).previewGallery == .attach)
   } // End of func launchOptions()
+
+  /// `--selftest` takes a known name (and `--selftest-keep`); anything else is a usage error,
+  /// so the app exits before contacting anything.
+  @Test func selfTestOptions() {
+    let attach = AppLaunchOptions(arguments: ["--selftest", "attach-local"])
+    #expect(attach.selfTest == SelfTestRequest(kind: .attachLocal))
+    #expect(attach.usageError == nil)
+    let keep = AppLaunchOptions(arguments: ["--selftest-keep", "--selftest=new-session-local"])
+    #expect(keep.selfTest == SelfTestRequest(kind: .newSessionLocal, keep: true))
+    #expect(keep.usageError == nil)
+    #expect(AppLaunchOptions(arguments: []).selfTest == nil)
+    for bad in [
+      ["--selftest", "bogus"], ["--selftest"], ["--selftest-keep"], ["--selftest=", "x"],
+      ["--selftest", "attach-local", "--preview-fixtures"],
+      ["--report-login-item-status", "--selftest", "new-session-local"],
+      ["--selftest", "Attach-Local"],
+    ] {
+      #expect(AppLaunchOptions(arguments: bad).usageError != nil, "\(bad)")
+    }
+  } // End of func selfTestOptions()
 }
 
 /// `AppModel` driving a real `RefreshCoordinator` over fake discovery and fake attachment
@@ -345,7 +359,7 @@ struct AppModelEngineTests {
     #expect(discovery.calls(of: saturno.id) == 2)
 
     let key = FakeDiscovery.session(on: saturno).key
-    model.setActivity(.failed(message: "No."), for: key)
+    model.setActivity(.failed(SessionProblem(message: "No.")), for: key)
     model.retry(session: key)
     #expect(model.activities[key] == nil)
     #expect(await Support.waitUntil { discovery.calls(of: saturno.id) == 3 })

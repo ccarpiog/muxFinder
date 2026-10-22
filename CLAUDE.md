@@ -37,16 +37,17 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   notarized). Check it with `codesign --verify --deep --strict build/muxFinder.app`.
 - Preview fixtures (no menu bar item, engine, host list, login item or iTerm2; one normal
   window with every popover state, or with `--preview-gallery settings` every Settings window
-  state, or with `--preview-gallery onboarding` every onboarding window state, from synthetic
-  data, shown without taking the focus):
+  state, with `--preview-gallery onboarding` every onboarding window state, or with
+  `--preview-gallery attach` every session-action state, from synthetic data, shown without
+  taking the focus):
   `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures [--preview-gallery
-  popover|settings|onboarding] [--appearance light|dark]` prints `muxFinder preview window
-  <n> …`; capture only that window with `screencapture -x -o -l <n> <file.png>`, then
+  popover|settings|onboarding|attach] [--appearance light|dark]` prints `muxFinder preview
+  window <n> …`; capture only that window with `screencapture -x -o -l <n> <file.png>`, then
   `kill -TERM` it (exit 0). With a locked screen or a sleeping display `screencapture` fails:
   add `--preview-snapshot <file.png>`, which renders the window into the PNG from inside the
   app and quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
-  `settings-states-*.png`, `onboarding-states-*.png`); never capture the screen or another
-  app's window.
+  `settings-states-*.png`, `onboarding-states-*.png`, `attach-states-*.png`); never capture
+  the screen or another app's window.
 - Login item check (read-only; registers nothing, opens no window or menu bar item, reads no
   host list, never contacts iTerm2):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-login-item-status` prints
@@ -59,6 +60,23 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   not show it under the app's pid); without a `hosts.json` it also shows the onboarding
   window, which contacts nothing; then `kill -TERM <pid>` must exit 0 with no child left
   and no `hosts.json` created. See `docs/TESTING.md` (Phases 8 and 9b).
+- App self-tests (real runs: they open real iTerm2 windows; run explicitly, never from `swift
+  test`, with `TMUX_TMPDIR` unset, after `scripts/build-app.sh`, with the same iTerm2
+  thread-count caution as the e2e runs below; never through `open`/LaunchServices):
+  `build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local` (create a
+  `muxfinder-test-*` session, Open five times → confirmed with one launch, Open again →
+  focused, Detach from this Mac, kill) or `--selftest new-session-local` (New session →
+  confirmed, the same name → collision, Detach, kill). They drive the real `AppModel` over an
+  in-memory This Mac (no `hosts.json` read or written; no menu bar item, popover, onboarding
+  or Settings), ask only their own launch tabs' tmux connections, print one PASS/FAIL line
+  per step, bound every wait, clean up (detach through the core, never closing a tab, then
+  kill their own session) on any failure or SIGTERM/SIGINT, and exit 0 passed, 1 failed, 2
+  unusable arguments or environment (nothing contacted). `--selftest-keep` stops once the
+  attachment is confirmed, prints `muxFinder self-test keep: session <name> connection <id>
+  gateway <session id>` and waits; `kill -TERM <pid>` quits normally (exit 0) leaving both;
+  then clean up with `swift run muxfinder-probe detach --connection <id> --gateway <session
+  id>` and `/opt/homebrew/bin/tmux kill-session -t '=<name>'`. See `docs/TESTING.md` (Phase
+  10a) and PLAN.md D25.
 - Discovery check (read-only, prints JSON; `--raw` prints the probe report):
   `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
   server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.

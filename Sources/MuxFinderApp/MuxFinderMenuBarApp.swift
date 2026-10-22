@@ -3,24 +3,31 @@ import Foundation
 import MuxFinderUI
 import SwiftUI
 
-/// The entry point (PLAN.md D22, D23): `--report-login-item-status` prints the login item
-/// status and exits; `--preview-fixtures` runs the fixture window on a plain `NSApplication`
-/// (no SwiftUI scene, so no menu bar item is ever created and nothing is recorded for one);
-/// every other launch runs the menu bar app.
+/// The entry point (PLAN.md D22, D23, D25): unusable self-test arguments print the usage and
+/// exit 2; `--report-login-item-status` prints the login item status and exits;
+/// `--preview-fixtures` runs the fixture window on a plain `NSApplication` (no SwiftUI scene,
+/// so no menu bar item is ever created and nothing is recorded for one); `--selftest` runs a
+/// self-test on a plain `NSApplication` too; every other launch runs the menu bar app.
 @main
 enum MuxFinderMain {
   /// Picks the mode from the command line and runs it; never returns.
   @MainActor
   static func main() {
     let options = AppLaunchOptions.current
-    if options.reportsLoginItemStatus {
+    if let usageError = options.usageError {
+      FileHandle.standardError.write(
+        Data("muxFinder: \(usageError)\n\(AppLaunchOptions.selfTestUsage)\n".utf8))
+      exit(2)
+    } else if let selfTest = options.selfTest {
+      SelfTestAppDelegate.run(request: selfTest)
+    } else if options.reportsLoginItemStatus {
       reportLoginItemStatus()
     } else if options.previewFixtures {
       PreviewAppDelegate.run(options: options)
     } else {
       MuxFinderMenuBarApp.main()
     }
-  }
+  } // End of static func main()
 
   /// `--report-login-item-status`: prints `SMAppService.mainApp.status` and whether this
   /// process runs from an app bundle, then exits 0. Read-only: nothing is registered, no

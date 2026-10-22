@@ -157,6 +157,13 @@ public struct HostStoreLoadResult: Sendable, Hashable {
   /// What was at the file's name; a save that must not replace a changed file expects it
   /// (`HostStore.save(_:expecting:)`).
   public var revision: HostFileRevision
+
+  /// A list that never came from a file: `hosts` as `saved` (so no onboarding shows), with the
+  /// revision of a missing file. Only for a model that never saves, such as the app's
+  /// self-tests' in-memory This Mac (PLAN.md D25); nothing is read or written.
+  public static func inMemory(_ hosts: HostList) -> HostStoreLoadResult {
+    HostStoreLoadResult(hosts: hosts, state: .saved, revision: HostFileRevision(entry: .missing))
+  }
 }
 
 /// The outcome of `HostStore.save(_:expecting:)`: the list is in place.

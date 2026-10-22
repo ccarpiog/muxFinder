@@ -23,6 +23,16 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var now: Date
   /// "Set up SSH in iTerm2…" lines, by host id.
   public var sshSetupStates: [UUID: SSHSetupState]
+  /// Notes under activities.
+  public var notes: [SessionKey: String]
+  /// Banners for vanished or changed sessions.
+  public var banners: [SessionBanner]
+  /// The panel shown (Move here, New session).
+  public var panel: PopoverPanel?
+  /// The New session sheet's fields and state.
+  public var newSessionDraft: NewSessionDraft
+  /// Attachments muxFinder made or found here (Detach is offered for them).
+  public var attachedHere: [SessionKey: AttachmentRecord]
 
   /// Creates a fixture.
   public init(
@@ -35,7 +45,12 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     activities: [SessionKey: SessionActivity] = [:],
     shownExplanation: FixIt? = nil,
     now: Date = PreviewFixtures.now,
-    sshSetupStates: [UUID: SSHSetupState] = [:]
+    sshSetupStates: [UUID: SSHSetupState] = [:],
+    notes: [SessionKey: String] = [:],
+    banners: [SessionBanner] = [],
+    panel: PopoverPanel? = nil,
+    newSessionDraft: NewSessionDraft = NewSessionDraft(),
+    attachedHere: [SessionKey: AttachmentRecord] = [:]
   ) {
     self.id = id
     self.title = title
@@ -47,6 +62,11 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.shownExplanation = shownExplanation
     self.now = now
     self.sshSetupStates = sshSetupStates
+    self.notes = notes
+    self.banners = banners
+    self.panel = panel
+    self.newSessionDraft = newSessionDraft
+    self.attachedHere = attachedHere
   } // End of init(id:title:state:hostList:searchText:selection:activities:shownExplanation:…)
 }
 
@@ -173,8 +193,9 @@ public enum PreviewFixtures {
     id: "overview", title: "Hosts and sessions", state: state(overviewHosts),
     selection: saturnoSessions[1].key)
 
-  /// "Opening…", "Waiting for iTerm2…", "Waiting for you in iTerm2", a failure with Retry, and
-  /// an Automation failure with its fix-it.
+  /// "Opening…", "Waiting for iTerm2…", "Still connecting — check the iTerm2 tab" with "Show
+  /// tab", a failure with "Try again" and "Show tab", and an Automation failure with its
+  /// fix-it.
   public static let progress: PreviewFixture = {
     let sessions = [
       session("api-server", id: 7, on: saturno, windows: 2),
@@ -188,11 +209,11 @@ public enum PreviewFixtures {
         neptuno, outcome: .sessionsListed, sessions: [neptunoSessions[0]], lastSuccessAgo: 5),
     ]
     let activities: [SessionKey: SessionActivity] = [
-      sessions[0].key: SessionActivity(.requested)!,
-      sessions[1].key: SessionActivity(.launched(sessionID: "fixture"))!,
-      sessions[2].key: SessionActivity(.stillWaiting(sessionID: "fixture"))!,
-      sessions[3].key: SessionActivity(.failed(.timedOut))!,
-      neptunoSessions[0].key: SessionActivity(.failed(.iTerm2(.automationDenied)))!,
+      sessions[0].key: SessionActivity(.requested),
+      sessions[1].key: SessionActivity(.launched(sessionID: "fixture")),
+      sessions[2].key: SessionActivity(.stillWaiting(sessionID: "fixture")),
+      sessions[3].key: .failed(.attach(.timedOut, launchTab: "fixture")),
+      neptunoSessions[0].key: SessionActivity(.failed(.iTerm2(.automationDenied))),
     ]
     return PreviewFixture(
       id: "progress", title: "Progress and errors", state: state(hosts), activities: activities)

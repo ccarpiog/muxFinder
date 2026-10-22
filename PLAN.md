@@ -607,14 +607,17 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     resolves an exact target starting with `$` as a session id, and one naming a client's
     terminal as that client's session, so such a name can be refused as existing although no
     session has it. There is no false negative: `new-session`'s duplicate check decides.
-  - **`createAndAttach(_:)`:** creation through the coordinator's `SessionCreating` seam
-    (`TmuxCommands()` by default), then the attach of the created target with the
+  - **`createAndAttach(_:onCreated:)`:** creation through the coordinator's `SessionCreating`
+    seam (`TmuxCommands()` by default), then the attach of the created target with the
     existing-attachment check (step 1b, D16) skipped. A session created a moment ago cannot
     be attached in iTerm2 yet, so none of the user's tmux connections is asked anything; the
     only iTerm2 requests are the launch's own. Revalidation still runs: it confirms the session
     and gives the node name for the identity check. A creation failure returns before
     discovery, the request file, `ensureRunning` or `CreateTab`, so it never opens a tab.
     `CreateAndAttachResult` carries the created session, the creation failure or the attach.
+    The optional `onCreated` gets the created session after a successful creation and before
+    the attach publishes any state, so the app follows that attach on the new session's row
+    (D25); it is never called for a failed creation.
   - **Vanished sessions:** `AttachFailure.triggersRefresh` is true for `sessionGone`,
     `sessionChanged` and `identityMismatch` (`LaunchFailure.triggersRefresh` for the guard's 64
     and 65); `AttachResult`, `SessionCreationError` (a collision, or `mayHaveCreated`) and
@@ -862,8 +865,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     10 s minimum tab age before any end the coordinator causes, the same `AttachResult` and
     typed failures) whose request asks for `attach-session -d`. Rejected: a defaulted `Bool`
     (a call could move a session without saying so) and a confirmation without a key (one
-    given for one session could move another). Phase 10 puts the user's confirmation dialog in
-    front of it.
+    given for one session could move another). The popover's Move here confirmation (D25) is
+    in front of it.
   - **Request and helper:** `LaunchRequest.detachOtherClients` (`Bool?`) is written only as
     `true`, by a move here; an attach request is without it, byte for byte what earlier builds
     wrote, and a request without it (or with `false`) is a normal attach; any other value makes
@@ -960,12 +963,13 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Layers:** the `MuxFinderUI` library holds the model, the popover's content and views,
     and the preview fixtures; `Tests/MuxFinderUITests/` imports it. The `MuxFinderApp`
     executable keeps only the entry point, the `MenuBarExtra(.window)` scene (SF Symbol
-    `terminal`) and two app delegates. `PopoverContent` is a pure value computed from the
+    `terminal`) and the app delegates (the menu bar app's, the preview window's and the
+    self-tests', D25). `PopoverContent` is a pure value computed from the
     engine's `RefreshState`, the search text, per-session activities, the selection and
     `now`; every displayed rule lives there and is tested without SwiftUI.
   - **Model and engine:** `AppModel` (`@Observable @MainActor`) runs on an `AppEnvironment`
-    (host loading, engine and system-events factories, wall clock, terminate), so tests pass
-    fakes. `start()` loads the list with `HostStore.load()` (never writes; an unusable folder
+    (host loading, engine, system-events and attach-coordinator factories, wall clock,
+    terminate), so tests pass fakes. `start()` loads the list with `HostStore.load()` (never writes; an unusable folder
     gives an empty list and a notice), shows the onboarding window when it loaded as
     `notSavedYet` (D24), builds the `RefreshCoordinator` for it
     (`DiscoveryProbe`; `AttachmentIndex` over one shared `ITerm2APIClient`), subscribes to
@@ -986,9 +990,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     failed check shows a notice and no badge, never "not open here". Only enabled hosts are
     listed; none gives "No hosts turned on". Search keeps a host whose name matches with all
     its sessions, else only matching sessions (case, diacritics and surrounding spaces
-    ignored). Per-session activity ("Opening…", "Waiting for iTerm2…", "Waiting for you in
-    iTerm2", a failure with "Retry") is model state; `SessionActivity.init?(_ state:)` maps
-    `AttachState` for Phase 10.
+    ignored). Per-session activity ("Opening…", "Waiting for iTerm2…", "Still connecting —
+    check the iTerm2 tab" with "Show tab", "Confirmed…", a failure with its recoveries) is model
+    state set by D25's attach state machine; `SessionActivity.init(_:movingHere:)` maps
+    `AttachState`.
   - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch, the onboarding window
     included (D24). The popover's only iTerm2 requests on their own are the engine's
     attachment checks, which run only while the popover is visible and are cancelled when it
@@ -996,8 +1001,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     opens while iTerm2 runs (D23); "Set up SSH in iTerm2…" (D24) contacts iTerm2, and may
     launch it, only when the user clicks it. The client checks that iTerm2 runs before it asks
     for the cookie (D13). So the cookie is requested when the popover or the Settings window
-    opens while iTerm2 runs, when the user chooses "Set up SSH in iTerm2…", and (Phase 10) on
-    an attach; never at launch, once the popover has closed (a cookie request, connection or
+    opens while iTerm2 runs, when the user chooses "Set up SSH in iTerm2…", and when the user
+    acts on a session (D25); never at launch, once the popover has closed (a cookie request, connection or
     identity question the check had not made by then is never made), or while iTerm2 is not
     running. Tested
     through the real `ITerm2APIClient` with counting and gated cookie providers, a fake
@@ -1009,26 +1014,42 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     before the search field sees them (not while an input method composes); Esc closes the
     window. The arrows move through the listed rows only. No unattended run can open the real
     popover (no UI scripting), so this glue is checked by the model's tests and by hand only.
-  - **Placeholders:** opening a session and "New session" (Phase 10) only record a
-    `DeferredIntent`: nothing is attached or launched. "Settings" and ⌘, open the Settings
-    window (D23). "Retry" on a session failure clears it and refreshes the session's host. A
-    host's sign-in or host key problem also offers "Set up SSH in iTerm2 first" (D24).
+  - **Actions:** a click or Return opens a session, the row's context menu offers "Move
+    here…" and "Detach from this Mac", and "New session" and ⌘N show the New session sheet,
+    all through D25's attach state machine. "Settings" and ⌘, open the Settings window (D23).
+    A failure's "Try again" repeats its action. A host's sign-in or host key problem also
+    offers "Set up SSH in iTerm2 first" (D24).
   - **Quit:** "Quit", SIGTERM and SIGINT go through `AppTermination.request()`, which calls
     `terminate(_:)` from a run-loop block. `applicationShouldTerminate` answers
-    `.terminateLater`, runs `AppModel.shutdown()` (Settings' `shutdown()`, which refuses new
-    work and cancels and awaits its probes and window opening, D23; onboarding's and the
-    popover's "Set up SSH in iTerm2…" requests, cancelled and awaited, D24; the queue, dropping
-    requests not yet handed over; the system events adapter; then the engine, whose `stop()`
-    cancels any attachment check and kills any probe's process group) and replies, so the process
-    exits 0; a 5 s deadline replies anyway. Calling `terminate(_:)` from a main-queue block or a
+    `.terminateLater`, runs `AppModel.shutdown()` and replies, so the process exits 0.
+    `shutdown()` starts every stop at once: it cancels the session actions in progress (D25)
+    and, without waiting for them, stops Settings (`shutdown()`, which refuses new work and
+    cancels and awaits its probes and window opening, D23), onboarding's and the popover's
+    "Set up SSH in iTerm2…" requests (cancelled and awaited, D24) and, in this order, the
+    queue (dropping requests not yet handed over), the system events adapter and the engine,
+    whose `stop()` cancels any attachment check and kills any probe's process group. It waits
+    for the cancelled session actions at most `AppModel.sessionActionShutdownBudget`, 12 s: a
+    cancelled attach whose `CreateTab` was already sent first waits for iTerm2's answer (the
+    request runs in a task of its own so the tab's session id is never lost, D15; the API
+    client's request timeout is 10 s) and then withdraws its request, and one whose identity
+    check failed sends its `detach-client` only once the launch tab is 10 s old. Actions
+    still running after the budget are reported (the system log and the operation log, kinds
+    only, and `ShutdownReport`) and not waited for. The deadline that replies anyway,
+    `AppModel.terminationDeadline` (15 s, used by the menu bar app and the self-tests' keep
+    mode), is that budget plus 3 s, so the session actions' cleanup is never cut off before
+    the model reported on it, Settings, the probes and the engine stop whatever the session
+    actions do, and quitting never hangs; with no session action in progress nothing waits
+    for the budget. Calling `terminate(_:)` from a main-queue block or a
     main-actor task never returned: AppKit waits for the reply in a nested run loop, which
     cannot drain the main queue while one of its blocks runs, and the shutdown task needs it.
-    Quitting detaches nothing, kills no session and sends iTerm2 nothing.
+    Quitting detaches nothing, kills no session and closes no tab; an attach still in progress
+    is cancelled (it withdraws its request, D15).
   - **Preview fixtures:** `--preview-fixtures` runs a plain `NSApplication` (no SwiftUI scene,
     so no status item, and nothing recorded for one; no engine, host list or iTerm2) with one
     normal window of every state in `PreviewFixtures.all` (with `--preview-gallery settings`,
     `SettingsFixtures.all` instead, D23; with `--preview-gallery onboarding`,
-    `OnboardingFixtures.all`, D24): synthetic names, `*.example`
+    `OnboardingFixtures.all`, D24; with `--preview-gallery attach`, `AttachFixtures.all`,
+    D25): synthetic names, `*.example`
     destinations, a fake socket path, a fixed `now`. It is shown without activating the app
     and its window number is printed for `screencapture -l`. `--appearance light|dark` sets
     `NSApp.appearance` only. `--preview-snapshot <file.png>` also draws the window's content
@@ -1279,6 +1300,148 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     elsewhere, a failed save); screenshots `docs/screenshots/onboarding-states-{light,dark}.png`.
     The popover's "Host problems" and Settings' "Test connection and a fix-it" fixtures show the
     action too.
+
+- **D25 — Attach UX in the app** (decided in Phase 10a, 2026-10-22; code in
+  `Sources/MuxFinderUI/Model/AppModelSessions.swift`, `SessionActivity.swift`,
+  `SessionProblem.swift`, `SessionPanels.swift`, `Views/SessionRowView.swift`,
+  `Views/SessionPanelViews.swift`, `Preview/Attach{Fixtures,Gallery}.swift`, `SelfTest/`;
+  `Sources/MuxFinderApp/SelfTestAppDelegate.swift`; `AttachCoordinator.showLaunchTab(_:)`,
+  `currentSession(named:on:)` and `createAndAttach(_:onCreated:)`'s `onCreated`).
+  - **Seam:** `AppEnvironment.makeAttachCoordinator` builds one `AttachCoordinator` at the
+    first session action (never at launch), with the model's update handler. The app's is over
+    the shared `ITerm2APIClient`, `DiscoveryProbe`, `LaunchStore` and the bundled helper
+    (`LaunchHelperPath.locate()`) with the standard existing-attachment check (D16); when it
+    throws (the helper is missing or on a path iTerm2 cannot be given), the row says why and
+    offers nothing to retry. Tests build it over a fake iTerm2 integration (the UI tests'
+    `SimulatedITerm2`: launch tabs and tmux connections as state, identity answers,
+    `detach-client` closing the connection), fake discovery, an in-memory launch store and a
+    virtual clock; the index gets a clock whose question timeout never fires.
+  - **State machine (`AppModel`):** at most one action per session (`runningActions`); a
+    click, Return or menu item for a session with one pending is ignored, so a burst of five
+    clicks gives one launch. The coordinator's updates and each action's result reach the model
+    through one `AsyncStream` read by one main-actor task: the coordinator publishes a launch's
+    states before its call returns and the action yields its result after, so a row never goes
+    back. `requested` shows "Opening…" ("Moving here…" for a move), `launched` "Waiting for
+    iTerm2…", `stillWaiting` "Still connecting — check the iTerm2 tab" with "Show tab",
+    `confirmed` "Confirmed — open in iTerm2 on this Mac" (only from the core's `confirmed`,
+    which follows its identity check) and `focused` "Already open here — brought its tab
+    forward"; an Open of a session this Mac's iTerm2 shows already is the coordinator's focus,
+    with no launch. That text needs the result's activation to be `activated`: a focus whose
+    activation found no tab (`noTab`) or that iTerm2 refused (`failed`) keeps the attachment
+    record (Detach stays offered) but shows its own problem ("…but muxFinder found no tab of it
+    to bring forward…", "…but iTerm2 did not bring its tab forward…", the latter with D23's
+    fix-it) with "Try again", which focuses again. Updates of a replaced launch
+    (`isCurrent == false`) or of no pending action change nothing; failures and focuses come
+    from the result. Results ("Confirmed", "Detached") are cleared when the popover opens
+    again; failures stay until retried. `attachedHere` keeps the
+    attachments muxFinder made or found (confirmed, focused, or a move here's
+    `alreadyAttachedHere`); `finishedActions` keeps the latest 32 results for the self-tests
+    and the tests.
+  - **Failures:** `SessionProblem` gives every failure path its own plain-English message
+    (pairwise distinct, tested): each `AttachFailure` (`identityMismatch`'s core message is now
+    its own, no longer `sessionChanged`'s), each detach outcome but `detached`, the two "Show
+    tab" notes, the missing helper, the two focuses that did not bring the tab forward and the
+    two "Open existing" outcomes that open nothing. Recoveries: "Try again" (repeats the last
+    action; a move here shows its confirmation again), "Refresh", "Show tab" (a timeout, a
+    helper failure or a wait limit with a launch tab), "Bring forward" and "Detach from this
+    Mac" (`alreadyAttachedHere`), "Open Settings" (an invalid destination, tmux missing), and
+    D23's fix-it for iTerm2 permission and API errors. A helper failure's explanation says
+    "shown in the tab" where the helper wrote "shown above".
+  - **Banners:** `sessionGone` is "vanished", `sessionChanged` and `identityMismatch`
+    "changed": the row's activity is cleared, a banner names the session and its host
+    (dismissible, at most 3, newest first) and the host is refreshed.
+  - **Show tab:** `AttachCoordinator.showLaunchTab(_:)` activates the session id with
+    `select_session`, `select_tab`, `order_window_front` and the app options (the Python
+    module's `Session.async_activate`), once, only for a launch tab the coordinator opened and
+    still remembers; any other id is `notOpenedHere` and nothing is sent. iTerm2 never hands out
+    a session id again, so no binding check is needed. The model passes only ids from its own
+    activities. Not yet seen against iTerm2 3.7.6 (local attaches never wait, so the self-tests
+    do not reach it).
+  - **Move here:** the row's context menu offers "Move here…" (disabled while the attachment
+    index shows the session open here, where the move would refuse, D21). It shows a panel in
+    place of the host list: "Move “name” here?", that muxFinder disconnects every other client,
+    including iTerm2 on other Macs, that nothing is closed and the session keeps running, and
+    the last client count. Cancel or Esc runs nothing; "Move here" or Return calls
+    `confirmMoveHere()`, the only caller of `moveHere(_:confirmation:)`, with
+    `.detachOtherClients(of:)` for that session.
+  - **Detach:** "Detach from this Mac" is offered only for a session this Mac's iTerm2 shows
+    (the index's badge, or `attachedHere`). It is `detach(session:on:)` (D16: the 10 s tab age,
+    the identity re-check, `detach-client`, never a closed tab); the row then says "Detached
+    from this Mac — the session keeps running", the record goes and the host is refreshed.
+  - **New session:** a panel with the host (enabled hosts, This Mac first), the name (checked
+    inline with `Validation.sessionName`; an empty name is reported once Create was pressed) and
+    an optional directory (`Validation.workingDirectory`). Create runs `createAndAttach(_:)`
+    with `AppEnvironment.newSessionCommand` (empty, the user's shell; `sleep` in the
+    self-tests). As soon as the session is created (`createAndAttach(_:onCreated:)` reports
+    it before its attach publishes anything), the panel closes, the host is refreshed and the
+    attach becomes that session's pending action, like an Open: its row shows "Opening…",
+    "Waiting for iTerm2…", "Still connecting — check the iTerm2 tab" with "Show tab", then the
+    result; clicks on it are ignored meanwhile, quitting cancels it, and another New session
+    can start. A collision offers "Open existing", which never trusts the popover's list (the
+    listed session may have been renamed and another given its name, which is why tmux refused
+    it): the coordinator lists the host afresh (`currentSession(named:on:)`, read-only) and the
+    session with exactly that name there is opened (its attach revalidates it once more); when
+    none has the name any more the panel says it ended or was renamed and opens nothing (the
+    host is refreshed), and a host that cannot be listed says so, opening nothing either. Any
+    other creation failure stays in the panel. Both panels are drawn inside the popover, not
+    as sheets or alerts, so they stay in the menu bar window and render in the fixtures. While
+    one shows, Return confirms it, Esc closes it (which also cancels an "Open existing" lookup),
+    and the arrows, ⌘F and ⌘N do nothing.
+  - **Quit:** `shutdown()` cancels the actions in progress (opens, moves, detaches, New session
+    creations and attaches, "Open existing" lookups, "Show tab"; an attach withdraws its
+    request, a detach waiting for its tab's age sends nothing), stops everything else at the
+    same time without waiting for them, waits for them at most 12 s and reports those still
+    running (D22), and detaches nothing.
+  - **Self-tests:** `muxFinder --selftest attach-local|new-session-local [--selftest-keep]`
+    runs `SelfTestAppDelegate`: a plain `NSApplication` (accessory) with no window, menu bar
+    item, popover, onboarding or Settings. Unusable arguments exit 2 before anything starts; a
+    set `TMUX_TMPDIR` (the launch tab's tmux would use another server) or a missing helper exit
+    2 before iTerm2 is contacted. `SelfTestDriver` drives the real `AppModel` over an in-memory
+    This Mac (`HostStoreLoadResult.inMemory`: no `hosts.json` is read or written), an engine
+    over `DiscoveryProbe` with no attachment checks, and a coordinator whose index asks only
+    connections owned by launch tabs recorded from its own updates (`LaunchTabRecorder`, as in
+    `e2e-local`), so the user's connections never get a command. Setup reads iTerm2's status
+    (never launching it) and counts the connections it will not ask. `attach-local`: create
+    `muxfinder-test-<hex>` (`TmuxCommands`, pane `sleep 600`), wait until the engine lists it,
+    Open five times (one launch, confirmed), Open again (focused, the same connection, still one
+    launch), Detach from this Mac (detached, the connection gone), kill it.
+    `new-session-local`: This Mac listed, New session through the panel (created and confirmed,
+    the panel closed), the same name again (a collision with "Open existing", no launch),
+    Detach, kill. Every wait is bounded (listing 20 s, an attach or creation 45 s, a detach
+    45 s; the model's shutdown waits for session actions at most 12 s, as in the app). On a
+    failure, or SIGTERM or SIGINT (which cancel the driver's task; this cleanup runs outside
+    any termination deadline and exits on its own), cleanup cancels the model's actions and
+    waits for them at most the attach timeout (45 s), finds the session by its exact name if
+    its creation's output was lost, detaches its attachments in the run's own launch tabs
+    through `detach(session:on:)`, waits until every launch tab of the run is 11 s old, kills
+    the session only while it is still exactly the created one
+    (`CreatedSession.killIfUnchangedArguments`), prints the coordinator's log (kinds only) and
+    exits 1. When an action is still running after that wait (a launch tab of unknown age may
+    still attach the session, and ending the session could end a tab younger than iTerm2's 3 s
+    limit), cleanup detaches and kills nothing and prints `cleanup: <n> session action(s) still
+    running …` with the `tmux kill-session -t '=<name>'` to run once its launch tabs are gone,
+    and still exits 1. Exit 0 means every step passed and nothing is left.
+  - **Keep mode (`--selftest-keep`):** after the attachment is confirmed (step 3 of
+    `attach-local`, step 2 of `new-session-local`; pane `sleep 3600`) the app prints
+    `muxFinder self-test keep: session <name> connection <id> gateway <session id>` and the
+    cleanup commands, then waits. SIGTERM or SIGINT quit through `AppTermination.request()` and
+    `applicationShouldTerminate` (the model's shutdown, with the app's 15 s deadline, D22) with
+    exit 0, leaving the session and the connection. Cleanup afterwards: `swift run
+    muxfinder-probe detach --connection <id> --gateway <session id>` (it waits until the tab
+    is 10 s old), then `tmux kill-session -t '=<name>'`.
+  - **Proof:** hermetic only in 10a (`AttachFlowTests`, `NewSessionSheetTests`,
+    `FailureMessageTests`, `SelfTestDriverTests`: both self-tests passing, a failing step and a
+    failed detach cleaned up, an interrupted run, a cleanup that reports an attach still
+    waiting for iTerm2 instead of killing, keep mode; the user's connection never asked, no tab
+    ever closed; a quit while an attach waits for iTerm2 stopping Settings and the engine at
+    once; a New session attach followed on its row with "Show tab"; a focus that did not bring
+    its tab forward; "Open existing" resolving the name afresh). The real runs are Phase 10b's.
+  - **Preview fixtures:** `--preview-fixtures --preview-gallery attach` shows
+    `AttachFixtures.all` (15 states: progress and results, every failure in six cards, both
+    check-failure cards with a focus that did not bring its tab forward, Move here, two detach
+    cards, the New session panel empty, with an invalid name, creating and
+    after a collision, the banners) and the context menu of a session open here and of one
+    attached elsewhere; screenshots `docs/screenshots/attach-states-{light,dark}.png`.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -2084,6 +2247,21 @@ Acceptance: state-machine tests with the fake integration (a burst of 5 clicks g
 failure paths each have a distinct message). The self-tests, run from the shell against the
 real iTerm2 and local tmux, exit 0. Quit-leaves-work-running check: attach through the
 self-test, terminate the app, and verify the tmux session and the iTerm2 connection persist.
+
+Split (2026-10-22, before the first worker): Phase 10 is two sub-phases, each with its own
+worker, verification, review and commit, so the real iTerm2 runs come only after the state
+machine and the UI are proven hermetically.
+
+- **10a — Attach UX in the app (high).** Every deliverable and requirement above: the
+  per-session attach state machine in `AppModel` replacing D22's `DeferredIntent`
+  placeholders, the row actions and context menu, the Move here confirmation, Detach, the New
+  session sheet, the vanished/changed banners, preview fixtures and screenshots of the new
+  states, and the `--selftest attach-local` / `--selftest new-session-local` flags. Proven
+  with the fake integration (the 5-click burst, a distinct message per failure path) and with
+  hermetic tests of the self-test drivers; it opens no iTerm2 window.
+- **10b — Real self-tests (high).** Both self-tests run from the shell against the real
+  iTerm2 and local tmux and exit 0; the quit-leaves-work-running check; fixes the real runs
+  call for. Gated by the iTerm2 thread-count rule like every real run.
 
 ### Phase 11 — Persistent Work profiles (high)
 

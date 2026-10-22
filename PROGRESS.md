@@ -24,11 +24,13 @@ file.
 | 8 | Menu bar app and popover: `MuxFinderUI`, `AppModel`, `build-app.sh`, preview fixtures | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-8.md` | `docs/progress-archive/8.md` |
 | 9a | Settings window: host editor, launch at login, diagnostics, fix-its | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-9a.md` | `docs/progress-archive/9a.md` |
 | 9b | Onboarding window and "Set up SSH in iTerm2…" (`ssh-setup` helper mode) | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-9b.md` | `docs/progress-archive/9b.md` |
+| 10a | Attach UX in the app: state machine, row actions, Move here, Detach, New session, banners, self-test flags | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-10a.md` | `docs/progress-archive/10a.md` |
 
 ## Current phase
 
-None in progress. Phases 1–9b are done; next is **Phase 10** (*Next action*). Phase 6 was
-split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
+None in progress. Phases 1–10a are done; next is **Phase 10b** (*Next action*). Phase 6 was
+split into 6a/6b, Phase 7 into 7a/7b, Phase 9 into 9a/9b and Phase 10 into 10a/10b in
+`PLAN.md`.
 
 ## Acceptance
 
@@ -58,6 +60,13 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
   validation at four points, the 10 s hold on every exit; 587 core + 100 UI tests, build,
   lint, bundle, codesign, shell check (no `hosts.json`); onboarding screenshots via
   `--preview-snapshot`. Evidence in `docs/progress-archive/9b.md`.
+- Phase 10a: all criteria met hermetically, the real self-test runs being 10b's — per-session
+  state machine (5 clicks → 1 launch, focus when open here, confirmed only after the core),
+  Show tab refusing tabs the app did not open, pairwise-distinct failure messages, Move here
+  confirmation, Detach for this Mac only, New session sheet with a fresh-listing "Open
+  existing", banners, `--selftest attach-local | new-session-local [--selftest-keep]` driver
+  tests; 590 core + 138 UI tests, build, lint, bundle, codesign, shell check (no `hosts.json`);
+  attach screenshots via `--preview-snapshot`. Evidence in `docs/progress-archive/10a.md`.
 
 ## Decisions
 
@@ -144,6 +153,13 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
   `ssh-setup` running `/usr/bin/ssh -- <dest>`, any exit but 255 a success; `LaunchTab`
   factored out of `AttachCoordinator`; `SSHSetupLauncher`); D14, D15, D22, D23 edited —
   `docs/progress-archive/9b.md`.
+- Phase 10: split into 10a (attach UX, hermetic) and 10b (real self-tests), recorded in
+  `PLAN.md` before the first worker.
+- Phase 10a: new **D25** (attach UX: per-session state machine over the coordinator seam, row
+  actions and in-popover panels, `showLaunchTab(_:)`, self-test design and safety, keep mode);
+  D22 edited (placeholders gone; concurrent shutdown, session actions awaited at most 12 s,
+  quit deadline 15 s, was 5 s); D18 edited (created-session hook on `createAndAttach`,
+  `currentSession(named:on:)`) — `docs/progress-archive/10a.md`.
 
 ## Open risks / deviations
 
@@ -244,6 +260,11 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
   Saturno only (probe `ssh-setup --ssh <dest>` exists, but cannot close its own tab yet); a
   destination saved in Settings does not clear the popover's pending ssh-setup line; clicking
   through onboarding is owed to a person — `docs/progress-archive/9b.md`.
+- 10a: Show tab is unverified against the real iTerm2 (local attaches never reach "still
+  waiting"); the app's own Open asks every tmux connection (only the self-tests filter to their
+  own tabs); a rename between the fresh listing and the attach is not caught; quit can take up
+  to 15 s with an attach in flight; self-test cleanup kills nothing while an action is still
+  running and prints the `tmux kill-session` to run — `docs/progress-archive/10a.md`.
 
 ## Reviews
 
@@ -276,15 +297,29 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
   worker (requests owned until they end and awaited on quit; per-host request link dropped on
   edit/close), each regression failing on the old code, re-verified;
   `docs/reviews/phase-9b.md`.
+- Phase 10a: Codex → `ship-with-fixes`, 1 blocker (shutdown awaited session actions before
+  stopping other subsystems, so the 5 s reply could cut cleanup off silently), 3 should-fix (a
+  new session's live progress and Show tab were dropped; a failed activation showed as focus;
+  "Open existing" trusted a cached name) — all fixed by a fix worker (concurrent bounded
+  shutdown with a 15 s deadline; created-session hook; distinct activation-failure message;
+  fresh exact-name lookup), each regression failing with the fix reverted, re-verified;
+  `docs/reviews/phase-10a.md`.
 
 ## Next action
 
-1. **Phase 10** (attach UX; `PLAN.md` "### Phase 10"; high; builds on D22's `AppModel`, D15/
-   D16/D21's coordinator and D24's `LaunchTab`). Its self-tests open real iTerm2 windows, so
-   they run only with iTerm2 at **38 threads or lower** (item 3). If the count stays above 38
-   with nothing window-free left, stop as `BLOCKED` and ask the user whether to restart iTerm2
-   or accept a higher baseline. Consider splitting it (state machine and UI hermetic first,
-   real self-tests second) and record any split in `PLAN.md` before the first worker.
+1. **Phase 10b** (real self-tests; `PLAN.md` "### Phase 10", "Split" paragraph; high; D25).
+   Run both self-tests from the shell against the real iTerm2 and local tmux, with
+   `TMUX_TMPDIR` unset, after `scripts/build-app.sh`:
+   `build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local` and `--selftest
+   new-session-local`, each exit 0 (exact commands and cleanup in `docs/TESTING.md`, Phase
+   10a section). Then the quit-leaves-work-running check: `--selftest attach-local
+   --selftest-keep &`, wait for its ids, `kill -TERM` (exit 0), verify the
+   `muxfinder-test-*` session and its iTerm2 connection persist (`iterm2 list-connections`,
+   `tmux ls`), then clean up with the commands it printed (probe `detach --connection
+   --gateway`, then kill the session). Record each in `docs/TESTING.md`. Real runs only with
+   iTerm2 at **38 threads or lower** (item 3); if it stays above 38, stop as `BLOCKED` and ask
+   the user whether to restart iTerm2 or accept a higher baseline. Fix what the runs call for
+   in a worker (hermetic tests still green), review, commit.
 2. Owed real run from 9b, in the same real-run window: the "Set up SSH in iTerm2…" round trip
    against `saturno-m4` only (`muxfinder-probe ssh-setup --ssh saturno-m4`; the probe must
    first learn to close its own tab by session id, never a user tab). It opens a login shell
@@ -297,7 +332,7 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
    if `status` times out or the count keeps growing across runs (*Open risks*, iTerm2 thread
    ratchet). Leftover checks: `ls -A` of the launch directory, `ls -A /private/tmp | rg
    '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno (`fd` is not installed).
-   iTerm2 was at 16 threads after Phase 9b (2026-10-22 ~22:55).
+   iTerm2 was at 16 threads at the start of Phase 10a (2026-10-22 22:36).
 
 ## Key paths
 
@@ -329,6 +364,11 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
   `Sources/MuxFinderCore/Launch/SSHSetup.swift`, `Attach/{LaunchTab,SSHSetupLauncher}.swift`;
   probe `Sources/muxfinder-probe/SSHSetupCommand.swift`; tests
   `Tests/MuxFinderCoreTests/SSHSetupTests.swift`, `Tests/MuxFinderUITests/OnboardingTests.swift`.
+- Attach UX (D25): `Sources/MuxFinderUI/Model/{AppModelSessions,SessionProblem,
+  SessionPanels}.swift`, `Views/SessionPanelViews.swift`, `Preview/Attach{Fixtures,
+  Gallery}.swift`; self-tests `Sources/MuxFinderUI/SelfTest/{SelfTestDriver,
+  SelfTestSeams}.swift`, `Sources/MuxFinderApp/SelfTestAppDelegate.swift`; tests
+  `Tests/MuxFinderUITests/{AttachFlowTests,SelfTestDriverTests}.swift`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
@@ -340,6 +380,12 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
+
+- Phase 10a (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
+  `swift format lint -r Sources Tests` exit 0; `swift test` (pipefail) exit 0, 590 core tests
+  in 58 suites + 138 UI tests in 11 suites; `scripts/build-app.sh` and `codesign --verify
+  --deep --strict build/muxFinder.app` exit 0; `--selftest bogus` exit 2; shell check SIGTERM
+  exit 0, no child, support folder only `launch/` — `docs/progress-archive/10a.md`.
 
 - Phase 9b (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
   `swift format lint -r Sources Tests` exit 0; `swift test` (pipefail) exit 0, 587 core tests
@@ -382,5 +428,7 @@ split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in `PLAN.md`.
   `origin/main`.
 - Phase 6b closure (real-run records, docs durations, checkpoint): `cb855c0`, then phase
   summary refresh `880470f`, both pushed to `origin/main`.
-- Phase 9b: code, review, fixes and checkpoint: the commit after `880470f`; its SHA and push
+- Phase 9b: code, review, fixes and checkpoint `94cc960` (parent `880470f`), pushed to
+  `origin/main`.
+- Phase 10a: code, review, fixes and checkpoint: the commit after `94cc960`; its SHA and push
   result are recorded by the next commit.

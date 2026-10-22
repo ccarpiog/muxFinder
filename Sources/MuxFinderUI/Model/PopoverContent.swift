@@ -32,10 +32,19 @@ public struct SessionRow: Sendable, Hashable, Identifiable {
   /// Whether an iTerm2 tmux connection on this Mac shows the session, from `AttachmentIndex`
   /// only. A tmux client count never sets it.
   public var isOpenInITerm2Here: Bool
-  /// Work in progress on the session, or its last failure.
+  /// Work in progress on the session, or how its last action ended.
   public var activity: SessionActivity?
+  /// A note under the activity (why "Show tab" did nothing).
+  public var note: String?
   /// Whether the keyboard selection is on this row.
   public var isSelected: Bool
+  /// Whether "Detach from this Mac" is offered: the session has an attachment in this Mac's
+  /// iTerm2, by the attachment index or because muxFinder made or found it (PLAN.md D25).
+  public var offersDetach = false
+
+  /// Whether "Move here…" is offered: not while this Mac's iTerm2 shows the session already
+  /// (the move would refuse, PLAN.md D21).
+  public var offersMoveHere: Bool { !isOpenInITerm2Here }
 
   /// `Identifiable` conformance: the session key.
   public var id: SessionKey { key }
@@ -153,13 +162,16 @@ public struct PopoverContent: Sendable, Hashable {
   public var placeholder: Placeholder?
   /// Problems shown above the host list.
   public var notices: [Notice]
+  /// Sessions that vanished or changed between the listing and an action, newest first.
+  public var banners: [SessionBanner]
 
   /// The rows the keyboard moves through, top to bottom.
   public var selectableKeys: [SessionKey] { sections.flatMap { $0.rows.map(\.key) } }
 
   /// The content for `state` (`nil` while loading) with the search `query`, the sessions'
-  /// `activities`, the keyboard `selection`, relative times seen at `now`, and the hosts'
-  /// "Set up SSH in iTerm2…" lines (`sshSetupStates`, by host id).
+  /// `activities` and `notes`, the keyboard `selection`, relative times seen at `now`, the
+  /// hosts' "Set up SSH in iTerm2…" lines (`sshSetupStates`, by host id), the `banners`, and
+  /// the sessions muxFinder attached or found in this Mac's iTerm2 (`attachedHere`).
   ///
   /// Search: a host whose name contains the query shows all its sessions; any other host
   /// shows only the sessions whose names contain it, and is left out when none does. Matching
@@ -171,9 +183,13 @@ public struct PopoverContent: Sendable, Hashable {
     activities: [SessionKey: SessionActivity],
     selection: SessionKey?,
     now: Date,
-    sshSetupStates: [UUID: SSHSetupState] = [:]
+    sshSetupStates: [UUID: SSHSetupState] = [:],
+    notes: [SessionKey: String] = [:],
+    banners: [SessionBanner] = [],
+    attachedHere: Set<SessionKey> = []
   ) {
     notices = Self.notices(hostList: hostList, attachmentCheck: state?.attachmentCheck)
+    self.banners = banners
     guard let state else {
       sections = []
       placeholder = .loading
@@ -189,6 +205,12 @@ public struct PopoverContent: Sendable, Hashable {
     for snapshot in state.hosts {
       var section = Self.section(
         for: snapshot, activities: activities, selection: selection, now: now)
+      for index in section.rows.indices {
+        let key = section.rows[index].key
+        section.rows[index].note = notes[key]
+        section.rows[index].offersDetach =
+          section.rows[index].isOpenInITerm2Here || attachedHere.contains(key)
+      }
       if section.offersSSHSetup { section.sshSetup = sshSetupStates[snapshot.host.id] }
       if !trimmed.isEmpty, !Self.matches(snapshot.host.displayName, query: trimmed) {
         section.rows = section.rows.filter { Self.matches($0.name, query: trimmed) }
@@ -199,7 +221,7 @@ public struct PopoverContent: Sendable, Hashable {
     } // End of loop over host snapshots
     sections = built
     placeholder = built.isEmpty ? .noMatches(query: trimmed) : nil
-  } // End of init(state:hostList:query:activities:selection:now:sshSetupStates:)
+  } // End of init(state:hostList:query:activities:selection:now:sshSetupStates:notes:…)
 
   /// Whether `text` contains `query`, ignoring case and diacritics.
   public static func matches(_ text: String, query: String) -> Bool {

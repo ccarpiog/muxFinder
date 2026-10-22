@@ -351,7 +351,15 @@ public actor AttachCoordinator {
   /// does (revalidation, request, launch tab, confirmation, identity check, activation), except
   /// that the existing-attachment check is skipped: a session created a moment ago cannot be
   /// attached in iTerm2 yet, so no tmux connection of the user's is asked anything.
-  public func createAndAttach(_ request: NewSessionRequest) async -> CreateAndAttachResult {
+  ///
+  /// `onCreated`, when given, is called with the created session once creation succeeded and
+  /// before its attach publishes anything (on the coordinator's executor: keep it short), so a
+  /// caller can follow that attach's updates, whose key is the created session's, from its
+  /// first state on (PLAN.md D25). It is not called when creation fails.
+  public func createAndAttach(
+    _ request: NewSessionRequest,
+    onCreated: (@Sendable (CreatedSession) -> Void)? = nil
+  ) async -> CreateAndAttachResult {
     let start = clock.now()
     let created: CreatedSession
     do throws(SessionCreationError) {
@@ -365,6 +373,7 @@ public actor AttachCoordinator {
         detail: "new session failed: \(error.kind)\(detail)")
       return CreateAndAttachResult(creationFailure: error)
     }
+    onCreated?(created)
     await diagnostics?.record(
       .attach, outcome: .success, hostID: request.host.id.uuidString,
       durationMs: Self.milliseconds(clock.now() - start), detail: "new session created")
@@ -372,7 +381,39 @@ public actor AttachCoordinator {
       created.attachTarget(on: request.host), checksExistingAttachments: false,
       detachesOtherClients: false)
     return CreateAndAttachResult(created: created, attach: result)
-  } // End of func createAndAttach(_:)
+  } // End of func createAndAttach(_:onCreated:)
+
+  /// The session named exactly `name` on `host` as discovery reports it now, as an attach
+  /// target (PLAN.md D25: "Open existing" after a New session collision resolves the name
+  /// against a fresh listing of the host, never a cached one, since the session tmux reported
+  /// may be another one than the list showed). No session with exactly that name (none listed,
+  /// or no server) is `sessionGone`; tmux missing `tmuxMissing`; any other discovery failure
+  /// `discoveryFailed`; a cancelled caller `cancelled`. Read-only: nothing is written, opened or
+  /// asked of iTerm2.
+  public func currentSession(
+    named name: String,
+    on host: HostConfig
+  ) async -> Result<AttachTarget, AttachFailure> {
+    let result: DiscoveryResult
+    do {
+      result = try await discovery.discover(host)
+    } catch {
+      return .failure(.cancelled)
+    }
+    switch result.status {
+    case .ok(let sessions):
+      guard let session = sessions.first(where: { $0.name == name }) else {
+        return .failure(.sessionGone)
+      }
+      return .success(AttachTarget(host: host, session: session))
+    case .noServer:
+      return .failure(.sessionGone)
+    case .tmuxNotFound:
+      return .failure(.tmuxMissing)
+    default:
+      return .failure(.discoveryFailed(result.status.kind))
+    }
+  } // End of func currentSession(named:on:)
 
   /// `attach(_:)` and `moveHere(_:confirmation:)`: the existing-attachment check (step 1b) runs
   /// when `checksExistingAttachments` is set and the coordinator has an index, and always for a
@@ -1017,6 +1058,39 @@ public actor AttachCoordinator {
       }
     } // End of loop waiting for the connection's first tab
   } // End of func activateFirstTab(of:ownedBy:)
+
+  // MARK: - Show tab
+
+  /// Brings forward the launch tab `sessionID` ("Show tab" next to "Still connecting — check
+  /// the iTerm2 tab", PLAN.md D25), only when it is a launch tab this coordinator opened and
+  /// still remembers: any other id (a tab of the user's, or one this coordinator forgot) is
+  /// `notOpenedHere` and nothing is sent. The tab is activated by its iTerm2 session id with
+  /// `select_session`, `select_tab` and `order_window_front` (the Python module's
+  /// `Session.async_activate`) and the app options, once (D13). Session ids are UUIDs iTerm2
+  /// never hands out again, unlike tmux connection ids, so no binding check is needed. A tab
+  /// that closed meanwhile makes iTerm2 refuse (`failed`). Nothing is closed or typed.
+  public func showLaunchTab(_ sessionID: String) async -> LaunchTabShowResult {
+    guard !sessionID.isEmpty, launches[sessionID] != nil else { return .notOpenedHere }
+    let request = ITerm2API.ActivateRequest(
+      target: .session(sessionID), orderWindowFront: true, selectTab: true, selectSession: true,
+      activateApp: configuration.activatesApp ? .init(ignoringOtherApps: true) : nil)
+    let start = clock.now()
+    let result: LaunchTabShowResult
+    do {
+      try await iTerm2.activate(request)
+      result = .shown
+    } catch let error as ITerm2Error {
+      result = .failed(error)
+    } catch {
+      result = .failed(.disconnected)
+    }
+    var detail = "show launch tab: \(result.kind)"
+    if case .failed(let error) = result { detail += " (\(error.kind))" }
+    await diagnostics?.record(
+      .attach, outcome: result == .shown ? .success : .failure,
+      durationMs: Self.milliseconds(clock.now() - start), detail: detail)
+    return result
+  } // End of func showLaunchTab(_:)
 
   // MARK: - Detach
 

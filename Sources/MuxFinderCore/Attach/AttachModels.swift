@@ -201,7 +201,8 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .identityCheckFailed:
       return "muxFinder could not confirm which tmux session iTerm2 attached."
     case .identityMismatch:
-      return LaunchFailure.sessionChanged.explanation
+      return "iTerm2 reached a different tmux session than the one muxFinder listed (tmux may "
+        + "have restarted), so muxFinder detached it again. Refresh and try again."
     case .cancelled:
       return "The attach was cancelled."
     case .attachmentCheckFailed(let error):
@@ -424,6 +425,26 @@ public struct CreateAndAttachResult: Sendable, Hashable {
   /// refresh-triggering way.
   public var triggersRefresh: Bool {
     created != nil || creationFailure?.triggersRefresh == true || attach?.triggersRefresh == true
+  }
+}
+
+/// How `AttachCoordinator.showLaunchTab(_:)` ended ("Show tab", PLAN.md D25).
+public enum LaunchTabShowResult: Sendable, Hashable {
+  /// iTerm2 brought the launch tab and its window forward.
+  case shown
+  /// The id is not a launch tab this coordinator opened (or one it no longer remembers), so
+  /// nothing was sent to iTerm2.
+  case notOpenedHere
+  /// iTerm2 refused or did not answer; the tab may have closed.
+  case failed(ITerm2Error)
+
+  /// A short machine-readable name: `shown`, `notOpenedHere` or `failed`.
+  public var kind: String {
+    switch self {
+    case .shown: return "shown"
+    case .notOpenedHere: return "notOpenedHere"
+    case .failed: return "failed"
+    }
   }
 }
 

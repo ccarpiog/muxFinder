@@ -233,11 +233,9 @@ struct SettingsGeneralTests {
     ).notices.first
     #expect(notice?.fixIt == .explainPythonAPI)
     let activity = SessionActivity(.failed(.iTerm2(.automationDenied)))
-    #expect(
-      activity
-        == .failed(
-          message: ITerm2Error.automationDenied.errorDescription!, fixIt: .openAutomationSettings))
-    #expect(SessionActivity(.failed(.timedOut)) == .failed(message: AttachFailure.timedOut.message))
+    #expect(activity.problem?.message == ITerm2Error.automationDenied.errorDescription)
+    #expect(activity.problem?.fixIt == .openAutomationSettings)
+    #expect(SessionActivity(.failed(.timedOut)).problem?.fixIt == nil)
   } // End of func popoverFixIts()
 
   // MARK: - The app model and Settings
@@ -256,7 +254,7 @@ struct SettingsGeneralTests {
     model.openSettings()
     let settings = ObjectIdentifier(model.settings)
     #expect(seams.presented == [settings, settings])
-    #expect(model.deferredIntents.isEmpty)
+    #expect(model.finishedActions.isEmpty)
   } // End of func openSettingsPresentsTheWindow()
 
   /// A list saved in Settings becomes the engine's list: the new host is discovered and listed,
@@ -357,9 +355,7 @@ struct SettingsGeneralTests {
     #expect(all.flatMap(\.suggestions).allSatisfy { $0.hasSuffix(".example") })
     #expect(
       PreviewFixtures.all.contains { fixture in
-        fixture.activities.values.contains {
-          if case .failed(_, .some) = $0 { true } else { false }
-        }
+        fixture.activities.values.contains { $0.problem?.fixIt != nil }
       })
   } // End of func settingsFixturesCoverEveryState()
 

@@ -64,7 +64,8 @@ struct CreateAndAttachTests {
   /// Creation, then the usual launch and confirmation; the existing-attachment check is
   /// skipped, so no tmux connection is asked anything before the launch tab opens (an
   /// ordinary attach of the same session, whose connection the fake already lists, focuses it
-  /// instead).
+  /// instead). `onCreated` gets the created session once, before the attach publishes its
+  /// first state (PLAN.md D25: the app follows that attach from its first state on).
   @Test func createsThenAttachesWithoutAskingConnections() async throws {
     let session = Support.session()
     let iTerm2 = FakeITerm2Integration(script: Support.successScript(for: session))
@@ -74,7 +75,14 @@ struct CreateAndAttachTests {
     let log = UpdateLog()
     let coordinator = Self.coordinator(
       iTerm2: iTerm2, discovery: discovery, store: store, creator: creator, log: log)
-    let result = await coordinator.createAndAttach(Self.request)
+    let announced = OSAllocatedUnfairLock(initialState: [(CreatedSession, Int)]())
+    let result = await coordinator.createAndAttach(Self.request) { created in
+      announced.withLock { $0.append((created, log.all.count)) }
+    }
+    let announcements = announced.withLock { $0 }
+    #expect(announcements.count == 1)
+    #expect(announcements.first?.0 == Self.created)
+    #expect(announcements.first?.1 == 0, "announced before any update")
     #expect(creator.requests == [Self.request])
     #expect(result.created == Self.created)
     #expect(result.creationFailure == nil)
@@ -124,7 +132,11 @@ struct CreateAndAttachTests {
     let coordinator = Self.coordinator(
       iTerm2: iTerm2, discovery: discovery, store: store,
       creator: FakeSessionCreator(.failure(failure)), log: log)
-    let result = await coordinator.createAndAttach(Self.request)
+    let announced = OSAllocatedUnfairLock(initialState: 0)
+    let result = await coordinator.createAndAttach(Self.request) { _ in
+      announced.withLock { $0 += 1 }
+    }
+    #expect(announced.withLock { $0 } == 0)
     #expect(result.creationFailure == failure)
     #expect(result.created == nil && result.attach == nil && !result.isAttached)
     #expect(result.triggersRefresh == failure.triggersRefresh)
@@ -170,6 +182,44 @@ struct CreateAndAttachTests {
       #expect(outcome.triggersRefresh)
     } // End of loop over the guard's refusals
   } // End of func vanishedSessionTriggersRefresh()
+
+  /// "Open existing" (PLAN.md D25): `currentSession(named:on:)` asks discovery afresh and
+  /// returns the session with exactly that name, whatever an earlier listing said; no session
+  /// with that exact name (another case, a renamed one, no server) is `sessionGone`, and
+  /// discovery's failures keep their kind. It writes, opens and asks iTerm2 nothing.
+  @Test func currentSessionResolvesTheExactNameAfresh() async {
+    var renamed = Support.session(id: "$3")
+    renamed.name = "old-work"
+    var taker = Support.session(id: "$4", createdAt: 1_792_600_100)
+    taker.name = "work"
+    var other = Support.session(id: "$5")
+    other.name = "Work"
+    let iTerm2 = FakeITerm2Integration(script: Support.successScript(for: taker))
+    let discovery = FakeDiscovery(.ok([renamed, other, taker]))
+    let store = FakeLaunchStore()
+    let coordinator = Self.coordinator(
+      iTerm2: iTerm2, discovery: discovery, store: store,
+      creator: FakeSessionCreator(.success(Self.created)), log: UpdateLog())
+    let found = await coordinator.currentSession(named: "work", on: Support.host)
+    #expect(found == .success(AttachTarget(host: Support.host, session: taker)))
+    #expect(discovery.calls == 1)
+    discovery.setStatus(.ok([renamed, other]))
+    #expect(
+      await coordinator.currentSession(named: "work", on: Support.host) == .failure(.sessionGone))
+    discovery.setStatus(.noServer)
+    #expect(
+      await coordinator.currentSession(named: "work", on: Support.host) == .failure(.sessionGone))
+    discovery.setStatus(.tmuxNotFound)
+    #expect(
+      await coordinator.currentSession(named: "work", on: Support.host) == .failure(.tmuxMissing))
+    discovery.setStatus(.authFailed)
+    #expect(
+      await coordinator.currentSession(named: "work", on: Support.host)
+        == .failure(.discoveryFailed("authFailed")))
+    #expect(discovery.calls == 5)
+    #expect(store.snapshot.written.isEmpty)
+    #expect(await iTerm2.calls.isEmpty)
+  } // End of func currentSessionResolvesTheExactNameAfresh()
 
   /// Exactly the vanished and changed cases are refresh-triggering.
   @Test func marksVanishedAndChangedSessions() {

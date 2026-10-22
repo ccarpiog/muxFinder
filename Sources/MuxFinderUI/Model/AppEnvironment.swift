@@ -2,14 +2,16 @@ import AppKit
 import Foundation
 import MuxFinderCore
 
-/// What `AppModel` runs on (PLAN.md D22, D23, D24): the host list, the refresh engine, the
-/// system events adapter, the clock, quitting, opening URLs, the Settings and onboarding
-/// windows and their seams. `production()` wires the real core; tests pass fakes, so
-/// `swift test` never reads or saves `hosts.json`, runs a probe, contacts iTerm2, opens a
-/// window, a tab or System Settings, or changes a login item.
+/// What `AppModel` runs on (PLAN.md D22, D23, D24, D25): the host list, the refresh engine, the
+/// system events adapter, the attach coordinator, the clock, quitting, opening URLs, the
+/// Settings and onboarding windows and their seams. `production()` wires the real core; tests
+/// pass fakes (the attach coordinator over a fake iTerm2 integration), so `swift test` never
+/// reads or saves `hosts.json`, runs a probe, contacts iTerm2, opens a window, a tab or System
+/// Settings, or changes a login item.
 ///
 /// Building an environment does no work: nothing is read, started or contacted until
-/// `AppModel.start()` calls `loadHosts` and `makeEngine`, or a window opens.
+/// `AppModel.start()` calls `loadHosts` and `makeEngine`, a window opens, or the first action
+/// on a session builds the attach coordinator.
 public struct AppEnvironment: Sendable {
   /// Loads the host list (`HostStore.load()` in production, which never writes).
   public var loadHosts: @Sendable () async throws -> HostStoreLoadResult
@@ -34,6 +36,20 @@ public struct AppEnvironment: Sendable {
   public var settings: SettingsEnvironment?
   /// The operation log, if any (the app model records how the host list loaded).
   public var diagnostics: DiagnosticsLog?
+  /// Builds the attach coordinator the session actions run on (Open, Move here, Detach, New
+  /// session, Show tab; PLAN.md D25), handing every state update to the given handler. Called
+  /// once, at the first action; it throws when the coordinator cannot be built (the launch
+  /// helper is missing), which the row then explains. `nil` leaves sessions unopenable (tests
+  /// of other parts).
+  public var makeAttachCoordinator:
+    (@Sendable (@escaping AttachCoordinator.UpdateHandler) throws -> AttachCoordinator)?
+  /// The first pane's command of a session made with New session, as argv; empty (the app's
+  /// value) runs the user's shell. The self-tests run `sleep` instead, so no login shell starts.
+  public var newSessionCommand: [String]
+  /// How long `AppModel.shutdown()` waits for the session actions it cancelled before it
+  /// reports the ones still running and returns (`AppModel.sessionActionShutdownBudget` by
+  /// default; tests shorten it).
+  public var sessionActionShutdownBudget: Duration
 
   /// Creates an environment from its parts.
   public init(
@@ -46,7 +62,12 @@ public struct AppEnvironment: Sendable {
     presentSettings: @escaping @MainActor @Sendable (SettingsModel) -> Void = { _ in },
     presentOnboarding: @escaping @MainActor @Sendable (OnboardingModel) -> Void = { _ in },
     settings: SettingsEnvironment? = nil,
-    diagnostics: DiagnosticsLog? = nil
+    diagnostics: DiagnosticsLog? = nil,
+    makeAttachCoordinator: (
+      @Sendable (@escaping AttachCoordinator.UpdateHandler) throws -> AttachCoordinator
+    )? = nil,
+    newSessionCommand: [String] = [],
+    sessionActionShutdownBudget: Duration = AppModel.sessionActionShutdownBudget
   ) {
     self.loadHosts = loadHosts
     self.makeEngine = makeEngine
@@ -58,6 +79,9 @@ public struct AppEnvironment: Sendable {
     self.presentOnboarding = presentOnboarding
     self.settings = settings
     self.diagnostics = diagnostics
+    self.makeAttachCoordinator = makeAttachCoordinator
+    self.newSessionCommand = newSessionCommand
+    self.sessionActionShutdownBudget = sessionActionShutdownBudget
   } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
 
   /// The real app: `hosts.json` through one `HostStore` (loading never writes; Settings saves
@@ -67,13 +91,17 @@ public struct AppEnvironment: Sendable {
   /// seams: the same probe for Detect and Test connection, the same client for the profile
   /// list, `~/.ssh/config` suggestions (read-only), `SMAppService.mainApp`, the general
   /// pasteboard, `NSWorkspace` for URLs, and "Set up SSH in iTerm2…" (`SSHSetupLauncher` over
-  /// the same client, the launch store and the bundled helper).
+  /// the same client, the launch store and the bundled helper). The session actions run on one
+  /// `AttachCoordinator` over the same client, `DiscoveryProbe`, the launch store and the
+  /// bundled `muxfinder-launch` (`LaunchHelperPath.locate()`), with the standard
+  /// existing-attachment check (PLAN.md D16, D25).
   ///
   /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
   /// closes (PLAN.md D20); Settings asks for the profile list only when its window opens while
   /// iTerm2 runs; "Set up SSH in iTerm2…" contacts iTerm2 (and may launch it) only when the
-  /// user clicks it. Connecting checks that iTerm2 runs before asking for its cookie (D13), and
+  /// user clicks it; a session action contacts iTerm2 (and an attach may launch it) only when
+  /// the user asks for it. Connecting checks that iTerm2 runs before asking for its cookie (D13), and
   /// an attempt whose callers were cancelled stops before the cookie or the connection, so the
   /// cookie is never requested at launch, nor once the popover has closed, nor while iTerm2 is
   /// not running. The onboarding window contacts nothing by itself.
@@ -113,7 +141,12 @@ public struct AppEnvironment: Sendable {
       presentSettings: { SettingsWindowController.shared.show($0) },
       presentOnboarding: { OnboardingWindowController.shared.show($0) },
       settings: settings,
-      diagnostics: diagnostics)
+      diagnostics: diagnostics,
+      makeAttachCoordinator: { onUpdate in
+        AttachCoordinator(
+          iTerm2: iTerm2, discovery: DiscoveryProbe(), store: LaunchStore(),
+          helperPath: try LaunchHelperPath.locate(), diagnostics: diagnostics, onUpdate: onUpdate)
+      })
   } // End of static func production()
 }
 

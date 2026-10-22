@@ -311,17 +311,25 @@ struct PopoverContentTests {
 
   // MARK: - Activities
 
-  /// Attach states map to the row texts; a confirmed or focused attach shows nothing.
+  /// Attach states map to the row texts; "Confirmed" and the focus are results, not progress.
   @Test func activityMapping() {
-    #expect(SessionActivity(.requested)?.text == "Opening…")
-    #expect(SessionActivity(.launched(sessionID: "s"))?.text == "Waiting for iTerm2…")
-    #expect(SessionActivity(.stillWaiting(sessionID: "s"))?.text == "Waiting for you in iTerm2")
-    #expect(SessionActivity(.confirmed(connectionID: "c")) == nil)
-    #expect(SessionActivity(.focused(connectionID: "c")) == nil)
+    #expect(SessionActivity(.requested).text == "Opening…")
+    #expect(SessionActivity(.requested, movingHere: true).text == "Moving here…")
+    #expect(SessionActivity(.launched(sessionID: "s")).text == "Waiting for iTerm2…")
+    #expect(
+      SessionActivity(.stillWaiting(sessionID: "s")).text
+        == "Still connecting — check the iTerm2 tab")
+    let confirmed = SessionActivity(.confirmed(connectionID: "c"))
+    #expect(confirmed.text == "Confirmed — open in iTerm2 on this Mac")
+    #expect(confirmed.isDone && !confirmed.isInProgress)
+    #expect(SessionActivity(.focused(connectionID: "c")) == .focused)
+    #expect(SessionActivity.detached.text.contains("keeps running"))
     let failed = SessionActivity(.failed(.sessionGone))
-    #expect(failed == .failed(message: AttachFailure.sessionGone.message))
-    #expect(failed?.isInProgress == false)
+    #expect(failed.text == AttachFailure.sessionGone.message)
+    #expect(failed.problem?.recoveries == [.refresh])
+    #expect(!failed.isInProgress && !failed.isDone)
     #expect(SessionActivity.opening.isInProgress)
+    #expect(SessionActivity.detaching.isInProgress)
   } // End of func activityMapping()
 
   // MARK: - Fixtures
@@ -336,7 +344,7 @@ struct PopoverContentTests {
       contents.flatMap { $0.sections.flatMap { $0.rows.compactMap(\.activity) } })
     #expect(activities.contains(.opening))
     #expect(activities.contains(.waitingForITerm2))
-    #expect(activities.contains(.waitingForYou))
+    #expect(activities.contains(.stillConnecting(launchTabID: "fixture")))
     #expect(activities.contains { !$0.isInProgress })
     let placeholders = Set(contents.compactMap(\.placeholder))
     #expect(placeholders.contains(.loading))

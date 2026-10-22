@@ -113,7 +113,8 @@ public struct DiscoveredSession: Sendable, Hashable, Codable, Identifiable {
   public var key: SessionKey
   /// The session name. Display text only: it never identifies a session and is never parsed or
   /// used as a target (`CreatedSession` compares it only as an extra check on a session its
-  /// caller created).
+  /// caller created, and `AttachCoordinator.currentSession(named:on:)` only to find, in a fresh
+  /// listing, the session a New session's name collided with, which is then targeted by key).
   public var name: String
   /// When the session was created, in seconds since 1970 (`#{session_created}`). Kept for
   /// revalidation before attaching (PLAN.md D4).

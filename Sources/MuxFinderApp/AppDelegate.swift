@@ -8,12 +8,16 @@ import SwiftUI
 /// - **Launch:** an accessory app (no Dock icon) whose model starts once launching finished:
 ///   it loads the host list and starts the refresh engine. Nothing contacts iTerm2.
 /// - **Quitting** (the footer's "Quit", SIGTERM or SIGINT from a shell, logout): the model's
-///   `shutdown()` stops the engine, then the app exits with status 0. Sessions, tmux clients
-///   and iTerm2 tabs are left as they are.
+///   `shutdown()` cancels the session actions and stops Settings, the engine and the rest at
+///   the same time, waits for the session actions within its own budget (reporting those still
+///   running), then the app exits with status 0. Sessions, tmux clients and iTerm2 tabs are
+///   left as they are.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  /// How long quitting waits for the engine to stop before exiting anyway.
-  static let shutdownDeadline: Duration = .seconds(5)
+  /// How long quitting waits for the model to shut down before exiting anyway: longer than the
+  /// model's own budget for the session actions (`AppModel.terminationDeadline`), so the model
+  /// reports what it did not finish before the app exits.
+  static let shutdownDeadline = AppModel.terminationDeadline
 
   /// The popover's model.
   let model: AppModel

@@ -28,25 +28,34 @@ public struct PopoverView: View {
     self.isLive = isLive
   }
 
-  /// The popover's layout.
+  /// The popover's layout: the panel (Move here, New session) while one shows, otherwise the
+  /// search field, banners, notices, hosts and footer.
   public var body: some View {
     let content = model.content
     VStack(spacing: 0) {
-      searchField
-        .padding(10)
-      Divider()
-      if !content.notices.isEmpty {
-        NoticesView(notices: content.notices, model: model)
-        Divider()
-      }
-      if let placeholder = content.placeholder {
-        PlaceholderView(placeholder: placeholder, openSettings: model.openSettings)
+      if let panel = model.panel {
+        PanelView(panel: panel, model: model)
       } else {
-        hostList(content.sections)
+        searchField
+          .padding(10)
+        Divider()
+        if !content.banners.isEmpty {
+          BannersView(banners: content.banners, model: model)
+          Divider()
+        }
+        if !content.notices.isEmpty {
+          NoticesView(notices: content.notices, model: model)
+          Divider()
+        }
+        if let placeholder = content.placeholder {
+          PlaceholderView(placeholder: placeholder, openSettings: model.openSettings)
+        } else {
+          hostList(content.sections)
+        }
+        Divider()
+        FooterView(model: model)
       }
-      Divider()
-      FooterView(model: model)
-    }
+    } // End of VStack holding the popover
     .frame(width: Self.width)
     .background {
       if isLive { PopoverWindowBridge(model: model) }
