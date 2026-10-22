@@ -135,6 +135,8 @@ public struct PopoverContent: Sendable, Hashable {
     public var kind: Kind
     /// The explanation.
     public var text: String
+    /// The button that helps fix it, if any (PLAN.md D23).
+    public var fixIt: FixIt?
 
     /// `Identifiable` conformance: the kind (at most one notice of each).
     public var id: Kind { kind }
@@ -275,7 +277,7 @@ public struct PopoverContent: Sendable, Hashable {
     if case .failed(_, let error) = attachmentCheck {
       var text = "muxFinder could not check which sessions are open in iTerm2 on this Mac."
       if let description = error?.errorDescription { text += " " + description }
-      notices.append(Notice(kind: .attachmentCheck, text: text))
+      notices.append(Notice(kind: .attachmentCheck, text: text, fixIt: FixIt(error: error)))
     }
     return notices
   } // End of func notices(hostList:attachmentCheck:)

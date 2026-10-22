@@ -78,6 +78,65 @@ public enum HostFileProblem: Error, Sendable, Hashable, CustomStringConvertible 
   public var description: String { message }
 }
 
+/// What was at the host list file's name when a store loaded it or wrote it (PLAN.md D19,
+/// D23). `HostStore.save(_:expecting:)` saves only while the file is still the same, so a file
+/// another program changed since it was loaded is never replaced without the user's say.
+public struct HostFileRevision: Sendable, Hashable {
+  /// What was at the name.
+  enum Entry: Sendable, Hashable {
+    /// No file (or no folder).
+    case missing
+    /// A symbolic link or something else that is not a regular file; never read.
+    case notAFile(HostFileProblem.UnsafeReason)
+    /// A regular file read in full: its bytes, and the reason not to trust it, if any.
+    case contents(Data, HostFileProblem.UnsafeReason?)
+    /// A regular file too large to read, known by its identity and last change.
+    case unread(FileIdentity)
+  }
+
+  /// What was at the name.
+  let entry: Entry
+
+  /// The revision of an entry as `HostStore.examine` found it.
+  init(_ found: HostStore.Found) {
+    switch found {
+    case .missing: entry = .missing
+    case .notAFile(let reason): entry = .notAFile(reason)
+    case .file(.some(let data), let reason, _): entry = .contents(data, reason)
+    case .file(.none, _, let identity): entry = .unread(identity)
+    }
+  }
+
+  /// A revision made of `entry` (tests build fakes' revisions so).
+  init(entry: Entry) {
+    self.entry = entry
+  }
+}
+
+/// Identifies a regular file whose bytes were not read: another file at the name, or the same
+/// file changed in any way (bytes, size, mode, owner, ACL), gives another identity.
+struct FileIdentity: Sendable, Hashable {
+  /// The file system's device.
+  var device: Int64
+  /// The inode.
+  var inode: UInt64
+  /// The size in bytes.
+  var size: Int64
+  /// The last modification time (seconds, nanoseconds).
+  var modified: [Int]
+  /// The last status change time (seconds, nanoseconds).
+  var changed: [Int]
+
+  /// The identity in `info`.
+  init(_ info: stat) {
+    device = Int64(info.st_dev)
+    inode = UInt64(info.st_ino)
+    size = Int64(info.st_size)
+    modified = [info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec]
+    changed = [info.st_ctimespec.tv_sec, info.st_ctimespec.tv_nsec]
+  }
+}
+
 /// The outcome of `HostStore.load()`.
 public struct HostStoreLoadResult: Sendable, Hashable {
   /// What was found on disk.
@@ -95,6 +154,20 @@ public struct HostStoreLoadResult: Sendable, Hashable {
   public var hosts: HostList
   /// What was found.
   public var state: State
+  /// What was at the file's name; a save that must not replace a changed file expects it
+  /// (`HostStore.save(_:expecting:)`).
+  public var revision: HostFileRevision
+}
+
+/// The outcome of `HostStore.save(_:expecting:)`: the list is in place.
+public struct HostStoreSaveResult: Sendable, Hashable {
+  /// The file's revision now (the list just written); the next save expects it.
+  public var revision: HostFileRevision
+  /// The backup of the file the save displaced, when one was kept.
+  public var backup: URL?
+  /// `displacedFileNotKept` when the displaced file could not be renamed to a backup name;
+  /// it is still in the folder under the error's temporary name.
+  public var displacedFileError: HostStoreError?
 }
 
 /// Why the host list could not be loaded or saved. Messages hold no file contents.
@@ -124,6 +197,9 @@ public enum HostStoreError: Error, Sendable, Hashable, LocalizedError {
   /// The list was saved, but the file it displaced could not be renamed to a backup name
   /// (this errno); that file is still in the folder under this hidden temporary name.
   case displacedFileNotKept(temporaryName: String, errno: Int32)
+  /// The file is no longer what the save expected (it changed since it was loaded or last
+  /// saved); it was left as it is and nothing was written. `current` is what is there now.
+  case fileChanged(current: HostFileRevision)
   /// A system call failed with this errno.
   case systemCallFailed(name: String, errno: Int32)
 
@@ -156,6 +232,9 @@ public enum HostStoreError: Error, Sendable, Hashable, LocalizedError {
       return "muxFinder saved the host list but couldn't keep the file it replaced as a backup "
         + "(\(String(cString: strerror(code)))). That file is in muxFinder's settings folder "
         + "as \(temporaryName)."
+    case .fileChanged:
+      return "The host list file changed after muxFinder loaded it, so muxFinder left it as it "
+        + "is and saved nothing."
     case .systemCallFailed(let name, let code):
       return "muxFinder couldn't read or write its host list (\(name): "
         + "\(String(cString: strerror(code))))."
@@ -188,7 +267,14 @@ public enum HostStoreError: Error, Sendable, Hashable, LocalizedError {
 ///   `PrivateStorage`'s `inspect` access. No file gives the onboarding defaults, reported as
 ///   `notSavedYet`. A file that cannot be used (unsafe by D14's rules for files read, not
 ///   JSON, malformed, another schema version, an invariant broken) gives the defaults too,
-///   reported as `invalid` with the problem, and stays exactly as it is.
+///   reported as `invalid` with the problem, and stays exactly as it is. Every load reports
+///   the file's `HostFileRevision`: no file, its bytes (with any trust problem), or for a file
+///   too large to read or not a regular file, what identifies it.
+/// - **Checked saving:** `save(_:expecting:)` first looks at the file as a load does, writing
+///   nothing, and refuses (`fileChanged`, with the revision now there) unless it is still the
+///   expected revision, the one a load returned or the last save wrote. A missing file that
+///   has appeared counts as changed. Then it saves as below and returns the new revision. The
+///   unchecked `save(_:)` skips that look; Settings always uses the checked one.
 /// - **Saving** checks the list (`invalidList`) and encodes it before touching the disk. It
 ///   creates the folder (0700; its parent must exist) or tightens it, and removes any extended
 ///   ACL from it (refused, `directoryHasExtendedACL`, if that fails). It then looks at the file
@@ -203,10 +289,11 @@ public enum HostStoreError: Error, Sendable, Hashable, LocalizedError {
 ///   Anything else is kept: made 0600 without ACL when it is the user's regular file, then
 ///   renamed to a new backup beside it (`hosts.backup-<UTC yyyyMMddTHHmmssZ>[-n].json`, never
 ///   replacing an earlier one). If that rename fails, it stays under the temporary name and
-///   the save throws `displacedFileNotKept`.
+///   the save throws `displacedFileNotKept` (`save(_:expecting:)` reports it in its result).
 /// - The store is an actor, so its file work runs off the main actor and saves of one store
 ///   never interleave. The app is meant to be the only writer of the file; a change made by
-///   anything else is kept as a backup by the next save.
+///   anything else refuses a checked save, and a change made between that check and the
+///   publication is kept as a backup.
 public actor HostStore {
   /// The host list file's name in muxFinder's folder.
   public static let fileName = "hosts.json"
@@ -279,10 +366,36 @@ public actor HostStore {
   // MARK: - Loading
 
   /// Loads the host list without writing anything. See the type's documentation for the
-  /// states. Throws only when the folder cannot be used (a link, not a folder, another user's)
-  /// or a system call fails. Remembers the bytes of a `saved` file (`lastKnownContents`), and
-  /// that there are none otherwise.
+  /// states and the revision. Throws only when the folder cannot be used (a link, not a
+  /// folder, another user's) or a system call fails. Remembers the bytes of a `saved` file
+  /// (`lastKnownContents`), and that there are none otherwise.
   public func load() throws(HostStoreError) -> HostStoreLoadResult {
+    let found = try lookAtFile()
+    let revision = HostFileRevision(found)
+    let state: HostStoreLoadResult.State
+    switch found {
+    case .missing:
+      state = .notSavedYet
+    case .notAFile(let reason):
+      state = .invalid(.unsafe(reason))
+    case .file(_, .some(let reason), _):
+      state = .invalid(.unsafe(reason))
+    case .file(let data, .none, _):
+      switch Self.decode(data ?? Data()) {
+      case .list(let list):
+        lastKnownContents = data
+        return HostStoreLoadResult(hosts: list, state: .saved, revision: revision)
+      case .problem(let problem):
+        state = .invalid(problem)
+      }
+    }
+    lastKnownContents = nil
+    return HostStoreLoadResult(hosts: .onboardingDefaults(), state: state, revision: revision)
+  } // End of func load()
+
+  /// What is at the file's name now, looked at without writing anything: the folder is only
+  /// inspected (a missing folder means no file), the file read as `examine` reads it.
+  func lookAtFile() throws(HostStoreError) -> Found {
     let directory: Int32
     do throws(PrivateStorageError) {
       directory = try PrivateStorage.openDirectory(
@@ -291,53 +404,61 @@ public actor HostStore {
         access: .inspect
       )
     } catch .directoryMissing {
-      lastKnownContents = nil
-      return HostStoreLoadResult(hosts: .onboardingDefaults(), state: .notSavedYet)
+      return .missing
     } catch {
       throw HostStoreError(error)
     }
     defer { Darwin.close(directory) }
-    let found = try Self.examine(
+    return try Self.examine(
       named: name,
       in: directory,
       owner: owner,
       readLimit: Self.maximumFileSize
     )
-    let state: HostStoreLoadResult.State
-    switch found {
-    case .missing:
-      state = .notSavedYet
-    case .notAFile(let reason):
-      state = .invalid(.unsafe(reason))
-    case .file(_, .some(let reason)):
-      state = .invalid(.unsafe(reason))
-    case .file(let data, .none):
-      switch Self.decode(data ?? Data()) {
-      case .list(let list):
-        lastKnownContents = data
-        return HostStoreLoadResult(hosts: list, state: .saved)
-      case .problem(let problem):
-        state = .invalid(problem)
-      }
-    }
-    lastKnownContents = nil
-    return HostStoreLoadResult(hosts: .onboardingDefaults(), state: state)
-  } // End of func load()
+  } // End of func lookAtFile()
 
   // MARK: - Saving
 
   /// Saves `list` atomically and returns the backup's URL when the file it displaced was kept.
+  /// It does not check that the file is still what was loaded (`save(_:expecting:)` does).
   /// The backup decision is about the entry the publishing rename actually displaced, never
   /// about the file looked at earlier, so a file changed by another process in between is
   /// kept too (see the type's documentation).
   @discardableResult
   public func save(_ list: HostList) throws(HostStoreError) -> URL? {
+    let result = try write(list, expecting: nil)
+    if let error = result.displacedFileError { throw error }
+    return result.backup
+  }
+
+  /// Saves `list` only while the file is still `revision` (what a load returned or the last
+  /// save wrote): otherwise nothing is written, not even the folder, and the save throws
+  /// `fileChanged` with the revision now there. Then it saves as `save(_:)` does and returns
+  /// the new revision and the backup; a displaced file that could not get a backup name is
+  /// reported in the result (`displacedFileError`), since the list is in place.
+  public func save(
+    _ list: HostList,
+    expecting revision: HostFileRevision
+  ) throws(HostStoreError) -> HostStoreSaveResult {
+    try write(list, expecting: revision)
+  }
+
+  /// Both saves: checks the list, then (with `revision`) that the file is still `revision`,
+  /// then writes and publishes the list and settles the displaced entry.
+  func write(
+    _ list: HostList,
+    expecting revision: HostFileRevision?
+  ) throws(HostStoreError) -> HostStoreSaveResult {
     do throws(HostListError) {
       try list.validate()
     } catch {
       throw .invalidList(error)
     }
     let data = try Self.encode(list)
+    if let revision {
+      let current = HostFileRevision(try lookAtFile())
+      guard current == revision else { throw .fileChanged(current: current) }
+    }
     let directory: Int32
     do throws(PrivateStorageError) {
       directory = try PrivateStorage.openDirectory(
@@ -372,10 +493,16 @@ public actor HostStore {
     }
     let expected = lastKnownContents
     lastKnownContents = data
-    guard displaced else { return nil }
-    let backup = try settleDisplaced(temporary, expecting: expected, in: directory)
-    return backup.map { directoryURL.appending(path: $0, directoryHint: .notDirectory) }
-  } // End of func save(_:)
+    var result = HostStoreSaveResult(revision: HostFileRevision(entry: .contents(data, nil)))
+    guard displaced else { return result }
+    do throws(HostStoreError) {
+      let backup = try settleDisplaced(temporary, expecting: expected, in: directory)
+      result.backup = backup.map { directoryURL.appending(path: $0, directoryHint: .notDirectory) }
+    } catch {
+      result.displacedFileError = error
+    }
+    return result
+  } // End of func write(_:expecting:)
 
   /// Looks at the file's name before a save writes anything, without reading the file, and
   /// returns whether a file is there. A symbolic link or other non-regular file
@@ -448,7 +575,7 @@ public actor HostStore {
     switch found {
     case .missing:
       return nil
-    case .file(.some(let data), .none) where data == expected:
+    case .file(.some(let data), .none, _) where data == expected:
       if case .list = Self.decode(data) {
         unlinkat(directory, temporary, 0)
         return nil
@@ -591,9 +718,9 @@ public actor HostStore {
     case missing
     /// A symbolic link (never followed) or something other than a regular file; never read.
     case notAFile(HostFileProblem.UnsafeReason)
-    /// A regular file: its bytes (`nil` when larger than the read limit) and the first
-    /// reason, if any, not to trust them.
-    case file(Data?, HostFileProblem.UnsafeReason?)
+    /// A regular file: its bytes (`nil` when larger than the read limit), the first reason, if
+    /// any, not to trust them, and its identity.
+    case file(Data?, HostFileProblem.UnsafeReason?, FileIdentity)
   }
 
   /// Opens `name` in `directory` without following links or blocking, and reads it if it is a
@@ -621,17 +748,18 @@ public actor HostStore {
     }
     guard info.st_mode & S_IFMT == S_IFREG else { return .notAFile(.notARegularFile) }
     var reason = try trustProblem(of: descriptor, info: info, owner: owner)
-    guard info.st_size <= off_t(readLimit) else { return .file(nil, reason ?? .tooLarge) }
+    let identity = FileIdentity(info)
+    guard info.st_size <= off_t(readLimit) else { return .file(nil, reason ?? .tooLarge, identity) }
     let data: Data
     do throws(PrivateStorageError) {
       data = try PrivateStorage.readAll(from: descriptor, limit: readLimit)
     } catch .fileTooLarge {
-      return .file(nil, reason ?? .tooLarge)
+      return .file(nil, reason ?? .tooLarge, identity)
     } catch {
       throw HostStoreError(error)
     }
     if reason == nil, data.count > maximumFileSize { reason = .tooLarge }
-    return .file(data, reason)
+    return .file(data, reason, identity)
   } // End of func examine(named:in:owner:readLimit:)
 
   /// The first reason not to trust the open regular file, if any.

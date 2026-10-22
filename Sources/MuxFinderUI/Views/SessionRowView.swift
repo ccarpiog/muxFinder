@@ -35,7 +35,7 @@ struct SessionRowView: View {
         OpenHereBadge()
       }
       if let activity = row.activity {
-        ActivityLine(activity: activity) {
+        ActivityLine(activity: activity, model: model) {
           model.retry(session: row.key)
         }
       }
@@ -83,20 +83,27 @@ struct OpenHereBadge: View {
 }
 
 /// Progress ("Opening…", "Waiting for iTerm2…", "Waiting for you in iTerm2") or a failure
-/// with "Retry".
+/// with "Retry" and, when it has one, its fix-it.
 struct ActivityLine: View {
   /// What to show.
   let activity: SessionActivity
+  /// The model that performs a fix-it.
+  let model: AppModel
   /// What "Retry" does.
   let retry: () -> Void
 
-  /// A spinner or icon and the text; "Retry" for a failure.
+  /// A spinner or icon and the text; "Retry" (and any fix-it) for a failure.
   var body: some View {
     switch activity {
-    case .failed(let message):
-      MessageLine(
-        text: message, systemImage: "xmark.octagon.fill", tint: .red, actionTitle: "Retry",
-        action: retry)
+    case .failed(let message, let fixIt):
+      VStack(alignment: .leading, spacing: 4) {
+        MessageLine(
+          text: message, systemImage: "xmark.octagon.fill", tint: .red, actionTitle: "Retry",
+          action: retry)
+        if let fixIt {
+          FixItView(fixIt: fixIt, shownExplanation: model.shownExplanation, perform: model.perform)
+        }
+      }
     case .waitingForYou:
       MessageLine(text: activity.text, systemImage: "hourglass", tint: .orange)
     case .opening, .waitingForITerm2:

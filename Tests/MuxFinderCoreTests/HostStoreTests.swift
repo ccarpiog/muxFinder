@@ -130,7 +130,7 @@ struct HostStoreTests {
 
     try list.remove(id: list.hosts[2].id)
     #expect(try await fixture.store.save(list) == nil)
-    #expect(try await fixture.store.load() == HostStoreLoadResult(hosts: list, state: .saved))
+    #expect(try await fixture.store.load() == HostStoreLoadResult.saved(list))
     #expect(try LaunchTestSupport.names(in: fixture.directory) == [HostStore.fileName])
   } // End of func roundTrip()
 
@@ -366,7 +366,7 @@ struct HostStoreTests {
       #expect(try Data(contentsOf: backupFile) == invalid.bytes, "\(invalid.label)")
       #expect(try LaunchTestSupport.permissions(of: backupFile) == 0o600)
       #expect(try LaunchTestSupport.aclEntryCount(of: backupFile) == 0)
-      #expect(try await fixture.store.load() == HostStoreLoadResult(hosts: list, state: .saved))
+      #expect(try await fixture.store.load() == HostStoreLoadResult.saved(list))
 
       #expect(try await fixture.store.save(list) == nil, "\(invalid.label)")
       #expect(
@@ -565,7 +565,7 @@ struct HostStoreTests {
       #expect(try LaunchTestSupport.permissions(of: backupFile) == 0o600, "\(label)")
       #expect(try LaunchTestSupport.aclEntryCount(of: backupFile) == 0, "\(label)")
       #expect(
-        try await store.load() == HostStoreLoadResult(hosts: list, state: .saved), "\(label)"
+        try await store.load() == HostStoreLoadResult.saved(list), "\(label)"
       )
       #expect(
         try LaunchTestSupport.names(in: fixture.directory) == [
@@ -590,7 +590,7 @@ struct HostStoreTests {
     let list = try Self.sampleList()
     #expect(try await store.save(list)?.lastPathComponent == Self.backupName())
     #expect(try Data(contentsOf: fixture.directory.appending(path: Self.backupName())) == bytes)
-    #expect(try await store.load() == HostStoreLoadResult(hosts: list, state: .saved))
+    #expect(try await store.load() == HostStoreLoadResult.saved(list))
     #expect(
       try LaunchTestSupport.names(in: fixture.directory) == [Self.backupName(), HostStore.fileName]
     )
@@ -617,7 +617,7 @@ struct HostStoreTests {
     let unaware = HostStore(fileURL: fixture.file, owner: geteuid(), now: { Self.backupDate })
     #expect(try await unaware.save(second)?.lastPathComponent == Self.backupName())
     #expect(try Data(contentsOf: fixture.directory.appending(path: Self.backupName())) == saved)
-    #expect(try await unaware.load() == HostStoreLoadResult(hosts: second, state: .saved))
+    #expect(try await unaware.load() == HostStoreLoadResult.saved(second))
   } // End of func deletesOnlyTheFileItKnows()
 
   /// A file removed after the save looked at it is simply replaced: the swap finds no file, the
@@ -632,7 +632,7 @@ struct HostStoreTests {
 
     let list = try Self.otherList("After removal")
     #expect(try await store.save(list) == nil)
-    #expect(try await store.load() == HostStoreLoadResult(hosts: list, state: .saved))
+    #expect(try await store.load() == HostStoreLoadResult.saved(list))
     #expect(try LaunchTestSupport.names(in: fixture.directory) == [HostStore.fileName])
   } // End of func publishesWhenTheFileVanishesWhileSaving()
 
@@ -673,7 +673,7 @@ struct HostStoreTests {
       }
       #expect(try Data(contentsOf: target) == Data("target".utf8), "\(kind)")
       #expect(
-        try await store.load() == HostStoreLoadResult(hosts: list, state: .saved), "\(kind)"
+        try await store.load() == HostStoreLoadResult.saved(list), "\(kind)"
       )
     } // End of loop over kinds
   } // End of func keepsALinkOrFolderThatAppearsWhileSaving()
@@ -707,13 +707,98 @@ struct HostStoreTests {
       #expect(try Data(contentsOf: fixture.directory.appending(path: temporaryName)) == bytes)
       #expect(error.localizedDescription.contains(temporaryName))
     }
-    #expect(try await fixture.store.load() == HostStoreLoadResult(hosts: list, state: .saved))
+    #expect(try await fixture.store.load() == HostStoreLoadResult.saved(list))
     for attempt in attempts {
       let backup = fixture.directory.appending(path: Self.backupName(attempt: attempt))
       #expect(try Data(contentsOf: backup) == Data("backup \(attempt)".utf8))
     }
     #expect(try LaunchTestSupport.names(in: fixture.directory).count == attempts.count + 2)
   } // End of func keepsTheDisplacedFileWhenNoBackupNameIsFree()
+
+  // MARK: - Checked saves
+
+  /// `save(_:expecting:)` refuses a file that is no longer the revision it expects, writing
+  /// nothing (not even the folder): a valid file replaced by one that is not JSON, by a newer
+  /// format or by another valid list, edited in place, or turned into a link, and a missing
+  /// file that appeared (PLAN.md D19, D23). The error carries what is there now.
+  @Test func checkedSaveRefusesAChangedFile() async throws {
+    let other = try HostStore.encode(Self.otherList("Elsewhere"))
+    let changes: [(String, Bool, Data?)] = [
+      ("not JSON, renamed over", true, Data("not JSON".utf8)),
+      ("newer format, renamed over", true, Data(#"{"schemaVersion": 2, "hosts": []}"#.utf8)),
+      ("another list, renamed over", true, other),
+      ("another list, edited in place", false, other),
+      ("a link", true, nil),
+    ]
+    for (label, renamed, bytes) in changes {
+      let fixture = try Self.makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.base) }
+      try await fixture.store.save(Self.sampleList())
+      let loaded = try await fixture.store.load()
+      if let bytes {
+        try renamed
+          ? Self.renameOver(fixture.file, with: bytes) : Self.editInPlace(fixture.file, with: bytes)
+      } else {
+        let path = fixture.file.path(percentEncoded: false)
+        try #require(unlink(path) == 0 && symlink("/dev/null", path) == 0)
+      }
+      let before = try Self.snapshot(of: fixture.directory)
+      let current = try await fixture.store.load().revision
+      #expect(current != loaded.revision, "\(label)")
+      await #expect(throws: HostStoreError.fileChanged(current: current), "\(label)") {
+        try await fixture.store.save(Self.otherList("Saved here"), expecting: loaded.revision)
+      }
+      #expect(try Self.snapshot(of: fixture.directory) == before, "\(label)")
+    } // End of loop over changes
+
+    let fixture = try Self.makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.base) }
+    let missing = try await fixture.store.load()
+    #expect(missing.state == .notSavedYet)
+    try Self.createDirectory(fixture)
+    try Self.writeFile(other, to: fixture.file)
+    let before = try Self.snapshot(of: fixture.directory)
+    await #expect(throws: HostStoreError.self) {
+      try await fixture.store.save(Self.sampleList(), expecting: missing.revision)
+    }
+    #expect(try Self.snapshot(of: fixture.directory) == before)
+  } // End of func checkedSaveRefusesAChangedFile()
+
+  /// A checked save of an unchanged file goes through and returns the revision it wrote, which
+  /// the next save and a later load both match; the backup rule is unchanged: a valid file the
+  /// store knows is not kept, an unusable one is, and a refused save's `current` revision lets
+  /// a save replace exactly that file, keeping it as a backup.
+  @Test func checkedSavesChainAndKeepTheBackupRule() async throws {
+    let fixture = try Self.makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.base) }
+    let missing = try await fixture.store.load()
+    let first = try await fixture.store.save(Self.sampleList(), expecting: missing.revision)
+    #expect(first.backup == nil && first.displacedFileError == nil)
+    #expect(try await fixture.store.load().revision == first.revision)
+    let second = try await fixture.store.save(Self.otherList("Two"), expecting: first.revision)
+    #expect(second.backup == nil)
+    #expect(try LaunchTestSupport.names(in: fixture.directory) == [HostStore.fileName])
+
+    let unusable = Data("hand-edited, not JSON".utf8)
+    try Self.renameOver(fixture.file, with: unusable)
+    let three = try Self.otherList("Three")
+    var current: HostFileRevision?
+    do throws(HostStoreError) {
+      _ = try await fixture.store.save(three, expecting: second.revision)
+      Issue.record("The save should refuse the changed file.")
+    } catch {
+      guard case .fileChanged(let found) = error else {
+        Issue.record("Unexpected error: \(error)")
+        return
+      }
+      current = found
+    }
+    let expected = try #require(current)
+    let third = try await fixture.store.save(three, expecting: expected)
+    #expect(third.backup?.lastPathComponent == Self.backupName())
+    #expect(try Data(contentsOf: fixture.directory.appending(path: Self.backupName())) == unusable)
+    #expect(try await fixture.store.load() == HostStoreLoadResult.saved(three))
+  } // End of func checkedSavesChainAndKeepTheBackupRule()
 
   /// A list that breaks an invariant, or that would be too large to load, is refused before
   /// anything is written (not even the folder).
@@ -823,4 +908,14 @@ struct HostStoreTests {
       #expect(error.localizedDescription.hasSuffix("."))
     }
   } // End of func describesProblems()
+}
+
+extension HostStoreLoadResult {
+  /// What loading a file a store wrote for `hosts` gives: `saved`, whose revision is the bytes
+  /// the store wrote.
+  static func saved(_ hosts: HostList) throws -> HostStoreLoadResult {
+    HostStoreLoadResult(
+      hosts: hosts, state: .saved,
+      revision: HostFileRevision(entry: .contents(try HostStore.encode(hosts), nil)))
+  }
 }

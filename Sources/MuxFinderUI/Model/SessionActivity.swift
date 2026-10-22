@@ -12,8 +12,9 @@ public enum SessionActivity: Sendable, Hashable {
   /// A remote launch tab is still waiting, for example for a password (PLAN.md D17
   /// `stillWaiting`).
   case waitingForYou
-  /// The last attempt failed; `message` explains why, and the row offers "Retry".
-  case failed(message: String)
+  /// The last attempt failed; `message` explains why, and the row offers "Retry" and, for an
+  /// iTerm2 permission or API problem, the fix-it (PLAN.md D23).
+  case failed(message: String, fixIt: FixIt? = nil)
 
   /// The activity an attach state shows: `nil` once the attach is confirmed or focused (the
   /// row goes back to its normal look).
@@ -23,7 +24,8 @@ public enum SessionActivity: Sendable, Hashable {
     case .launched: self = .waitingForITerm2
     case .stillWaiting: self = .waitingForYou
     case .confirmed, .focused: return nil
-    case .failed(let failure): self = .failed(message: failure.message)
+    case .failed(let failure):
+      self = .failed(message: failure.message, fixIt: FixIt(failure: failure))
     }
   }
 
@@ -33,7 +35,7 @@ public enum SessionActivity: Sendable, Hashable {
     case .opening: return "Opening…"
     case .waitingForITerm2: return "Waiting for iTerm2…"
     case .waitingForYou: return "Waiting for you in iTerm2"
-    case .failed(let message): return message
+    case .failed(let message, _): return message
     }
   }
 

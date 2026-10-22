@@ -18,11 +18,17 @@ import os
 /// - **Requests in order:** every engine request goes through one queue read by one task, so
 ///   an open followed by a close is never applied the other way round. Once `shutdown()` has
 ///   begun, requests still queued are dropped.
-/// - **Quit:** `shutdown()` stops the adapter and the engine (which kills any probe's process
-///   group) and nothing else: no tmux client is detached and no session is touched.
-/// - **Placeholders:** opening a session, New session and Settings belong to Phases 10 and 9.
-///   Here they only record the request in `deferredIntents`; nothing is attached, launched or
-///   saved.
+/// - **Quit:** `shutdown()` stops Settings' work (its probes' process groups are killed), the
+///   adapter and the engine (which kills any probe's process group) and nothing else: no tmux
+///   client is detached and no session is touched.
+/// - **Settings** (PLAN.md D23): `openSettings()` (the footer's button and ⌘,) shows the
+///   Settings window for `settings` through `AppEnvironment.presentSettings`. A list saved there
+///   becomes the engine's list (`RefreshCoordinator.setHosts(_:)`, through the same queue) and
+///   the popover's load status turns `saved`.
+/// - **Fix-its:** an error with a fix-it (`FixIt`) shows its button; `perform(_:)` opens the
+///   System Settings pane through `AppEnvironment.openURL` or shows the explanation.
+/// - **Placeholders:** opening a session and New session belong to Phase 10. Here they only
+///   record the request in `deferredIntents`; nothing is attached or launched.
 /// - **Fixtures:** `init(fixture:)` renders a fixed state for previews and screenshots; it
 ///   never starts an engine, reads the host list or contacts iTerm2.
 @MainActor
@@ -34,8 +40,6 @@ public final class AppModel {
     case open(SessionKey)
     /// The New session sheet (Phase 10).
     case newSession
-    /// The Settings window (Phase 9).
-    case openSettings
   }
 
   /// Where the model is in its life.
@@ -60,6 +64,8 @@ public final class AppModel {
     case refreshAll
     /// Refresh one host ("Retry").
     case refresh(UUID)
+    /// Settings saved a new host list.
+    case setHosts(HostList)
     /// Resumes the continuation once every earlier request was handled (tests).
     case barrier(CheckedContinuation<Void, Never>)
   }
@@ -86,8 +92,12 @@ public final class AppModel {
   public private(set) var searchFocusRequests = 0
   /// The latest requests that later phases carry out (at most `deferredIntentLimit`).
   public private(set) var deferredIntents: [DeferredIntent] = []
+  /// The explaining fix-it whose text the popover shows.
+  public private(set) var shownExplanation: FixIt?
   /// Whether this model renders a fixture.
   public let isPreview: Bool
+  /// The Settings window's model (inert for a fixture or without settings seams).
+  public let settings: SettingsModel
 
   /// The dependencies; `nil` for a fixture.
   @ObservationIgnored private let environment: AppEnvironment?
@@ -115,7 +125,11 @@ public final class AppModel {
     self.environment = environment
     isPreview = false
     now = environment.now()
+    settings =
+      environment.settings.map { SettingsModel(environment: $0) }
+      ?? SettingsModel(fixture: SettingsFixtures.blank)
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
+    settings.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
   }
 
   /// A model that renders `fixture` and never runs anything.
@@ -128,6 +142,8 @@ public final class AppModel {
     searchText = fixture.searchText
     selection = fixture.selection
     activities = fixture.activities
+    shownExplanation = fixture.shownExplanation
+    settings = SettingsModel(fixture: SettingsFixtures.blank)
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     commandSink.finish()
   } // End of init(fixture:)
@@ -181,21 +197,30 @@ public final class AppModel {
     if lifecycle == .starting { lifecycle = .running }
   } // End of func performStart(_:)
 
-  /// Loads the host list and records how it went; an unusable folder gives an empty list.
+  /// Loads the host list and records how it went (in the model and the operation log); an
+  /// unusable folder gives an empty list.
   private func loadHostList(_ environment: AppEnvironment) async -> HostList {
+    let list: HostList
+    let status: HostListStatus
     do {
       let result = try await environment.loadHosts()
       switch result.state {
-      case .saved: hostListStatus = .saved
-      case .notSavedYet: hostListStatus = .notSavedYet
-      case .invalid(let problem): hostListStatus = .invalid(problem)
+      case .saved: status = .saved
+      case .notSavedYet: status = .notSavedYet
+      case .invalid(let problem): status = .invalid(problem)
       }
-      return result.hosts
+      list = result.hosts
     } catch {
       let message = (error as? LocalizedError)?.errorDescription ?? "The folder is not usable."
-      hostListStatus = .unreadable(message: message)
-      return HostList()
+      status = .unreadable(message: message)
+      list = HostList()
     }
+    hostListStatus = status
+    await environment.diagnostics?.record(
+      .settings, outcome: status == .saved || status == .notSavedYet ? .info : .failure,
+      detail: "host list at launch: \(SettingsModel.statusCode(status)), "
+        + "\(list.enabledHosts.count) of \(list.hosts.count) hosts turned on")
+    return list
   } // End of func loadHostList(_:)
 
   /// Hands one request to the engine. Once `shutdown()` has begun, a request still queued is
@@ -213,24 +238,35 @@ public final class AppModel {
     case .popoverClosed: await engine.popoverDidClose()
     case .refreshAll: await engine.retryAll()
     case .refresh(let hostID): await engine.retry(hostID)
+    case .setHosts(let list): await engine.setHosts(list)
     case .barrier: break
     }
   } // End of func perform(_:on:)
 
-  /// Takes a state the engine published.
+  /// Takes a state the engine published (Settings shows its statuses too).
   private func apply(_ state: RefreshState) {
     refreshState = state
+    settings.refreshState = state
     if let environment { now = environment.now() }
   }
 
-  /// Stops everything `start()` started and returns once it has ended: the request queue
-  /// (requests still queued are dropped), the system events adapter and the engine, whose
-  /// `stop()` cancels any attachment check and kills any running probe's process group.
-  /// Quitting muxFinder never detaches a tmux client, ends a session or touches iTerm2. Later
-  /// calls do nothing.
+  /// Settings saved `list`: the popover's load status is `saved`, and the engine runs with the
+  /// new list (queued like every engine request).
+  func hostListSaved(_ list: HostList) {
+    hostListStatus = .saved
+    send(.setHosts(list))
+  }
+
+  /// Stops everything `start()` and Settings started and returns once it has ended: Settings'
+  /// work (`SettingsModel.shutdown()`: no new work, its probes and window opening cancelled
+  /// and awaited, so their process groups are gone), the request queue (requests still queued
+  /// are dropped), the system events adapter and the engine, whose `stop()` cancels any
+  /// attachment check and kills any running probe's process group. Quitting muxFinder never
+  /// detaches a tmux client, ends a session or touches iTerm2. Later calls do nothing.
   public func shutdown() async {
     guard lifecycle != .stopped else { return }
     lifecycle = .stopped
+    await settings.shutdown()
     await startTask?.value
     commandSink.finish()
     await commandTask?.value
@@ -317,9 +353,23 @@ public final class AppModel {
     recordDeferred(.newSession)
   }
 
-  /// "Settings" (⌘,). Placeholder for Phase 9's window: records the request only.
+  /// "Settings" (⌘,): shows the Settings window, or brings it to the front. Does nothing for a
+  /// fixture.
   public func openSettings() {
-    recordDeferred(.openSettings)
+    environment?.presentSettings(settings)
+  }
+
+  /// Performs a fix-it shown with an error: opens its System Settings pane through
+  /// `AppEnvironment.openURL`, or shows its explanation (again: hides it).
+  public func perform(_ fixIt: FixIt) {
+    switch fixIt.action {
+    case .openURL(let url):
+      environment?.openURL(url)
+    case .explain:
+      shownExplanation = shownExplanation == fixIt ? nil : fixIt
+    case .openLoginItems:
+      settings.perform(fixIt)
+    }
   }
 
   /// "Quit": ends the app through `AppEnvironment.terminate`, whose shutdown stops the engine
@@ -349,7 +399,6 @@ public final class AppModel {
     switch intent {
     case .open: kind = "open (Phase 10)"
     case .newSession: kind = "new session (Phase 10)"
-    case .openSettings: kind = "settings (Phase 9)"
     }
     logger.info("Placeholder request recorded: \(kind, privacy: .public)")
   } // End of func recordDeferred(_:)

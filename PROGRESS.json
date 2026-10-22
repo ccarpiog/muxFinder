@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T19:35:07Z",
+  "updated": "2026-10-22T20:40:02Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -206,15 +206,41 @@
       "summary": "Menu bar popover shows hosts, sessions, statuses and badges; signed app bundle and preview screenshots.",
       "review": "docs/reviews/phase-8.md",
       "narrative": "docs/progress-archive/8.md",
+      "commit": "dc1935d",
       "started": "2026-10-22T18:30:47Z",
       "status_since": "2026-10-22T19:35:07Z"
     },
     {
       "id": "9",
       "title": "Settings, onboarding, launch at login, diagnostics",
+      "status": "in_progress",
+      "risk": "routine",
+      "summary": "Adds settings, onboarding, launch at login and diagnostics; split into 9a (Settings window, done) and 9b (onboarding and SSH setup).",
+      "started": "2026-10-22T19:36:32Z",
+      "status_since": "2026-10-22T19:36:32Z"
+    },
+    {
+      "id": "9a",
+      "title": "Settings window",
+      "status": "done",
+      "risk": "routine",
+      "parent": "9",
+      "summary": "Settings window with host editor, launch at login, diagnostics and fix-its; changed or unusable host files never overwritten silently.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-9a.md",
+      "narrative": "docs/progress-archive/9a.md",
+      "added": "2026-10-22T19:36:32Z",
+      "started": "2026-10-22T19:36:32Z",
+      "status_since": "2026-10-22T20:40:02Z"
+    },
+    {
+      "id": "9b",
+      "title": "Onboarding and SSH setup",
       "status": "queued",
       "risk": "routine",
-      "summary": "Adds the settings window, first-run onboarding, launch at login and a diagnostics view."
+      "parent": "9",
+      "summary": "Adds the first-run onboarding window and the Set up SSH in iTerm2 action with its helper mode.",
+      "added": "2026-10-22T19:36:32Z",
+      "status_since": "2026-10-22T19:36:32Z"
     },
     {
       "id": "10",

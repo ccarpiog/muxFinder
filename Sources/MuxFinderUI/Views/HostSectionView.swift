@@ -78,7 +78,7 @@ struct StatusLabelView: View {
   var body: some View {
     HStack(spacing: 4) {
       Circle()
-        .fill(color)
+        .fill(Self.color(for: status))
         .frame(width: 7, height: 7)
       Text(status.text)
         .font(.callout)
@@ -89,8 +89,8 @@ struct StatusLabelView: View {
     .accessibilityValue(status.text)
   } // End of var body
 
-  /// The dot's color for the status's tone.
-  private var color: Color {
+  /// The dot's color for a status's tone.
+  static func color(for status: HostStatusLabel) -> Color {
     switch status.tone {
     case .good: return .green
     case .neutral: return .gray

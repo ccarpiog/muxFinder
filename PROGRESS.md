@@ -21,6 +21,7 @@ file.
 | 7a | Host configuration: `HostStore`, invariants, defaults, SSH config suggestions | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7a.md` | `docs/progress-archive/7a.md` |
 | 7b | Refresh engine: `RefreshCoordinator`, `HostSnapshot`, attachment merge, `refresh --once` | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-7b.md` | `docs/progress-archive/7b.md` |
 | 8 | Menu bar app and popover: `MuxFinderUI`, `AppModel`, `build-app.sh`, preview fixtures | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-8.md` | `docs/progress-archive/8.md` |
+| 9a | Settings window: host editor, launch at login, diagnostics, fix-its | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-9a.md` | `docs/progress-archive/9a.md` |
 
 ## Current phase
 
@@ -28,8 +29,9 @@ file.
 worker): code, review and both blocker fixes are done, verified hermetically and committed. It
 is **not closed**: it still needs its real final-tree runs (first real `e2e-remote saturno-m4`
 with the Move here step, then `e2e-local` again on the final tree), which wait on iTerm2's thread
-count (*Next action*). Narrative so far: `docs/progress-archive/6b.md`. Phases 1–6a, 7a/7b
-and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`.
+count (*Next action*). Narrative so far: `docs/progress-archive/6b.md`. Phases 1–6a, 7a/7b,
+8 and 9a are done; Phase 6 was split into 6a/6b, Phase 7 into 7a/7b and Phase 9 into 9a/9b in
+`PLAN.md`.
 
 ## Acceptance
 
@@ -55,6 +57,12 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
   `--preview-snapshot` (screen locked, `screencapture -l` failed); real binary from the shell
   shows its item (`--report-menu-bar-item`, since macOS 27 draws it out of process), SIGTERM
   exit 0, no `hosts.json`. Evidence in `docs/progress-archive/8.md`.
+- Phase 9a: all criteria met, one with a recorded deviation — build, lint, 571 core + 83 UI
+  tests; editor, This Mac, save, unusable/changed-file, login item, diagnostics and fix-it
+  view-model tests; `build-app.sh` and `codesign --verify --deep --strict` exit 0; shell check
+  SIGTERM exit 0, no `hosts.json`; light/dark Settings screenshots via `--preview-snapshot`;
+  `--report-login-item-status` read `notFound` (real round trip owed to the user). Evidence in
+  `docs/progress-archive/9a.md`.
 - Phase 6b (open): met so far — explicit-confirmation `moveHere`, `-d` only for move here
   (local argv, static remote script, digest), old request files decode as attach,
   already/possibly-attached-here refusals, proof-based cross-kind single flight, 563 hermetic
@@ -135,6 +143,13 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
   attachment check, placeholder intents for Phases 9/10, quit via `AppTermination.request()`,
   preview fixtures with no menu bar item, helper bundled in `Contents/MacOS/`); D11, D13, D20
   edited — `docs/progress-archive/8.md`.
+- Phase 9: split into 9a (Settings window) and 9b (onboarding and SSH setup), recorded in
+  `PLAN.md` before the first worker.
+- Phase 9a: new **D23** (Settings window: one reusable AppKit window, `SettingsEnvironment`
+  seams, explicit Save/Revert drafts, This Mac demotion on save, changed-file and
+  unusable-file banners with Reload/Replace, diagnostics by display name and id only, profiles
+  never launch iTerm2, `--report-login-item-status`); D19 gained `save(_:expecting:)` (a save
+  refuses a file changed since it was loaded); D22 edited — `docs/progress-archive/9a.md`.
 
 ## Open risks / deviations
 
@@ -228,6 +243,10 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
   still let one iTerm2 connection open (no request sent on it); `createsOnAPrivateServer()`
   (6a) failed once (`pane_current_path` race under load), then passed — look there first if the
   suite flakes. Details in `docs/progress-archive/8.md`.
+- 9a: owed to a person (needs clicks): the real launch-at-login round trip on an installed
+  bundle, the fix-it buttons opening System Settings, the window coming to the front, ⌘C/⌘V in
+  its fields. Shutdown does not wait for a save already in progress; the changed-file banner
+  has no preview fixture — `docs/progress-archive/9a.md`.
 
 ## Reviews
 
@@ -265,6 +284,14 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
   cancellation), 8 regressions (7 fail on the old code, the 8th guards against a second
   cookie), re-verified; `docs/reviews/phase-8.md`.
 
+- Phase 9a: Codex → `ship-with-fixes`, 1 blocker (Settings saved over a `hosts.json` changed
+  since it loaded, even malformed, without Replace consent), 3 should-fix (Settings probes
+  escaped app shutdown; closing during the window's opening let profile loading go on; a slow
+  removal reset a newer selection and draft) — all fixed by a fix worker (`save(_:expecting:)`
+  with a changed-file banner, `SettingsModel.shutdown()`, an owned and cancelled opening task
+  with window generations, preserve-on-remove), five regressions failing on the old code,
+  re-verified; `docs/reviews/phase-9a.md`.
+
 ## Next action
 
 1. **Close Phase 6b with its real final-tree runs** (no code change expected; its review is
@@ -276,18 +303,16 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
    durations and thread counts in `docs/progress-archive/6b.md`, fix the ~120 s / ~63 s
    estimates in `CLAUDE.md` and `docs/TESTING.md` if they differ, then mark 6b `done` (row
    moves to *Completed*, `PROGRESS.json` row `done`, phase 6 parent `done`). A failing step is
-   a real bug: diagnose it before any rerun; substantial fixes become a corrective phase.
-2. While the count is above 38 (40 at the last check, 2026-10-22 20:35), run **Phase 9**
-   (settings, onboarding, launch at login, diagnostics; `PLAN.md` "### Phase 9"; routine;
-   builds on D22's placeholder `openSettings()` and the `MuxFinderUI` library) meanwhile, then
-   retry item 1 at the next phase boundary. Phase 9's real checks stay window-free and
-   read-only: the "Set up SSH in iTerm2…" helper mode is proven hermetically (a real run would
-   open an iTerm2 tab and ssh — leave it for a later real-run window, Saturno only); for launch
-   at login only read `SMAppService.mainApp.status` unattended — registering or unregistering
-   changes the user's login items, so record the round trip as owed to the user rather than
-   doing it; never save the real `hosts.json` (use `HostStore` on a private folder). If nothing
-   window-free is left and the count is still above 38, stop as `BLOCKED` and ask the user
-   whether to restart iTerm2 or accept a higher baseline.
+   a real bug: diagnose it before any rerun; substantial fixes become a corrective phase. The
+   count was **16** at 2026-10-22 21:38, so item 1 is unblocked.
+2. Then **Phase 9b** (onboarding and SSH setup; `PLAN.md` "### Phase 9", its 9a/9b split;
+   routine; builds on D23's Settings window and D19's `notSavedYet` onboarding defaults). Its
+   real checks stay window-free and read-only: the "Set up SSH in iTerm2…" helper mode
+   `ssh-setup <uuid>` is proven hermetically (a real run would open an iTerm2 tab and ssh —
+   owed to a later real-run window, Saturno only); never save the real `hosts.json` (use
+   `HostStore` on a private folder). If item 1 is still gated (count above 38), run 9b
+   meanwhile; if nothing window-free is left and the count stays above 38, stop as `BLOCKED`
+   and ask the user whether to restart iTerm2 or accept a higher baseline.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
@@ -319,6 +344,10 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
   `Views/`, `Preview/PreviewFixtures.swift`), `Sources/MuxFinderApp/` (entry point, app
   delegates); tests `Tests/MuxFinderUITests/`; bundle script `scripts/build-app.sh` →
   `build/muxFinder.app`; screenshots `docs/screenshots/`.
+- Settings window (D23): `Sources/MuxFinderUI/Model/{SettingsModel,SettingsEnvironment,
+  HostDraft,SettingsResults,LoginItem,FixIt,DiagnosticsReport}.swift`, `Views/Settings/`
+  (`SettingsWindowController`), `Preview/{SettingsFixtures,SettingsGallery}.swift`; tests
+  `Tests/MuxFinderUITests/{HostEditorTests,SettingsGeneralTests}.swift`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
@@ -330,6 +359,12 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
+
+- Phase 9a (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
+  `swift format lint -r Sources Tests` exit 0; `swift test` exit 0, 571 core tests in 55
+  suites + 83 UI tests in 6 suites; `codesign --verify --deep --strict build/muxFinder.app`
+  exit 0; `--report-menu-bar-item` then SIGTERM exit 0, no child, support folder holds only
+  `launch/` — `docs/progress-archive/9a.md`.
 
 - Phase 7b (final tree): `swift build -Xswiftc -warnings-as-errors` exit 0; `swift format lint
   -r Sources Tests` exit 0; `swift test` exit 0, 534 tests in 52 suites, 6 consecutive runs;
@@ -368,5 +403,7 @@ and 8 are done; Phase 6 was split into 6a/6b and Phase 7 into 7a/7b in `PLAN.md`
   `origin/main`.
 - Phase 6b: code, review, fixes and checkpoint `ce26808` (parent `d512f47`), pushed to
   `origin/main` (real runs still owed).
-- Phase 8: code, review fix and checkpoint in the commit after `ce26808`; its SHA and push
+- Phase 8: code, review fix and checkpoint `dc1935d` (parent `ce26808`), pushed to
+  `origin/main`.
+- Phase 9a: code, review fixes and checkpoint in the commit after `dc1935d`; its SHA and push
   result are recorded by the next commit.

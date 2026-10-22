@@ -35,14 +35,21 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `muxfinder-launch` in `Contents/MacOS/`; signed with hardened runtime by the first "Apple
   Development" identity, or `MUXFINDER_SIGN_IDENTITY`, else ad hoc with a warning; never
   notarized). Check it with `codesign --verify --deep --strict build/muxFinder.app`.
-- Preview fixtures (no menu bar item, engine, host list or iTerm2; one normal window with
-  every popover state from synthetic data, shown without taking the focus):
-  `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures [--appearance light|dark]`
-  prints `muxFinder preview window <n> …`; capture only that window with
-  `screencapture -x -o -l <n> <file.png>`, then `kill -TERM` it (exit 0). With a locked
-  screen or a sleeping display `screencapture` fails: add `--preview-snapshot <file.png>`,
-  which renders the window into the PNG from inside the app and quits. Screenshots live in
-  `docs/screenshots/`; never capture the screen or another app's window.
+- Preview fixtures (no menu bar item, engine, host list, login item or iTerm2; one normal
+  window with every popover state, or with `--preview-gallery settings` every Settings window
+  state, from synthetic data, shown without taking the focus):
+  `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures [--preview-gallery
+  popover|settings] [--appearance light|dark]` prints `muxFinder preview window <n> …`;
+  capture only that window with `screencapture -x -o -l <n> <file.png>`, then `kill -TERM` it
+  (exit 0). With a locked screen or a sleeping display `screencapture` fails: add
+  `--preview-snapshot <file.png>`, which renders the window into the PNG from inside the app
+  and quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
+  `settings-states-*.png`); never capture the screen or another app's window.
+- Login item check (read-only; registers nothing, opens no window or menu bar item, reads no
+  host list, never contacts iTerm2):
+  `build/muxFinder.app/Contents/MacOS/muxFinder --report-login-item-status` prints
+  `SMAppService.mainApp.status` and exits 0. Never call `register`/`unregister` for real
+  (that changes the user's login items); the toggle's real round trip is the user's.
 - App shell check (normal mode; contacts no iTerm2 while no host is enabled and the popover
   stays closed; never through `open`/LaunchServices):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints the menu bar

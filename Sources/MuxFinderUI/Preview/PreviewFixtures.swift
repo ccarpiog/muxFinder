@@ -17,6 +17,8 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var selection: SessionKey?
   /// Per-session progress and failures.
   public var activities: [SessionKey: SessionActivity]
+  /// The explaining fix-it whose text is shown.
+  public var shownExplanation: FixIt?
   /// The time relative times are measured against.
   public var now: Date
 
@@ -29,6 +31,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     searchText: String = "",
     selection: SessionKey? = nil,
     activities: [SessionKey: SessionActivity] = [:],
+    shownExplanation: FixIt? = nil,
     now: Date = PreviewFixtures.now
   ) {
     self.id = id
@@ -38,8 +41,9 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.searchText = searchText
     self.selection = selection
     self.activities = activities
+    self.shownExplanation = shownExplanation
     self.now = now
-  } // End of init(id:title:state:hostList:searchText:selection:activities:now:)
+  } // End of init(id:title:state:hostList:searchText:selection:activities:shownExplanation:now:)
 }
 
 /// Every popover state, built from synthetic data only: invented session names, made-up
@@ -165,7 +169,8 @@ public enum PreviewFixtures {
     id: "overview", title: "Hosts and sessions", state: state(overviewHosts),
     selection: saturnoSessions[1].key)
 
-  /// "Opening…", "Waiting for iTerm2…", "Waiting for you in iTerm2" and a failure with Retry.
+  /// "Opening…", "Waiting for iTerm2…", "Waiting for you in iTerm2", a failure with Retry, and
+  /// an Automation failure with its fix-it.
   public static let progress: PreviewFixture = {
     let sessions = [
       session("api-server", id: 7, on: saturno, windows: 2),
@@ -183,6 +188,7 @@ public enum PreviewFixtures {
       sessions[1].key: SessionActivity(.launched(sessionID: "fixture"))!,
       sessions[2].key: SessionActivity(.stillWaiting(sessionID: "fixture"))!,
       sessions[3].key: SessionActivity(.failed(.timedOut))!,
+      neptunoSessions[0].key: SessionActivity(.failed(.iTerm2(.automationDenied)))!,
     ]
     return PreviewFixture(
       id: "progress", title: "Progress and errors", state: state(hosts), activities: activities)
@@ -228,7 +234,8 @@ public enum PreviewFixtures {
     id: "invalid-host-list", title: "Unusable host list",
     state: state([], attachmentCheck: .notChecked), hostList: .invalid(.notJSON))
 
-  /// A failed iTerm2 check (badges unknown, never "not open here") and "Check failed".
+  /// A failed iTerm2 check (badges unknown, never "not open here") with its fix-it's
+  /// explanation shown, and "Check failed".
   public static let iTermCheckFailed = PreviewFixture(
     id: "iterm2-check-failed", title: "iTerm2 check failed",
     state: state(
@@ -241,7 +248,8 @@ public enum PreviewFixtures {
           sirio, outcome: .failed(.probeError("The discovery output could not be read.")),
           lastAttemptAgo: 15),
       ],
-      attachmentCheck: .failed(at: now, error: .apiDisabled)))
+      attachmentCheck: .failed(at: now, error: .apiDisabled)),
+    shownExplanation: .explainPythonAPI)
 
   /// The host list still loading.
   public static let loading = PreviewFixture(

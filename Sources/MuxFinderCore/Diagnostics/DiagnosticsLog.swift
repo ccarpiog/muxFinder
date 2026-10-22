@@ -19,6 +19,8 @@ public struct DiagnosticCategory: RawRepresentable, Hashable, Sendable {
   public static let launch = DiagnosticCategory(rawValue: "launch")
   /// Attaching and detaching tmux sessions in iTerm2 (`AttachCoordinator`).
   public static let attach = DiagnosticCategory(rawValue: "attach")
+  /// The host list and the Settings window: loads, saves, connection tests, launch at login.
+  public static let settings = DiagnosticCategory(rawValue: "settings")
   /// Application lifecycle and anything without a more specific category.
   public static let general = DiagnosticCategory(rawValue: "general")
 }

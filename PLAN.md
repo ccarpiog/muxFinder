@@ -34,8 +34,9 @@ Sources/
     Diagnostics/              operation log (ring buffer + os.Logger), no terminal content
   muxfinder-launch/           helper executable that iTerm2 runs inside the launch tab
   muxfinder-probe/            developer/diagnostic CLI that drives the core without the GUI
-  MuxFinderUI/                library: AppModel, popover content and views, preview
-                              fixtures (D22); tests import it
+  MuxFinderUI/                library: AppModel, popover content and views, the Settings
+                              window (SettingsModel, views, window controller), preview
+                              fixtures (D22, D23); tests import it
   MuxFinderApp/               SwiftUI menu bar app (MenuBarExtra .window style): entry
                               point, scene and app delegates only
 Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, never the
@@ -644,8 +645,16 @@ session, verifies its identity, and then activates the tab.
     pretty-printed with sorted keys and a final newline, at most 1 MiB (`maximumFileSize`);
     unknown keys are ignored when read. Another format gets another `schemaVersion`.
   - **Storage (D8, D14):** `HostStore` is an actor, so its file work runs off the main actor
-    and saves of one store never interleave; the app is meant to be the only writer, and a
-    change made by anything else is kept by the next save (*Backup rule*). A save creates the
+    and saves of one store never interleave; the app is meant to be the only writer. Every
+    load returns the file's `HostFileRevision` (no file; its bytes and any trust problem; or,
+    for a file too large to read or not a regular file, what identifies it), and
+    `save(_:expecting:)`, the save Settings uses (D23), first looks at the file as a load does,
+    writing nothing, and refuses (`fileChanged`, carrying the revision now there) unless it is
+    still the one a load returned or the last save wrote, so a change made by anything else,
+    a missing file that appeared included, is never replaced without the user's say; it
+    returns the new revision, and reports a `displacedFileNotKept` in its result since the
+    list is in place. The unchecked `save(_:)` skips that look (tests and tools). A change
+    made between the check and the publication is still kept (*Backup rule*). A save creates the
     `muxFinder` folder (0700; its parent must exist) or tightens it to 0700, removes any
     extended ACL from it and refuses the folder (`directoryHasExtendedACL`) if that fails, and
     refuses a folder that is a symbolic link, not a folder or another user's, exactly as D14
@@ -965,14 +974,16 @@ session, verifies its identity, and then activates the tab.
     ignored). Per-session activity ("Opening…", "Waiting for iTerm2…", "Waiting for you in
     iTerm2", a failure with "Retry") is model state; `SessionActivity.init?(_ state:)` maps
     `AttachState` for Phase 10.
-  - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch. The only iTerm2 requests in
-    this phase are the engine's attachment checks, which run only while the popover is
-    visible and are cancelled when it closes (D20), and the client checks that iTerm2 runs
-    before it asks for the cookie (D13). So the cookie is requested when the popover opens
-    while iTerm2 runs, and (Phase 10) on an attach; never at launch, once the popover has
-    closed (a cookie request, connection or identity question the check had not made by then
-    is never made), or while iTerm2 is not running. Tested through the real `ITerm2APIClient`
-    with counting and gated cookie providers, a fake running check and fake connectors.
+  - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch. The popover's only iTerm2
+    requests are the engine's attachment checks, which run only while the popover is
+    visible and are cancelled when it closes (D20); the Settings window adds one, the profile
+    list, asked only when its window opens while iTerm2 runs (D23). The client checks that
+    iTerm2 runs before it asks for the cookie (D13). So the cookie is requested when the
+    popover or the Settings window opens while iTerm2 runs, and (Phase 10) on an attach; never
+    at launch, once the popover has closed (a cookie request, connection or identity question
+    the check had not made by then is never made), or while iTerm2 is not running. Tested
+    through the real `ITerm2APIClient` with counting and gated cookie providers, a fake
+    running check and fake connectors.
   - **Popover visibility and keys:** `PopoverWindowBridge` follows the menu bar extra's
     window: open while it is visible and not occluded, rechecked on becoming or resigning key,
     occlusion changes and closing (repeats ignored). A local key-down monitor for that window
@@ -980,21 +991,23 @@ session, verifies its identity, and then activates the tab.
     before the search field sees them (not while an input method composes); Esc closes the
     window. The arrows move through the listed rows only. No unattended run can open the real
     popover (no UI scripting), so this glue is checked by the model's tests and by hand only.
-  - **Placeholders:** opening a session and "New session" (Phase 10) and "Settings" (Phase 9)
-    only record a `DeferredIntent`: nothing is attached, launched or saved. "Retry" on a
-    session failure clears it and refreshes the session's host.
+  - **Placeholders:** opening a session and "New session" (Phase 10) only record a
+    `DeferredIntent`: nothing is attached or launched. "Settings" and ⌘, open the Settings
+    window (D23). "Retry" on a session failure clears it and refreshes the session's host.
   - **Quit:** "Quit", SIGTERM and SIGINT go through `AppTermination.request()`, which calls
     `terminate(_:)` from a run-loop block. `applicationShouldTerminate` answers
-    `.terminateLater`, runs `AppModel.shutdown()` (the queue, dropping requests not yet handed
-    over, the system events adapter, then the engine, whose `stop()` cancels any attachment
-    check and kills any probe's process group) and replies, so the process
+    `.terminateLater`, runs `AppModel.shutdown()` (Settings' `shutdown()`, which refuses new
+    work and cancels and awaits its probes and window opening, D23; the queue, dropping
+    requests not yet handed over; the system events adapter; then the engine, whose `stop()`
+    cancels any attachment check and kills any probe's process group) and replies, so the process
     exits 0; a 5 s deadline replies anyway. Calling `terminate(_:)` from a main-queue block or a
     main-actor task never returned: AppKit waits for the reply in a nested run loop, which
     cannot drain the main queue while one of its blocks runs, and the shutdown task needs it.
     Quitting detaches nothing, kills no session and sends iTerm2 nothing.
   - **Preview fixtures:** `--preview-fixtures` runs a plain `NSApplication` (no SwiftUI scene,
     so no status item, and nothing recorded for one; no engine, host list or iTerm2) with one
-    normal window of every state in `PreviewFixtures.all`: synthetic names, `*.example`
+    normal window of every state in `PreviewFixtures.all` (with `--preview-gallery settings`,
+    `SettingsFixtures.all` instead, D23): synthetic names, `*.example`
     destinations, a fake socket path, a fixed `now`. It is shown without activating the app
     and its window number is printed for `screencapture -l`. `--appearance light|dark` sets
     `NSApp.appearance` only. `--preview-snapshot <file.png>` also draws the window's content
@@ -1020,6 +1033,125 @@ session, verifies its identity, and then activates the tab.
     `cc.carpio.muxfinder` defaults domain; a hidden item (as a preview with an un-inserted
     `MenuBarExtra` once made) is stored as `NSStatusItem VisibleCC Item-0 = 0`. That is why
     preview mode creates no status item. A normal run that changes nothing wrote nothing.
+
+- **D23 — Settings window** (decided in Phase 9a, 2026-10-22; code in
+  `Sources/MuxFinderUI/Model/`: `SettingsModel.swift`, `SettingsEnvironment.swift`,
+  `HostDraft.swift`, `SettingsResults.swift`, `LoginItem.swift`, `FixIt.swift`,
+  `DiagnosticsReport.swift`; `Views/Settings/`; `Preview/SettingsFixtures.swift`,
+  `Preview/SettingsGallery.swift`).
+  - **Window:** one AppKit window (`SettingsWindowController.shared`, "muxFinder settings",
+    720×740 points, at least 640×520, resizable, not restorable, no saved frame, no tabbing)
+    hosting `SettingsView` with the Hosts, General and Diagnostics tabs. It is made on first
+    use and reused: `AppModel.openSettings()` (the footer's "Settings", ⌘, in the popover, the
+    "Open Settings" placeholder button) calls `AppEnvironment.presentSettings`, which calls
+    `NSApp.activate()` (an accessory app stays behind the active app otherwise) and brings the
+    window to the front. Opening a closed window calls `SettingsModel.windowDidOpen()`, which
+    runs the opening (login item status, host list, then profiles, suggestions and log) in a
+    task the model owns; closing it calls `windowDidClose()`: the opening is cancelled (with
+    the profile request inside it, so the iTerm2 client stops before its next contact, and a
+    cancelled `ITerm2ProfileSource` asks nothing), late results are dropped by window
+    generation and nothing more starts, probes are cancelled and dialogs dropped (unsaved
+    edits are lost, since the next opening reloads the list); becoming key reads the login
+    item status again. Quitting runs `SettingsModel.shutdown()` from `AppModel.shutdown()`
+    (D22): no opening, load, profile request, probe or save starts any more, the opening and
+    every probe still running (a replaced one too) are cancelled, and it returns only once
+    all have ended, so no probe's process group outlives the app. The window
+    handles ⌘X, ⌘C, ⌘V, ⌘A, ⌘Z, ⇧⌘Z and ⌘W itself (`SettingsWindow.performKeyEquivalent`),
+    since a menu bar app shows no main menu. Rejected: a SwiftUI `Settings` scene, which an
+    accessory menu bar app cannot reliably open and bring forward, and which preview mode's
+    plain `NSApplication` does not have.
+  - **Seams (`SettingsEnvironment`):** `HostListPersisting` (`HostStore`, the same instance the
+    app loads with, so saves keep D19's rules; `load()` gives the file's revision and
+    `save(_:expecting:)` takes it back), `HostDiscovering` (`DiscoveryProbe`) for
+    Detect and Test connection, `ITerm2ProfileListing` (`ITerm2ProfileSource` over the shared
+    `ITerm2APIClient`: `isRunning()` first, then `ListProfiles` for the names only; never
+    `ensureRunning()`, so iTerm2 is never launched to fill the picker), SSH suggestions
+    (`SSHConfigSuggestions`, read off the main actor), `LoginItemControlling`
+    (`SystemLoginItem`, `SMAppService.mainApp`), the `DiagnosticsLog` (one per app, shared with
+    the iTerm2 client, which records its connections in it), the pasteboard, `openURL`, the
+    versions and the clock. `AppEnvironment` gained `openURL`, `presentSettings`, `settings`
+    and `diagnostics`. Tests pass fakes for every one; saves are also tested through a real
+    `HostStore` in a private folder.
+  - **Editing:** the editor works on a `HostDraft` with explicit "Save" and "Revert" (no
+    autosave, so a half-typed destination is never stored). Inline rules (`HostDraftIssues`,
+    sentence case): a name is required, at most 50 characters, without control characters
+    and not another host's (ignoring case); an SSH destination is empty or passes
+    `Validation.sshDestination`, and is required while the host is on; an SSH host turns on
+    only with a valid destination (`setEnabled(_:)` refuses and says why; the toggle is
+    disabled); the tmux path is empty (automatic) or passes `Validation.executablePath`; a
+    profile has no control characters. Values are trimmed, and an empty path or profile is
+    stored as none. A profile iTerm2 does not list is a warning, not an error. Choosing This
+    Mac turns the host on, and saving applies `makeThisMac(id:)`, so the previous This Mac
+    becomes an SSH host, turned off (the editor says so before the save). A new host is added
+    as SSH and off, then made This Mac if chosen, then updated, all on a copy that `HostList`
+    checks before the store sees it. Selecting another host with unsaved changes asks
+    ("Discard changes" or "Keep editing"), and so does removing ("Remove"). Editing stays
+    enabled while a removal saves (decided: preserve rather than disable): when the save ends,
+    the editor moves to the next host only if it still shows the removed one, so a host
+    selected or edited meanwhile keeps its selection and draft. A save updates the
+    popover's load status to `saved` and hands the list to the engine
+    (`RefreshCoordinator.setHosts(_:)`, through `AppModel`'s request queue). A save that put
+    the list in place but could not keep the displaced file (`displacedFileNotKept`) counts as
+    saved, with its error shown.
+  - **Changed file:** every save and removal expects the revision the list was loaded with or
+    last saved as (`HostStore.save(_:expecting:)`, D19). If another program changed the file
+    since, a valid or missing file included (one that appeared counts as changed), the store
+    writes nothing and refuses; Settings keeps the draft as it was, shows "The host list file
+    changed after muxFinder loaded it, so nothing was saved. Choose Reload or Replace." and a
+    banner with "Reload" (load the file as it is now; a now unusable file then gets its own
+    Replace flow) and "Replace…" ("Replace the host list file?", which saves the list shown
+    over the file as the refused save found it). Until one is chosen nothing is editable or
+    saved. A save after Replace still refuses a file that changed again, and `HostStore`
+    keeps the replaced file as a backup.
+  - **Unusable file:** an `invalid` load state is shown in a banner with its problem, and
+    nothing is editable or saved (the save path refuses too) until the user confirms "Replace
+    the host list file?" (`confirmReplaceFile()`). Even then nothing is written until a save,
+    which expects that same unusable file (one changed again refuses the save as above), and
+    `HostStore` keeps the displaced file as a backup, since it never loaded it as `saved`
+    (D19). An unreadable folder disables editing and offers "Try again". The examples
+    (`notSavedYet`) are editable, with a note that nothing is saved until a change.
+  - **Detect and Test connection:** both run discovery on the draft as it stands, never on the
+    saved file: Detect without the tmux path, filling the field with `ProbeReport.tmuxPath`
+    ("Found tmux 3.8 at …"); Test connection with it, showing `HostStatusLabel` and
+    `HostProblemText` exactly as the popover does (This Mac, Reachable or No sessions for an
+    answer, with the session count and tmux version; never a session name). A newer request,
+    another selection, a change of mode, destination or tmux path, closing the window or
+    quitting cancels the running probe (the runner kills its process group) and drops its
+    result by generation.
+  - **Launch at login:** `LoginItemStatus` maps every `SMAppService.Status` (`@unknown
+    default` to `unknown(raw)`). The toggle registers or unregisters, then reads the status
+    again; an error is shown ("muxFinder couldn't turn on launch at login. …"), never
+    swallowed. `requiresApproval` shows the toggle on with a fix-it that opens Login Items
+    (`SMAppService.openSystemSettingsLoginItems()`); `notFound` says that launch at login works
+    for the app installed in /Applications (or ~/Applications) and opened from there.
+    Unattended runs only read the status: `muxFinder --report-login-item-status` prints it and
+    exits before any window, menu bar item, host list or iTerm2 contact. Registering changes
+    the user's login items, so the real round trip is owed to the user.
+  - **Diagnostics:** the tab lists the `DiagnosticsLog` entries newest first (host ids shown as
+    display names) and the last iTerm2 check's problem with its fix-it. "Copy diagnostics"
+    (`DiagnosticsReport`) is plain text: muxFinder's and macOS's versions, the launch-at-login
+    status, the load state, the iTerm2 check (kind, time, counts), each host by display name
+    and id with its mode, on or off, whether a tmux path or profile is set (never which), its
+    popover label and status kind, times, session count and failures in a row, then the log
+    (ISO 8601, UTC). Decided: destinations, tmux paths, profile names, node names and session
+    names are the user's and never appear, and neither does a failed probe's message, which
+    may quote ssh or tmux output naming the destination; a log host id no host has is shown
+    as the id, anything else as "unknown". Settings records its own events (category
+    `settings`: loads, saves, removals, connection tests, detections, launch-at-login changes)
+    with host ids and outcome kinds only; the app model records the load at launch.
+  - **Fix-its (`FixIt`):** `automationDenied` (also inside `notSent`, and in attach failures
+    that carry it) gets "Open Automation settings", which opens
+    `x-apple.systempreferences:com.apple.preference.security?Privacy_Automation` through
+    `openURL`; `apiDisabled` gets "How to turn it on", an inline explanation (iTerm2 ›
+    Settings, General › Magic, "Enable Python API") that never opens iTerm2; launch at login
+    waiting for approval gets "Open Login Items settings". The popover's iTerm2-check notice
+    and session failures (`SessionActivity.failed(message:fixIt:)`), and Settings' profile
+    note and Diagnostics tab show them. The Automation URL was not opened in an unattended run.
+  - **Preview fixtures:** `--preview-fixtures --preview-gallery settings` shows
+    `SettingsFixtures.all` (11 states) in the same plain preview window, with the same
+    `--appearance` and `--preview-snapshot` flags; screenshots
+    `docs/screenshots/settings-states-{light,dark}.png`. Synthetic data only (`*.example`
+    destinations, invented profile and suggestion names, a fixed log).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -1780,6 +1912,25 @@ Requirements:
 Acceptance: view-model validation tests pass, preview-fixture screenshots of the Settings and
 onboarding states are saved, and the launch-at-login toggle round-trips its status
 (`SMAppService.Status`), recorded honestly if it needs the app in `/Applications`.
+
+Split (2026-10-22, before the first worker): Phase 9 is two sub-phases, each with its own
+worker, verification, review and commit. Neither opens iTerm2 windows, so both may run while
+6b's real runs wait for iTerm2's thread count to fall.
+
+- **9a — Settings window (routine).** The Settings window (Hosts, General and Diagnostics
+  tabs) opened by the popover's `openSettings()`; the host editor with every *Host editor*
+  requirement above, saving only through `HostStore`; launch at login through
+  `SMAppService.mainApp` behind a seam; the diagnostics list plus "Copy diagnostics"; the
+  *Fix-it buttons*; Settings preview fixtures and screenshots; view-model tests. Unattended
+  real checks only read `SMAppService.mainApp.status` (registering changes the user's login
+  items, so the real round trip is owed to the user) and never save the real `hosts.json`.
+- **9b — Onboarding and SSH setup (routine).** The onboarding window (every *Onboarding*
+  requirement above, shown while the host list is `notSavedYet`), the "Set up SSH in iTerm2…"
+  action with its launch request kind and helper mode `ssh-setup <uuid>` (argv only,
+  `/usr/bin/ssh -- <dest>` with a validated destination, the helper's 10 s hold kept),
+  onboarding preview fixtures and screenshots, and tests. Its real run opens an iTerm2 tab and
+  ssh, so unattended it is proven hermetically and the real run (Saturno only) is owed to a
+  later real-run window.
 
 ### Phase 10 — Attach UX: open, focus, new session, move here, detach (high)
 

@@ -81,15 +81,15 @@ struct AppModelKeyboardTests {
     #expect(model.deferredIntents.count == 1)
   } // End of func returnOpensTheSelection()
 
-  /// ⌘F asks for the search focus, ⌘N and ⌘, record their placeholders, ⌘R is accepted and
-  /// Esc closes the popover.
+  /// ⌘F asks for the search focus, ⌘N records its placeholder, ⌘, is handled (a fixture model
+  /// presents no window and records nothing), ⌘R is accepted and Esc closes the popover.
   @Test func commandKeys() {
     let model = Self.model()
     #expect(model.handle(.find) == .handled)
     #expect(model.searchFocusRequests == 1)
     #expect(model.handle(.newSession) == .handled)
     #expect(model.handle(.settings) == .handled)
-    #expect(model.deferredIntents == [.newSession, .openSettings])
+    #expect(model.deferredIntents == [.newSession])
     #expect(model.handle(.refresh) == .handled)
     #expect(model.handle(.close) == .closePopover)
   }

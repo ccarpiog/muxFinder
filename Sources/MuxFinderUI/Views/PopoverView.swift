@@ -36,7 +36,7 @@ public struct PopoverView: View {
         .padding(10)
       Divider()
       if !content.notices.isEmpty {
-        NoticesView(notices: content.notices)
+        NoticesView(notices: content.notices, model: model)
         Divider()
       }
       if let placeholder = content.placeholder {

@@ -45,7 +45,7 @@ struct FooterView: View {
 struct PlaceholderView: View {
   /// Which placeholder.
   let placeholder: PopoverContent.Placeholder
-  /// Opens Settings (a Phase 9 placeholder until then).
+  /// Opens the Settings window.
   let openSettings: () -> Void
 
   /// An icon or spinner, the title, the explanation and, with no host turned on, a button.
@@ -91,17 +91,24 @@ struct PlaceholderView: View {
   }
 }
 
-/// Problems shown above the host list: an unusable host list, a failed iTerm2 check.
+/// Problems shown above the host list: an unusable host list, a failed iTerm2 check (with its
+/// fix-it when it has one).
 struct NoticesView: View {
   /// The notices.
   let notices: [PopoverContent.Notice]
+  /// The model that performs a fix-it.
+  let model: AppModel
 
-  /// One line per notice on a faint orange band.
+  /// One line per notice on a faint orange band, each fix-it under its line.
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       ForEach(notices) { notice in
         MessageLine(
           text: notice.text, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+        if let fixIt = notice.fixIt {
+          FixItView(fixIt: fixIt, shownExplanation: model.shownExplanation, perform: model.perform)
+            .padding(.leading, 18)
+        }
       }
     }
     .padding(.horizontal, 12)

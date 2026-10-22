@@ -2,12 +2,14 @@ import AppKit
 import Foundation
 import MuxFinderCore
 
-/// What `AppModel` runs on (PLAN.md D22): the host list, the refresh engine, the system events
-/// adapter, the clock and quitting. `production()` wires the real core; tests pass fakes, so
-/// `swift test` never reads `hosts.json`, runs a probe or contacts iTerm2.
+/// What `AppModel` runs on (PLAN.md D22, D23): the host list, the refresh engine, the system
+/// events adapter, the clock, quitting, opening URLs, the Settings window and its seams.
+/// `production()` wires the real core; tests pass fakes, so `swift test` never reads or saves
+/// `hosts.json`, runs a probe, contacts iTerm2, opens a window or System Settings, or changes a
+/// login item.
 ///
 /// Building an environment does no work: nothing is read, started or contacted until
-/// `AppModel.start()` calls `loadHosts` and `makeEngine`.
+/// `AppModel.start()` calls `loadHosts` and `makeEngine`, or the Settings window opens.
 public struct AppEnvironment: Sendable {
   /// Loads the host list (`HostStore.load()` in production, which never writes).
   public var loadHosts: @Sendable () async throws -> HostStoreLoadResult
@@ -20,6 +22,14 @@ public struct AppEnvironment: Sendable {
   public var now: @Sendable () -> Date
   /// Quits the app (`NSApplication.terminate(_:)` in production).
   public var terminate: @MainActor @Sendable () -> Void
+  /// Opens a URL (a fix-it's System Settings pane; `NSWorkspace` in production).
+  public var openURL: @MainActor @Sendable (URL) -> Void
+  /// Shows the Settings window for the model (`SettingsWindowController` in production).
+  public var presentSettings: @MainActor @Sendable (SettingsModel) -> Void
+  /// The Settings window's seams; `nil` gives an inert Settings model.
+  public var settings: SettingsEnvironment?
+  /// The operation log, if any (the app model records how the host list loaded).
+  public var diagnostics: DiagnosticsLog?
 
   /// Creates an environment from its parts.
   public init(
@@ -27,29 +37,57 @@ public struct AppEnvironment: Sendable {
     makeEngine: @escaping @Sendable (HostList) -> RefreshCoordinator,
     makeSystemEvents: @escaping @MainActor @Sendable (RefreshCoordinator) -> RefreshSystemEvents?,
     now: @escaping @Sendable () -> Date = { Date() },
-    terminate: @escaping @MainActor @Sendable () -> Void
+    terminate: @escaping @MainActor @Sendable () -> Void,
+    openURL: @escaping @MainActor @Sendable (URL) -> Void = { _ in },
+    presentSettings: @escaping @MainActor @Sendable (SettingsModel) -> Void = { _ in },
+    settings: SettingsEnvironment? = nil,
+    diagnostics: DiagnosticsLog? = nil
   ) {
     self.loadHosts = loadHosts
     self.makeEngine = makeEngine
     self.makeSystemEvents = makeSystemEvents
     self.now = now
     self.terminate = terminate
-  } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:)
+    self.openURL = openURL
+    self.presentSettings = presentSettings
+    self.settings = settings
+    self.diagnostics = diagnostics
+  } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
 
-  /// The real app: `hosts.json` through `HostStore` (read-only), an engine over
-  /// `DiscoveryProbe` whose attachment checks use `AttachmentIndex` over one shared
-  /// `ITerm2APIClient`, and `NSWorkspace`'s sleep and wake notifications plus the network path.
+  /// The real app: `hosts.json` through one `HostStore` (loading never writes; Settings saves
+  /// through it), an engine over `DiscoveryProbe` whose attachment checks use
+  /// `AttachmentIndex` over one shared `ITerm2APIClient`, `NSWorkspace`'s sleep and wake
+  /// notifications plus the network path, one `DiagnosticsLog`, and the Settings window's real
+  /// seams: the same probe for Detect and Test connection, the same client for the profile
+  /// list, `~/.ssh/config` suggestions (read-only), `SMAppService.mainApp`, the general
+  /// pasteboard and `NSWorkspace` for URLs.
   ///
-  /// The client connects on its first request only, and the engine sends requests only for an
+  /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
-  /// closes (PLAN.md D20). Connecting checks that iTerm2 runs before asking for its cookie
-  /// (D13), and an attempt whose callers were cancelled stops before the cookie or the
-  /// connection, so the cookie is never requested at launch, nor once the popover has closed,
-  /// nor while iTerm2 is not running.
+  /// closes (PLAN.md D20); Settings asks for the profile list only when its window opens while
+  /// iTerm2 runs. Connecting checks that iTerm2 runs before asking for its cookie (D13), and an
+  /// attempt whose callers were cancelled stops before the cookie or the connection, so the
+  /// cookie is never requested at launch, nor once the popover has closed, nor while iTerm2 is
+  /// not running.
+  @MainActor
   public static func production() -> AppEnvironment {
-    let iTerm2 = ITerm2APIClient()
+    let diagnostics = DiagnosticsLog()
+    let iTerm2 = ITerm2APIClient(diagnostics: diagnostics)
     let index = AttachmentIndex(iTerm2: iTerm2)
     let store = HostStore()
+    let settings = SettingsEnvironment(
+      store: store,
+      discovery: DiscoveryProbe(),
+      profiles: ITerm2ProfileSource(iTerm2: iTerm2),
+      sshSuggestions: {
+        await Task.detached(priority: .utility) { SSHConfigSuggestions().hostNames() }.value
+      },
+      loginItem: SystemLoginItem(),
+      diagnostics: diagnostics,
+      copyText: { SettingsEnvironment.copyToGeneralPasteboard($0) },
+      openURL: { SettingsEnvironment.openWithWorkspace($0) },
+      appVersion: AppVersion.current,
+      systemVersion: ProcessInfo.processInfo.operatingSystemVersionString)
     return AppEnvironment(
       loadHosts: { try await store.load() },
       makeEngine: { hosts in
@@ -59,7 +97,11 @@ public struct AppEnvironment: Sendable {
         RefreshSystemEvents(
           coordinator: engine, notificationCenter: NSWorkspace.shared.notificationCenter)
       },
-      terminate: { AppTermination.request() })
+      terminate: { AppTermination.request() },
+      openURL: { SettingsEnvironment.openWithWorkspace($0) },
+      presentSettings: { SettingsWindowController.shared.show($0) },
+      settings: settings,
+      diagnostics: diagnostics)
   } // End of static func production()
 }
 

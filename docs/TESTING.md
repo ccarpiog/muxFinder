@@ -678,6 +678,39 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   arrives and nothing is published. Making `start()` open the popover in the engine makes the
   first two cookie tests fail; undoing the cancellation on close fails the third, and handing
   queued requests to the engine during shutdown fails the shutdown test.
+- **Settings window** (`Tests/MuxFinderUITests/`: `HostDraftValidationTests`,
+  `SettingsHostsTests`, `SettingsGeneralTests`; PLAN.md D23). Over fakes for the store,
+  discovery, profile list, login item, pasteboard and URL opening, plus a real `HostStore` in a
+  private temporary folder; nothing touches the real `hosts.json`, a login item, iTerm2 or
+  System Settings. Validation: each name rule (required, 50 characters, control characters,
+  another host's name ignoring case), each destination rule (required while on, spaces,
+  control characters, leading "-", ignored for This Mac), the tmux path and profile rules, and
+  what a draft stores (trimmed, empty as none). Editing: an SSH host without a valid
+  destination is refused when turned on; choosing This Mac turns it on and saving demotes the
+  previous This Mac (SSH, off, destination kept); adding a host (as This Mac) and cancelling
+  one; removal and discarding unsaved changes each asked first; a store error shown with the
+  list and draft kept. Saving through `HostStore` in a private folder: loading the examples
+  creates nothing, a save writes the file a fresh store loads back. An unusable file: shown
+  with its problem, no edit, save, add or removal possible and its bytes unchanged until
+  "Replace" is confirmed; then a save puts a new list in place and the old bytes are kept in a
+  `hosts.backup-*.json`. An unreadable folder disables editing until "Try again" works. Detect
+  probes without the tmux path and fills it in, or reports "not found" or the popover's
+  failure wording; Test connection shows the popover's label and explanation for every
+  classified status, This Mac included; a probe whose fields changed (or whose window closed)
+  is dropped, an incomplete draft runs none. The profile picker over listed profiles (with a
+  warning for an unknown name) and its free-text fallback when iTerm2 is not running or
+  listing fails (Automation fix-it); the real `ITerm2ProfileSource` over the fake iTerm2 asks
+  only `isRunning()` while iTerm2 is not running and never `ensureRunning()`. Launch at login:
+  every `SMAppService.Status` mapped, the toggle's round trip on a fake (register,
+  unregister, `requiresApproval` with its Login Items fix-it, `notFound`, an error shown and
+  the status read again). "Copy diagnostics": the exact header lines, hosts by name and id,
+  status kinds, the log with host names, the closing note, and none of a planted destination,
+  tmux path, profile name, session name, probe message, node name or foreign host id. Fix-its:
+  selection for every relevant iTerm2 error and attach failure (through `notSent`), the
+  Automation URL, the explanation, and each performed through its seam, in Settings and the
+  popover. The app model: ⌘, and the footer present the Settings window; a list saved there
+  reaches the engine and its host turns live. The Settings fixtures cover every required state
+  with synthetic data, and the new flags parse.
 
 ## Helper test mode: argv digest
 
@@ -1257,4 +1290,44 @@ onboarding defaults, all off): the real app discovered nothing and contacted no 
 | Shell check | `muxFinder --report-menu-bar-item &`; after 8 s the window listing, `pgrep -P`; `kill -TERM`; `wait` | 7 status-bar-level windows, all visible: 35×30 pt at y 1698 in the main display's menu bar, one on the second display, the rest parked off screen; `CGWindowListCopyWindowInfo` listed none under the pid; no child process; exit status 0 at once; no muxFinder process left |
 | Nothing written | `ls -la` of `~/Library/Application Support/muxFinder` and `launch/` before and after; preferences as above | identical: `launch/` only, empty, mtime unchanged; no `hosts.json`; no preference or saved-state file |
 | Unit tests | `swift test`, twice | exit 0 both times: 563 tests in 54 suites (core) and 44 in 3 suites (new `MuxFinderUITests`) |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |
+
+### Phase 9a — Settings window (2026-10-22)
+
+No check here opens the real Settings window or popover (that needs a click; UI scripting is
+never used), registers or unregisters a login item (that changes the user's login items), or
+saves the real `hosts.json`. The window's states are shown by the preview window and covered
+by the unit tests (PLAN.md D23); saves are tested through `HostStore` in private temporary
+folders only.
+
+- **Screenshots.** As in Phase 8, with `--preview-gallery settings`:
+  `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery settings
+  --appearance light` (then `dark`) opens one window with every Settings state; capture it
+  with `screencapture -x -o -l <n> docs/screenshots/settings-states-<a>.png`, or, when that
+  fails, add `--preview-snapshot <file.png>`. Without `--preview-gallery` the window shows the
+  popover's states (`popover-states-<a>.png`).
+- **Login item status (read-only).** `build/muxFinder.app/Contents/MacOS/muxFinder
+  --report-login-item-status` prints `muxFinder login item status: <status> (running from an
+  app bundle: yes|no)` and exits 0, before any window, menu bar item, host list or iTerm2
+  contact. Reading the status registers nothing.
+- **Owed to the user:** the launch-at-login toggle's real round trip (turn it on and off in
+  the General tab, from the app installed in `/Applications`, and check System Settings ›
+  General › Login Items), the "Open Automation settings" and "Open Login Items settings"
+  buttons opening their System Settings panes, the Settings window coming to the front from
+  the popover and with ⌘, and the editing keys (⌘C, ⌘V, …) in its fields.
+
+Environment: Neptuno, macOS 27.2, from the repo root. The support folder held only an empty
+`launch/` before and after (no `hosts.json`).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Bundle | `scripts/build-app.sh` | exit 0; signed by the "Apple Development" identity; not notarized |
+| Signature | `codesign --verify --deep --strict build/muxFinder.app` | exit 0 |
+| `screencapture -l` | the Settings preview window's number from its output line | exit 1, "could not create image from window" (as in Phase 8: the screen could not be captured); the preview then quit on `kill -TERM` with exit 0 |
+| Settings screenshots | `muxFinder --preview-fixtures --preview-gallery settings --appearance light --preview-snapshot docs/screenshots/settings-states-light.png`, then `dark` | exit 0 both; 4528×5572 PNGs (2264×2786 pt at 2x), 11 states each, inspected (and cropped with `sips` into `/tmp` to read details): the host list with statuses, the editor with a successful test, every inline validation error, This Mac with its demotion note and a Detect result, "Sign-in needed" with the popover's explanation, the Automation fix-it, the unusable-file banner with Replace and a disabled editor, the examples banner with a new host, the log with the API-disabled explanation, and each launch-at-login state (on, off with an error, needs approval with its fix-it, not found); readable in both appearances |
+| Popover screenshots | `muxFinder --preview-fixtures --appearance light --preview-snapshot docs/screenshots/popover-states-light.png`, then `dark` | exit 0 both; 3904×1984 PNGs, ten states, now with "Open Automation settings" on a session failure and "How to turn it on" expanded on the iTerm2-check notice; inspected in both appearances |
+| Login item status | `muxFinder --report-login-item-status` | exit 0: `notFound (running from an app bundle: yes)`: the bundle in `build/` is not an installed app, which is what the General tab's `notFound` message says |
+| Shell check | `muxFinder --report-menu-bar-item &`; the window listing; `pgrep -P`; `kill -TERM` | 7 status-bar-level windows, all visible; no child process; exit status 0; no muxFinder process left |
+| Nothing written | `ls -la` of `~/Library/Application Support/muxFinder` and `launch/`; `ls ~/Library/Preferences ~/Library/Saved\ Application\ State \| rg -i muxfinder` | `launch/` only, empty, mtimes unchanged; no `hosts.json`; no preference or saved-state file |
+| Unit tests | `swift test`, twice | exit 0 both times: 569 tests in 55 suites (core) and 76 in 6 suites (UI; 30 new in 3 new suites) |
 | Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |
