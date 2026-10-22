@@ -332,3 +332,6 @@ here) is queued.
   (final-tree runs, archive, checkpoint) `dca1228` (parent `60d55ea`), pushed to `origin/main`
   (`60d55ea..dca1228`, success). This SHA/push record is a follow-up commit on top; tree clean
   after it.
+- Phase 6a (in progress): code, review, fixes and checkpoint `0210999` (parent `96c6ac8`),
+  pushed to `origin/main` (`96c6ac8..0210999`, success). This SHA/push record is a follow-up
+  commit on top; tree clean after it.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T15:24:50Z",
+  "updated": "2026-10-22T15:25:10Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -145,6 +145,8 @@
       "risk": "high",
       "parent": "6",
       "summary": "Creates sessions safely and reports vanished ones; reviewed and fixed, one final-tree e2e-remote run on Saturno still owed.",
+      "commit": "0210999",
+      "review": "docs/reviews/phase-6a.md",
       "added": "2026-10-22T13:03:56Z",
       "started": "2026-10-22T13:03:56Z",
       "status_since": "2026-10-22T13:03:56Z"
