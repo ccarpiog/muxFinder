@@ -11,6 +11,9 @@ public enum ValidationError: Error, Sendable, Hashable, LocalizedError {
   case sessionNameContainsControlCharacter
   /// The session name contains `:` or `.`, which tmux silently replaces.
   case sessionNameContainsColonOrPeriod
+  /// The session name contains `\`, which tmux stores doubled (`\\`), so the session would
+  /// get another name than the one asked for.
+  case sessionNameContainsBackslash
   /// The session name starts with `-`, which tmux would read as an option.
   case sessionNameStartsWithHyphen
   /// The SSH destination is empty.
@@ -41,6 +44,8 @@ public enum ValidationError: Error, Sendable, Hashable, LocalizedError {
       return "Session names can't contain line breaks, tabs or other control characters."
     case .sessionNameContainsColonOrPeriod:
       return "Session names can't contain “:” or “.” because tmux replaces them."
+    case .sessionNameContainsBackslash:
+      return "Session names can't contain “\\” because tmux changes it."
     case .sessionNameStartsWithHyphen:
       return "Session names can't start with “-”."
     case .sshDestinationEmpty:
@@ -76,7 +81,9 @@ public enum Validation {
   /// Validates a tmux session name and returns it trimmed of surrounding whitespace.
   ///
   /// Unicode (accents, CJK, emoji) is allowed. Rejected: empty, control characters, `:` or `.`
-  /// (tmux rewrites them), a leading `-`, and more than `maximumSessionNameLength` characters.
+  /// (tmux rewrites them), `\` (tmux stores it doubled), a leading `-`, and more than
+  /// `maximumSessionNameLength` characters. A `#` is allowed: tmux expands formats in a new
+  /// session's name, so `TmuxCommands` doubles every `#` before it reaches tmux (PLAN.md D18).
   public static func sessionName(_ raw: String) throws(ValidationError) -> String {
     let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { throw .sessionNameEmpty }
@@ -84,6 +91,7 @@ public enum Validation {
     guard !name.contains(":"), !name.contains(".") else {
       throw .sessionNameContainsColonOrPeriod
     }
+    guard !name.contains("\\") else { throw .sessionNameContainsBackslash }
     guard !name.hasPrefix("-") else { throw .sessionNameStartsWithHyphen }
     guard name.count <= maximumSessionNameLength else {
       throw .sessionNameTooLong(maximumLength: maximumSessionNameLength)

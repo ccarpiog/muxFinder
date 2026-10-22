@@ -294,7 +294,17 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   (trailing line breaks; 14 refused shapes, among them a tab in the socket path or name), the
   match against discovery (server pid, start time, socket path, id, creation time and name must
   all agree: a restarted server reusing the id does not match), and recovery by exact name
-  among sessions created since a given time (no match, older, ambiguous).
+  among sessions created since a given time (no match, older, ambiguous). The conditional kill
+  (PLAN.md D18 *Real-run safety*): the exact `if-shell -F` argv (every field compared, the id
+  single-quoted in the kill's command string), a name with `#`, `,`, `}` written as a format
+  literal, no argv at all for a name or socket with `{`, `[`, `]` or a control character or for
+  a negative number, and how its answer reads (no output: killed; the marker line or tmux's
+  "no server": not this session; anything else: failed). Against a real tmux on a private
+  `TMUX_TMPDIR`: a session that got the old id and name on a restarted server is not killed by
+  the old record; a record off in any one field (another session's id, `$999`, creation time,
+  pid, start time, socket, name) kills nothing; the exact record kills only its session, then
+  finds nothing; the last session's kill succeeds and, with no server, the answer is not this
+  session.
 - **Connection identity** (`ConnectionIdentityTests`): the static length-prefixed identity
   command (PLAN.md D16) and detach command; exact answers from a client in UTF-8 mode
   (trailing `\n` or `\r\n`; `:`, `_`, a tab and non-ASCII inside the host name and socket
@@ -417,6 +427,66 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   path, an unconfigured Mac is `unknown`, a node name with another host's server is `unknown`,
   two SSH entries for one Mac are `ambiguous` (2 candidates), and a remote connection that
   never answers is `stale` after 3 s while the other maps.
+- **New session: commands** (`TmuxCommandsTests`, PLAN.md D18): the local argv
+  (`/bin/sh -c <script> muxfinder <override> <trimmed name> <directory> <command…>`, `TMUX` and
+  `TMUX_PANE` stripped, 12 s, 16 KiB cap) and the remote one (discovery's BatchMode options,
+  `-n -T --`, one D3 string with every argument single-quoted, a hostile name and a `'` in the
+  directory); the script's `-F` format is `CreatedSession.format` and it never uses `-A`;
+  invalid names (empty, `.`, `:`, `\`, leading `-`, a tab, 101 characters), a directory with a
+  line break, bad destinations and a relative override are refused with zero processes run
+  (a recording runner); `-P -F` output parsed strictly (a valid record becomes an attach
+  target with tmux's key and creation time; empty, two lines, no line break, bad id,
+  non-canonical number, pid 0, relative socket, empty name, extra field, spaces for tabs, cut
+  by the cap, invalid UTF-8 are `unexpectedOutput`); every status (80 and tmux's
+  `duplicate session` are collisions, other exit 1 `tmuxFailed` with the first line, 81, 66,
+  68, 127, 255 local versus remote, a signal, a timeout), the "Set up SSH in iTerm2 first"
+  message for `authFailed` and `hostKeyProblem`, a runner error and a cancelled run. Exit 255
+  over ssh: eleven ssh messages printed before the remote command can run (permission denied,
+  too many authentication failures, an unknown or changed host key, a name that does not
+  resolve, connect refused, timing out, no route, network unreachable, host down) are
+  `sshFailed` with their class, not `mayHaveCreated`, no refresh; fourteen others (a keepalive
+  timeout, `Read from remote host` timing out, without a route or reset, `client_loop` broken
+  pipe or unreachable network, `packet_write_wait`, `ssh_dispatch_run_fatal`, closed by the
+  remote host, `Killed by signal`, remote text before a close, a reset during key exchange, an
+  unknown message, none) are `connectionLost`; those, a signal (local or remote) and exit 137
+  or 129 are `mayHaveCreated`, refresh-triggering, with a message saying the session may have
+  been created; 68, 127 and 128 stay definite. The real script through `/bin/sh`, and the D3
+  string through `/bin/sh` the way the remote login shell parses it, against a fake `tmux`
+  that records its argv: a name
+  and a `~/` directory full of quotes, `$(…)`, backticks, `#{pid}`, `##`, Unicode and emoji
+  reach `has-session -t =<name>` and `new-session -d -P -F <format> -s <name> -c <dir>
+  <command…>` byte for byte, every `#` doubled for `-s` and `-c`; `~`, empty, missing and
+  relative directories resolve from `$HOME`; a missing directory (a Unicode name, an absolute
+  path, a file) exits 81 before `new-session`; `has-session` finding the name stops before
+  `new-session`; tmux's duplicate-session error and another error; an override that is not
+  tmux; locally and through the D3 string (which carries the raw values), a trailing `;` on
+  the `has-session` target, the name, the directory (`~/work #;` reaches tmux as `…/work
+  ##\;`) and command words (`;`, `x;`) arrives written `\;`, a lone `;` name as `\;`, and a
+  directory ending in `\;` as `\\;`. Against a real tmux on a private `TMUX_TMPDIR` and home: a
+  name with `#{pid}`, `##`, Unicode and spaces is stored exactly, the pane runs in
+  `~/work #1 {x} ü 日本` (checked with `#{pane_current_path}`), the same name again is a
+  `has-session` collision and, through a
+  wrapper that hides `has-session`, tmux's duplicate-session error; a missing directory creates
+  nothing (one session listed at the end). Also there, with `~/work` and `~/work;` both
+  existing and a session `muxfinder-test-semi` already there: `muxfinder-test-semi;` in
+  `~/work;` running `sleep 60` is created with that exact name, its pane in `…/work;` (not
+  `…/work`), the other session untouched, the server listing exactly the two panes (no extra
+  tmux command ran), and the same name again is a `has-session` collision. With the escaping
+  removed this test fails (a false `has-session` collision with `muxfinder-test-semi`), and so
+  do the fake-tmux one and the `connectionLost` one with the old 255 classification.
+- **New session: coordinator** (`CreateAndAttachTests`): `createAndAttach` creates, then
+  launches and confirms (`requested` → `launched` → `confirmed`) with the existing-attachment
+  check skipped: no connection listing before `CreateTab` and no tmux command but the launch's
+  own identity check, although an index is configured (the same session through `attach`
+  focuses the listed connection); the request carries tmux's id, creation time and server
+  pid. A collision (either kind), a missing directory, a tmux or ssh failure, an invalid name,
+  a timeout, a lost connection or a signal never discovers, writes a request, calls iTerm2 or
+  publishes a state. A
+  created session gone at revalidation (`noServer`, or not listed) is `sessionGone`, marked
+  refresh-triggering, with no request or iTerm2 call; so is an ordinary attach of a session
+  killed after discovery, and a guard refusal (64, 65) after the tab opened. Exactly
+  `sessionGone`, `sessionChanged` and `identityMismatch` (and the guard's 64 and 65) are
+  refresh-triggering.
 
 ## Helper test mode: argv digest
 
@@ -469,14 +539,36 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   discovery reporting the same wrong `session_created` the helper's guard refuses it:
   `sessionChanged`, no connection, no tmux client; the refused launch tab must still be open a
   second later, showing the explanation and waiting for Return, and is then closed by its
-  recorded session id once it is 10 s old), 10 cleanup. Notes under the steps record what
-  iTerm2 did (argv split, placement, tab fields, the check's counts and timings, whether the
-  launch tab closed, how old each launch tab was when it ended). Exit 0 only when all 10 pass;
-  128 + n after signal n. Safety: only its own session, which every later step (rediscovery
+  recorded session id once it is 10 s old), then the Phase 6a steps (PLAN.md D18): 10 vanished
+  session (a second session, `<name>-gone` running `sleep 600`, created by the harness,
+  discovered and then killed; its attach must end `sessionGone`, refresh-triggering,
+  `requested` → `failed`, with no launch tab, request or argv digest, and the `list-sessions`
+  ids unchanged by the attach), 11 collision (`createAndAttach` with the main session's name:
+  `sessionExists` from `has-session`, no state published, the main session as recorded with 2
+  windows and 3 live panes, the count unchanged), 12 invalid name (five names with `.`, `:`,
+  `\`, a line break, only spaces: `invalidName` with zero processes run by a counting runner,
+  nothing launched), 13 missing directory (`<private directory>/missing ünïcödé 日本`:
+  `directoryMissing`, no session of that name, the count unchanged), 14 new session
+  (`createAndAttach` of `<name>-new #ü 日本;`, `sleep 600`, in a real directory
+  `dir with spaces ünïcödé 日本 #1;` that the run creates with `mkdir` in a private
+  `/private/tmp/mfx.XXXXXX`; both trailing `;` must reach tmux escaped: confirmed with
+  `requested` → `launched` → `confirmed`, the
+  existing-attachment check skipped, activated, the argv digest; the exact name stored, the
+  pane's `#{pane_current_path}` byte-equal to the directory, discovery listing it with one
+  window and one control client; then a clean detach by connection and a kill by id), 15
+  cleanup (also kills any extra session of the run, found by its exact name if its output was
+  lost, and removes the private directory). Notes under the steps record what iTerm2 did
+  (argv split, placement, tab fields, the check's counts and timings, whether the launch tab
+  closed, how old each launch tab was when it ended). Exit 0 only when all 15 pass; 128 + n
+  after signal n. Safety: only its own session, which every later step (rediscovery
   before each attach, the survival checks, the kill) accepts only if its server pid, start
   time, socket path, id, creation time and exact generated name are those `new-session -P`
   reported; when a signal cuts `new-session` short, cleanup first finds the session by that
-  exact name among sessions created since the attempt; it is killed by id. Its attachment
+  exact name among sessions created since the attempt; it is killed by id, and every kill
+  (the steps' and cleanup's) makes that identity check in the same tmux command
+  (`if-shell -F` choosing between `kill-session` and a marker, PLAN.md D18), never in an
+  earlier call, so a server restarted in between cannot lose a session of the user's. Its
+  attachment
   index asks only connections owned by launch tabs the run opened (PLAN.md D16), so other tmux
   connections get no command at all; setup prints how many exist. Only connections iTerm2
   lists as owned by launch tabs it opened are detached (checked again right before each
@@ -487,7 +579,7 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   (the coordinator waits before `detach-client`, the harness before it kills the session or
   closes a tab, and the helper does not exit younger), because iTerm2 shows a blocking modal
   warning for sessions that end within 3 s of starting (see `docs/INTEGRATION-PROOF.md`). The
-  focus step opens and ends nothing. A full passing run takes about 43 s.
+  focus step opens and ends nothing. A full passing run takes about 53 s.
 - `swift run muxfinder-probe e2e-remote saturno-m4` — the integration proof over SSH (PLAN.md
   Phase 5b, D17); only `saturno-m4` is authorized for it. Its tmux calls on Saturno (create,
   split, list, display, kill) go through `/usr/bin/ssh` with discovery's noninteractive
@@ -510,17 +602,24 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   `confirmed`, with the tab open and no connection; the test then closes that tab, forced,
   once 10 s old, the helper ends `interrupted` without starting ssh, and the attach must end
   `failed`, the session alive and unattached; the attach runs in a task the step cancels and
-  awaits on every way out, so Ctrl-C during its `CreateTab` still leaves the tab to cleanup), 11
-  cleanup (detaches leftovers, kills the session by id after checking its identity over ssh —
-  never `kill-server`; the server exits by itself when it was the last session — closes the
-  run's leftover launch tabs once 10 s old, removes the marker). The same safety rules as
+  awaits on every way out, so Ctrl-C during its `CreateTab` still leaves the tab to cleanup),
+  11–15 the Phase 6a steps of `e2e-local` (vanished session, collision, invalid name, missing
+  directory, new session) on Saturno, creation going through `TmuxCommands` over ssh with
+  BatchMode; the missing directory is `~/<name>-missing ünïcödé 日本` and the new session's
+  directory `~/Library/Application Support` (an existing directory with a space; the run writes
+  no file on Saturno), its `#{pane_current_path}` compared with the server's `HOME` (from
+  `show-environment -g HOME`) plus `/Library/Application Support`, the name's trailing `;`
+  kept, 16 cleanup (detaches leftovers, kills the run's sessions by id with the identity check
+  in the same tmux command, one ssh invocation each — never
+  `kill-server`; the server exits by itself when it was the last session — closes the run's
+  leftover launch tabs once 10 s old, removes the marker). The same safety rules as
   `e2e-local`: only its own session, recognized by server, id, creation time and name; its
   index asks only its own launch tabs' connections; every wait bounded (ssh calls 12 s, the
   whole run 300 s); cleanup after a failure, a signal or the time limit; exit 0 only when all
-  11 pass, 128 + n after signal n. Needs key authentication to the destination (setup fails
+  16 pass, 128 + n after signal n. Needs key authentication to the destination (setup fails
   when `tmux -V` over ssh in `BatchMode` does not answer). Every ssh login it makes is the
-  run's own, with key authentication. The passing runs on the final tree took about 77 s,
-  28.5 s of it the still-waiting step.
+  run's own, with key authentication. A passing run takes about 105 s, 28.5 s of it the
+  still-waiting step and 14 s the new-session step.
 - `swift run muxfinder-probe attach --local | --ssh <destination> --session '<$id>'` — one
   real attach of a session of the default server of this Mac or of a remote host (the launch
   tab runs `ssh -t`, so any password prompt appears there), the way the app does it; prints
@@ -531,6 +630,16 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   asks every tmux connection which session it shows (a read-only `display-message`), so during
   unattended runs use it only on `muxfinder-test-*` sessions and only while `iterm2
   list-connections` shows no connection of the user's.
+- `swift run muxfinder-probe new-session --local | --ssh <destination> --name <name> [--dir
+  <directory>]` — creates a detached session on the default server of this Mac or of a remote
+  host (noninteractive; over ssh with BatchMode, PLAN.md D18) and attaches it the way the app's
+  "New session" does; prints JSON (the created id, creation time and server pid, the creation
+  failure with its kind, message and `mayHaveCreated`, or the attach as `attach` prints it,
+  and `triggersRefresh`). It leaves the session attached. An existing session with the name is
+  never touched (`sessionExists`), a missing directory creates nothing (`directoryMissing`).
+  It asks none of iTerm2's tmux connections anything (the existing-attachment check is
+  skipped for a session created a moment ago), so it is safe while the user's connections
+  exist; in unattended runs use only `muxfinder-test-*` names. Its panes run the user's shell.
 - `swift run muxfinder-probe iterm2 attachments` — read-only: discovers this Mac, asks every
   tmux connection which host, server and session it shows (the same `display-message`), and
   prints the mapped connections (session id, connection id, owning session) and the unmapped
@@ -746,3 +855,61 @@ Method notes:
   window would put more work on iTerm2's starved queues.
 - The stall cleared by itself within about two hours, without a restart. A person ended run
   3's launch tab at 13:46, around the start of run 4.
+
+### Phase 6a — new session and vanished sessions (2026-10-22)
+
+Environment: Neptuno and Saturno as in Phase 5b, iTerm2 3.7.6 (the same process since
+2026-10-21 19:27). Before the runs iTerm2 listed no tmux connection, neither Mac had a tmux
+server running, and the launch directory was empty. Every run followed `swift build` and ran
+as `.build/debug/muxfinder-probe` (what `swift run` runs) with `TMUX_TMPDIR` unset. Runs 1
+and 2 are on the tree before one change to the new-session step's note (it now reports the
+creation time apart from the attach's own timings); runs 3 and 4 are on the final tree.
+
+| Check | Command | Observed result |
+|---|---|---|
+| tmux behavior for creation | a private `TMUX_TMPDIR` server under `/tmp` holding only `muxfinder-test-*` sessions: `has-session -t '=…'` with no server, missing, a prefix, a literal `#{pid}`, `=$0`; `new-session -d -P -F … -s … -c …` with `##`, `#{pid}`, `#(…)`, `\`, a missing directory, a duplicate name; then every session killed by id and the directory removed | the facts in PLAN.md *Verified facts*, Phase 6a: `-s` and `-c` are format-expanded (`##` gives `#`), a missing `-c` directory silently starts the pane in the home directory, the `-t` target is not expanded, `duplicate session: <name>` exit 1 |
+| Before the runs | `iterm2 status`; `ps -M -p <iTerm2 pid> \| wc -l`; `iterm2 list-connections`; `discover --local`; `discover --ssh saturno-m4`; `ls` of the launch directory | `status` exit 0 (protocol 1.21); 15 lines; 0 connections; both hosts `noServer`; launch directory empty |
+| `e2e-local`, run 1 | `env -u TMUX_TMPDIR .build/debug/muxfinder-probe e2e-local` | exit 0, 15 of 15 steps PASS in 53.2 s. Steps 1–9 as before (focus existing 92 ms, detach by session 9.6 s); 10 vanished session 105 ms (`sessionGone` from revalidation 38 ms after the call, 1 session listed before and after); 11 collision 26 ms; 12 invalid name 3 ms (5 names, 0 processes); 13 missing directory 21 ms; 14 new session 10.7 s (the pane in the private directory with spaces, Unicode and `#`; detached cleanly, then killed); 15 cleanup |
+| `e2e-remote`, run 2 | `env -u TMUX_TMPDIR .build/debug/muxfinder-probe e2e-remote saturno-m4` | exit 0, 16 of 16 steps PASS in 105.1 s. Steps 1–10 as in Phase 5b (still waiting: `stillWaiting` at 21.0 s, the attach ended 5.2 s after the forced close); 11 vanished session 5.6 s (`sessionGone` 695 ms after the call); 12 collision 3.5 s; 13 invalid name 0.7 s; 14 missing directory 3.0 s (`~/<name>-missing ünïcödé 日本`); 15 new session 14.3 s (the attach after creation: launched 868 ms, confirmed 1.81 s, activated 2.09 s into it; the pane in `~/Library/Application Support`); 16 cleanup |
+| iTerm2's workers after run 2 | `ps -M -p <iTerm2 pid> \| wc -l`; `sample <iTerm2 pid> 3` (read-only, stack frames only) | 28 lines after run 1 (27 a few minutes later), 38 after run 2; 23 GCD worker threads blocked in AppKit's `-[NSAnimation _runBlocking]`, the frames of the Phase 5b stall (which came at 64, the pool's limit), with the API still answering. Real runs paused; about four minutes later the count was back at 15 |
+| `e2e-local`, run 3 | the same command, final tree, the count back at 15 | exit 0, 15 of 15 steps PASS in 53.6 s; 10 vanished session 105 ms; 14 new session 10.7 s (`createAndAttach` 377 ms: creation about 16 ms, then the attach launched at 138 ms, confirmed at 359 ms, activated at 360 ms). Afterwards 28 lines, back at 15 about seven minutes later |
+| `e2e-remote`, run 4 | `env -u TMUX_TMPDIR .build/debug/muxfinder-probe e2e-remote saturno-m4`, final tree, the count at 15 | exit 0, 16 of 16 steps PASS in 104.0 s; 10 still waiting (`stillWaiting` at 21.0 s, the attach ended 5.2 s after the forced close); 11 vanished session 5.3 s (`sessionGone` 682 ms after the call); 12 collision 3.3 s; 13 invalid name 0.7 s; 14 missing directory 2.7 s; 15 new session 14.1 s (`createAndAttach` 2.65 s: creation over ssh about 0.66 s, then the attach launched at 842 ms, confirmed at 1.73 s, activated at 1.99 s). Afterwards 25 lines |
+| After each run | `iterm2 status`; `ps -M`; `discover --local` or `--ssh saturno-m4`; `ls` of the launch directory and of `/private/tmp/mfx.*` | always `status` exit 0; both hosts `noServer`; launch directory empty with no `test-mode` marker; no `/private/tmp/mfx.*`; line counts in the rows above |
+
+Method notes:
+
+- The sessions the runs created ran `sleep 600` (`NewSessionRequest.command`), never a login
+  shell, and every one was a `muxfinder-test-<run>…` session killed by id after its identity
+  check. Nothing was written on Saturno beyond what tmux itself keeps for its socket; the
+  missing directory was never created there. Each run's setup reported 0 tmux connections it
+  had not opened.
+- The new-session step's timings in runs 1 and 2 are the attach's own (`AttachTimings`,
+  counted from the start of the attach that follows creation), although that note called them
+  "after the call (creation included)"; from run 3 on the note gives the creation time apart.
+- **iTerm2's thread count rises with each run and falls back later:** about 12 lines per run,
+  as GCD workers blocked in `-[NSAnimation _runBlocking]`, reclaimed within minutes once the
+  runs stop (38 back to 15). In Phase 5b three runs left it at 15–19 lines. The cause is still
+  unknown (no UI was touched to find out). Run 3 waited for the count to come back to 15, and
+  so did run 4.
+- `muxfinder-probe new-session` itself was not run against the real iTerm2: its path is the
+  one the e2e steps drive (`createAndAttach` through the standard coordinator), and an
+  unattended run would start the user's login shell in its pane.
+
+#### Phase 6a review fixes (2026-10-22)
+
+The fixes for `docs/reviews/phase-6a.md` (PLAN.md D18): the harness kills with the identity
+check inside the same tmux command, trailing `;` escaped for tmux's argv parser, and an ssh 255
+that cannot be placed before the remote command is `connectionLost` (`mayHaveCreated`). Every
+tmux check below ran on a private server (`TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`,
+`/opt/homebrew/bin/tmux -u`, tmux 3.8, `muxfinder-test-*` sessions only), whose directory was
+removed afterwards; the default servers were only discovered (both `noServer`).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Conditional kill | `if-shell -F -t '$N' <condition> "kill-session -t '$N'" "display-message -p mismatch"` against two sessions created in the same second, with each field of the record changed in turn, then exact | each changed field (another session's id, `$99`, creation time, pid, start time, name) printed the marker, exit 0, both sessions left; the exact record killed only its session, exit 0, no output; again: the marker; the server's only session: killed, exit 0, the server exited; no server: exit 1 `no server running on …` (PLAN.md *Verified facts*) |
+| The race the fix closes | the old two calls with a restart between them: `display-message -p -t '$0'` (matched), the session killed and the server gone, a new session with the same name, then `kill-session -t '$0'`; then the one-command kill with the old record | the old `kill-session` killed the new server's session (`$0`, same name, creation time and start time; only the pid differed); the one-command kill printed the marker and left the session alone |
+| Trailing `;` in argv | `new-session -d -P -c '<dir>/work;'` with `work` and `work;` both existing, with and without `sleep 600`, written raw and as `\;`; `-s 'x;'`, `has-session -t '=x;'`, a lone `;`, `x##;`, `w\;` | raw: the pane in `work` (exit 0), `unknown command: sleep`, `unknown command: -c`, the check looking for `x`; escaped: every value literal (PLAN.md *Verified facts*) |
+| `#[` in a name | `new-session -s 'muxfinder-test-##[x]'` | stored `muxfinder-test-##[x]` (tmux keeps `#` runs before `[`); recorded as an open question, not changed |
+| Unit tests | `swift test` | exit 0, 457 tests in 46 suites, among them the new private-server tests (`killsOnlyTheRecordedSessionOnAPrivateServer`, `keepsTrailingSemicolonsOnAPrivateServer`). With the script's escaping removed and the old 255 classification and `mayHaveCreated` restored, `keepsTrailingSemicolonsOnAPrivateServer` (a false `has-session` collision), `escapesTrailingSemicolonsForTmux` (both cases), `connectionLossOrASignalMayHaveCreated` (61 issues) and `classifiesFailures` failed; the fix restored, all pass |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0, no output |
+| Real runs on the final tree | `env -u TMUX_TMPDIR .build/debug/muxfinder-probe e2e-local`, then `… e2e-remote saturno-m4` | not run: iTerm2's `ps -M` line count stayed at 23 from 14:53 to 15:32 (polled every minute for the 20 minutes the run rules allow), above the 18 they require; a read-only one-second `sample` showed 7 user-interactive GCD workers blocked in `-[NSAnimation _runBlocking]` that were not being reclaimed. `iterm2 status` exit 0 (protocol 1.21); the launch directory was empty; no `/private/tmp/mfx.*` |

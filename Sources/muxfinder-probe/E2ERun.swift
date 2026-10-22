@@ -13,14 +13,16 @@ struct StepFailure: Error {
   }
 }
 
-/// One real end-to-end run, `e2e-local` or `e2e-remote` (PLAN.md Phases 4, 5a and 5b): its
+/// One real end-to-end run, `e2e-local` or `e2e-remote` (PLAN.md Phases 4, 5a, 5b and 6a): its
 /// parts, what it created, and the steps.
 ///
 /// Safety (PLAN.md *Unattended-run rules*): it creates, attaches, detaches and kills only its
-/// own `muxfinder-test-<random>` session on the default tmux server of this Mac or of the
-/// remote host, and finds it again (to attach, inspect or kill it) only if its server, id,
-/// creation time and name are still those `new-session` reported (`CreatedSession`), so a
-/// restarted server whose new session reuses the id is never touched. Its attachment index
+/// own `muxfinder-test-<random>` session (and, for the Phase 6a steps, sessions whose names
+/// start with that name) on the default tmux server of this Mac or of the remote host, and
+/// finds each again (to attach, inspect or kill it) only if its server, id, creation time and
+/// name are still those `new-session` reported (`CreatedSession`), so a restarted server whose
+/// new session reuses the id is never touched; a kill makes that check inside the same tmux
+/// command (`killIfUnchanged(_:)`), never in an earlier call. Its attachment index
 /// asks only connections owned by launch tabs this run opened
 /// (`AttachmentIndex.Configuration.includes`, PLAN.md D16), so no other tmux connection ever
 /// gets a command, not even the read-only identity `display-message`. It detaches only
@@ -81,6 +83,23 @@ actor E2ERun {
   /// The test session's name.
   let sessionName = "muxfinder-test-" + String(format: "%08x", UInt32.random(in: .min ... .max))
 
+  /// A session the Phase 6a steps created, or tried to create, besides the main one: its exact
+  /// name, when the attempt started (seconds since 1970), and the record once known. Cleanup
+  /// kills each one that still is what was recorded, or finds it by its exact name first.
+  struct ExtraSession {
+    /// The exact name (it starts with `sessionName`).
+    let name: String
+    /// When the attempt started.
+    let startedAt: Int64
+    /// The session as `new-session` reported it, once known.
+    var record: CreatedSession?
+  }
+  /// The extra sessions, in the order they were attempted.
+  private var extras: [ExtraSession] = []
+  /// `e2e-local`'s private directory under `/private/tmp` (`mfx.XXXXXX`) for the working
+  /// directory checks, once made; cleanup removes it.
+  private var privateDirectory: String?
+
   /// The test session as `new-session` reported it (or as cleanup found it by its name).
   private var created: CreatedSession?
   /// When step 1 started `new-session` (seconds since 1970), so cleanup can find a session
@@ -108,11 +127,11 @@ actor E2ERun {
     switch kind {
     case .local:
       name = "e2e-local"
-      stepCount = 10
+      stepCount = 15
       host = HostConfig(displayName: "This Mac", mode: .local)
     case .remote(let destination):
       name = "e2e-remote"
-      stepCount = 11
+      stepCount = 16
       host = HostConfig(displayName: "Remote host", mode: .ssh, sshDestination: destination)
     }
     let recorder = self.recorder
@@ -161,7 +180,12 @@ actor E2ERun {
         await step(6, "detach by session", { try await self.detachAndCheck(bySession: true) }),
         await step(7, "reattach", { try await self.reattach(thenDetach: true) }),
         await step(8, "concurrent attaches", { try await self.concurrentAttaches() }),
-        await step(9, "stale guard", { try await self.staleGuard() })
+        await step(9, "stale guard", { try await self.staleGuard() }),
+        await step(10, "vanished session", { try await self.vanishedSession() }),
+        await step(11, "collision", { try await self.collision() }),
+        await step(12, "invalid name", { try await self.invalidName() }),
+        await step(13, "missing directory", { try await self.missingDirectory() }),
+        await step(14, "new session", { try await self.newSession() })
       else { return }
     case .remote:
       guard await step(1, "create session", { try await self.createSession() }),
@@ -173,7 +197,12 @@ actor E2ERun {
         await step(7, "focus existing", { try await self.focusExisting() }),
         await step(8, "detach", { try await self.detachAndCheck() }),
         await step(9, "stale guard", { try await self.staleGuard() }),
-        await step(10, "still waiting", { try await self.stillWaiting() })
+        await step(10, "still waiting", { try await self.stillWaiting() }),
+        await step(11, "vanished session", { try await self.vanishedSession() }),
+        await step(12, "collision", { try await self.collision() }),
+        await step(13, "invalid name", { try await self.invalidName() }),
+        await step(14, "missing directory", { try await self.missingDirectory() }),
+        await step(15, "new session", { try await self.newSession() })
       else { return }
     }
   } // End of func runSteps()
@@ -284,14 +313,21 @@ actor E2ERun {
   /// failed read, or a signal that cancelled the call). `nil` when creation was never attempted
   /// or no single session qualifies.
   private func recoverCreatedSession() async -> CreatedSession? {
-    guard let started = creationStartedAt, sessionName.hasPrefix("muxfinder-test-"),
+    guard let started = creationStartedAt else { return nil }
+    return await recoverSession(named: sessionName, since: started)
+  }
+
+  /// The one session named exactly `name` (a `muxfinder-test-*` name this run generated)
+  /// created since `started` (with the margins of `recoverCreatedSession()`), or `nil`.
+  private func recoverSession(named name: String, since started: Int64) async -> CreatedSession? {
+    guard name.hasPrefix(sessionName),
       let listing = try? await tmux.run(["list-sessions", "-F", CreatedSession.format]),
       listing.succeeded
     else { return nil }
     let margin: Int64 = tmux.isLocal ? 2 : 120
     return CreatedSession.find(
-      named: sessionName, createdNoEarlierThan: started - margin, in: listing.lines)
-  } // End of func recoverCreatedSession()
+      named: name, createdNoEarlierThan: started - margin, in: listing.lines)
+  } // End of func recoverSession(named:since:)
 
   /// The attach target the discover step found.
   private var target: AttachTarget?
@@ -937,11 +973,306 @@ actor E2ERun {
     return created
   }
 
+  // MARK: - Phase 6a: new session and vanished sessions
+
+  /// The vanished-session step: a second session is created (by the harness, `sleep 600`),
+  /// discovered, then killed by the harness before the attach. The attach must end
+  /// `sessionGone` at revalidation, marked refresh-triggering, with no launch tab, request or
+  /// helper, and the `list-sessions` count must be what it was after the kill (nothing
+  /// recreated).
+  private func vanishedSession() async throws -> String {
+    let name = sessionName + "-gone"
+    let record = try await createExtra(name)
+    let result = try await discovery.discover(host)
+    guard case .ok(let sessions) = result.status,
+      let session = sessions.first(where: { record.matches($0) })
+    else {
+      throw StepFailure("discovery did not report \(record.sessionID) (\(result.status.kind))")
+    }
+    guard try await killExtra(record) else { throw StepFailure("kill-session failed") }
+    let countBefore = try await sessionIDs().count
+    let connectionsBefore = try await client.listTmuxConnections()
+    let target = AttachTarget(host: host, session: session)
+    let attached = await coordinator.attach(target)
+    let ids = try await sessionIDs()
+    let names = try await sessionNames()
+    guard attached.failure == .sessionGone, attached.triggersRefresh,
+      attached.gatewaySessionID == nil, attached.timings.launched == nil
+    else {
+      throw StepFailure(
+        "the attach ended \(attached.state.kind) (\(attached.failure?.kind ?? "-")), not "
+          + "sessionGone without a tab")
+    }
+    let states = recorder.stateKinds(of: attached.launchID)
+    let connectionsAfter = try await client.listTmuxConnections()
+    let digests = try store.takeArgvDigests().count
+    guard states == ["requested", "failed"], recorder.launchCount(for: target.key) == 0,
+      ids.count == countBefore, !ids.contains(record.sessionID.rawValue), !names.contains(name),
+      connectionsAfter == connectionsBefore, digests == 0
+    else {
+      throw StepFailure(
+        "states \(states.joined(separator: " → ")), \(ids.count) session(s) (was \(countBefore)), "
+          + "\(connectionsAfter.count) connection(s), \(digests) argv digest(s)")
+    }
+    notes.append(
+      "revalidation reported it gone \(ms(attached.timings.finished)) ms after the call; no "
+        + "request, launch tab or helper")
+    return "\(record.sessionID) was killed after discovery; the attach ended sessionGone "
+      + "(refresh-triggering), requested → failed, with no launch tab; list-sessions shows "
+      + "\(ids.count) session(s) before and after, nothing recreated"
+  } // End of func vanishedSession()
+
+  /// The collision step: creating a session with the main test session's name must fail
+  /// `sessionExists` (found by `has-session`) before anything is created or opened, and the
+  /// existing session keep its server, id, creation time, name, two windows and live panes.
+  private func collision() async throws -> String {
+    _ = try requireSession()
+    let countBefore = try await sessionIDs().count
+    let mark = recorder.count
+    let result = await coordinator.createAndAttach(
+      NewSessionRequest(host: host, name: sessionName, command: ["sleep", "600"]))
+    guard result.creationFailure == .sessionExists(.hasSession), result.created == nil,
+      result.attach == nil, result.triggersRefresh
+    else {
+      throw StepFailure(
+        "creating the existing name ended \(result.creationFailure?.kind ?? "without a failure") "
+          + "(\(result.creationFailure?.detail ?? "-"))")
+    }
+    let count = try await sessionIDs().count
+    guard recorder.count == mark, count == countBefore else {
+      throw StepFailure("something happened: \(recorder.count - mark) update(s), \(count) sessions")
+    }
+    let survival = try await checkSurvives()
+    return "refused with sessionExists (has-session), nothing launched; \(survival); "
+      + "list-sessions count \(count) unchanged"
+  } // End of func collision()
+
+  /// The invalid-name step: names validation refuses (a `.`, a `:`, a `\`, a line break, only
+  /// spaces) fail `invalidName` with no process run (a counting runner under the commands) and
+  /// nothing launched or created.
+  private func invalidName() async throws -> String {
+    let runner = CountingProcessRunner()
+    let recorder = self.recorder
+    let checker = AttachCoordinator(
+      iTerm2: client, discovery: discovery, store: store, helperPath: helperPath,
+      existingAttachments: .index(index), sessionCreator: TmuxCommands(runner: runner),
+      onUpdate: { recorder.record($0) })
+    let names = [
+      sessionName + "-bad.name", sessionName + "-bad:name", sessionName + #"-bad\name"#,
+      sessionName + "-bad\nname", "   ",
+    ]
+    let mark = recorder.count
+    var kinds: [String] = []
+    for name in names {
+      let result = await checker.createAndAttach(
+        NewSessionRequest(host: host, name: name, command: ["sleep", "600"]))
+      guard case .invalidName(let rule) = result.creationFailure, result.attach == nil else {
+        throw StepFailure("a name was not refused: \(result.creationFailure?.kind ?? "created")")
+      }
+      kinds.append("\(rule)")
+    } // End of loop over the invalid names
+    let listed = try await sessionNames()
+    guard runner.count == 0, recorder.count == mark,
+      !listed.contains(where: { $0.hasPrefix(sessionName + "-bad") })
+    else {
+      throw StepFailure("\(runner.count) process(es) ran, \(recorder.count - mark) update(s)")
+    }
+    return "\(names.count) names refused (\(kinds.joined(separator: ", "))) with 0 processes "
+      + "run and nothing launched"
+  } // End of func invalidName()
+
+  /// The missing-directory step: a working directory with a Unicode name that does not exist
+  /// (`e2e-local`: inside the run's private directory; `e2e-remote`: under `~/` on the remote
+  /// host, which the run never writes to) fails `directoryMissing`; no session with the new
+  /// name exists afterwards, the count is unchanged, nothing launched.
+  private func missingDirectory() async throws -> String {
+    let name = sessionName + "-nodir"
+    let directory: String
+    if tmux.isLocal {
+      directory = try makePrivateDirectory() + "/missing ünïcödé 日本"
+    } else {
+      directory = "~/" + sessionName + "-missing ünïcödé 日本"
+    }
+    extras.append(ExtraSession(name: name, startedAt: Int64(Date().timeIntervalSince1970)))
+    let countBefore = try await sessionIDs().count
+    let mark = recorder.count
+    let result = await coordinator.createAndAttach(
+      NewSessionRequest(
+        host: host, name: name, workingDirectory: directory, command: ["sleep", "600"]))
+    let names = try await sessionNames()
+    let count = try await sessionIDs().count
+    guard result.creationFailure == .directoryMissing, result.created == nil,
+      result.attach == nil, !names.contains(name), count == countBefore, recorder.count == mark
+    else {
+      throw StepFailure(
+        "ended \(result.creationFailure?.kind ?? "created"); \(count) session(s) (was "
+          + "\(countBefore)); the name is \(names.contains(name) ? "" : "not ")listed")
+    }
+    let place = tmux.isLocal ? "in the run's private directory" : "under ~/ on the remote host"
+    return "a missing directory with a Unicode name \(place) gave directoryMissing; no session "
+      + "created (count \(count) unchanged), nothing launched"
+  } // End of func missingDirectory()
+
+  /// The new-session step: `createAndAttach` creates `<session>-new #ü 日本;` (a `#`, Unicode,
+  /// spaces, a trailing `;` that tmux would read as a command separator unless escaped)
+  /// running `sleep 600` in a directory with spaces and Unicode (`e2e-local`: a real
+  /// directory, also with a `#` and a trailing `;`, inside the run's private directory;
+  /// `e2e-remote`: `~/Library/Application Support`, which exists there), then attaches it:
+  /// confirmed (`requested` → `launched` → `confirmed`), the existing-attachment check skipped
+  /// (no connection asked), activated, the argv digest as usual. tmux stored the exact name, the
+  /// pane runs in the directory (`#{pane_current_path}`), discovery lists it with one window
+  /// and one control client; then it is detached by connection (clean) and killed.
+  private func newSession() async throws -> String {
+    let name = sessionName + "-new #ü 日本;"
+    let directory: String
+    let expectedPath: String
+    if tmux.isLocal {
+      let folder = try makePrivateDirectory() + "/dir with spaces ünïcödé 日本 #1;"
+      guard mkdir(folder, 0o700) == 0 else { throw StepFailure("could not create the directory") }
+      (directory, expectedPath) = (folder, folder)
+    } else {
+      let home = try await tmux.run(["show-environment", "-g", "HOME"])
+      guard home.succeeded, let line = home.lines.first, line.hasPrefix("HOME=/") else {
+        throw StepFailure("the remote server's HOME is unknown")
+      }
+      directory = "~/Library/Application Support"
+      expectedPath = String(line.dropFirst(5)) + "/Library/Application Support"
+    }
+    let index = extras.count
+    extras.append(ExtraSession(name: name, startedAt: Int64(Date().timeIntervalSince1970)))
+    let callStart = ContinuousClock.now
+    let result = await coordinator.createAndAttach(
+      NewSessionRequest(
+        host: host, name: name, workingDirectory: directory, command: ["sleep", "600"]))
+    let callTime = ContinuousClock.now - callStart
+    extras[index].record = result.created
+    guard let created = result.created, let attach = result.attach else {
+      throw StepFailure(
+        "creation failed: \(result.creationFailure?.kind ?? "?") "
+          + "(\(result.creationFailure?.detail ?? "-"))")
+    }
+    guard attach.isConfirmed, let connectionID = attach.connectionID,
+      let gateway = attach.gatewaySessionID
+    else {
+      throw StepFailure(
+        "attach ended \(attach.state.kind): \(attach.failure?.kind ?? "?") "
+          + "\(attach.failure?.detail ?? "")")
+    }
+    let states = recorder.stateKinds(of: attach.launchID)
+    guard states == ["requested", "launched", "confirmed"], attach.existingAttachments == nil,
+      case .activated = attach.activation, created.name == name, result.triggersRefresh
+    else {
+      throw StepFailure(
+        "states \(states.joined(separator: " → ")), check \(String(describing: attach.existingAttachments)), "
+          + "activation \(String(describing: attach.activation)), name kept: \(created.name == name)"
+      )
+    }
+    _ = try checkArgvDigest(for: attach.launchID)
+    let path = try await tmux.run([
+      "display-message", "-p", "-t", created.sessionID.rawValue, "#{pane_current_path}",
+    ])
+    guard path.succeeded, path.lines.count == 1,
+      Array(path.lines[0].utf8) == Array(expectedPath.utf8)
+    else { throw StepFailure("the pane does not run in the requested directory") }
+    let found = try await discovery.discover(host).status.sessions.first { created.matches($0) }
+    guard let found, found.windowCount == 1, found.attachedClientCount == 1,
+      found.clients.map(\.isControlMode) == [true]
+    else { throw StepFailure("discovery does not show the new session with one control client") }
+    let creation = callTime - (attach.timings.finished ?? .zero)
+    notes.append(
+      "createAndAttach took \(milliseconds(callTime)) ms: creation about "
+        + "\(milliseconds(creation)) ms, then the attach launched at "
+        + "\(ms(attach.timings.launched)) ms, confirmed at \(ms(attach.timings.confirmed)) ms "
+        + "and activated at \(ms(attach.timings.activated)) ms of its own time; the "
+        + "existing-attachment check did not run")
+    let detach = await coordinator.detach(
+      connectionID: connectionID, gatewaySessionID: gateway, launchID: attach.launchID)
+    guard detach.connectionClosed, detach.isClean else {
+      throw StepFailure(
+        "detach: closed \(detach.connectionClosed), helper "
+          + "\(detach.helperResult.map { "exit \($0.exitStatus)" } ?? "no result")")
+    }
+    let gatewayClosed = try await poll(timeout: .seconds(5)) { () -> Bool? in
+      try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
+    }
+    guard gatewayClosed == true else { throw StepFailure("the launch tab stayed open") }
+    guard try await killExtra(created) else { throw StepFailure("kill-session failed") }
+    let place =
+      tmux.isLocal ? "a private directory with spaces, Unicode, # and a trailing ;" : directory
+    return "\(created.sessionID) created with its exact name (a trailing ; kept) and attached "
+      + "(requested → launched "
+      + "→ confirmed, no existing-attachment check); the pane runs in \(place); detached "
+      + "cleanly, then killed"
+  } // End of func newSession()
+
+  /// Creates the extra session `name` with the harness's tmux (`sleep 600`, detached) and
+  /// records it, so cleanup can kill it.
+  private func createExtra(_ name: String) async throws -> CreatedSession {
+    let index = extras.count
+    extras.append(ExtraSession(name: name, startedAt: Int64(Date().timeIntervalSince1970)))
+    let made = try await tmux.run([
+      "new-session", "-d", "-P", "-F", CreatedSession.format, "-s", name, "sleep", "600",
+    ])
+    guard made.succeeded, made.lines.count == 1, let record = CreatedSession.parse(made.lines[0]),
+      record.name == name
+    else { throw StepFailure("new-session failed: \(made.standardError.prefix(200))") }
+    extras[index].record = record
+    return record
+  } // End of func createExtra(_:)
+
+  /// Kills `record`'s session (one of this run's, its name starting with `sessionName`) only
+  /// while it is still exactly that session (server pid, start time and socket, id, creation
+  /// time, name): the check and the kill are one tmux command on one server connection
+  /// (`CreatedSession.killIfUnchangedArguments`, one ssh invocation remotely), so a server
+  /// restarted in between can never lose a session of the user's. Returns `notThisSession`
+  /// without running anything for a name that is not this run's, or a record that cannot be
+  /// encoded.
+  private func killIfUnchanged(_ record: CreatedSession) async throws -> CreatedSession.KillOutcome
+  {
+    guard record.name.hasPrefix(sessionName), let arguments = record.killIfUnchangedArguments
+    else { return .notThisSession }
+    let result = try await tmux.run(arguments)
+    guard !result.timedOut else { return .failed }
+    return CreatedSession.killOutcome(
+      exitStatus: result.status, standardOutput: result.standardOutput,
+      standardError: result.standardError)
+  } // End of func killIfUnchanged(_:)
+
+  /// `killIfUnchanged(_:)` for the steps: whether it killed the session.
+  private func killExtra(_ record: CreatedSession) async throws -> Bool {
+    try await killIfUnchanged(record) == .killed
+  }
+
+  /// The ids `list-sessions` reports now (none when no server runs).
+  private func sessionIDs() async throws -> [String] {
+    let listed = try await tmux.run(["list-sessions", "-F", "#{session_id}"])
+    return listed.succeeded ? listed.lines : []
+  }
+
+  /// The names `list-sessions` reports now (none when no server runs).
+  private func sessionNames() async throws -> [String] {
+    let listed = try await tmux.run(["list-sessions", "-F", "#{session_name}"])
+    return listed.succeeded ? listed.lines : []
+  }
+
+  /// `e2e-local`'s private directory, `/private/tmp/mfx.XXXXXX` (0700), made on first use.
+  private func makePrivateDirectory() throws -> String {
+    if let privateDirectory { return privateDirectory }
+    var template = Array("/private/tmp/mfx.XXXXXX".utf8CString)
+    guard let made = mkdtemp(&template) else {
+      throw StepFailure("could not create a private directory")
+    }
+    let path = String(cString: made)
+    privateDirectory = path
+    return path
+  } // End of func makePrivateDirectory()
+
   // MARK: - Cleanup
 
   /// The last step: detaches connections owned by this run's launch tabs, kills the test session (by
-  /// id, after checking that its server, id, creation time and name are the recorded ones;
-  /// when a signal cut `new-session` short, it is first found by its exact generated name),
+  /// id, only if its server, id, creation time and name are the recorded ones, checked in the
+  /// same tmux command as the kill; when a signal cut `new-session` short, it is first found by
+  /// its exact generated name),
   /// closes this run's launch tabs that are still open (by their recorded session ids), turns
   /// test mode off, and checks nothing is left. Runs after any failure or signal too, and never
   /// cancels itself.
@@ -978,20 +1309,37 @@ actor E2ERun {
       created = recovered
       actions.append("found the test session by its name")
     }
+    // Each kill checks the identity in the same tmux command (`killIfUnchanged(_:)`).
     if let created {
-      let id = created.sessionID
-      let found = try? await tmux.run([
-        "display-message", "-p", "-t", id.rawValue, CreatedSession.format,
-      ])
-      if let found, found.succeeded, found.lines.count == 1,
-        CreatedSession.parse(found.lines[0]) == created
+      switch try? await killIfUnchanged(created) {
+      case .killed: actions.append("killed \(created.sessionID)")
+      case .notThisSession: break
+      case .failed, nil: problems.append("kill-session failed")
+      }
+    }
+    // Kill the Phase 6a steps' extra sessions the same way: as recorded or, when an attempt's
+    // output was lost, found by its exact name among sessions created since the attempt.
+    for extra in extras {
+      var record = extra.record
+      if record == nil,
+        let recovered = await recoverSession(named: extra.name, since: extra.startedAt)
       {
-        let killed = try? await tmux.run(["kill-session", "-t", id.rawValue])
-        if killed?.succeeded == true {
-          actions.append("killed \(id)")
-        } else {
-          problems.append("kill-session failed")
-        }
+        record = recovered
+        actions.append("found an extra test session by its name")
+      }
+      guard let record else { continue }
+      switch try? await killIfUnchanged(record) {
+      case .killed: actions.append("killed \(record.sessionID)")
+      case .notThisSession: break
+      case .failed, nil: problems.append("kill-session failed")
+      }
+    } // End of loop over the extra sessions
+    if let privateDirectory {
+      do {
+        try FileManager.default.removeItem(atPath: privateDirectory)
+        actions.append("removed the private directory")
+      } catch {
+        problems.append("could not remove the private directory")
       }
     }
     // Close this run's launch tabs that are still open.
@@ -1044,8 +1392,11 @@ actor E2ERun {
     var problems: [String] = []
     let names = try? await tmux.run(["list-sessions", "-F", "#{session_name}"])
     if let names, names.succeeded {
-      if names.lines.contains(sessionName) { problems.append("the test session still exists") }
-      let others = names.lines.filter { $0.hasPrefix("muxfinder-test-") && $0 != sessionName }
+      let ours = Set([sessionName] + extras.map(\.name))
+      if names.lines.contains(where: ours.contains) {
+        problems.append("a test session of this run still exists")
+      }
+      let others = names.lines.filter { $0.hasPrefix("muxfinder-test-") && !ours.contains($0) }
       if !others.isEmpty {
         output("  note: \(others.count) other muxfinder-test-* session(s) exist (left alone)")
       }

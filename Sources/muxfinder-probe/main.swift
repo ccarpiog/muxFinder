@@ -12,6 +12,7 @@ let usage = """
   \(DiscoverCommand.usage)
   \(ITerm2Command.usage)
   \(AttachCommand.usage)
+  \(NewSessionCommand.usage)
   \(E2ELocalCommand.usage)
   \(E2ERemoteCommand.usage)
   """
@@ -32,6 +33,8 @@ case "iterm2":
   exit(await ITerm2Command.run(Array(arguments.dropFirst())))
 case "attach":
   exit(await AttachCommand.run(Array(arguments.dropFirst())))
+case "new-session":
+  exit(await NewSessionCommand.run(Array(arguments.dropFirst())))
 case "detach":
   exit(await AttachCommand.runDetach(Array(arguments.dropFirst())))
 case "e2e-local":

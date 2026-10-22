@@ -160,6 +160,16 @@ public enum LaunchFailure: Sendable, Hashable, Codable {
     }
   } // End of func from(_:host:sshStandardError:)
 
+  /// Whether the failure means the session vanished (`sessionGone`) or its id now names another
+  /// session or server (`sessionChanged`), so the host's session list must be refreshed
+  /// (PLAN.md D18). `AttachFailure.triggersRefresh` is the coordinator-level marker.
+  public var triggersRefresh: Bool {
+    switch self {
+    case .sessionGone, .sessionChanged: return true
+    default: return false
+    }
+  }
+
   /// The helper's exit status for this failure.
   public var exitStatus: Int32 {
     switch self {

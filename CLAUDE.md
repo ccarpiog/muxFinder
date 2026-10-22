@@ -55,17 +55,21 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.
 - Real-world checks (open real iTerm2 windows; run explicitly, never from `swift test`, with
   `TMUX_TMPDIR` unset, after `swift build`: `swift run muxfinder-probe` does not rebuild the
-  `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (10 steps, about
-  43 s) and `swift run muxfinder-probe e2e-remote saturno-m4` (11 steps, about 76 s; creates
-  and kills only its own session on Saturno over ssh; its `still waiting` step makes no login:
-  the helper's test launch delay keeps that tab waiting before ssh, then the step closes the
-  tab itself), both asking only their own launch tabs' connections; one-off
-  `attach --local | --ssh <dest> --session
-  '<$id>'` (focuses instead when the session is attached already; asks every tmux
-  connection first, so the same caution as `iterm2 attachments`) and `detach --connection
-  <id> --gateway <session id>` (see `docs/TESTING.md`). Check `muxfinder-probe iterm2 status`
-  before and after; a timeout means a modal iTerm2 dialog: stop and report, never script the
-  UI.
+  `muxfinder-launch` iTerm2 runs): `swift run muxfinder-probe e2e-local` (15 steps, about
+  53 s) and `swift run muxfinder-probe e2e-remote saturno-m4` (16 steps, about 105 s; creates
+  and kills only its own `muxfinder-test-*` sessions on Saturno over ssh and writes no file
+  there; its `still waiting` step makes no login: the helper's test launch delay keeps that
+  tab waiting before ssh, then the step closes the tab itself), both asking only their own
+  launch tabs' connections; one-off `attach --local | --ssh <dest> --session '<$id>'`
+  (focuses instead when the session is attached already; asks every tmux connection first,
+  so the same caution as `iterm2 attachments`), `new-session --local | --ssh <dest> --name
+  <name> [--dir <dir>]` (creates, then attaches; asks no connection; its pane runs the user's
+  shell) and `detach --connection <id> --gateway <session id>` (see `docs/TESTING.md`).
+  Check `muxfinder-probe iterm2 status` and iTerm2's thread count (`ps -M -p <pid> | wc -l`)
+  before and after; each run adds about 12 blocked iTerm2 workers that are reclaimed within
+  minutes, so let the count fall back between runs (the API stalls at 64 workers). A timeout
+  means a modal iTerm2 dialog or an API stall, as does a count that keeps growing: stop and
+  report, never script the UI.
 
 ## Environment
 

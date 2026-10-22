@@ -65,7 +65,7 @@ public struct ProcessRequest: Sendable, Equatable {
 /// The outcome of a process that ran to completion (or was stopped by its timeout).
 public struct ProcessResult: Sendable, Equatable {
   /// How the process ended.
-  public enum Termination: Sendable, Equatable {
+  public enum Termination: Sendable, Hashable {
     /// The process called `exit` with this status.
     case exited(Int32)
     /// The process was terminated by this signal number.
@@ -130,7 +130,7 @@ public struct ProcessResult: Sendable, Equatable {
 
 /// Why a process could not be run. Messages never include argument values, which may hold
 /// user data.
-public enum ProcessRunnerError: Error, Sendable, Equatable, CustomStringConvertible {
+public enum ProcessRunnerError: Error, Sendable, Hashable, CustomStringConvertible {
   /// The executable URL is not an absolute file path.
   case executableNotAbsolute
   /// The argument at this index (0-based, excluding argv[0]) contains a NUL byte.

@@ -1,7 +1,7 @@
 import Foundation
 import MuxFinderCore
 
-/// `muxfinder-probe e2e-local`: the real local integration proof (PLAN.md Phases 4 and 5a). It
+/// `muxfinder-probe e2e-local`: the real local integration proof (PLAN.md Phases 4, 5a, 6a). It
 /// opens real iTerm2 windows, so it only runs when asked for, never from `swift test`. The
 /// steps and their safety rules are `E2ERun`'s.
 enum E2ELocalCommand {
@@ -12,7 +12,11 @@ enum E2ELocalCommand {
           muxfinder-test-<random> session on the default tmux server, then discovers it,
           attaches it, checks its tabs and split, attaches it again (which must focus the
           existing tab and open nothing), detaches it by session, reattaches, attaches twice
-          at once and tries a stale launch, printing a PASS or FAIL line per step. Cleans up
+          at once and tries a stale launch; then attaches a session killed after discovery
+          (sessionGone, nothing opened), creates one with the existing name (sessionExists),
+          with invalid names (nothing run) and in a missing directory (directoryMissing),
+          and finally creates and attaches muxfinder-test-<random>-new in a private
+          directory with spaces and Unicode, printing a PASS or FAIL line per step. Cleans up
           after itself, also on failure or Ctrl-C. Asks only its own launch tabs' tmux
           connections which session they show; other connections get no command. Needs
           iTerm2 running with its API on, and TMUX_TMPDIR unset (the helper in iTerm2 always
@@ -64,8 +68,10 @@ enum E2ERemoteCommand {
           the guard on the remote host), and attaches it once more with the helper's
           test-only launch delay, so the launch tab waits before starting ssh (no login, no
           prompt; the attach must report stillWaiting after its 20 s budget, never success,
-          until the test closes that tab), printing a PASS or FAIL line per step. Cleans up
-          after itself (kills only its own session), also on failure or Ctrl-C. Asks only
+          until the test closes that tab); then the session-creation steps of e2e-local, with
+          ~/Library/Application Support as the existing directory and a missing one under ~
+          (nothing is written there), printing a PASS or FAIL line per step. Cleans up after
+          itself (kills only its own sessions), also on failure or Ctrl-C. Asks only
           its own launch tabs' tmux connections which session they show. Needs key
           authentication to the destination, tmux there, iTerm2 running with its API on.
           Run swift build first: iTerm2 runs the muxfinder-launch next to this executable.

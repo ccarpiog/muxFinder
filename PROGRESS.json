@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T13:00:47Z",
+  "updated": "2026-10-22T15:24:50Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -132,9 +132,32 @@
     {
       "id": "6",
       "title": "Session operations: create, move here, disappeared sessions",
+      "status": "in_progress",
+      "risk": "high",
+      "summary": "Creates sessions, moves attached sessions here and handles vanished ones; split into 6a (create, vanished) and 6b (move here).",
+      "started": "2026-10-22T13:03:56Z",
+      "status_since": "2026-10-22T13:03:56Z"
+    },
+    {
+      "id": "6a",
+      "title": "New session and vanished sessions",
+      "status": "in_progress",
+      "risk": "high",
+      "parent": "6",
+      "summary": "Creates sessions safely and reports vanished ones; reviewed and fixed, one final-tree e2e-remote run on Saturno still owed.",
+      "added": "2026-10-22T13:03:56Z",
+      "started": "2026-10-22T13:03:56Z",
+      "status_since": "2026-10-22T13:03:56Z"
+    },
+    {
+      "id": "6b",
+      "title": "Move here",
       "status": "queued",
       "risk": "high",
-      "summary": "Creates new sessions, moves attached sessions to this Mac and handles sessions that vanished."
+      "parent": "6",
+      "summary": "Attaches a session here while detaching every other client, only with explicit confirmation.",
+      "added": "2026-10-22T13:03:56Z",
+      "status_since": "2026-10-22T13:03:56Z"
     },
     {
       "id": "7",

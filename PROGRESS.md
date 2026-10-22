@@ -20,8 +20,13 @@ file.
 
 ## Current phase
 
-None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it Phase 5. Next is
-**Phase 6 — session operations**, not started (see *Next action*).
+**Phase 6a — new session and vanished sessions** (risk `high`; workers: opus implementation +
+opus fix worker), in progress. Code, Codex review and all three review fixes are done, verified
+and committed; build, 457 tests, lint and a real final-tree `e2e-local` (15/15) pass. **One
+acceptance item is owed: a real `e2e-remote saturno-m4` run on the final tree.** It was not run
+because iTerm2's thread count ratcheted up with each real run and stopped decaying (*Open risks*,
+*Next action*). Phase 6 was split into 6a and 6b in `PLAN.md` before the first worker; 6b (Move
+here) is queued.
 
 ## Acceptance
 
@@ -61,6 +66,17 @@ None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it 
   the test launch delay; on the final tree `e2e-remote saturno-m4` exit 0 with 11/11 PASS
   twice (focus existing included, step 10 with no login) and `e2e-local` 10/10 PASS; no
   leftovers; build, 427 tests and lint pass. Evidence in `docs/progress-archive/5b.md`.
+- Phase 6a (in progress): hermetic tests for the create argv and D3 string (hostile names and
+  directories, `~/`, `#` doubling, trailing `;` as `\;`), `-P -F` parsing, collision via
+  `has-session` and the duplicate-session error, invalid names with zero processes run, ssh
+  auth failure ("Set up SSH in iTerm2 first") vs. `connectionLost` (may have created,
+  refresh-triggering), `createAndAttach`, `triggersRefresh` — **met**. Real `e2e-local` 15/15
+  on the final tree (vanished session `sessionGone` with the count unchanged, collision with
+  the session unchanged, invalid names, missing Unicode directory, new session in a directory
+  with spaces, Unicode, `#` and a trailing `;`) — **met**. Real `e2e-remote saturno-m4` 16/16
+  twice, but on the tree **before** the review fixes (the fixes changed the D3 script's
+  semicolon escaping, the harness kill and ssh 255 classification) — **final-tree run owed**.
+  D18, `docs/TESTING.md`, `CLAUDE.md` updated — met.
 
 ## Decisions
 
@@ -105,6 +121,20 @@ None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it 
   about 5.2 s after a forced close, so the coordinator waits 10 s for the helper's result after
   a waiting tab closes). The new `withAwaitedTask` cancels and awaits an unstructured task on
   every exit — `docs/progress-archive/5b.md`.
+- Phase 6: split into 6a (new session, vanished sessions) and 6b (Move here), recorded in
+  `PLAN.md` before the first worker. On Saturno the directory check uses an existing directory
+  with a space and a missing Unicode one (no remote file writes).
+- Phase 6a: new **D18** (`TmuxCommands`: one static script, local argv or ssh with BatchMode;
+  `has-session '=name'` then `new-session -d -P -F`; `~/` resolved on the host; missing
+  directory refused; `#` doubled and a trailing `;` written `\;` for tmux's parsers; strict
+  `CreatedSession` parsing with `attachTarget(on:)`; ssh 255 is "nothing created" only for
+  pre-connection stderr classes, otherwise `connectionLost`; `createAndAttach` skips the
+  existing-attachment check, so it never queries the user's connections; `triggersRefresh` on
+  the failure and result types). The probe is `new-session --local | --ssh <dest> --name …
+  [--dir …]` (plan's `--host` shape changed for consistency). Names containing `\` are now
+  refused (tmux stores them doubled). The e2e harness kills a test session only through one
+  `if-shell -F` command that checks id, created time, pid, start time, socket path and exact
+  name in the same server connection.
 
 ## Open risks / deviations
 
@@ -166,6 +196,21 @@ None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it 
 - 5b: `withAwaitedTask` has no time limit of its own; it relies on the coordinator's 10 s
   request timeouts and cancellable sleeps. On macOS, `poll` reports `/dev/null` as unsupported,
   so the relay writes such devices directly.
+- **6a: iTerm2 thread ratchet (gates every real run).** Each real e2e run adds about 12 iTerm2
+  threads. Earlier today they decayed within 4–7 minutes; this iteration the count went 16 at
+  start, 23 (flat 40 min), 35 after the orchestrator's final-tree `e2e-local`, then 35/35/34
+  over 50 minutes with no decay. A read-only `sample` at 23 and 38 showed GCD workers stuck in
+  `-[NSAnimation _runBlocking]`, the pattern behind the 5b stall (64 workers). `iterm2 status`
+  kept answering. The cause looks like window open/close churn; restarting iTerm2 is the
+  user's call, never the run's.
+- 6a: a name starting with `$`, or one naming a client's terminal, can be refused as existing
+  (tmux resolves those targets as an id or a client); a real collision is never missed. A name
+  containing `#[` is stored by tmux as `##[` (predates the fixes, unchanged).
+- 6a: `NewSessionRequest.command` exists for harnesses only (unvalidated; its first word must
+  not start with `-`). The probe `new-session` was not run for real (its pane would start the
+  user's login shell); its path is the one the e2e steps exercise.
+- 6a: "Timeout, server … not responding" counts as unreachable for discovery but as
+  `connectionLost` (may have created) for creation, because it appears only once connected.
 
 ## Reviews
 
@@ -207,15 +252,37 @@ None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it 
   regressions (the relay and await tests fail on the old code; the delay tests cover new
   behavior). Re-verified hermetically, then with three real runs on the final tree once
   iTerm2's API answered again; `docs/reviews/phase-5b.md`.
+- Phase 6a: Codex → `ship-with-fixes`, 1 blocker (the harness's identity check and kill were
+  separate tmux calls, so a restarted server reusing `$N` could lose a user session), 2
+  should-fix (a trailing `;` is a tmux command separator even in argv; ssh exit 255 after a
+  successful create reported as "nothing created"). A fix worker fixed all three: one
+  `if-shell -F` check-and-kill, `\;` escaping in the static script, a `connectionLost` class.
+  Regressions fail on the old code; private tmux server checks reproduced the `$0` reuse race
+  and the `work;` mis-parse. Re-verified hermetically and with a real final-tree `e2e-local`;
+  the final-tree `e2e-remote` is owed. `docs/reviews/phase-6a.md`.
 
 ## Next action
 
-1. Start **Phase 6 — session operations** (`PLAN.md` "### Phase 6"), risk `high`.
-2. Before and after every real run: `swift build` first, then
+1. **Finish Phase 6a.** `swift build`, then check `.build/debug/muxfinder-probe iterm2 status`
+   and iTerm2's thread count (item 3). If the count is **25 or lower**, run
+   `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-remote saturno-m4` once on the committed
+   tree (expect exit 0, 16/16 PASS, about 105 s), check status, count and leftovers (no
+   `muxfinder-test-*` on Neptuno or Saturno, empty launch directory, no `/private/tmp/mfx.*`),
+   record it under *Verification*, archive the 6a narrative to `docs/progress-archive/6a.md`,
+   mark 6a `done` and commit. No new review: the phase's one review is done.
+2. **If the count is still above 25**, do not run anything that opens iTerm2 windows. Run
+   **Phase 7 — host configuration and refresh engine** (`PLAN.md` "### Phase 7", risk `high`)
+   meanwhile: its real check, `refresh --once`, is discovery only and opens no windows. If it
+   would query the user's tmux connections, keep the *Open risks* 5a caution. Recheck the count
+   at Phase 7's end and go back to item 1. 6b (Move here) follows 6a. If Phase 7 is done and
+   the count is still above 25, stop as `BLOCKED` and ask the user whether to restart iTerm2
+   or accept a higher baseline.
+3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
    `ps -axo pid,comm | rg 'MacOS/iTerm2$'` (`pgrep -x iTerm2` finds nothing on this Mac). Stop
-   if `status` times out or the count keeps growing across runs (*Open risks*).
+   if `status` times out or the count keeps growing across runs (*Open risks*, 6a thread
+   ratchet).
 
 ## Key paths
 
@@ -226,6 +293,9 @@ None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it 
 - Launch helper: `Sources/muxfinder-launch/` (`muxfinder-launch attach <uuid>`); remote argv
   and D3 string: `Sources/MuxFinderCore/Launch/RemoteLaunch.swift` (D17).
 - Attachment index: `Sources/MuxFinderCore/Attach/AttachmentIndex.swift` (D16).
+- Session creation: `Sources/MuxFinderCore/Tmux/TmuxCommands.swift`, `Tmux/CreatedSession.swift`
+  (D18); `createAndAttach` in `Attach/AttachCoordinator.swift`; probe
+  `Sources/muxfinder-probe/NewSessionCommand.swift`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`; shared harness
@@ -235,19 +305,19 @@ None in progress. Phase 5b closed on 2026-10-22 (see *Acceptance*), and with it 
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
-## Verification (Phase 5b, final tree after the review fixes)
+## Verification (Phase 6a, final tree after the review fixes; 5b's is in its archive)
 
-- `swift build -Xswiftc -warnings-as-errors` → exit 0.
-- `swift test` → exit 0, 427 tests in 44 suites.
-- `swift format lint -r Sources Tests` → exit 0, no output.
-- `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-remote saturno-m4` → exit 0, 11/11 PASS
-  twice (77.2 s, 77.5 s; step 10 `stillWaiting` at 21.1 s with no login, then `failed` after
-  the forced close). `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` → exit 0, 10/10
-  PASS (43.1 s).
-- `.build/debug/muxfinder-probe iterm2 status` → exit 0 before and after each run; iTerm2's
-  `ps -M` line count 19 before, then 15, 19, 16. After every run Saturno and Neptuno showed
-  `noServer`, the launch directory was empty with no marker, and no `/private/tmp/mfx.*` was
-  left.
+- `swift build -Xswiftc -warnings-as-errors` → exit 0 (orchestrator).
+- `swift test` → exit 0, 457 tests in 46 suites (orchestrator).
+- `swift format lint -r Sources Tests` → exit 0, no output (orchestrator).
+- `env -u TMUX_TMPDIR swift run muxfinder-probe e2e-local` → exit 0, 15/15 PASS, 53.3 s
+  (orchestrator, final tree). `.build/debug/muxfinder-probe iterm2 status` exit 0 before and
+  after; `iterm2 list-connections` showed 0 connections before; iTerm2 `ps -M` count 23
+  before, 35 after.
+- Before the review fixes (worker): `e2e-local` 15/15 twice (53.2 s, 53.6 s), `e2e-remote
+  saturno-m4` 16/16 twice (105.1 s, 104.0 s), no leftovers. After the fixes (fix worker):
+  private tmux server checks for the check-and-kill and the `\;` escaping; no real runs.
+- **Owed:** `e2e-remote saturno-m4` on the final tree (*Next action* 1).
 
 ## Git state
 

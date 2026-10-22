@@ -127,9 +127,9 @@ session, verifies its identity, and then activates the tab.
 - **D11 — Tests.** `swift test` is hermetic: fakes for the process runner, the clock and
   iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
   Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `attach`,
-  `e2e-*`; `attach` and the `e2e-*` ones open real iTerm2 windows), are run explicitly during
-  verification, and their results are recorded in `docs/TESTING.md`. A mocked attachment is
-  never reported as a real integration result.
+  `new-session`, `e2e-*`; all but `discover` open real iTerm2 windows), are run explicitly
+  during verification, and their results are recorded in `docs/TESTING.md`. A mocked
+  attachment is never reported as a real integration result.
 - **D12 — tmux output is always read through `tmux -u`** (decided in Phase 2, 2026-10-21).
   A tmux client whose locale is not UTF-8 (the first set of `LC_ALL`, `LC_CTYPE`, `LANG` must
   contain "UTF-8") gets `-F` and `display-message -p` output with every tab, other control
@@ -500,6 +500,113 @@ session, verifies its identity, and then activates the tab.
     waited at a password prompt; the review ruled that a real authentication attempt outside
     the run rules.)
 
+- **D18 — Creating sessions and vanished sessions** (decided in Phase 6a, 2026-10-22; code in
+  `Sources/MuxFinderCore/Tmux/TmuxCommands.swift`, `CreatedSession.swift`,
+  `Attach/AttachCoordinator.swift` and `AttachModels.swift`).
+  - **Runs:** `TmuxCommands.createSession(_:)` runs one static script, `TmuxCommands.script`
+    (the D5 locator, then the steps below). Locally:
+    `/bin/sh -c <script> muxfinder <override> <name> <directory> [command…]`, argv only, the
+    local environment without `TMUX` and `TMUX_PANE`. Remotely:
+    `/usr/bin/ssh <D6 options> -n -T -- <destination> <D3 string>` with the same arguments, so
+    creation is noninteractive (`BatchMode=yes`) with the user's configuration and nothing that
+    weakens host-key checking. A 12 s deadline kills the process group; output is capped at
+    16 KiB. The name (`Validation.sessionName`), directory, destination and override are
+    validated before any process runs (`invalidName`, `invalidDirectory`,
+    `invalidDestination`, `invalidTmuxPath`). `NewSessionRequest.command` (argv, empty by
+    default for the user's shell) exists for harnesses, which run `sleep` rather than a login
+    shell; it is not validated, so its first word must not start with `-` (tmux would read it
+    as an option), and it never comes from user input.
+  - **Script:** `tmux -u has-session -t '=<name>'` (exact name, output discarded) first: a
+    session with that name exits 80, `sessionExists(hasSession)`, and nothing else runs. Then
+    the directory is resolved on the host: empty or `~` is `$HOME`, `~/rest` is `$HOME/rest`,
+    any other path not starting with `/` is relative to `$HOME` (`~user` is not expanded). One
+    that is not a directory the script can enter exits 81, `directoryMissing`, and nothing is
+    created; tmux itself would start the pane in the home directory without an error
+    (*Verified facts*, Phase 6a). Every `#` in the name and the directory is doubled, since
+    tmux expands formats in `-s` and `-c` and `##` is its escape for `#`. Every value handed to
+    tmux as an argument (the `has-session` target, the name, the directory, each command word)
+    then has a trailing `;` written `\;` (`muxfinder_tmux_word`): tmux reads an argument
+    ending in `;` as a command separator even as its own argv element, and `\;` is its escape
+    (tmux(1); only the last character counts, so a trailing `\;` becomes `\\;`). Unescaped,
+    `-c '<dir>;'` silently used `<dir>`, a name ending in `;` made the check look for the name
+    without it, and command words after either became a separate tmux command (*Verified
+    facts*, Phase 6a). The D3 string carries the values unchanged; the escaping happens on the
+    host, after the directory check. Last,
+    `exec tmux -u new-session -d -P -F <CreatedSession.format> -s <name> -c <dir> [command…]`.
+    Never `-A`: an existing session is never attached, replaced, killed or changed. tmux's own
+    `duplicate session` error (exit 1; a session named so after the check) is
+    `sessionExists(duplicateSession)`; any other exit 1 is `tmuxFailed` with tmux's first
+    error line (printable ASCII).
+  - **Statuses:** 66 tmux missing and 68 usage (the guard's codes, D14), 80, 81; tmux's 0 and
+    1; over ssh, 255 is ssh's own error. It is `sshFailed(class)`, nothing created, only when
+    stderr shows ssh failed before the remote command could run
+    (`TmuxCommands.failedBeforeRemoteCommand`): one of discovery's patterns (`SSHFailureClass`:
+    unreachable, refused or timing out on connect, the name not resolving, the login refused,
+    the host key unknown or changed) and none of the messages OpenSSH prints once the
+    connection is up (`Timeout, server … not responding`, which discovery counts as
+    unreachable; `Read from remote host`, `client_loop`, `packet_write`, `Broken pipe`,
+    `Connection reset`, `ssh_dispatch_run_fatal`, `closed by remote host`, `Killed by
+    signal`). `authFailed` and `hostKeyProblem` explain "Set up SSH in iTerm2 first". Any other
+    255 (a lost connection, an unknown message, none) is `connectionLost`: ssh may have lost
+    the exit status after the script created the session. `connectionLost`, a timeout
+    (`timedOut`), a cancelled caller (`cancelled`), a success whose output is not one valid
+    record (`unexpectedOutput`), and a signal or an exit status above 128 (`scriptFailed`; a
+    shell's or ssh's report of a child killed by a signal) are `mayHaveCreated` and
+    refresh-triggering: the session may exist, so the caller refreshes first, and no message
+    says nothing was created.
+  - **Output:** exactly one line of valid UTF-8 in `CreatedSession.format` (session id,
+    creation time, server pid and start time, socket path, name), parsed strictly by
+    `CreatedSession.parse`. `CreatedSession.attachTarget(on:)` turns it into the coordinator's
+    target: the key and creation time are tmux's, the counts a new session's (one window, no
+    client), which revalidation replaces.
+  - **Names:** `\` is now refused by validation, since tmux stores it doubled (Phase 1's
+    rules). `#` is allowed, through the doubling, and a trailing `;` through the escaping
+    (directories alike). `has-session`'s target is not
+    format-expanded (verified), so it takes the name as it is. Known false positive: tmux
+    resolves an exact target starting with `$` as a session id, and one naming a client's
+    terminal as that client's session, so such a name can be refused as existing although no
+    session has it. There is no false negative: `new-session`'s duplicate check decides.
+  - **`createAndAttach(_:)`:** creation through the coordinator's `SessionCreating` seam
+    (`TmuxCommands()` by default), then the attach of the created target with the
+    existing-attachment check (step 1b, D16) skipped. A session created a moment ago cannot
+    be attached in iTerm2 yet, so none of the user's tmux connections is asked anything; the
+    only iTerm2 requests are the launch's own. Revalidation still runs: it confirms the session
+    and gives the node name for the identity check. A creation failure returns before
+    discovery, the request file, `ensureRunning` or `CreateTab`, so it never opens a tab.
+    `CreateAndAttachResult` carries the created session, the creation failure or the attach.
+  - **Vanished sessions:** `AttachFailure.triggersRefresh` is true for `sessionGone`,
+    `sessionChanged` and `identityMismatch` (`LaunchFailure.triggersRefresh` for the guard's 64
+    and 65); `AttachResult`, `SessionCreationError` (a collision, or `mayHaveCreated`) and
+    `CreateAndAttachResult` (also whenever a session was created) expose the same property, which
+    the refresh engine (Phase 7) and the UI (Phase 10) read. A session killed between discovery
+    and attach ends `sessionGone` at revalidation (no request, no tab) or, when it vanishes
+    after revalidation, by the guard's 64; nothing recreates it, since the attach path never
+    runs `new-session`.
+  - **Real-run safety:** the e2e steps create only `<run session>-gone` (by the harness) and
+    `<run session>-new #ü 日本;` (by `createAndAttach`; the trailing `;` exercises the escaping
+    above), both `muxfinder-test-*`, their panes running `sleep 600`, so no login shell starts
+    and no shell start-up or history file is touched. Each, like the main test session, is
+    killed only while it is still the recorded session (`CreatedSession`), and the check is
+    made by the same tmux command that kills, never by an earlier call (a server restarted
+    between two calls could have given the id to a session of the user's):
+    `CreatedSession.killIfUnchangedArguments`, `tmux -u if-shell -F -t '$N' <condition>
+    "kill-session -t '$N'" "display-message -p muxfinder-not-this-session"`, one tmux client
+    and one server connection (one ssh invocation remotely). `<condition>` compares the session
+    id, creation time, server pid and start time, socket path and exact name (written as
+    format literals; values that cannot be are refused before anything runs), since
+    `if-shell` resolves a missing target without an error; the id is single-quoted inside the
+    kill's command string, which tmux's parser reads (`$1` unquoted is an environment
+    variable). tmux runs the chosen command right after `if-shell` in the same command queue
+    (verified on a private server, *Verified facts*). A session whose output was lost is first
+    found by its exact name. The refused ones (`-nodir`, the invalid names, the existing name)
+    create nothing. Remotely they write no file: the existing directory is
+    `~/Library/Application Support`, and the missing one is `~/<run session>-missing ünïcödé
+    日本`. Locally the new session's directory is `dir with spaces ünïcödé 日本 #1;` in the
+    run's private directory. Other check-then-change pairs of this phase need no such
+    pairing: `has-session` before `new-session` is advisory (`new-session` never replaces a
+    session and its own duplicate check decides, inside the same command), and the attach of a
+    created session goes through the D4 guard.
+
 ## Verified facts (planning session, 2026-10-21)
 
 - This Mac is **Neptuno** (`neptuno-m4`), macOS 27.2 arm64, Xcode 27.1, Swift 6.4, tmux 3.8
@@ -576,6 +683,59 @@ session, verifies its identity, and then activates the tab.
   U+0020–U+007E as lowercase `\uXXXX` (surrogate pairs above U+FFFF), `/` not escaped.
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
+
+Verified in Phase 6a (2026-10-22, tmux 3.8, a private `TMUX_TMPDIR` server with
+`muxfinder-test-*` sessions only; the real `e2e-local` and `e2e-remote` results are in
+`docs/TESTING.md`):
+
+- **Formats in `new-session`:** tmux expands formats in `-s` and `-c`. `-c '<dir>/d#{pid}'`
+  became `d<server pid>`, a missing directory, and tmux started the pane in the home directory
+  with exit 0 and no error; `-c '<dir>/d##{pid}'` gave the literal `d#{pid}`, and
+  `-s 'x##y'` stored `x#y`. A `-s` holding `#(…)` lost it (stored without the text). A missing
+  `-c` directory also starts the pane in the home directory, exit 0.
+- **`\` in `-s`** is stored doubled (`a\\b`), as Phase 2 saw for listing.
+- **`has-session -t '=<name>'`:** exit 0 for an existing exact name; `can't find session:
+  <name>` (exit 1) for a missing one or a prefix; with no server `error connecting to …
+  (No such file or directory)` (exit 1). The target is not format-expanded (`=…#{pid}` found
+  the session literally named so). An exact target starting with `$` is an id lookup
+  (`=$0` found session `$0`).
+- **`new-session` with an existing name:** exit 1, `duplicate session: <name>`.
+- **`#{pane_current_path}`** of the new pane is the directory byte for byte (spaces, Unicode,
+  `#`), with `/private/tmp` for `/tmp`.
+- **A trailing `;` in an argv argument is a command separator** (tmux(1) says so too), checked
+  in the review fixes with `<dir>/work` and `<dir>/work;` both existing: `new-session -d -c
+  '<dir>/work;'` started the pane in `<dir>/work`, exit 0; with `sleep 600` after it, `unknown
+  command: sleep`, exit 1, nothing created; `-s 'x;' -c …` gave `unknown command: -c`;
+  `has-session -t '=x;'` looked for `x` (a false collision when `x` exists, `can't find
+  session: x` when only `x;` does). Written `\;`, each is literal: the pane in `<dir>/work;`,
+  `-s 'x\;'` stored `x;`, `has-session -t '=x\;'` found `x;` and not `x`, a lone `\;` named a
+  session `;`, `x##\;` stored `x#;`, and `<dir>/w\\;` reached the directory `w\;`. A trailing
+  `\` alone, and `{`, `}`, `,` in `-s` and `-c`, need nothing.
+- **`##[` survives format expansion undoubled:** `-s 'x##[y]'` stored `x##[y]`, not `x#[y]`
+  (tmux keeps a run of `#` before `[` for its style parser), so the `#` doubling does not give
+  back a name containing `#[` exactly. Seen during the review fixes; not changed (an open
+  question for the name rules).
+- **The conditional kill** (`if-shell -F -t '$N' <condition> "kill-session -t '$N'"
+  "display-message -p <marker>"`, D18 *Real-run safety*): with two sessions of one server
+  created in the same second (so the same creation time, pid and start time), a record with
+  the other session's id, a missing id (`$99`: exit 0 and no error, `if-shell` resolves it
+  leniently), the creation time, pid or start time plus one, another socket path or another
+  name each printed the marker, exit 0, and killed nothing; the exact record killed only its
+  session (exit 0, no output), and again printed the marker; the server's only session was
+  killed the same way (exit 0, the server then exited); with no server, exit 1 `no server
+  running on …`. A name with `#`, `,`, `}`, Unicode and a `;` matched as a format literal
+  (`##`, `#,`, `#}`). The race it closes, reproduced: the old two calls (`display-message`
+  matched the record, then the server restarted and its new session got `$0` and the same
+  name, creation time and start time, only the pid differed) ended with `kill-session -t '$0'`
+  killing the new session; the one-command kill with the old record printed the marker and
+  left it alone.
+- **iTerm2's blocked workers pile up for a while:** each `e2e-local` or `e2e-remote` run of
+  this phase raised iTerm2's `ps -M` line count by about 12 (15 to 28, then 38 after the next
+  run), and a read-only `sample` at 38 showed 23 GCD workers blocked in
+  `-[NSAnimation _runBlocking]`, the frames of the Phase 5b stall, with the API still
+  answering. About four minutes after the runs stopped the count was back at 15, so the
+  workers are reclaimed, but runs made in quick succession add up, and the stall comes once
+  they reach the pool's 64. Real runs check the count first and wait for it to come down.
 
 Verified in Phase 5b (2026-10-22, iTerm2 3.7.6, tmux 3.8 on Neptuno and Saturno, Saturno's
 default server holding only `muxfinder-test-*` sessions; `e2e-remote saturno-m4` passed twice,
@@ -809,7 +969,8 @@ Requirements:
   `remoteCommand(script:args:) -> String` producing `/bin/sh -c '<script>' muxfinder '<a>' …`.
 - **`Validation`** with typed errors and user-facing English messages:
   - Session name: trimmed, non-empty, ≤ 100 characters, no control characters, no `:` or `.`
-    (tmux rewrites them), no leading `-`, Unicode allowed.
+    (tmux rewrites them), no `\` (tmux stores it doubled; added in Phase 6a, D18), no leading
+    `-`, Unicode allowed.
   - SSH destination: non-empty, no whitespace or control characters, no leading `-`.
   - Executable path: absolute, no control characters.
   - Working directory: no NUL or newline, and a leading `~/` is allowed. Expand it remotely
@@ -1046,7 +1207,7 @@ Deliverables: `TmuxCommands` (detached create with `new-session -d -P -F` return
 time and server identity; `-c <dir>` with `~/` expansion inside the static script),
 `createAndAttach`, `moveHere` (`attach-session -d`, which requires an explicit confirmation flag
 in the API), typed `sessionGone` and `sessionChanged` errors that trigger a refresh,
-`muxfinder-probe new-session --host … --name … [--dir …]`, and e2e coverage.
+`muxfinder-probe new-session --local | --ssh <dest> --name … [--dir …]`, and e2e coverage.
 
 Requirements:
 - **Collision:** check `has-session -t '=<name>'` first, and still treat tmux's
@@ -1063,6 +1224,22 @@ Acceptance (local and Saturno):
 - A session killed between discovery and attach gives `sessionGone`, and the
   `list-sessions` count is unchanged (nothing recreated).
 - Move here: a background plain control client (`tmux -C attach`, started by the harness) gets
+  detached and the iTerm2 attachment remains.
+
+Split (2026-10-22, before the first worker): Phase 6 is two sub-phases, each with its own
+worker, verification, review and commit.
+
+- **6a — new session and vanished sessions (high).** `TmuxCommands` (collision check, detached
+  create returning id, created time and server identity, `-c <dir>` with `~/` expansion and a
+  missing-directory error), `createAndAttach`, `sessionGone`/`sessionChanged` marked as
+  refresh-triggering, `muxfinder-probe new-session`, and e2e coverage, local and on Saturno.
+  Acceptance: the acceptance bullets above except Move here, plus hermetic tests for the create
+  argv and D3 string, output parsing, collision classification and name rejection with no
+  process run. On Saturno the directory check uses an existing directory with a space (the
+  run rules forbid remote file writes) and a missing Unicode directory; the local check covers
+  a real directory with spaces and Unicode.
+- **6b — Move here (high).** `moveHere` (`attach-session -d` behind an explicit confirmation
+  flag) and its e2e coverage, local and on Saturno: a harness-started plain control client is
   detached and the iTerm2 attachment remains.
 
 ### Phase 7 — Host configuration and refresh engine (high)

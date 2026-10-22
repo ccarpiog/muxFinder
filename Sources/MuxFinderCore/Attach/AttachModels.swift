@@ -77,6 +77,18 @@ public enum AttachFailure: Error, Sendable, Hashable {
     }
   }
 
+  /// Whether the failure means discovery's picture of the host is out of date, so the host's
+  /// session list must be refreshed before anything else is offered (PLAN.md D18): the session
+  /// vanished (`sessionGone`), or its id now names another session or server (`sessionChanged`,
+  /// and `identityMismatch`, the same finding through the new connection). The refresh engine
+  /// and the UI read this instead of matching cases.
+  public var triggersRefresh: Bool {
+    switch self {
+    case .sessionGone, .sessionChanged, .identityMismatch: return true
+    default: return false
+    }
+  }
+
   /// A short machine-readable name, such as `sessionChanged`.
   public var kind: String {
     switch self {
@@ -317,6 +329,42 @@ public struct AttachResult: Sendable, Hashable {
   public var failure: AttachFailure? {
     if case .failed(let failure) = state { return failure }
     return nil
+  }
+
+  /// Whether the attach failed in a way that calls for refreshing the host's session list
+  /// (`AttachFailure.triggersRefresh`).
+  public var triggersRefresh: Bool { failure?.triggersRefresh ?? false }
+}
+
+/// The outcome of `AttachCoordinator.createAndAttach(_:)`: the session created, then attached
+/// through the usual launch (PLAN.md D18).
+public struct CreateAndAttachResult: Sendable, Hashable {
+  /// The session as tmux reported it, once created; `nil` when creation failed.
+  public var created: CreatedSession?
+  /// Why creation failed; then nothing was attached or opened.
+  public var creationFailure: SessionCreationError?
+  /// How the attach of the created session ended; `nil` when creation failed.
+  public var attach: AttachResult?
+
+  /// Creates a result.
+  public init(
+    created: CreatedSession? = nil,
+    creationFailure: SessionCreationError? = nil,
+    attach: AttachResult? = nil
+  ) {
+    self.created = created
+    self.creationFailure = creationFailure
+    self.attach = attach
+  }
+
+  /// Whether the new session is attached in iTerm2 now (its attach was confirmed).
+  public var isAttached: Bool { attach?.isAttached ?? false }
+
+  /// Whether the host's session list should be refreshed: a session was created (or may have
+  /// been), a collision showed a session muxFinder did not list, or the attach failed in a
+  /// refresh-triggering way.
+  public var triggersRefresh: Bool {
+    created != nil || creationFailure?.triggersRefresh == true || attach?.triggersRefresh == true
   }
 }
 

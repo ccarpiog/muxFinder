@@ -41,6 +41,12 @@ import Foundation
 /// connection, `detach(session:on:)` for every attachment of a session in this Mac's iTerm2,
 /// whoever opened it.
 ///
+/// `createAndAttach(_:)` creates a session first (`SessionCreating`, `TmuxCommands` in
+/// production: detached, never replacing an existing one) and then attaches it through the
+/// same steps, minus the existing-attachment check: a session created a moment ago cannot be
+/// attached anywhere yet, so the user's tmux connections are not asked (PLAN.md D18). A
+/// creation that fails never opens a tab.
+///
 /// Ending a connection ends its launch tab, and iTerm2 blocks its whole API behind a modal
 /// warning when a session ends within 3 s of starting (PLAN.md *Verified facts*, Phase 4).
 /// So the coordinator never sends `detach-client` (after a failed identity check, or for
@@ -176,6 +182,8 @@ public actor AttachCoordinator {
   private let attachCheckIndex: AttachmentIndex?
   /// The index `detach(session:on:)` uses (the attach check's, or the standard one).
   private let detachIndex: AttachmentIndex
+  /// Creates sessions for `createAndAttach(_:)`.
+  private let sessionCreator: any SessionCreating
   /// Launches in progress, by session.
   private var flights: [SessionKey: Flight] = [:]
   /// The id of the most recent launch.
@@ -196,10 +204,12 @@ public actor AttachCoordinator {
     clock: any AttachClock = SystemAttachClock(),
     configuration: Configuration = Configuration(),
     existingAttachments: ExistingAttachmentCheck = .standard,
+    sessionCreator: any SessionCreating = TmuxCommands(),
     diagnostics: DiagnosticsLog? = nil,
     onUpdate: UpdateHandler? = nil
   ) {
     self.iTerm2 = iTerm2
+    self.sessionCreator = sessionCreator
     self.discovery = discovery
     self.store = store
     self.helperPath = helperPath
@@ -247,6 +257,44 @@ public actor AttachCoordinator {
   /// reported); a call arriving after that starts a new launch, and from then on only the new
   /// launch changes `state(of:)`.
   public func attach(_ target: AttachTarget) async -> AttachResult {
+    await attach(target, checksExistingAttachments: true)
+  }
+
+  /// Creates the session `request` describes and attaches it (PLAN.md D18). Creation runs
+  /// first, through the coordinator's `SessionCreating` (noninteractive, bounded, never
+  /// replacing an existing session); when it fails, the result carries the failure and nothing
+  /// was attached, written or opened. The created session is then attached as `attach(_:)`
+  /// does (revalidation, request, launch tab, confirmation, identity check, activation), except
+  /// that the existing-attachment check is skipped: a session created a moment ago cannot be
+  /// attached in iTerm2 yet, so no tmux connection of the user's is asked anything.
+  public func createAndAttach(_ request: NewSessionRequest) async -> CreateAndAttachResult {
+    let start = clock.now()
+    let created: CreatedSession
+    do throws(SessionCreationError) {
+      created = try await sessionCreator.createSession(request)
+    } catch {
+      let detail = error.detail.map { " (\($0))" } ?? ""
+      await diagnostics?.record(
+        .attach, outcome: error == .timedOut ? .timedOut : .failure,
+        hostID: request.host.id.uuidString,
+        durationMs: Self.milliseconds(clock.now() - start),
+        detail: "new session failed: \(error.kind)\(detail)")
+      return CreateAndAttachResult(creationFailure: error)
+    }
+    await diagnostics?.record(
+      .attach, outcome: .success, hostID: request.host.id.uuidString,
+      durationMs: Self.milliseconds(clock.now() - start), detail: "new session created")
+    let result = await attach(
+      created.attachTarget(on: request.host), checksExistingAttachments: false)
+    return CreateAndAttachResult(created: created, attach: result)
+  } // End of func createAndAttach(_:)
+
+  /// `attach(_:)`, with the existing-attachment check (step 1b) run only when
+  /// `checksExistingAttachments` is set and the coordinator has an index.
+  private func attach(
+    _ target: AttachTarget,
+    checksExistingAttachments: Bool
+  ) async -> AttachResult {
     let key = target.key
     let flight: Flight
     // A launch whose callers were all cancelled is winding down; a new caller starts afresh.
@@ -258,7 +306,11 @@ public actor AttachCoordinator {
       lastFlightID += 1
       let flightID = lastFlightID
       let launchID = LaunchToken()
-      let task = Task { await self.run(target, launchID: launchID, flightID: flightID) }
+      let task = Task {
+        await self.run(
+          target, launchID: launchID, flightID: flightID,
+          checksExistingAttachments: checksExistingAttachments)
+      }
       flight = Flight(id: flightID, task: task, waiters: 1, cancelledWaiters: 0)
       flights[key] = flight
       latestFlightIDs[key] = flightID
@@ -270,7 +322,7 @@ public actor AttachCoordinator {
     } onCancel: {
       Task { await self.waiterCancelled(key: key, flightID: flightID) }
     }
-  } // End of func attach(_:)
+  } // End of func attach(_:checksExistingAttachments:)
 
   /// Counts a cancelled caller and cancels the launch once every caller was cancelled.
   private func waiterCancelled(key: SessionKey, flightID: UInt64) {
@@ -290,6 +342,8 @@ public actor AttachCoordinator {
     let flightID: UInt64
     /// When the attach started.
     let start: ContinuousClock.Instant
+    /// Whether step 1b (the existing-attachment check) runs.
+    let checksExistingAttachments: Bool
     /// The launch tab's session, once created.
     var gatewaySessionID: String?
     /// The connection, once found.
@@ -306,9 +360,12 @@ public actor AttachCoordinator {
   private func run(
     _ target: AttachTarget,
     launchID: LaunchToken,
-    flightID: UInt64
+    flightID: UInt64,
+    checksExistingAttachments: Bool
   ) async -> AttachResult {
-    var progress = Run(target: target, launchID: launchID, flightID: flightID, start: clock.now())
+    var progress = Run(
+      target: target, launchID: launchID, flightID: flightID, start: clock.now(),
+      checksExistingAttachments: checksExistingAttachments)
     publish(.requested, for: progress)
     let finalState = await perform(&progress)
     progress.timings.finished = clock.now() - progress.start
@@ -321,7 +378,7 @@ public actor AttachCoordinator {
       timings: progress.timings)
     await record(result, hostID: target.host.id)
     return result
-  } // End of func run(_:launchID:flightID:)
+  } // End of func run(_:launchID:flightID:checksExistingAttachments:)
 
   /// Steps 1–9. Returns the final state (`confirmed`, `focused` or `failed`); `launched`,
   /// `stillWaiting`, `confirmed` and `focused` are published on the way (a failure is published
@@ -341,8 +398,9 @@ public actor AttachCoordinator {
     case .failure(let failure): return .failed(failure)
     }
     progress.timings.revalidated = clock.now() - progress.start
-    // 1b. Already attached in this Mac's iTerm2? Then focus it and open nothing.
-    if let index = attachCheckIndex {
+    // 1b. Already attached in this Mac's iTerm2? Then focus it and open nothing. Skipped for a
+    // session `createAndAttach(_:)` just created, which nothing can have attached yet.
+    if progress.checksExistingAttachments, let index = attachCheckIndex {
       switch await existingAttachments(of: session.key, host: host, index: index) {
       case .failure(let failure):
         return .failed(failure)

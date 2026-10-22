@@ -187,6 +187,24 @@ struct TestLaunchDelayStore: LaunchRequestStore {
   }
 } // End of struct TestLaunchDelayStore
 
+/// The real process runner, counting every process it is asked to run, so the invalid-name
+/// step can prove that validation refused the names before anything ran.
+final class CountingProcessRunner: ProcessRunner {
+  /// The real runner.
+  private let base = PosixSpawnProcessRunner()
+  /// Runs so far.
+  private let runs = OSAllocatedUnfairLock(initialState: 0)
+
+  /// How many processes were asked for so far.
+  var count: Int { runs.withLock { $0 } }
+
+  /// Counts the run, then runs `request` with the real runner.
+  func run(_ request: ProcessRequest) async throws -> ProcessResult {
+    runs.withLock { $0 += 1 }
+    return try await base.run(request)
+  }
+}
+
 /// Discovery that reports a wrong `session_created` for one session, so the coordinator writes
 /// a stale request and the helper's guard must refuse it (e2e step 8). Everything else is the
 /// real probe's answer.
