@@ -28,73 +28,32 @@ file.
 | 10b | Real self-tests: `attach-local`, `new-session-local`, quit leaves work running | high | none (orchestrator ran the real checks; no code change) | Codex, ship, `docs/reviews/phase-10b.md` | `docs/progress-archive/10b.md` |
 | 11a | Profile core, helper `profile` mode, probe `profiles` / `e2e-profile` (hermetic) | high | opus (impl + fix worker); one inline orchestrator fix | Codex, ship-with-fixes, `docs/reviews/phase-11a.md` | `docs/progress-archive/11a.md` |
 | 11b | Real profile runs: `e2e-profile` local and Saturno 14/14, iTerm2 `New Bookmarks` mirror handled | high | opus (snapshot fix, docs and review-fix workers); real runs by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-11b.md` | `docs/progress-archive/11b.md` |
+| 11c | Settings "Persistent profiles" tab, host-editor fields, launch-time and after-save rewrite | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-11c.md` | `docs/progress-archive/11c.md` |
 
 ## Current phase
 
-None in progress. Phases 1–11b are done; next is **Phase 11c** (*Next action*). Phase 6 was
-split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11b/11c in
-`PLAN.md`.
+None in progress. Phases 1–11c are done (Phase 11 complete); next is **Phase 12** (*Next
+action*). Phase 6 was split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into
+11a/11b/11c in `PLAN.md`.
 
 ## Acceptance
 
-- Phases 1–10b: all criteria met, with the recorded deviations and the real runs owed to a
+- Phases 1–11b: all criteria met, with the recorded deviations and the real runs owed to a
   person listed under *Open risks*; criteria and evidence in `docs/progress-archive/<phase>.md`.
-- Phase 11a: all criteria met hermetically — host-list fields load/save compatibly; generator
-  golden tests (local, SSH, with/without parent, unsafe helper paths refused); installer
-  (atomic, identical → no rewrite, stale detection, only `muxFinder.json`, symlink refusal,
-  sibling hashes unchanged, cross-process lock); helper `profile` mode with the nesting guard
-  and login-shell fallback; probe `profiles show | hashes` and `e2e-profile` tested with fakes;
-  real `DynamicProfiles/` untouched. 656 core + 139 UI tests. Evidence in
-  `docs/progress-archive/11a.md`.
-- Phase 11b: all criteria met — final-tree real `e2e-profile --local` and `--ssh saturno-m4`
-  14/14 (hashes identical through install and removal with iTerm2's own mirror left out by a
-  strict rule; `ListProfiles` shows then drops the GUID; confirmed control-mode connection from
-  `CreateTab(profile_name)`; cleanup by `detach-client`, nothing left); independent `profiles
-  hashes` identical at start and end. 668 core + 139 UI tests. `docs/progress-archive/11b.md`.
+- Phase 11c: all criteria met hermetically — host editor fields validated and round-tripped;
+  Settings "Persistent profiles" tab with status, Install / Remove through the seam and the
+  copy; automatic updates (normal-mode launch, after a save) only rewrite muxFinder's own
+  installed file and never create it; gallery from fakes, screenshots regenerated; real
+  `DynamicProfiles/` untouched (`profiles hashes` identical). 672 core + 158 UI tests.
+  `docs/progress-archive/11c.md`.
 
 ## Decisions
 
-- Phase 1 decisions: `docs/progress-archive/1.md`.
-- Phase 2: new **D12** (`tmux -u` on every tmux call — without a UTF-8 locale tmux mangles
-  non-ASCII and tab separators); D3, D5 and D11 edited in `PLAN.md`; details in
-  `docs/progress-archive/2.md`.
-- Phase 3a: Phase 3 split into 3a/3b; proto2 merge semantics and oneof last-member-wins in the
-  decoder; decoder leniency choices; Python module quirks — all in `docs/progress-archive/3a.md`.
-- Phase 3b: new **D13** (requests never retried automatically; `notSent(reason)` = frame never
-  written, safe to retry; plain error = outcome unknown); `authRejected` = HTTP 401 per the
-  Python module; connection-attempt generations — details in `docs/progress-archive/3b.md`.
-- Phase 4a: Phase 4 split into 4a/4b; D4 edited (guard reads
-  `#{session_id}:#{pid}:#{start_time}:#{session_created}`; check-then-attach window); new
-  **D14** (launch protocol: exit codes 64/65/66/73/75/128+n, file and ACL rules, two-child
-  check-then-attach design, signal handling, test-mode argv digest) — `docs/progress-archive/4a.md`.
-- Phase 4b: 4b split again into 4b (code) and 4c (real proof), because iTerm2 is blocked until
-  a person dismisses its warning; new **D15** (attach coordinator: launch tab in a new window,
-  seams, single flight with generations, failure handling, identity command, activation without
-  `select_session`, owned-connection commands, 10 s minimum launch-tab age before any
-  `detach-client`) — `docs/progress-archive/4b.md`.
-- Phase 4c: D14 edited — the helper never exits before it is 10 s old while its tab is visible
-  (result written first); during that hold and the failure prompt only SIGHUP ends it, SIGINT/
-  SIGTERM end the prompt like Return but not the hold; test-only
-  `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS`. D15 and *Verified facts* edited with the real
-  behavior (iTerm2 warning threshold 3 s, `Command` split into 3 argv, each tmux window opens as
-  its own iTerm2 window) — `docs/progress-archive/4c.md`.
-- Phase 5: split into 5a (local detection, focus, detach by session) and 5b (remote attach over
-  SSH), recorded in `PLAN.md` before the first worker.
-- Phase 5a: new **D16** (attachment index: host/socket/pid/start-time matching, unmapped kinds,
-  3 s per-connection timeout, owner-bound focus, index-failure policy, `detach(session:on:)`,
-  e2e filter to the run's own connections); identity line now
-  `#{client_utf8}:#{n:host}:#{host}:…` with length prefixes; D12, D15, *Verified facts* edited
-  — `docs/progress-archive/5a.md`.
-- Phase 5b: new **D17**, the remote attach design. It covers ssh argv with `ConnectTimeout=10`
-  and no BatchMode, the remote guard then `exec` tmux, exit 255 classified from relayed stderr,
-  the 20 s budget, `stillWaiting` with a once-a-second watch that may still confirm, and
-  `waitLimitReached` at 300 s. The remote check has no deadline of its own (a hang shows as
-  `stillWaiting`). The stderr relay is bounded at 64 KiB per round with non-blocking writes;
-  excess goes undisplayed but stays in the 16 KiB capture. Also in D17: the test-mode-only
-  `testLaunchDelaySeconds` (1–120). D14, D15, D16 and *Verified facts* edited (iTerm2 ends ssh
-  about 5.2 s after a forced close, so the coordinator waits 10 s for the helper's result after
-  a waiting tab closes). The new `withAwaitedTask` cancels and awaits an unstructured task on
-  every exit — `docs/progress-archive/5b.md`.
+- Phases 1–5b: splits (3 → 3a/3b, 4 → 4a/4b/4c, 5 → 5a/5b) and decisions **D12** (`tmux -u`
+  everywhere), **D13** (no automatic request retries; `notSent` vs unknown outcome), **D14**
+  (launch protocol, exit codes, 10 s helper hold), **D15** (attach coordinator), **D16**
+  (attachment index) and **D17** (remote attach over ssh, `stillWaiting`, test launch delay),
+  with edits to D3–D5 and D11 — each phase's details in `docs/progress-archive/<phase>.md`.
 - Phase 6: split into 6a (new session, vanished sessions) and 6b (Move here), recorded in
   `PLAN.md` before the first worker. On Saturno the directory check uses an existing directory
   with a space and a missing Unicode one (no remote file writes).
@@ -163,6 +122,12 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   in the harness the run's GUID with every written key unchanged), counted in
   `excludedMuxFinderEntries`; step 1 waits 5 s for a stale mirror or fails; step 13 waits by
   an absolute 30 s deadline from the removal — `docs/progress-archive/11b.md`.
+- Phase 11c: D26 gained the 11c rules — own Settings tab; "installed" is sticky (the app writes
+  `muxFinder.json` only on "Install profiles" or over its own generated file, never creating
+  it by itself); install from the saved list; a save while installed updates at once; launch
+  rewrite only in normal mode with a saved list; `isGenerated(_:)` ownership check with
+  `replaceGenerated` (button) and `updateExistingGenerated` (automatic) policies;
+  operations capture their host list at the start — `docs/progress-archive/11c.md`.
 
 ## Open risks / deviations
 
@@ -277,11 +242,11 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   dot-file skip is seen only indirectly), the unknown-parent fallback, `-A` target-syntax
   cases on a real server, a login shell exiting within 3 s. iTerm2 went 22 → 35 threads over
   six runs (1–4 per run) — `docs/progress-archive/11b.md`.
-- 11a, for 11c: a second tab of the same profile attaching the same session is untested;
-  parentless dynamic profiles inherit from the default profile, so a persistent profile made
-  the default would make the user's other parentless dynamic profiles without their own
-  `Custom Command` run the helper — the Settings copy must warn, or the generator must set a
-  parent — `docs/progress-archive/11a.md`.
+- 11c: the parent-inheritance warning and the second-tab note are copy only (iTerm2 not run);
+  owed to the user: a real Install / Remove from an installed bundle, making a profile the
+  default, a second tab of the same profile, a launch after moving the app; an outside removal
+  in the instant after the locked check reports `fileChanged` (nothing created) —
+  `docs/progress-archive/11c.md`.
 
 ## Reviews
 
@@ -303,21 +268,22 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   (strict ownership rule; absolute deadline with capped exports and pauses), each regression
   failing with its fix reverted, then re-verified hermetically and by final-tree real runs 5
   and 6; `docs/reviews/phase-11b.md`.
+- Phase 11c: Codex → `ship-with-fixes`, 1 blocker (a Settings reload during the after-save
+  update could install an empty document and delete installed profiles), 1 should-fix
+  (automatic updates could recreate a concurrently removed file) — both fixed by a review-fix
+  worker (saved list carried into the update, lists captured at the press;
+  `updateExistingGenerated` under the lock), each regression failing with its fix reverted,
+  re-verified; `docs/reviews/phase-11c.md`.
 
 ## Next action
 
-1. **Phase 11c** (Settings section and launch-time rewrite; routine; `PLAN.md` "### Phase 11"
-   split paragraph and D26). The Settings controls over 11a's host fields (persistent profile
-   on/off, default session name, parent profile), "Install profiles" / "Remove profiles"
-   through `PersistentProfileInstaller`, the copy (Set as Default path: Settings → Profiles →
-   select → Other Actions → Set as Default; ordinary shells started elsewhere are not adopted
-   into tmux), the parent-inheritance warning (*Open risks*, 11a for 11c), the rewrite at app
-   launch when the helper path changed, preview fixtures (`--preview-gallery settings`) and
-   screenshots in `docs/screenshots/`. Hermetic: tests and previews never write the real
-   `DynamicProfiles/`; the Settings gallery must not install anything.
-2. Then **Phase 12** (packaging, docs, acceptance run; routine). Its fresh full run of every
-   `e2e-*` (`e2e-profile` included) and the self-tests follows the gate in item 3.
-3. Before and after every real run: `swift build` first, then
+1. **Phase 12** (packaging, docs, acceptance run; routine; `PLAN.md` "### Phase 12"). Likely
+   split before the first worker (e.g. 12a scripts and docs, hermetic; 12b the fresh full
+   acceptance run of every unit test, every `e2e-*` local and Saturno, `e2e-profile` included,
+   and both self-tests, gated by item 2). The uninstall script removes `muxFinder.json` only
+   when it is muxFinder's generated file (D26 ownership rule). The manual checklist lists the
+   items owed to the user (*Open risks*: 8, 9a, 9b, 10a/10b Show tab, 11b, 11c).
+2. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
    `ps -axo pid,comm | rg 'MacOS/iTerm2$'` (`pgrep -x iTerm2` finds nothing on this Mac). Stop
@@ -326,9 +292,9 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
    `ls -A /private/tmp | rg '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno
    (`fd` is not installed). Real runs only with iTerm2 at **38 threads or lower**; if it stays
    above 38, stop as `BLOCKED` and ask the user whether to restart iTerm2 or accept a higher
-   baseline. iTerm2 was at 35 threads after Phase 11b's runs (2026-10-23 02:50); let it fall
-   back before Phase 12's runs.
-4. Owed to the user, not to a run: the 9b "Set up SSH in iTerm2…" real round trip (an
+   baseline. iTerm2 was at 35 threads after Phase 11b's runs and 36 at 11c's close
+   (2026-10-23 03:45, no real runs in 11c); let it fall back before Phase 12's runs.
+3. Owed to the user, not to a run: the 9b "Set up SSH in iTerm2…" real round trip (an
    interactive ssh login on Saturno, outside the run rules). Phase 12's manual checklist must
    list it.
 
@@ -371,7 +337,10 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   PersistentProfileInstaller,ITerm2ProfileSnapshot,PersistentProfileRun}.swift`, helper mode
   `Sources/MuxFinderCore/Launch/{ProfileLaunch,LaunchHelperProfile,LoginShell}.swift`, probe
   `Sources/muxfinder-probe/{ProfilesCommand,E2EProfileCommand}.swift`; golden files
-  `Tests/MuxFinderCoreTests/Fixtures/profiles/`.
+  `Tests/MuxFinderCoreTests/Fixtures/profiles/`. Settings side (11c):
+  `Sources/MuxFinderUI/Model/{PersistentProfileFiles,PersistentProfilesContent,
+  SettingsModelProfiles}.swift`, `Views/Settings/ProfilesSettingsView.swift`; tests
+  `Tests/MuxFinderUITests/PersistentProfilesSettingsTests.swift`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
@@ -384,13 +353,12 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 11b (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
-  `swift test` (pipefail) exit 0, 668 core tests in 66 suites + 139 UI tests in 11 suites;
-  `swift format lint -r Sources Tests` exit 0; real `e2e-profile --local` exit 0 (14/14,
-  11.4 s) and `e2e-profile --ssh saturno-m4` exit 0 (14/14, 15.8 s); `profiles hashes` exit 0,
-  identical to the phase start; afterwards `DynamicProfiles/` and the launch folder empty, no
-  tmux server on either Mac, 0 iTerm2 connections — `docs/progress-archive/11b.md`.
-- Phases 1–11a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase 11c (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
+  `swift test` (pipefail) exit 0, 672 core tests in 66 suites + 158 UI tests in 13 suites;
+  `swift format lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0 and `codesign
+  --verify --deep --strict build/muxFinder.app` exit 0; `profiles hashes` exit 0, identical to
+  the phase start; real `DynamicProfiles/` empty — `docs/progress-archive/11c.md`.
+- Phases 1–11b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -401,5 +369,6 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   `d6fe103`, 10b `ec402ce` (pushed; `origin/main` at `ec402ce` before Phase 11a). From 3b on,
   commit messages carry no AI attribution trailer (user's global rule).
 - Phase 11a: `289b7f4`, pushed (`origin/main` at `289b7f4` before Phase 11b).
-- Phase 11b: fixes, run record, D26, review and checkpoint: the commit after `289b7f4`; its
-  SHA and push result are recorded by the next commit.
+- Phase 11b: `a5ca9e0`, pushed (`origin/main` at `a5ca9e0` before Phase 11c).
+- Phase 11c: code, D26, review and checkpoint: the commit after `a5ca9e0`; its SHA and push
+  result are recorded by the next commit.

@@ -53,8 +53,9 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-login-item-status` prints
   `SMAppService.mainApp.status` and exits 0. Never call `register`/`unregister` for real
   (that changes the user's login items); the toggle's real round trip is the user's.
-- App shell check (normal mode; contacts no iTerm2 while no host is enabled and the popover
-  stays closed; never through `open`/LaunchServices):
+- App shell check (normal mode, except that it never rewrites the persistent profile file
+  as a normal launch may, PLAN.md D26; contacts no iTerm2 while no host is enabled and the
+  popover stays closed; never through `open`/LaunchServices):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints the menu bar
   item's windows after 2 s (macOS 27 draws the item outside the app, so `CGWindowList` does
   not show it under the app's pid); without a `hosts.json` it also shows the onboarding

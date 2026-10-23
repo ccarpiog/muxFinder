@@ -6,7 +6,9 @@ import SwiftUI
 /// The menu bar app's lifecycle (PLAN.md D22).
 ///
 /// - **Launch:** an accessory app (no Dock icon) whose model starts once launching finished:
-///   it loads the host list and starts the refresh engine. Nothing contacts iTerm2.
+///   it loads the host list and starts the refresh engine, and in normal mode brings an
+///   installed, out-of-date persistent profile file up to date (PLAN.md D26; never with
+///   `--report-menu-bar-item`). Nothing contacts iTerm2.
 /// - **Quitting** (the footer's "Quit", SIGTERM or SIGINT from a shell, logout): the model's
 ///   `shutdown()` cancels the session actions and stops Settings, the engine and the rest at
 ///   the same time, waits for the session actions within its own budget (reporting those still
@@ -30,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// Builds the model over the real core; nothing runs yet.
   override init() {
-    model = AppModel(environment: .production())
+    model = AppModel(
+      environment: .production(
+        rewritesProfilesAtLaunch: AppLaunchOptions.current.rewritesProfilesAtLaunch))
     super.init()
   }
 

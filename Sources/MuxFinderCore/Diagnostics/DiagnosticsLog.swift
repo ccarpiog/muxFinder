@@ -21,6 +21,9 @@ public struct DiagnosticCategory: RawRepresentable, Hashable, Sendable {
   public static let attach = DiagnosticCategory(rawValue: "attach")
   /// The host list and the Settings window: loads, saves, connection tests, launch at login.
   public static let settings = DiagnosticCategory(rawValue: "settings")
+  /// muxFinder's persistent profile file in iTerm2's `DynamicProfiles` folder: its status,
+  /// installs, removals and the rewrite at launch (PLAN.md D26).
+  public static let profiles = DiagnosticCategory(rawValue: "profiles")
   /// Application lifecycle and anything without a more specific category.
   public static let general = DiagnosticCategory(rawValue: "general")
 }

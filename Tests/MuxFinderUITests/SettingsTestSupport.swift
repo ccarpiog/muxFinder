@@ -33,7 +33,8 @@ enum SettingsTestSupport {
     diagnostics: DiagnosticsLog = DiagnosticsLog(
       writesToSystemLog: false, now: { UITestSupport.now }),
     suggestions: [String] = ["build-box.example"],
-    sshSetup: (any SSHSetupOpening)? = nil
+    sshSetup: (any SSHSetupOpening)? = nil,
+    profileFiles: any PersistentProfileManaging = FakeProfileFiles()
   ) -> SettingsEnvironment {
     SettingsEnvironment(
       store: store,
@@ -47,11 +48,12 @@ enum SettingsTestSupport {
       appVersion: "1.2.3 (45)",
       systemVersion: "Version 27.2 (Build 27C00)",
       now: { UITestSupport.now },
-      sshSetup: sshSetup)
+      sshSetup: sshSetup,
+      persistentProfiles: profileFiles)
   } // End of static func environment(store:discovery:profiles:loginItem:seams:diagnostics:…)
 
   /// A model over fakes whose store loads `hosts`, opened (list, login item, profiles,
-  /// suggestions and log loaded).
+  /// suggestions, log and the persistent profile file's status loaded).
   @MainActor
   static func openModel(
     _ hosts: [HostConfig],
@@ -59,16 +61,17 @@ enum SettingsTestSupport {
     discovery: ScriptedDiscovery = ScriptedDiscovery(),
     profiles: FakeProfiles = FakeProfiles(.available(["Default", "Work"])),
     loginItem: FakeLoginItem = FakeLoginItem(.notRegistered),
-    seams: SeamRecorder = SeamRecorder()
+    seams: SeamRecorder = SeamRecorder(),
+    profileFiles: FakeProfileFiles = FakeProfileFiles()
   ) async -> (SettingsModel, FakeHostListStore) {
     let store = FakeHostListStore(loaded(hosts, state: state))
     let model = SettingsModel(
       environment: environment(
         store: store, discovery: discovery, profiles: profiles, loginItem: loginItem,
-        seams: seams))
+        seams: seams, profileFiles: profileFiles))
     await model.windowDidOpen()
     return (model, store)
-  } // End of static func openModel(_:state:discovery:profiles:loginItem:seams:)
+  } // End of static func openModel(_:state:discovery:profiles:loginItem:seams:profileFiles:)
 
   /// A private folder for a real `HostStore` (removed by the caller): the store's file is
   /// `<folder>/muxFinder/hosts.json`, whose folder does not exist yet.
@@ -538,4 +541,201 @@ final class FakeSSHSetupOpener: SSHSetupOpening {
       return passed ? state.result : .failed(.cancelled)
     }
   } // End of func openSSHSetup(for:)
+}
+
+/// muxFinder's persistent profile file in memory (PLAN.md D26): the "file" holds the bytes the
+/// real generator makes for the hosts installed with the fake's helper path, or bytes of the
+/// user's (`placeForeignFile()`). Records every call; `holdInstalls()` makes installs and
+/// updates wait at a gate, `holdStatusChecks()` makes status checks wait at another, after
+/// they read the file (so a test can change it before the caller goes on). Never touches a
+/// folder, iTerm2 or a lock.
+final class FakeProfileFiles: PersistentProfileManaging {
+  /// The helper path the fake's documents run, at first.
+  static let helperPath = "/Applications/muxFinder.app/Contents/MacOS/muxfinder-launch"
+
+  /// Lock-protected state.
+  private struct State {
+    /// The file's bytes, if a file is there.
+    var installed: Data?
+    /// Whether those bytes are the user's, not a generated document.
+    var isForeign = false
+    /// The helper's path, or why there is none.
+    var helper: Result<LaunchHelperPath, LaunchHelperPathError> = .success(
+      try! LaunchHelperPath(validating: FakeProfileFiles.helperPath))
+    /// What installs and removals fail with, if anything.
+    var error: PersistentProfileInstallerError?
+    /// The host lists asked about by `status(for:)`, oldest first.
+    var statusCalls: [HostList] = []
+    /// The host lists installed (or tried), oldest first.
+    var installCalls: [HostList] = []
+    /// The host lists updated (or tried), oldest first.
+    var updateCalls: [HostList] = []
+    /// `remove()` calls.
+    var removeCalls = 0
+
+    /// Writes the document for `hosts` as the real installer does: `replaceGenerated` when
+    /// `createsFile`, else `updateExistingGenerated` (no file there: `notInstalled`, nothing
+    /// written; an empty document still `nothingToRemove`).
+    mutating func write(_ hosts: HostList, createsFile: Bool) -> PersistentProfileChange {
+      let helper: LaunchHelperPath
+      switch self.helper {
+      case .failure(let error): return .failed(.helper(error))
+      case .success(let found): helper = found
+      }
+      if let error { return .failed(.installer(error)) }
+      let document = try! PersistentProfiles.document(for: hosts, helper: helper)
+      if installed != nil, isForeign { return .failed(.installer(.fileNotMuxFinders)) }
+      if document.isEmpty {
+        guard installed != nil else { return .nothingToRemove }
+        installed = nil
+        return .removed
+      }
+      if installed == document.data { return .unchanged }
+      if installed == nil, !createsFile { return .notInstalled }
+      installed = document.data
+      return .installed(count: document.profiles.count)
+    } // End of func write(_:createsFile:)
+  }
+
+  /// The state.
+  private let state = OSAllocatedUnfairLock(initialState: State())
+  /// Where installs and updates wait while held.
+  private let installGate = TestGate()
+  /// Where status checks wait while held, after reading the file.
+  private let statusGate = TestGate()
+
+  /// No file installed, a usable helper.
+  init() {}
+
+  /// The host lists asked about by `status(for:)`.
+  var statusCalls: [HostList] { state.withLock { $0.statusCalls } }
+  /// The host lists installed (or tried).
+  var installCalls: [HostList] { state.withLock { $0.installCalls } }
+  /// The host lists updated (or tried).
+  var updateCalls: [HostList] { state.withLock { $0.updateCalls } }
+  /// `remove()` calls.
+  var removeCalls: Int { state.withLock { $0.removeCalls } }
+  /// Every call that could write (installs, updates and removals).
+  var writeCalls: Int {
+    state.withLock { $0.installCalls.count + $0.updateCalls.count + $0.removeCalls }
+  }
+  /// The file's bytes, if any.
+  var installed: Data? { state.withLock { $0.installed } }
+
+  /// The document the fake would write for `hosts` with its current helper.
+  func document(for hosts: HostList) -> PersistentProfileDocument? {
+    guard case .success(let helper) = state.withLock({ $0.helper }) else { return nil }
+    return try? PersistentProfiles.document(for: hosts, helper: helper)
+  }
+
+  /// Puts the document for `hosts` in place, as an earlier install did.
+  func preinstall(_ hosts: HostList) {
+    let data = document(for: hosts)?.data
+    state.withLock {
+      $0.installed = data
+      $0.isForeign = false
+    }
+  }
+
+  /// The user (or another program) deletes the file, whoever's it is.
+  func deleteFile() {
+    state.withLock {
+      $0.installed = nil
+      $0.isForeign = false
+    }
+  }
+
+  /// Puts a file of the user's at the name.
+  func placeForeignFile() {
+    state.withLock {
+      $0.installed = Data(#"{"Profiles": [{"Name": "Mine", "Guid": "mine-1"}]}"#.utf8)
+      $0.isForeign = true
+    }
+  }
+
+  /// The helper moves to `path` (the app moved): an installed file becomes out of date.
+  func moveHelper(to path: String) {
+    state.withLock { $0.helper = .success(try! LaunchHelperPath(validating: path)) }
+  }
+
+  /// The helper's path becomes unusable for `error`.
+  func breakHelper(_ error: LaunchHelperPathError) {
+    state.withLock { $0.helper = .failure(error) }
+  }
+
+  /// Makes installs and removals fail with `error` (`nil`: succeed again).
+  func failWrites(with error: PersistentProfileInstallerError?) {
+    state.withLock { $0.error = error }
+  }
+
+  /// Makes later installs and updates wait for `releaseInstalls()`.
+  func holdInstalls() { installGate.close() }
+  /// Lets every waiting and later install and update go on.
+  func releaseInstalls() { installGate.open() }
+  /// Returns once `count` installs and updates have reached the gate.
+  func waitForInstalls(_ count: Int) async { await installGate.waitForArrivals(count) }
+
+  /// Makes later status checks wait for `releaseStatusChecks()` once they have read the file.
+  func holdStatusChecks() { statusGate.close() }
+  /// Lets every waiting and later status check answer.
+  func releaseStatusChecks() { statusGate.open() }
+  /// Returns once `count` status checks have reached their gate.
+  func waitForStatusChecks(_ count: Int) async { await statusGate.waitForArrivals(count) }
+
+  /// See `PersistentProfileManaging.status(for:)`, as `PersistentProfileFiles` answers: reads
+  /// the file, waits while held, then answers what it read.
+  func status(for hosts: HostList) async -> PersistentProfileStatus {
+    let snapshot = state.withLock { state -> State in
+      state.statusCalls.append(hosts)
+      return state
+    }
+    let answer: PersistentProfileStatus
+    switch snapshot.helper {
+    case .failure(let error):
+      let isMine = snapshot.installed != nil && !snapshot.isForeign
+      answer = .unavailable(.helper(error), isInstalled: isMine)
+    case .success(let helper):
+      if let installed = snapshot.installed {
+        if snapshot.isForeign {
+          answer = .unavailable(.installer(.fileNotMuxFinders), isInstalled: false)
+        } else {
+          let document = try! PersistentProfiles.document(for: hosts, helper: helper)
+          answer = installed == document.data && !document.isEmpty ? .current : .stale
+        }
+      } else {
+        answer = .notInstalled
+      }
+    }
+    _ = await statusGate.pass()
+    return answer
+  } // End of func status(for:)
+
+  /// See `PersistentProfileManaging.install(_:)`: waits while held, then acts like the real
+  /// installer with `replaceGenerated`.
+  func install(_ hosts: HostList) async -> PersistentProfileChange {
+    state.withLock { $0.installCalls.append(hosts) }
+    _ = await installGate.pass()
+    return state.withLock { $0.write(hosts, createsFile: true) }
+  }
+
+  /// See `PersistentProfileManaging.update(_:)`: waits while held, then acts like the real
+  /// installer with `updateExistingGenerated` (the check and the write in one locked step, so
+  /// a file deleted meanwhile is never created).
+  func update(_ hosts: HostList) async -> PersistentProfileChange {
+    state.withLock { $0.updateCalls.append(hosts) }
+    _ = await installGate.pass()
+    return state.withLock { $0.write(hosts, createsFile: false) }
+  }
+
+  /// See `PersistentProfileManaging.remove()`: only muxFinder's own file.
+  func remove() async -> PersistentProfileChange {
+    state.withLock { state -> PersistentProfileChange in
+      state.removeCalls += 1
+      if let error = state.error { return .failed(.installer(error)) }
+      guard state.installed != nil else { return .nothingToRemove }
+      if state.isForeign { return .failed(.installer(.fileNotMuxFinders)) }
+      state.installed = nil
+      return .removed
+    }
+  } // End of func remove()
 }

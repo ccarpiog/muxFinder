@@ -26,6 +26,10 @@ public enum PersistentProfileInstallerError: Error, Sendable, Hashable, Localize
   /// `muxFinder.json` exists and the install was asked never to replace a file (the e2e
   /// harness's, which must not touch a file that is the user's); it was left as it is.
   case fileAlreadyExists
+  /// `muxFinder.json` does not hold a document muxFinder generates
+  /// (`PersistentProfiles.isGenerated(_:)`), and the operation was asked to change only
+  /// muxFinder's own file (the app's); it was left as it is.
+  case fileNotMuxFinders
   /// `muxFinder.json` is not the file the operation expected (its bytes differ from what a
   /// removal expected, or another entry took its name while the file was being replaced or
   /// removed); it was left as it is, or put back.
@@ -71,6 +75,9 @@ public enum PersistentProfileInstallerError: Error, Sendable, Hashable, Localize
     case .fileAlreadyExists:
       return "muxFinder.json already exists in iTerm2's DynamicProfiles folder, so muxFinder "
         + "left it as it is."
+    case .fileNotMuxFinders:
+      return "muxFinder.json in iTerm2's DynamicProfiles folder doesn't hold muxFinder's "
+        + "profiles, so muxFinder left it as it is. Move it out of that folder to install them."
     case .fileChanged:
       return "muxFinder.json changed while muxFinder was updating it, so muxFinder left it as "
         + "it is."
@@ -101,6 +108,10 @@ public enum PersistentProfileFileStatus: String, Sendable, Hashable {
   /// The installed file differs from the document (for example, the helper moved, PLAN.md
   /// D26), or a file is installed while the document is empty.
   case stale
+  /// A `muxFinder.json` is installed that does not hold a document muxFinder generates
+  /// (`PersistentProfiles.isGenerated(_:)`): taken to be the user's, so the app leaves it alone
+  /// (PLAN.md D26).
+  case notMuxFinders
 }
 
 /// Writes and removes muxFinder's one iTerm2 file, `DynamicProfiles/muxFinder.json`
@@ -111,7 +122,8 @@ public enum PersistentProfileFileStatus: String, Sendable, Hashable {
 /// - **Folder:** `~/Library/Application Support/iTerm2/DynamicProfiles` by default. It must be
 ///   the user's own folder and not a symbolic link (a synced or shared folder would carry this
 ///   Mac's helper path and host ids elsewhere). An install creates it (mode 0755, as iTerm2
-///   does) only when it is missing and its parent exists; nothing else creates it.
+///   does) only when it is missing and its parent exists; nothing else creates it (an
+///   `updateExistingGenerated` install never does).
 /// - **The file:** `muxFinder.json` is only ever opened without following links
 ///   (`O_NOFOLLOW`): a symbolic link, a non-regular file, another user's file or one over
 ///   `PersistentProfiles.maximumFileSize` is refused and left exactly as it is.
@@ -125,7 +137,8 @@ public enum PersistentProfileFileStatus: String, Sendable, Hashable {
 ///   back, and what that swap back displaces is deleted only when it is this install's own
 ///   temporary file (its device and inode, taken before publishing), else kept under the
 ///   hidden name (`displacedEntryKept`). An empty document (no host has a persistent profile)
-///   removes the file instead.
+///   removes the file instead. With `updateExistingGenerated` there is always a checked file,
+///   so publishing is always the swap, which fails rather than create the name.
 /// - **Remove:** deletes only `muxFinder.json`: the checked file is first renamed aside to a
 ///   hidden temporary name (`RENAME_EXCL`) and deleted only when it is still that same file;
 ///   an expected content, when given, must match first (the e2e harness removes only the file
@@ -136,7 +149,15 @@ public enum PersistentProfileFileStatus: String, Sendable, Hashable {
 ///   interleave; only a writer outside muxFinder can take the name meanwhile. The lock is
 ///   waited for at most `lockWait` (`busy`). Reads take no lock.
 /// - **Status:** compares the installed bytes with a document (`current`, `stale`,
-///   `notInstalled`) without writing, for Phase 11c's rewrite at launch.
+///   `notInstalled`, or `notMuxFinders` for a file muxFinder did not generate) without writing,
+///   for Settings and the automatic updates' first look (PLAN.md D26); the update itself checks
+///   again under the lock.
+/// - **The app's own file only:** "Install profiles" installs with `replaceGenerated`, the
+///   automatic updates (at launch, after a Settings save) with `updateExistingGenerated`, which
+///   never creates the file: with none there it writes nothing (`notInstalled`). "Remove
+///   profiles" removes with `onlyIfGenerated`. So a `muxFinder.json` that is not a generated
+///   document (`PersistentProfiles.isGenerated(_:)`) is refused (`fileNotMuxFinders`) and left
+///   alone; the checks run under the lock, on the bytes the identity checks then protect.
 public struct PersistentProfileInstaller: Sendable {
   /// iTerm2's dynamic profiles folder.
   public static var standardDirectory: URL {
@@ -215,11 +236,13 @@ public struct PersistentProfileInstaller: Sendable {
     return try examine(in: directory)?.data
   }
 
-  /// How the installed file compares with `document`. Never writes.
+  /// How the installed file compares with `document`: `notMuxFinders` for a file that is not a
+  /// generated document, whatever `document` is. Never writes.
   public func status(
     for document: PersistentProfileDocument
   ) throws(PersistentProfileInstallerError) -> PersistentProfileFileStatus {
     guard let installed = try installedContents() else { return .notInstalled }
+    guard PersistentProfiles.isGenerated(installed) else { return .notMuxFinders }
     return installed == document.data && !document.isEmpty ? .current : .stale
   }
 
@@ -235,29 +258,52 @@ public struct PersistentProfileInstaller: Sendable {
     case removed
     /// The document was empty and no file was installed; nothing was done.
     case nothingToRemove
+    /// `updateExistingGenerated` found no file (or no folder) to update, so none was created;
+    /// nothing was done.
+    case notInstalled
   }
 
-  /// Whether an install may replace an existing `muxFinder.json`.
+  /// Whether an install may replace an existing `muxFinder.json`, and whether it may create
+  /// one.
   public enum ReplacePolicy: Sendable, Hashable {
-    /// Replace it (it is muxFinder's own file, D8): the app's install and rewrite.
+    /// Replace it, whatever it holds (the name is muxFinder's own, D8).
     case replaceExisting
+    /// Replace it only when it holds a generated document (`PersistentProfiles.isGenerated(_:)`),
+    /// else `fileNotMuxFinders`; with no file there, create it: the app's "Install profiles"
+    /// (PLAN.md D26).
+    case replaceGenerated
+    /// Only update a generated document already installed, never create one: with no file (or
+    /// no folder) nothing is created or written (`notInstalled`); a file that is not a generated
+    /// document is `fileNotMuxFinders`. Both checks run under the lock, on the bytes the swap
+    /// then replaces, and a swap never creates the name (a file removed by a writer outside
+    /// muxFinder after the check is `fileChanged`, nothing created): the app's automatic
+    /// updates, at launch and after a Settings save (PLAN.md D26).
+    case updateExistingGenerated
     /// Never replace one (`fileAlreadyExists`): the e2e harness, which must not touch a file
     /// that is the user's.
     case createOnly
   }
 
   /// Installs `document` atomically under the lock (see the type's documentation); an empty
-  /// document removes the file.
+  /// document removes the file (with `replaceGenerated` or `updateExistingGenerated`, only a
+  /// generated one; with none there, `nothingToRemove`). With `updateExistingGenerated` a
+  /// missing folder or file is `notInstalled`: neither is created.
   @discardableResult
   public func install(
     _ document: PersistentProfileDocument,
     replacing policy: ReplacePolicy = .replaceExisting
   ) throws(PersistentProfileInstallerError) -> InstallOutcome {
+    let onlyGenerated = policy == .replaceGenerated || policy == .updateExistingGenerated
+    let updatesOnly = policy == .updateExistingGenerated
     guard !document.isEmpty else {
-      return try remove() == .removed ? .removed : .nothingToRemove
+      let removal = try remove(onlyIfGenerated: onlyGenerated)
+      return removal == .removed ? .removed : .nothingToRemove
     }
     guard document.data.count <= PersistentProfiles.maximumFileSize else { throw .fileTooLarge }
-    guard let directory = try openDirectory(create: true) else { throw .directoryMissing }
+    guard let directory = try openDirectory(create: !updatesOnly) else {
+      if updatesOnly { return .notInstalled }
+      throw .directoryMissing
+    }
     defer { Darwin.close(directory) }
     let lock = try acquireLock()
     defer { Darwin.close(lock) }
@@ -265,6 +311,11 @@ public struct PersistentProfileInstaller: Sendable {
     if let existing {
       if existing.data == document.data { return .unchanged }
       if policy == .createOnly { throw .fileAlreadyExists }
+      if onlyGenerated, !PersistentProfiles.isGenerated(existing.data) {
+        throw .fileNotMuxFinders
+      }
+    } else if updatesOnly {
+      return .notInstalled
     }
     let temporary: String
     do throws(PrivateStorageError) {
@@ -335,12 +386,15 @@ public struct PersistentProfileInstaller: Sendable {
   }
 
   /// Deletes `muxFinder.json`, and nothing else. With `expected`, only while the file holds
-  /// exactly those bytes (`fileChanged` otherwise, nothing deleted). A symbolic link, a
-  /// non-regular file, another user's file or one too large is refused and left as it is. Runs
-  /// under the lock (`busy` when another muxFinder process keeps it).
+  /// exactly those bytes (`fileChanged` otherwise, nothing deleted); with `onlyIfGenerated`,
+  /// only while it holds a generated document (`fileNotMuxFinders` otherwise, nothing
+  /// deleted: the app's "Remove profiles"). A symbolic link, a non-regular file, another
+  /// user's file or one too large is refused and left as it is. Runs under the lock (`busy`
+  /// when another muxFinder process keeps it).
   @discardableResult
   public func remove(
-    expecting expected: Data? = nil
+    expecting expected: Data? = nil,
+    onlyIfGenerated: Bool = false
   ) throws(PersistentProfileInstallerError) -> RemoveOutcome {
     guard let directory = try openDirectory(create: false) else { return .notInstalled }
     defer { Darwin.close(directory) }
@@ -348,6 +402,9 @@ public struct PersistentProfileInstaller: Sendable {
     defer { Darwin.close(lock) }
     guard let existing = try examine(in: directory) else { return .notInstalled }
     if let expected, existing.data != expected { throw .fileChanged }
+    if onlyIfGenerated, !PersistentProfiles.isGenerated(existing.data) {
+      throw .fileNotMuxFinders
+    }
     let aside = PrivateStorage.temporaryName(for: name)
     guard renameatx_np(directory, name, directory, aside, UInt32(RENAME_EXCL)) == 0 else {
       let code = errno

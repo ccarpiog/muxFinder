@@ -50,6 +50,12 @@ public struct SettingsFixture: Sendable, Identifiable {
   public var shownExplanation: FixIt?
   /// "Set up SSH in iTerm2…" lines, by host id.
   public var sshSetupStates: [UUID: SSHSetupState] = [:]
+  /// The persistent profile file's status (PLAN.md D26); `nil`: not checked yet.
+  public var profileStatus: PersistentProfileStatus? = .notInstalled
+  /// The last install, removal or automatic update.
+  public var profileResult: PersistentProfileResult?
+  /// Whether a profile operation runs.
+  public var isProfileOperationRunning = false
 
   /// A fixture of `hosts` with `configure` applied.
   public init(
@@ -186,6 +192,78 @@ public enum SettingsFixtures {
     $0.profileChoices = .iTermNotRunning
   }
 
+  // MARK: - Persistent profiles (PLAN.md D26)
+
+  /// Neptuno (This Mac) with its persistent profile on (session `main`), Saturno with its
+  /// profile on (session `work`, parent "Work"), Sirio and Vega without.
+  public static let profileHostList: HostList = {
+    var neptuno = Fixtures.neptuno
+    neptuno.persistentProfileEnabled = true
+    var saturno = Fixtures.saturno
+    saturno.persistentProfileEnabled = true
+    saturno.defaultSessionName = "work"
+    saturno.persistentProfileParentName = "Work"
+    return try! HostList([neptuno, saturno, Fixtures.sirio, vega])
+  }()
+
+  /// Neptuno in the editor with its persistent profile on, a default session name tmux's
+  /// target syntax would misread (an inline error, Save off) and a parent picked from iTerm2's
+  /// profiles.
+  public static let profileEditor = SettingsFixture(
+    id: "profile-editor", title: "Persistent profile fields with an error",
+    hosts: profileHostList
+  ) {
+    $0.select(profileHostList.hosts[0])
+    $0.draft?.persistentProfile.defaultSessionName = "$work"
+    $0.draft?.persistentProfile.parentProfileName = "Presentation"
+    $0.refreshState = refreshState
+  }
+
+  /// A Persistent profiles tab fixture over `profileHostList` with `configure` applied.
+  static func profiles(
+    _ id: String, _ title: String, configure: (inout SettingsFixture) -> Void
+  ) -> SettingsFixture {
+    SettingsFixture(id: id, title: title, hosts: profileHostList) {
+      $0.tab = .profiles
+      $0.select(profileHostList.hosts[1])
+      configure(&$0)
+    }
+  }
+
+  /// Not installed yet, Install offered, with unsaved changes in the host editor.
+  public static let profilesNotInstalled = profiles(
+    "profiles-not-installed", "Persistent profiles: not installed"
+  ) {
+    $0.profileStatus = .notInstalled
+    $0.draft?.persistentProfile.defaultSessionName = "research"
+  }
+
+  /// Installed and up to date, right after "Install profiles".
+  public static let profilesCurrent = profiles(
+    "profiles-current", "Persistent profiles: installed"
+  ) {
+    $0.profileStatus = .current
+    $0.profileResult = PersistentProfileResult(.installed(count: 2), trigger: .user)
+  }
+
+  /// Out of date, and an install refused because another muxFinder held the lock.
+  public static let profilesStale = profiles(
+    "profiles-stale", "Persistent profiles: out of date, install failed"
+  ) {
+    $0.profileStatus = .stale
+    $0.profileResult = PersistentProfileResult(.failed(.installer(.busy)), trigger: .user)
+  }
+
+  /// Unavailable: muxFinder runs from a path iTerm2 can't be given (D2), its file still
+  /// installed, after the rewrite at launch was refused.
+  public static let profilesUnavailable = profiles(
+    "profiles-unavailable", "Persistent profiles: unavailable"
+  ) {
+    $0.profileStatus = .unavailable(.helper(.unsupportedCharacters), isInstalled: true)
+    $0.profileResult = PersistentProfileResult(
+      .failed(.helper(.unsupportedCharacters)), trigger: .launch)
+  }
+
   // MARK: - General tab
 
   /// A General tab fixture for `status`, with `error` if given.
@@ -251,7 +329,8 @@ public enum SettingsFixtures {
 
   /// Every fixture, in the preview window's order.
   public static let all = [
-    hosts, validation, thisMac, testFailed, invalidFile, newHost, diagnostics, loginEnabled,
-    loginNotRegistered, loginRequiresApproval, loginNotFound,
+    hosts, validation, thisMac, testFailed, invalidFile, newHost, profileEditor,
+    profilesNotInstalled, profilesCurrent, profilesStale, profilesUnavailable, diagnostics,
+    loginEnabled, loginNotRegistered, loginRequiresApproval, loginNotFound,
   ]
 }

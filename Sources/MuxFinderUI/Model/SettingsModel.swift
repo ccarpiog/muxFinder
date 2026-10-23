@@ -34,6 +34,11 @@ import Observation
 ///   probe and the opening, and returns once they have ended.
 /// - **iTerm2:** profiles are listed only while iTerm2 runs (`ITerm2ProfileSource`); otherwise
 ///   the profile field is free text.
+/// - **Persistent profiles** (PLAN.md D26, `SettingsModelProfiles.swift`): the Persistent
+///   profiles tab shows the status of `DynamicProfiles/muxFinder.json` for the saved host list,
+///   installs and removes it, a save while muxFinder's file is installed updates it, and the app
+///   asks for the rewrite at launch; all through `SettingsEnvironment.persistentProfiles`, one
+///   operation at a time.
 /// - **Fixtures:** `init(fixture:)` shows a fixed state for previews and screenshots and never
 ///   runs anything.
 @MainActor
@@ -43,6 +48,8 @@ public final class SettingsModel {
   public enum Tab: String, Sendable, Hashable, CaseIterable {
     /// The host list and editor.
     case hosts
+    /// muxFinder's persistent profile file in iTerm2 (PLAN.md D26).
+    case profiles
     /// Launch at login.
     case general
     /// The operation log.
@@ -52,6 +59,7 @@ public final class SettingsModel {
     public var title: String {
       switch self {
       case .hosts: return "Hosts"
+      case .profiles: return "Persistent profiles"
       case .general: return "General"
       case .diagnostics: return "Diagnostics"
       }
@@ -193,6 +201,13 @@ public final class SettingsModel {
   public var refreshState: RefreshState?
   /// The explaining fix-it whose text is shown.
   public private(set) var shownExplanation: FixIt?
+  /// How `DynamicProfiles/muxFinder.json` compares with the saved hosts' profiles, last
+  /// checked; `nil` before the first check.
+  public internal(set) var profileStatus: PersistentProfileStatus?
+  /// What the last install, removal or automatic update did.
+  public internal(set) var profileResult: PersistentProfileResult?
+  /// Profile operations queued or running (they run one at a time).
+  public internal(set) var profileOperations = 0
   /// Whether the window is open.
   public private(set) var isWindowOpen = false
   /// Whether this model renders a fixture.
@@ -204,7 +219,9 @@ public final class SettingsModel {
   /// engine).
   @ObservationIgnored public var onHostListSaved: (@MainActor (HostList) -> Void)?
   /// The dependencies; `nil` for a fixture.
-  @ObservationIgnored private let environment: SettingsEnvironment?
+  @ObservationIgnored let environment: SettingsEnvironment?
+  /// The last profile operation queued; the next one waits for it (`SettingsModelProfiles`).
+  @ObservationIgnored var lastProfileOperation: Task<Void, Never>?
   /// The file's revision as loaded or last saved, which saves expect; `nil` before a load and
   /// for a folder that could not be read.
   @ObservationIgnored private var revision: HostFileRevision?
@@ -225,7 +242,7 @@ public final class SettingsModel {
   /// results and starts nothing more.
   @ObservationIgnored private var windowGeneration = 0
   /// Whether `shutdown()` ran: nothing new starts.
-  @ObservationIgnored private var isShutDown = false
+  @ObservationIgnored private(set) var isShutDown = false
 
   /// A model over `environment`. Nothing runs until `windowDidOpen()`.
   public init(environment: SettingsEnvironment) {
@@ -258,15 +275,18 @@ public final class SettingsModel {
     copyNotice = fixture.copyNotice
     refreshState = fixture.refreshState
     shownExplanation = fixture.shownExplanation
+    profileStatus = fixture.profileStatus
+    profileResult = fixture.profileResult
+    profileOperations = fixture.isProfileOperationRunning ? 1 : 0
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
   } // End of init(fixture:)
 
   // MARK: - Window
 
   /// The window opened: reads the login item status, loads the host list, then the profiles,
-  /// the SSH suggestions and the log, in a task the model owns (`windowDidClose()` cancels it),
-  /// and returns once that task has ended. Does nothing for a fixture, while already open, or
-  /// after `shutdown()`.
+  /// the SSH suggestions, the log and the persistent profile file's status, in a task the model
+  /// owns (`windowDidClose()` cancels it), and returns once that task has ended. Does nothing
+  /// for a fixture, while already open, or after `shutdown()`.
   public func windowDidOpen() async {
     guard environment != nil, !isWindowOpen, !isShutDown else { return }
     isWindowOpen = true
@@ -287,7 +307,8 @@ public final class SettingsModel {
     async let profiles: Void = loadProfiles()
     async let names: Void = loadSuggestions()
     async let log: Void = refreshDiagnostics()
-    _ = await (profiles, names, log)
+    async let files: Void = checkProfiles()
+    _ = await (profiles, names, log, files)
   }
 
   /// Whether work started for the window opened as `generation` may go on: that window is
@@ -333,7 +354,7 @@ public final class SettingsModel {
   } // End of func shutdown()
 
   /// Starts `work` as a task kept in `runningTasks` until it ends, and returns it.
-  private func track(
+  func track(
     _ work: @escaping @MainActor @Sendable () async -> Void
   ) -> Task<Void, Never> {
     lastTaskNumber += 1
@@ -578,6 +599,21 @@ public final class SettingsModel {
     edit { $0.profileName = name }
   }
 
+  /// Turns the host's persistent profile on or off (PLAN.md D26).
+  public func setPersistentProfileEnabled(_ isEnabled: Bool) {
+    edit { $0.persistentProfile.isEnabled = isEnabled }
+  }
+
+  /// Sets the persistent profile's default session name (empty: `main`).
+  public func setDefaultSessionName(_ name: String) {
+    edit { $0.persistentProfile.defaultSessionName = name }
+  }
+
+  /// Sets the persistent profile's parent profile (empty: none, so iTerm2's default profile).
+  public func setParentProfileName(_ name: String) {
+    edit { $0.persistentProfile.parentProfileName = name }
+  }
+
   /// Turns the host on or off. Turning on an SSH host without a valid destination is refused
   /// (PLAN.md D19): nothing changes, `enableRefusal` says why, and the result is `false`.
   @discardableResult
@@ -641,6 +677,16 @@ public final class SettingsModel {
     let name = draft.trimmedProfileName
     guard !name.isEmpty, !names.contains(name) else { return nil }
     return "iTerm2 has no profile with this name right now."
+  }
+
+  /// A warning (not an error) when the persistent profile's parent is not among iTerm2's
+  /// profiles: iTerm2 then bases the profile on its default profile.
+  public var parentProfileWarning: String? {
+    guard let draft, case .available(let names) = profileChoices,
+      let name = draft.persistentProfile.storedParentName, !names.contains(name)
+    else { return nil }
+    return "iTerm2 has no profile with this name right now, so it would use its default profile "
+      + "as the parent."
   }
 
   // MARK: - Saving
@@ -734,7 +780,9 @@ public final class SettingsModel {
   /// model's list. A file changed since is left as it is: the save is refused, `changedFile`
   /// holds what is there, and nothing else changes (the draft stays). A save that put the list
   /// in place but could not keep the displaced file (`displacedFileError`) counts as saved,
-  /// with its error shown. Refused, with nothing written, while the list is not editable.
+  /// with its error shown. Refused, with nothing written, while the list is not editable. Once
+  /// saved, an installed persistent profile file is brought up to date with the list just
+  /// written (`updateProfilesAfterSave(_:)`, PLAN.md D26).
   private func write(_ list: HostList, detail: String, hostID: UUID) async -> Bool {
     guard let environment, !isShutDown else { return false }
     guard isEditable else {
@@ -766,6 +814,7 @@ public final class SettingsModel {
     loadState = .loaded(.saved)
     hasReplaceConsent = false
     onHostListSaved?(list)
+    updateProfilesAfterSave(list)
     if let error = result.displacedFileError {
       saveError = error.errorDescription
       await record(.failure, hostID: hostID, detail: detail + ", displaced file not kept")
@@ -981,19 +1030,20 @@ public final class SettingsModel {
 
   // MARK: - Helpers
 
-  /// Records a settings event; the detail never holds a destination, path or profile name.
-  private func record(
-    _ outcome: DiagnosticOutcome, hostID: UUID? = nil, duration: Duration = .zero,
-    detail: String
+  /// Records a settings event (or one of `category`); the detail never holds a destination,
+  /// path or profile name.
+  func record(
+    _ outcome: DiagnosticOutcome, category: DiagnosticCategory = .settings, hostID: UUID? = nil,
+    duration: Duration = .zero, detail: String
   ) async {
     guard let environment else { return }
     let milliseconds =
       Int(duration.components.seconds * 1_000)
       + Int(duration.components.attoseconds / 1_000_000_000_000_000)
     await environment.diagnostics.record(
-      .settings, outcome: outcome, hostID: hostID?.uuidString, durationMs: milliseconds,
+      category, outcome: outcome, hostID: hostID?.uuidString, durationMs: milliseconds,
       detail: detail)
-  }
+  } // End of func record(_:category:hostID:duration:detail:)
 
   /// `success` for a host that answered, `failure` otherwise.
   static func outcome(of status: HostStatus) -> DiagnosticOutcome {

@@ -4,8 +4,9 @@ import SwiftUI
 /// The host editor (PLAN.md Phase 9a): name, This Mac or SSH, destination with suggestions and
 /// "Set up SSH in iTerm2…" (D24, under the connection test's result instead when that test
 /// needed a sign-in or had a host key problem), turned on, the tmux path with "Detect", the
-/// iTerm2 profile, "Test connection", and Remove, Revert and Save. Inline errors come from the
-/// model's `HostDraftIssues`; the whole editor is disabled while the list is not editable.
+/// iTerm2 profile, the persistent profile's switch, default session name and parent profile
+/// (D26), "Test connection", and Remove, Revert and Save. Inline errors come from the model's
+/// `HostDraftIssues`; the whole editor is disabled while the list is not editable.
 struct HostEditorView: View {
   /// The model shown.
   let model: SettingsModel
@@ -20,6 +21,7 @@ struct HostEditorView: View {
             hostSection(draft, issues: issues)
             tmuxSection(draft, issues: issues)
             iTermSection(draft, issues: issues)
+            persistentProfileSection(draft, issues: issues)
             connectionSection(draft)
           }
           .padding(14)
@@ -144,6 +146,73 @@ struct HostEditorView: View {
       } // End of FieldRow "Profile"
     }
   } // End of func iTermSection(_:issues:)
+
+  /// The persistent profile (PLAN.md D26): on or off, the default session name (empty: `main`)
+  /// and the parent profile, a picker of iTerm2's profiles or free text.
+  private func persistentProfileSection(
+    _ draft: HostDraft, issues: HostDraftIssues?
+  ) -> some View {
+    let settings = draft.persistentProfile
+    let profile =
+      draft.trimmedName.isEmpty
+      ? "a “Persistent work” profile" : "“\(PersistentProfiles.namePrefix)\(draft.trimmedName)”"
+    return SettingsSection(title: "Persistent profile") {
+      FieldRow(label: "") {
+        Toggle(
+          "Persistent profile",
+          isOn: Binding(
+            get: { settings.isEnabled }, set: { model.setPersistentProfileEnabled($0) }))
+        NoteText(
+          text: "Adds \(profile) to iTerm2's profiles: its tabs run inside this host's tmux "
+            + "session, so work started there keeps running after the tab closes. Install it "
+            + "in the Persistent profiles tab.")
+      }
+      FieldRow(label: "Session") {
+        TextField(
+          HostConfig.standardDefaultSessionName,
+          text: binding(settings.defaultSessionName, model.setDefaultSessionName)
+        )
+        .labelsHidden()
+        .accessibilityLabel("Default session name")
+        if let error = issues?.defaultSessionName { IssueText(text: error) }
+        NoteText(
+          text: "The session the profile attaches, or creates when it doesn't exist. Leave "
+            + "empty for “\(HostConfig.standardDefaultSessionName)”.")
+      }
+      FieldRow(label: "Parent profile") {
+        parentProfileField(settings)
+        if let error = issues?.parentProfileName { IssueText(text: error) }
+        if let warning = model.parentProfileWarning { IssueText(text: warning) }
+        NoteText(
+          text: "Colors, fonts and other settings come from this profile. Without one, iTerm2 "
+            + "uses its default profile.")
+      }
+    } // End of SettingsSection "Persistent profile"
+  } // End of func persistentProfileSection(_:issues:)
+
+  /// The parent profile: a picker of iTerm2's profiles, or free text when they can't be listed
+  /// (as the iTerm2 profile field).
+  @ViewBuilder
+  private func parentProfileField(_ settings: HostDraft.PersistentProfileSettings) -> some View {
+    let value = settings.parentProfileName
+    if case .available(let names) = model.profileChoices {
+      Picker("Parent profile", selection: binding(value, model.setParentProfileName)) {
+        Text("None").tag("")
+        ForEach(names, id: \.self) { name in
+          Text(name).tag(name)
+        }
+        if !value.isEmpty, !names.contains(value) {
+          Text("\(value) (not in iTerm2)").tag(value)
+        }
+      }
+      .labelsHidden()
+      .fixedSize()
+    } else {
+      TextField("None", text: binding(value, model.setParentProfileName))
+        .labelsHidden()
+        .accessibilityLabel("Parent profile")
+    }
+  } // End of func parentProfileField(_:)
 
   /// "Test connection" and its result.
   private func connectionSection(_ draft: HostDraft) -> some View {

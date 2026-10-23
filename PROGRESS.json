@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-23T01:44:28Z",
+  "updated": "2026-10-23T02:34:16Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -287,11 +287,11 @@
     {
       "id": "11",
       "title": "Persistent Work profiles",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Persistent Work profiles, split into 11a (core and helper), 11b (real runs) and 11c (Settings).",
+      "summary": "Persistent Work profiles, split into 11a (core and helper), 11b (real runs) and 11c (Settings), all done.",
       "started": "2026-10-22T23:02:22Z",
-      "status_since": "2026-10-22T23:02:22Z"
+      "status_since": "2026-10-23T02:34:16Z"
     },
     {
       "id": "11a",
@@ -315,6 +315,7 @@
       "summary": "Real e2e-profile runs pass 14/14 locally and on Saturno; iTerm2 mirroring the profile into New Bookmarks is handled.",
       "review": "Codex, ship-with-fixes, docs/reviews/phase-11b.md",
       "narrative": "docs/progress-archive/11b.md",
+      "commit": "a5ca9e0",
       "added": "2026-10-22T23:02:22Z",
       "started": "2026-10-23T00:42:12Z",
       "status_since": "2026-10-23T01:44:28Z"
@@ -322,12 +323,15 @@
     {
       "id": "11c",
       "title": "Settings section and launch-time rewrite",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "11",
-      "summary": "Adds the Settings controls and copy for persistent work profiles and rewrites them when the helper moves.",
+      "summary": "Settings tab and host fields for persistent profiles; the app keeps its own installed profile file current and never creates it unasked.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-11c.md",
+      "narrative": "docs/progress-archive/11c.md",
       "added": "2026-10-22T23:02:22Z",
-      "status_since": "2026-10-22T23:02:22Z"
+      "started": "2026-10-23T01:46:21Z",
+      "status_since": "2026-10-23T02:34:16Z"
     },
     {
       "id": "12",

@@ -9,7 +9,10 @@ import os
 ///
 /// - **Start:** `start()` loads the host list (never writing it), builds the engine for it,
 ///   subscribes to `RefreshCoordinator.updates()`, starts the sleep/wake/network adapter and
-///   then the engine's cadence. Nothing contacts iTerm2 at start.
+///   then the engine's cadence. Nothing contacts iTerm2 at start. With
+///   `AppEnvironment.rewritesProfilesAtLaunch` (normal mode only) and a list loaded as `saved`,
+///   Settings brings an installed, out-of-date persistent profile file up to date in the
+///   background (`SettingsModel.keepProfilesCurrentAtLaunch(_:)`, PLAN.md D26).
 /// - **Popover:** `popoverDidOpen()` / `popoverDidClose()` tell the engine, which refreshes at
 ///   once and every 15 s while the popover is visible and runs attachment checks only then
 ///   (D20); those checks are the only reason the popover contacts iTerm2, and requests its
@@ -322,6 +325,9 @@ public final class AppModel {
   private func performStart(_ environment: AppEnvironment) async {
     let (hosts, loaded) = await loadHostList(environment)
     guard lifecycle == .starting else { return }
+    if environment.rewritesProfilesAtLaunch, loaded?.state == .saved {
+      settings.keepProfilesCurrentAtLaunch(hosts)
+    }
     if let loaded, onboarding.prepare(loaded) {
       environment.presentOnboarding(onboarding)
     }

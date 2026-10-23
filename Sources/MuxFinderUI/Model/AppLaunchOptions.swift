@@ -119,6 +119,15 @@ public struct AppLaunchOptions: Sendable, Hashable {
     }
   } // End of func checkSelfTest(keep:)
 
+  /// Whether this launch may bring an installed, out-of-date persistent profile file up to date
+  /// (PLAN.md D26): only the menu bar app in normal mode, never with `--preview-fixtures`,
+  /// `--selftest`, `--report-login-item-status`, `--report-menu-bar-item` or unusable
+  /// arguments. `--appearance` alone keeps normal mode.
+  public var rewritesProfilesAtLaunch: Bool {
+    !previewFixtures && !reportsMenuBarItem && !reportsLoginItemStatus && selfTest == nil
+      && usageError == nil
+  }
+
   /// The options of this process.
   public static var current: AppLaunchOptions {
     AppLaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))

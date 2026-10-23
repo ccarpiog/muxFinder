@@ -906,6 +906,45 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   removal: with step 12 taking 25 s, a copy that stays fails step 13 after the 5 s left, the
   exports' timeouts 5 s, 4.5 s … 0.5 s; an export of 6 s then is cut at its 5 s timeout, or
   overruns it and ends clean after the deadline, and either way fails step 13 as out of time.
+- **Persistent profiles: the app's own file** (`PersistentProfilesTests`,
+  `PersistentProfileInstallerTests`, PLAN.md D26, Phase 11c): `isGenerated` accepts every
+  generated document (any helper path, a parent) and refuses another GUID, a look-alike or
+  uppercase GUID, no `muxFinder` tag, an extra key, an empty or non-array `Profiles`, a top-level
+  array, text that is not JSON; a file of the user's is `notMuxFinders` for status and refused
+  by `replaceGenerated` (also with an empty document) and `onlyIfGenerated`, its bytes and the
+  siblings unchanged, no temporary file left; a generated file of another helper path is
+  replaced and removed. `updateExistingGenerated` (the automatic updates) creates nothing: no
+  folder or no file (also one removed after a status read it as stale) is `notInstalled`, the
+  folder not created; it updates a stale generated file (0600), writes nothing for identical
+  bytes, removes only a generated file for an empty document and refuses a file of the user's
+  (with a document or an empty one); a swap over a checked file that went meanwhile is
+  `fileChanged` and creates nothing at the name.
+- **Persistent profiles in Settings** (`Tests/MuxFinderUITests/PersistentProfilesSettingsTests
+  .swift`, a fake seam that holds the generator's real bytes; the real seam only over a private
+  folder): the session name and parent rules (trimmed, empty as none, each refusal with the
+  validation's sentence, checked with the profile off too, an untouched parent saved back as
+  loaded); an invalid draft blocks Save and writes nothing; a host without the fields and one
+  with them save back byte for byte through `HostStore` in a private folder; the tab's content
+  for every status (the not-saved list, an unusable helper with the file still there, a file of
+  the user's, no profile on, an operation running, unsaved edits) and every result line;
+  Install uses the saved list, never the draft, Remove only muxFinder's file, Install and
+  Remove calling nothing while off; a busy lock shown as a failure; an install held at the
+  fake's gate leaves the main actor free; a save while installed updates the file (a rename)
+  through `update(_:)`, never `install(_:)`, turning off the last profile removes it, a save
+  with nothing installed writes nothing; a save's update held at its status check while
+  Settings closes and reopens (the list loading) updates to the list the save wrote, never to
+  an empty document; "Check again" while the list loads asks nothing, and an install held
+  while the list reloads checks the status for the list it installed; at launch a stale file
+  (the helper moved) is updated, a missing or current file or an unusable helper writes
+  nothing, a list not loaded as `saved` or a launch that does not rewrite never asks the seam,
+  and the log holds kinds only; a file removed after an automatic update read it as stale
+  (at launch, after a save) is not created again; only normal mode rewrites
+  (`AppLaunchOptions`: never `--preview-fixtures`, `--selftest`, either report or unusable
+  arguments); `shutdown()` stops profile work; every Settings fixture's model has no
+  environment and no action changes its state; `PersistentProfileFiles` over a private
+  stand-in folder (not installed, an update then creating nothing, installed, stale after a
+  helper move, updated, an unsafe helper still seeing the file and removing it, a file of the
+  user's left exactly as it was).
 
 ## Helper test mode: argv digest
 
@@ -1759,3 +1798,29 @@ Still unverified (PLAN.md D26):
   stays untried on a server; validation refuses such names.
 - A login shell ending by itself within 3 s, beyond the helper's hold, was not exercised: the
   runs never reach the login-shell fallback.
+
+### Phase 11c — Settings section and the rewrite at launch (2026-10-23)
+
+Hermetic only: no check here contacts iTerm2, opens the real Settings window (that needs a
+click; UI scripting is never used), writes in iTerm2's `DynamicProfiles` folder, or reads or
+writes the real `hosts.json` (there is none on Neptuno). The new controls, the Persistent
+profiles tab and the rewrite at launch are covered by the unit tests above (fakes, and the real
+seam over private folders only) and shown by the preview window (PLAN.md D26).
+
+- **Owed to the user:** "Install profiles" and "Remove profiles" for real from the app in
+  `/Applications` (the profiles appear in iTerm2's Settings › Profiles and go again), making a
+  persistent profile the default and opening a tab with it, a second tab of the same profile
+  (the copy's "may show its windows a second time" is untried), and a launch after moving the
+  app with the profiles installed (the file follows the new helper path).
+
+Environment: Neptuno, macOS 27.2, from the repo root. The support folder held only an empty
+`launch/` and the empty `profiles.lock` of Phase 11b before and after (no `hosts.json`).
+
+| Check | Command | Observed result |
+|---|---|---|
+| iTerm2's profiles before and after | `swift run muxfinder-probe profiles hashes`; `ls -A ~/Library/Application\ Support/iTerm2/DynamicProfiles/` | identical output at the start and the end: no `DynamicProfiles` entry, `New Bookmarks` 13 entries, `sha256` `9178e053…3ef5d6f`, `excludedMuxFinderEntries` 0; the folder empty both times (no `muxFinder.json`) |
+| Unit tests | `swift test` | exit 0: 672 tests in 66 suites (core) and 158 in 13 suites (UI) |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Settings screenshots | `muxFinder --preview-fixtures --preview-gallery settings --appearance light --preview-snapshot docs/screenshots/settings-states-light.png`, then `dark` | exit 0 both; 4528×7920 PNGs, 16 states, inspected (cropped with `sips` into `/tmp`): the persistent profile fields with the `$work` error and Save off, and the Persistent profiles tab not installed (with the unsaved-changes note), installed after an install, out of date after a busy failure, and unavailable (unsafe helper path, Remove still on, the launch failure line), each with the copy; readable in both appearances |
+| Shell check | `muxFinder --report-menu-bar-item` in the background; `pgrep -P`; `kill -TERM` | 7 status-bar-level windows, all visible; no child process; exit status 0; nothing written to the support folder (no `hosts.json`) |

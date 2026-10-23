@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The Settings window's content (PLAN.md Phase 9a, D23): the Hosts, General and Diagnostics
-/// tabs over one `SettingsModel`.
+/// The Settings window's content (PLAN.md Phase 9a, D23): the Hosts, Persistent profiles (D26),
+/// General and Diagnostics tabs over one `SettingsModel`.
 public struct SettingsView: View {
   /// The window's size when it first opens, in points.
   public static let defaultSize = CGSize(width: 720, height: 740)
@@ -22,6 +22,9 @@ public struct SettingsView: View {
       HostsSettingsView(model: model)
         .tabItem { Text(SettingsModel.Tab.hosts.title) }
         .tag(SettingsModel.Tab.hosts)
+      ProfilesSettingsView(model: model)
+        .tabItem { Text(SettingsModel.Tab.profiles.title) }
+        .tag(SettingsModel.Tab.profiles)
       GeneralSettingsView(model: model)
         .tabItem { Text(SettingsModel.Tab.general.title) }
         .tag(SettingsModel.Tab.general)

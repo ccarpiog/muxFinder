@@ -23,26 +23,50 @@ public struct HostDraft: Sendable, Hashable {
   public var profileName: String
   /// Whether the host is turned on.
   public var isEnabled: Bool
-  /// The persistent-profile values (PLAN.md D26), kept exactly as loaded: the editor has no
-  /// controls for them yet (Phase 11c), and a save must not drop them.
+  /// The persistent-profile fields (PLAN.md D26).
   public var persistentProfile: PersistentProfileSettings
 
-  /// A host's persistent-profile values as the editor carries them.
+  /// A host's persistent-profile fields as typed: the switch, the default session name (empty
+  /// means `main`) and the parent profile (empty means none, so iTerm2's default profile).
+  /// What a save stores: the session name trimmed, the parent trimmed, each empty as none; a
+  /// parent field left exactly as loaded saves back the stored value unchanged, so a host's
+  /// values round-trip whatever the file held.
   public struct PersistentProfileSettings: Sendable, Hashable {
     /// `HostConfig.persistentProfileEnabled`.
     public var isEnabled: Bool
-    /// `HostConfig.defaultSessionName`.
-    public var defaultSessionName: String?
-    /// `HostConfig.persistentProfileParentName`.
-    public var parentProfileName: String?
+    /// The default session name field.
+    public var defaultSessionName: String
+    /// The parent profile field.
+    public var parentProfileName: String
+    /// The parent as loaded (`nil`: none, or a new host).
+    public let loadedParentName: String?
 
     /// The values of `host`.
     public init(_ host: HostConfig) {
       isEnabled = host.persistentProfileEnabled
-      defaultSessionName = host.defaultSessionName
-      parentProfileName = host.persistentProfileParentName
+      defaultSessionName = host.defaultSessionName ?? ""
+      parentProfileName = host.persistentProfileParentName ?? ""
+      loadedParentName = host.persistentProfileParentName
     }
-  }
+
+    /// The trimmed session name field.
+    public var trimmedSessionName: String {
+      defaultSessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The session name a save stores: trimmed, empty as none (`main`).
+    public var storedSessionName: String? {
+      trimmedSessionName.isEmpty ? nil : trimmedSessionName
+    }
+
+    /// The parent a save stores: the loaded value while the field is untouched, else the field
+    /// trimmed, empty as none.
+    public var storedParentName: String? {
+      if parentProfileName == (loadedParentName ?? "") { return loadedParentName }
+      let trimmed = parentProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+  } // End of struct PersistentProfileSettings
 
   /// The draft of a saved host.
   public init(_ host: HostConfig) {
@@ -97,8 +121,8 @@ public struct HostDraft: Sendable, Hashable {
     return trimmedTmuxPath.isEmpty || (try? Validation.executablePath(trimmedTmuxPath)) != nil
   }
 
-  /// The configuration this draft saves: trimmed values, an empty tmux path or profile stored
-  /// as none, and the persistent-profile values as they were loaded.
+  /// The configuration this draft saves: trimmed values, an empty tmux path, profile, default
+  /// session name or parent profile stored as none (see `PersistentProfileSettings`).
   public var config: HostConfig {
     HostConfig(
       id: id,
@@ -109,8 +133,8 @@ public struct HostDraft: Sendable, Hashable {
       iTermProfileName: trimmedProfileName.isEmpty ? nil : trimmedProfileName,
       isEnabled: isEnabled,
       persistentProfileEnabled: persistentProfile.isEnabled,
-      defaultSessionName: persistentProfile.defaultSessionName,
-      persistentProfileParentName: persistentProfile.parentProfileName)
+      defaultSessionName: persistentProfile.storedSessionName,
+      persistentProfileParentName: persistentProfile.storedParentName)
   }
 
   /// The configuration a probe runs with: `config`, without the tmux path when `detecting`.
@@ -140,6 +164,10 @@ public struct HostDraftIssues: Sendable, Hashable {
   public var profileName: String?
   /// Why the host cannot be turned on as it is.
   public var enabled: String?
+  /// The persistent profile's default session name's problem.
+  public var defaultSessionName: String?
+  /// The persistent profile's parent profile's problem.
+  public var parentProfileName: String?
 
   /// The message for an SSH host turned on without a valid destination (PLAN.md D19).
   public static let destinationNeededToTurnOn =
@@ -155,6 +183,10 @@ public struct HostDraftIssues: Sendable, Hashable {
   /// - **Turned on:** an SSH host needs a valid destination.
   /// - **tmux path:** empty (automatic) or a full path (`Validation.executablePath`).
   /// - **Profile:** no control characters.
+  /// - **Persistent profile** (PLAN.md D26, checked whether or not it is on, as `HostList`
+  ///   checks): the default session name empty (`main`) or, trimmed, valid for
+  ///   `Validation.persistentSessionName`; the parent profile empty (none) or, as it would be
+  ///   stored, valid for `Validation.profileName`.
   public init(draft: HostDraft, otherHosts: [HostConfig]) {
     let name = draft.trimmedName
     if name.isEmpty {
@@ -190,12 +222,26 @@ public struct HostDraftIssues: Sendable, Hashable {
     if Self.containsControlCharacter(draft.trimmedProfileName) {
       profileName = "Profile names can't contain control characters."
     }
+    if let session = draft.persistentProfile.storedSessionName {
+      do throws(ValidationError) {
+        _ = try Validation.persistentSessionName(session)
+      } catch {
+        defaultSessionName = error.message
+      }
+    }
+    if let parent = draft.persistentProfile.storedParentName {
+      do throws(ValidationError) {
+        _ = try Validation.profileName(parent)
+      } catch {
+        parentProfileName = error.message
+      }
+    }
   } // End of init(draft:otherHosts:)
 
   /// Whether the draft has no problem.
   public var isValid: Bool {
     displayName == nil && destination == nil && tmuxPath == nil && profileName == nil
-      && enabled == nil
+      && enabled == nil && defaultSessionName == nil && parentProfileName == nil
   }
 
   /// Whether two display names are the same, ignoring case and surrounding spaces.

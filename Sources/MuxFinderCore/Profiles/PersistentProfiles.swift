@@ -176,4 +176,25 @@ public enum PersistentProfiles {
     guard data.count <= maximumFileSize else { throw .documentTooLarge }
     return PersistentProfileDocument(profiles: profiles, data: data)
   } // End of func document(for:helper:)
+
+  /// Whether `data` looks like a document this generator makes, so the app replaces or removes
+  /// only its own file (PLAN.md D26): a JSON object whose only key is `Profiles`, a non-empty
+  /// array of objects, each with a `Guid` this generator makes (`muxfinder-persistent-` and a
+  /// lowercase host id, nothing more) and the `muxFinder` tag. The other keys and their values
+  /// are not compared, so a file an earlier build wrote (another helper path, another name)
+  /// still counts. Anything else at `muxFinder.json` is taken to be the user's.
+  public static func isGenerated(_ data: Data) -> Bool {
+    guard data.count <= maximumFileSize,
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object.count == 1, let profiles = object["Profiles"] as? [Any], !profiles.isEmpty
+    else { return false }
+    return profiles.allSatisfy { entry in
+      guard let profile = entry as? [String: Any],
+        let guid = profile[PersistentProfile.CodingKeys.guid.rawValue] as? String,
+        let hostID = hostID(fromGUID: guid), self.guid(forHostID: hostID) == guid,
+        let tags = profile[PersistentProfile.CodingKeys.tags.rawValue] as? [String]
+      else { return false }
+      return tags.contains(tag)
+    }
+  } // End of func isGenerated(_:)
 }

@@ -7,7 +7,7 @@ import MuxFinderCore
 /// Settings and onboarding windows and their seams. `production()` wires the real core; tests
 /// pass fakes (the attach coordinator over a fake iTerm2 integration), so `swift test` never
 /// reads or saves `hosts.json`, runs a probe, contacts iTerm2, opens a window, a tab or System
-/// Settings, or changes a login item.
+/// Settings, changes a login item, or writes in iTerm2's `DynamicProfiles`.
 ///
 /// Building an environment does no work: nothing is read, started or contacted until
 /// `AppModel.start()` calls `loadHosts` and `makeEngine`, a window opens, or the first action
@@ -50,6 +50,11 @@ public struct AppEnvironment: Sendable {
   /// reports the ones still running and returns (`AppModel.sessionActionShutdownBudget` by
   /// default; tests shorten it).
   public var sessionActionShutdownBudget: Duration
+  /// Whether `AppModel.start()` brings an installed, out-of-date persistent profile file up to
+  /// date once the host list loaded as `saved` (PLAN.md D26), through Settings' seam. Only the
+  /// menu bar app in normal mode sets it (`AppLaunchOptions.rewritesProfilesAtLaunch`); every
+  /// other mode, the self-tests and the tests leave it off, so they never call the installer.
+  public var rewritesProfilesAtLaunch: Bool
 
   /// Creates an environment from its parts.
   public init(
@@ -67,7 +72,8 @@ public struct AppEnvironment: Sendable {
       @Sendable (@escaping AttachCoordinator.UpdateHandler) throws -> AttachCoordinator
     )? = nil,
     newSessionCommand: [String] = [],
-    sessionActionShutdownBudget: Duration = AppModel.sessionActionShutdownBudget
+    sessionActionShutdownBudget: Duration = AppModel.sessionActionShutdownBudget,
+    rewritesProfilesAtLaunch: Bool = false
   ) {
     self.loadHosts = loadHosts
     self.makeEngine = makeEngine
@@ -82,6 +88,7 @@ public struct AppEnvironment: Sendable {
     self.makeAttachCoordinator = makeAttachCoordinator
     self.newSessionCommand = newSessionCommand
     self.sessionActionShutdownBudget = sessionActionShutdownBudget
+    self.rewritesProfilesAtLaunch = rewritesProfilesAtLaunch
   } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
 
   /// The real app: `hosts.json` through one `HostStore` (loading never writes; Settings saves
@@ -90,11 +97,13 @@ public struct AppEnvironment: Sendable {
   /// notifications plus the network path, one `DiagnosticsLog`, and the Settings window's real
   /// seams: the same probe for Detect and Test connection, the same client for the profile
   /// list, `~/.ssh/config` suggestions (read-only), `SMAppService.mainApp`, the general
-  /// pasteboard, `NSWorkspace` for URLs, and "Set up SSH in iTerm2…" (`SSHSetupLauncher` over
-  /// the same client, the launch store and the bundled helper). The session actions run on one
-  /// `AttachCoordinator` over the same client, `DiscoveryProbe`, the launch store and the
-  /// bundled `muxfinder-launch` (`LaunchHelperPath.locate()`), with the standard
-  /// existing-attachment check (PLAN.md D16, D25).
+  /// pasteboard, `NSWorkspace` for URLs, "Set up SSH in iTerm2…" (`SSHSetupLauncher` over
+  /// the same client, the launch store and the bundled helper), and the persistent profile
+  /// file (`PersistentProfileFiles` over iTerm2's `DynamicProfiles` folder, PLAN.md D26). The
+  /// session actions run on one `AttachCoordinator` over the same client, `DiscoveryProbe`, the
+  /// launch store and the bundled `muxfinder-launch` (`LaunchHelperPath.locate()`), with the
+  /// standard existing-attachment check (PLAN.md D16, D25). `rewritesProfilesAtLaunch` is the
+  /// caller's: only the menu bar app in normal mode passes `true`.
   ///
   /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
@@ -106,7 +115,7 @@ public struct AppEnvironment: Sendable {
   /// cookie is never requested at launch, nor once the popover has closed, nor while iTerm2 is
   /// not running. The onboarding window contacts nothing by itself.
   @MainActor
-  public static func production() -> AppEnvironment {
+  public static func production(rewritesProfilesAtLaunch: Bool) -> AppEnvironment {
     let diagnostics = DiagnosticsLog()
     let iTerm2 = ITerm2APIClient(diagnostics: diagnostics)
     let index = AttachmentIndex(iTerm2: iTerm2)
@@ -126,7 +135,8 @@ public struct AppEnvironment: Sendable {
       openURL: { SettingsEnvironment.openWithWorkspace($0) },
       appVersion: AppVersion.current,
       systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-      sshSetup: sshSetup)
+      sshSetup: sshSetup,
+      persistentProfiles: PersistentProfileFiles())
     return AppEnvironment(
       loadHosts: { try await store.load() },
       makeEngine: { hosts in
@@ -146,8 +156,9 @@ public struct AppEnvironment: Sendable {
         AttachCoordinator(
           iTerm2: iTerm2, discovery: DiscoveryProbe(), store: LaunchStore(),
           helperPath: try LaunchHelperPath.locate(), diagnostics: diagnostics, onUpdate: onUpdate)
-      })
-  } // End of static func production()
+      },
+      rewritesProfilesAtLaunch: rewritesProfilesAtLaunch)
+  } // End of static func production(rewritesProfilesAtLaunch:)
 }
 
 /// Quitting the app safely from any main-thread context.

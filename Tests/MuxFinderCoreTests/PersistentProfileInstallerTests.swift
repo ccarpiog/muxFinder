@@ -404,4 +404,137 @@ struct PersistentProfileInstallerTests {
     #expect(try Data(contentsOf: target) == Data("the user's".utf8))
     #expect(try LaunchTestSupport.names(in: fixture.directory).isEmpty)
   } // End of func refusesALinkedLockFile()
+
+  /// The app's policy (PLAN.md D26): `replaceGenerated` and `onlyIfGenerated` replace and remove
+  /// only a generated document; a file of the user's at the name is `notMuxFinders` for status
+  /// and refused (`fileNotMuxFinders`) by install, an empty install and removal, its bytes and
+  /// every other entry unchanged, no temporary file left. A generated file from another helper
+  /// path is replaced and removed.
+  @Test func appPolicyChangesOnlyGeneratedFiles() throws {
+    let fixture = try Self.makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.base) }
+    let before = try Self.siblingHashes(of: fixture.directory)
+    let users = Data(
+      #"{"Profiles": [{"Name": "Mine", "Guid": "mine-1", "Tags": ["muxFinder"]}]}"#.utf8)
+    try users.write(to: fixture.installer.fileURL)
+    let document = try Self.document()
+    let empty = try PersistentProfiles.document(
+      for: HostList(), helperPath: PersistentProfilesTests.helper)
+    #expect(try fixture.installer.status(for: document) == .notMuxFinders)
+    #expect(try fixture.installer.status(for: empty) == .notMuxFinders)
+    #expect(throws: PersistentProfileInstallerError.fileNotMuxFinders) {
+      try fixture.installer.install(document, replacing: .replaceGenerated)
+    }
+    #expect(throws: PersistentProfileInstallerError.fileNotMuxFinders) {
+      try fixture.installer.install(empty, replacing: .replaceGenerated)
+    }
+    #expect(throws: PersistentProfileInstallerError.fileNotMuxFinders) {
+      try fixture.installer.remove(onlyIfGenerated: true)
+    }
+    #expect(try Data(contentsOf: fixture.installer.fileURL) == users)
+    #expect(try Self.siblingHashes(of: fixture.directory) == before)
+    #expect(
+      try LaunchTestSupport.names(in: fixture.directory).allSatisfy { !$0.hasSuffix(".tmp") })
+
+    // A generated file (an earlier helper path) is muxFinder's: replaced, then removed.
+    try FileManager.default.removeItem(at: fixture.installer.fileURL)
+    let earlier = try Self.document(
+      helper: "/Users/tester/Applications/muxFinder.app/Contents/MacOS/muxfinder-launch")
+    try fixture.installer.install(earlier)
+    #expect(try fixture.installer.status(for: document) == .stale)
+    #expect(try fixture.installer.install(document, replacing: .replaceGenerated) == .written)
+    #expect(try fixture.installer.status(for: document) == .current)
+    #expect(try fixture.installer.install(empty, replacing: .replaceGenerated) == .removed)
+    #expect(!LaunchTestSupport.exists(fixture.installer.fileURL))
+    try fixture.installer.install(document)
+    #expect(try fixture.installer.remove(onlyIfGenerated: true) == .removed)
+    #expect(try fixture.installer.remove(onlyIfGenerated: true) == .notInstalled)
+    #expect(try Self.siblingHashes(of: fixture.directory) == before)
+  } // End of func appPolicyChangesOnlyGeneratedFiles()
+
+  /// The automatic updates' policy (review of Phase 11c, PLAN.md D26):
+  /// `updateExistingGenerated` never creates anything. No folder, or no file (also one removed
+  /// after a status read it as stale), is `notInstalled` with nothing created, not even the
+  /// folder; an empty document then finds nothing to remove. A stale generated file is
+  /// replaced (0600) and identical bytes write nothing; an empty document removes only a
+  /// generated file; a file of the user's is refused and left as it is. The other entries never
+  /// change and no temporary file is left.
+  @Test func updateExistingGeneratedNeverCreatesTheFile() throws {
+    let document = try Self.document()
+    let empty = try PersistentProfiles.document(
+      for: HostList(), helperPath: PersistentProfilesTests.helper)
+    let earlier = try Self.document(
+      helper: "/Users/tester/Applications/muxFinder.app/Contents/MacOS/muxfinder-launch")
+    let update = PersistentProfileInstaller.ReplacePolicy.updateExistingGenerated
+
+    let bare = try Self.makeFixture(siblings: false, createFolder: false)
+    defer { try? FileManager.default.removeItem(at: bare.base) }
+    #expect(try bare.installer.install(document, replacing: update) == .notInstalled)
+    #expect(try bare.installer.install(empty, replacing: update) == .nothingToRemove)
+    #expect(!LaunchTestSupport.exists(bare.directory))
+
+    let fixture = try Self.makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.base) }
+    let before = try Self.siblingHashes(of: fixture.directory)
+    #expect(try fixture.installer.install(document, replacing: update) == .notInstalled)
+    #expect(!LaunchTestSupport.exists(fixture.installer.fileURL))
+    #expect(try fixture.installer.install(empty, replacing: update) == .nothingToRemove)
+
+    // A stale file removed after the status read it (another muxFinder, or the user): the
+    // update finds no file under the lock and creates none.
+    try fixture.installer.install(earlier)
+    #expect(try fixture.installer.status(for: document) == .stale)
+    try FileManager.default.removeItem(at: fixture.installer.fileURL)
+    #expect(try fixture.installer.install(document, replacing: update) == .notInstalled)
+    #expect(!LaunchTestSupport.exists(fixture.installer.fileURL))
+
+    // A stale generated file is updated; the same bytes again write nothing.
+    try fixture.installer.install(earlier)
+    #expect(try fixture.installer.install(document, replacing: update) == .written)
+    #expect(try Data(contentsOf: fixture.installer.fileURL) == document.data)
+    #expect(Self.mode(of: fixture.installer.fileURL) == 0o600)
+    #expect(try fixture.installer.status(for: document) == .current)
+    #expect(try fixture.installer.install(document, replacing: update) == .unchanged)
+
+    // An empty document removes the generated file, then finds none.
+    #expect(try fixture.installer.install(empty, replacing: update) == .removed)
+    #expect(!LaunchTestSupport.exists(fixture.installer.fileURL))
+    #expect(try fixture.installer.install(empty, replacing: update) == .nothingToRemove)
+
+    // A file of the user's is refused, with a document or an empty one, and left as it is.
+    let users = Data(
+      #"{"Profiles": [{"Name": "Mine", "Guid": "mine-1", "Tags": ["muxFinder"]}]}"#.utf8)
+    try users.write(to: fixture.installer.fileURL)
+    #expect(throws: PersistentProfileInstallerError.fileNotMuxFinders) {
+      try fixture.installer.install(document, replacing: update)
+    }
+    #expect(throws: PersistentProfileInstallerError.fileNotMuxFinders) {
+      try fixture.installer.install(empty, replacing: update)
+    }
+    #expect(try Data(contentsOf: fixture.installer.fileURL) == users)
+    #expect(try Self.siblingHashes(of: fixture.directory) == before)
+    #expect(
+      try LaunchTestSupport.names(in: fixture.directory).allSatisfy { !$0.hasSuffix(".tmp") })
+  } // End of func updateExistingGeneratedNeverCreatesTheFile()
+
+  /// What an update relies on once it has checked a file: publishing over a checked file is a
+  /// swap, which fails (`fileChanged`) when that file went meanwhile (a writer outside
+  /// muxFinder), creating nothing at the name and removing its temporary file.
+  @Test func swapNeverCreatesTheName() throws {
+    let fixture = try Self.makeFixture(siblings: false)
+    defer { try? FileManager.default.removeItem(at: fixture.base) }
+    let directory = open(fixture.directory.path(percentEncoded: false), O_RDONLY | O_DIRECTORY)
+    try #require(directory >= 0)
+    defer { close(directory) }
+    let temporary = ".muxFinder.json.test.tmp"
+    let descriptor = openat(directory, temporary, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+    try #require(descriptor >= 0)
+    close(descriptor)
+    let checked = PersistentProfileInstaller.EntryIdentity(device: -1, inode: 0)
+    #expect(throws: PersistentProfileInstallerError.fileChanged) {
+      try fixture.installer.publish(temporary, replacing: checked, in: directory)
+    }
+    #expect(!LaunchTestSupport.exists(fixture.installer.fileURL))
+    #expect(try LaunchTestSupport.names(in: fixture.directory).isEmpty)
+  } // End of func swapNeverCreatesTheName()
 }

@@ -134,4 +134,38 @@ struct PersistentProfilesTests {
     #expect(words.count == 3)
     #expect(LaunchHelper.parse(words) == .profile(LaunchToken(uuid: Self.localID)))
   }
+
+  /// `isGenerated` (PLAN.md D26): every document the generator makes, whatever its helper path
+  /// or parent, counts; the user's files do not: another GUID, a look-alike or uppercase GUID,
+  /// no `muxFinder` tag, an extra top-level key, no profiles, not JSON, not an object.
+  @Test func recognizesGeneratedDocuments() throws {
+    let list = try HostList([Self.local, Self.other, Self.remote])
+    for helper in [Self.helper, "/Users/tester/Applications/muxfinder-launch"] {
+      let document = try PersistentProfiles.document(for: list, helperPath: helper)
+      #expect(PersistentProfiles.isGenerated(document.data))
+    }
+    #expect(PersistentProfiles.isGenerated(Data(try Self.golden("with-parent").utf8)))
+    let guid = PersistentProfiles.guid(forHostID: Self.localID)
+    let tagged = #""Tags": ["muxFinder"]"#
+    let refused = [
+      #"{"Profiles": [{"Guid": "mine-1", \#(tagged)}]}"#,
+      #"{"Profiles": [{"Guid": "muxfinder-persistent-custom", \#(tagged)}]}"#,
+      #"{"Profiles": [{"Guid": "\#(guid.uppercased())", \#(tagged)}]}"#,
+      #"{"Profiles": [{"Guid": "\#(guid)x", \#(tagged)}]}"#,
+      #"{"Profiles": [{"Guid": "\#(guid)", "Tags": ["Mine"]}]}"#,
+      #"{"Profiles": [{"Guid": "\#(guid)"}]}"#,
+      #"{"Profiles": [{"Guid": "\#(guid)", \#(tagged)}], "Mine": true}"#,
+      #"{"Profiles": [{"Guid": "\#(guid)", \#(tagged)}, {"Guid": "mine-1", \#(tagged)}]}"#,
+      #"{"Profiles": []}"#,
+      #"{"Profiles": {}}"#,
+      #"[{"Guid": "\#(guid)", \#(tagged)}]"#,
+      "not JSON",
+      "",
+    ]
+    for text in refused {
+      #expect(!PersistentProfiles.isGenerated(Data(text.utf8)), "\(text)")
+    }
+    let minimal = #"{"Profiles": [{"Guid": "\#(guid)", \#(tagged)}]}"#
+    #expect(PersistentProfiles.isGenerated(Data(minimal.utf8)))
+  } // End of func recognizesGeneratedDocuments()
 }

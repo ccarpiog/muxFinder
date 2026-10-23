@@ -70,9 +70,10 @@ public struct ITerm2ProfileSource: ITerm2ProfileListing {
 }
 
 /// What the Settings window runs on (PLAN.md D23), and with it the onboarding window and the
-/// popover's "Set up SSH in iTerm2…" (D24). `AppEnvironment.production()` wires the real ones;
-/// tests pass fakes, so `swift test` never saves the real `hosts.json`, runs a probe, contacts
-/// iTerm2, opens a tab, changes a login item, opens System Settings or touches the pasteboard.
+/// popover's "Set up SSH in iTerm2…" (D24) and the persistent profile file (D26).
+/// `AppEnvironment.production()` wires the real ones; tests pass fakes, so `swift test` never
+/// saves the real `hosts.json`, runs a probe, contacts iTerm2, opens a tab, changes a login
+/// item, opens System Settings, touches the pasteboard or writes in iTerm2's `DynamicProfiles`.
 public struct SettingsEnvironment: Sendable {
   /// The host list file (`HostStore`, shared with the app model).
   public var store: any HostListPersisting
@@ -99,6 +100,10 @@ public struct SettingsEnvironment: Sendable {
   /// Opens "Set up SSH in iTerm2…" tabs (`SSHSetupLauncher`, PLAN.md D24), for the Settings
   /// host editor, the onboarding window and the popover; `nil` offers no action.
   public var sshSetup: (any SSHSetupOpening)?
+  /// muxFinder's persistent profile file in iTerm2's `DynamicProfiles` (PLAN.md D26): the
+  /// Persistent profiles tab, the update after a save and the rewrite at launch go through it
+  /// only (`PersistentProfileFiles` in production).
+  public var persistentProfiles: any PersistentProfileManaging
 
   /// Creates an environment from its parts.
   public init(
@@ -113,7 +118,8 @@ public struct SettingsEnvironment: Sendable {
     appVersion: String,
     systemVersion: String,
     now: @escaping @Sendable () -> Date = { Date() },
-    sshSetup: (any SSHSetupOpening)? = nil
+    sshSetup: (any SSHSetupOpening)? = nil,
+    persistentProfiles: any PersistentProfileManaging
   ) {
     self.store = store
     self.discovery = discovery
@@ -127,6 +133,7 @@ public struct SettingsEnvironment: Sendable {
     self.systemVersion = systemVersion
     self.now = now
     self.sshSetup = sshSetup
+    self.persistentProfiles = persistentProfiles
   } // End of init(store:discovery:profiles:sshSuggestions:loginItem:diagnostics:…)
 
   /// Puts `text` on the general pasteboard as plain text.

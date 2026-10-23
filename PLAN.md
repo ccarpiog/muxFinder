@@ -983,7 +983,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Model and engine:** `AppModel` (`@Observable @MainActor`) runs on an `AppEnvironment`
     (host loading, engine, system-events and attach-coordinator factories, wall clock,
     terminate), so tests pass fakes. `start()` loads the list with `HostStore.load()` (never writes; an unusable folder
-    gives an empty list and a notice), shows the onboarding window when it loaded as
+    gives an empty list and a notice), in normal mode only and for a list loaded as `saved`
+    has Settings bring an installed, out-of-date persistent profile file up to date in the
+    background (`AppEnvironment.rewritesProfilesAtLaunch`, D26; the only write at launch),
+    shows the onboarding window when it loaded as
     `notSavedYet` (D24), builds the `RefreshCoordinator` for it
     (`DiscoveryProbe`; `AttachmentIndex` over one shared `ITerm2APIClient`), subscribes to
     `updates()`, starts `RefreshSystemEvents` on `NSWorkspace`'s notification center, then
@@ -1096,12 +1099,14 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Preview/SettingsGallery.swift`).
   - **Window:** one AppKit window (`SettingsWindowController.shared`, "muxFinder settings",
     720×740 points, at least 640×520, resizable, not restorable, no saved frame, no tabbing)
-    hosting `SettingsView` with the Hosts, General and Diagnostics tabs. It is made on first
+    hosting `SettingsView` with the Hosts, Persistent profiles (D26), General and Diagnostics
+    tabs. It is made on first
     use and reused: `AppModel.openSettings()` (the footer's "Settings", ⌘, in the popover, the
     "Open Settings" placeholder button) calls `AppEnvironment.presentSettings`, which calls
     `NSApp.activate()` (an accessory app stays behind the active app otherwise) and brings the
     window to the front. Opening a closed window calls `SettingsModel.windowDidOpen()`, which
-    runs the opening (login item status, host list, then profiles, suggestions and log) in a
+    runs the opening (login item status, host list, then profiles, suggestions, log and the
+    persistent profile file's status, D26) in a
     task the model owns; closing it calls `windowDidClose()`: the opening is cancelled (with
     the profile request inside it, so the iTerm2 client stops before its next contact, and a
     cancelled `ITerm2ProfileSource` asks nothing), late results are dropped by window
@@ -1125,8 +1130,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     (`SSHConfigSuggestions`, read off the main actor), `LoginItemControlling`
     (`SystemLoginItem`, `SMAppService.mainApp`), the `DiagnosticsLog` (one per app, shared with
     the iTerm2 client, which records its connections in it), the pasteboard, `openURL`, the
-    versions, the clock, and `SSHSetupOpening` (`SSHSetupLauncher`, D24; the onboarding window
-    and the popover use it from here too). `AppEnvironment` gained `openURL`,
+    versions, the clock, `SSHSetupOpening` (`SSHSetupLauncher`, D24; the onboarding window
+    and the popover use it from here too), and `PersistentProfileManaging`
+    (`PersistentProfileFiles`, D26). `AppEnvironment` gained `openURL`,
     `presentSettings`, `presentOnboarding` (D24), `settings` and `diagnostics`. Tests pass
     fakes for every one; saves are also tested through a real `HostStore` in a private folder.
   - **Editing:** the editor works on a `HostDraft` with explicit "Save" and "Revert" (no
@@ -1208,7 +1214,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     and Diagnostics tab, and a failed "Set up SSH in iTerm2…" line (D24) show them. The
     Automation URL was not opened in an unattended run.
   - **Preview fixtures:** `--preview-fixtures --preview-gallery settings` shows
-    `SettingsFixtures.all` (11 states) in the same plain preview window, with the same
+    `SettingsFixtures.all` (16 states, the persistent profile fields and tab's included) in the
+    same plain preview window, with the same
     `--appearance` and `--preview-snapshot` flags; screenshots
     `docs/screenshots/settings-states-{light,dark}.png`. Synthetic data only (`*.example`
     destinations, invented profile and suggestion names, a fixed log).
@@ -1456,8 +1463,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     after a collision, the banners) and the context menu of a session open here and of one
     attached elsewhere; screenshots `docs/screenshots/attach-states-{light,dark}.png`.
 
-- **D26 — Persistent work profiles** (decided in Phase 11a, 2026-10-23; code in
-  `Sources/MuxFinderCore/Profiles/`: `PersistentProfiles.swift`,
+- **D26 — Persistent work profiles** (decided in Phase 11a, 2026-10-23, Settings in Phase 11c;
+  code in `Sources/MuxFinderCore/Profiles/`: `PersistentProfiles.swift`,
   `PersistentProfileInstaller.swift`, `ITerm2ProfileSnapshot.swift`, `PersistentProfileRun.swift`;
   `Launch/ProfileLaunch.swift`, `LaunchHelperProfile.swift`, `LoginShell.swift`;
   `Config/HostConfig.swift`, `HostList.swift`; `Tmux/TmuxWord.swift`; probe
@@ -1481,8 +1488,7 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     (a combining mark after `$` makes another grapheme cluster but leaves the `$` in front); a set
     parent name passes `Validation.profileName` (not empty, no control characters). A file
     breaking them is `invariantBroken`, left as it is. The profile is independent of
-    `isEnabled` (discovery). `HostDraft` carries the three values unchanged; the Settings
-    controls are 11c's.
+    `isEnabled` (discovery). The Settings controls are 11c's (below).
   - **The profile file (`PersistentProfiles`, pure):** `{"Profiles": […]}`, one profile per host
     with the profile on, in list order: `Guid` `muxfinder-persistent-<host id, lowercase>`,
     `Name` `Persistent work – <display name>` (en dash), `Tags` `["muxFinder"]`, `"Custom
@@ -1525,7 +1531,23 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     step). Zero hosts with a profile means no file (decided: an empty file is noise, and it is
     the state "Remove profiles" leaves), so installing an empty document removes it.
     `status(for:)` (`notInstalled`, `current`, `stale`: the bytes differ, as when the helper
-    moved) is 11c's launch-time rewrite check.
+    moved; `notMuxFinders`: the file is not a generated document) is what Settings shows and
+    what the automatic updates look at first (the update checks again under the lock). **The
+    app's own file only** (decided in 11c): "Install profiles" installs with
+    `replaceGenerated`, the automatic updates (at launch, after a Settings save) with
+    `updateExistingGenerated`, and "Remove profiles" removes with `onlyIfGenerated`; all three
+    refuse (`fileNotMuxFinders`) a `muxFinder.json` that `PersistentProfiles.isGenerated(_:)`
+    does not recognize: a JSON object with the single key `Profiles`, a non-empty array whose
+    every entry has a generated `Guid` (prefix and lowercase host id, nothing more) and the
+    `muxFinder` tag; other keys are not compared, so a file of an earlier build or helper path
+    is still muxFinder's. The check runs under the lock on the examined bytes.
+    `updateExistingGenerated` never creates anything (decided after the 11c review: a status
+    read and a separate install let a file removed in between come back): no folder or no
+    file, found under the lock, is `notInstalled` with nothing written; otherwise it is
+    `replaceGenerated`'s swap, which fails (`fileChanged`) rather than create the name when an
+    outside writer removed the file after the check; an empty document removes only a
+    generated file (`nothingToRemove` with none). `replaceExisting` (any file) and
+    `createOnly` (the harness) stay as they were.
   - **Helper `muxfinder-launch profile <host id>`** (`LaunchHelperProfile.swift`): no request
     file. **Nesting guard** first, before reading anything: `TMUX` or `MUXFINDER_LAUNCHED` set
     and not empty (empty counts as unset, as tmux treats `TMUX=`) prints one line and starts the
@@ -1646,13 +1668,79 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     owed; the unknown-parent fallback ("Using default profile as parent" in the binary's
     strings), not tried for real (the harness installs a parentless profile, and a try needs a
     synthetic parent name and a harness option); a login shell ending by itself within
-    3 s, not exercised (the runs never reach the login-shell fallback). Open for 11c: a
-    second tab of the same profile attaches the same session in control mode again
-    (iTerm2's behavior unknown); and iTerm2 makes dynamic profiles without a parent inherit
-    from the default
-    profile, so once a persistent profile is the default, the user's other dynamic profiles
-    without their own `Custom Command` would inherit its command (the Settings copy must say
-    so, or the generator could set a parent).
+    3 s, not exercised (the runs never reach the login-shell fallback). Both items left open
+    for 11c are settled by copy (below); iTerm2's behavior for a second tab is still unknown.
+  - **Settings and keeping the file current** (decided in Phase 11c, 2026-10-23; code in
+    `Sources/MuxFinderUI/Model/`: `PersistentProfileFiles.swift`,
+    `PersistentProfilesContent.swift`, `SettingsModelProfiles.swift`, `HostDraft.swift`;
+    `Views/Settings/ProfilesSettingsView.swift`, `HostEditorView.swift`).
+    - **Host editor:** a "Persistent profile" section below iTerm2: the switch, "Session"
+      (placeholder `main`) and "Parent profile" (a picker of iTerm2's profile names when D23's
+      profile list has them, "None" first, else free text; never launching iTerm2). The
+      session name is stored trimmed, empty as none, and must pass
+      `Validation.persistentSessionName`; the parent is stored trimmed, empty as none, and must
+      pass `Validation.profileName`, except that a parent field left exactly as loaded saves
+      back the stored value unchanged; both are checked whether or not the profile is on, as
+      `HostList` checks. An error is inline (the validation's sentence) and blocks Save; a
+      parent iTerm2 does not list is a warning. A host without the fields saves back byte for
+      byte (tested through `HostStore` in a private folder).
+    - **Where:** its own tab, "Persistent profiles", between Hosts and General (decided: the
+      status, three buttons, results and four paragraphs of copy would crowd General): the
+      status line, the profile names the saved hosts make, "Install profiles", "Remove
+      profiles", "Check again", the last result, and "Using persistent profiles". Unavailable
+      shows the reason: an unusable helper path or a missing helper (D2), the folder a link, not
+      a folder or another user's, the file a link, not regular, another user's, too large or not
+      muxFinder's, or a failed system call; with muxFinder's file still installed it says so
+      and Remove stays offered. Install is off, with a note, while the list is not saved
+      (examples, an unusable or changed file), while no saved host has its profile on, and
+      while the status is unavailable; Remove only while muxFinder's own file is there; every
+      button while an operation runs.
+    - **Seam:** `SettingsEnvironment.persistentProfiles` (`PersistentProfileManaging`:
+      `status(for:)`, `install(_:)`, `update(_:)`, `remove()`), production
+      `PersistentProfileFiles` (the
+      real installer, `LaunchHelperPath.locate()` for the helper, the file work on a global
+      dispatch queue so the lock wait of up to 5 s never blocks the main actor). Every check,
+      install, update and removal goes through it, one at a time in the order asked;
+      `shutdown()` waits for the one running and skips the rest. Fixture models have no environment, so the
+      preview gallery never reads, installs or removes anything (tested).
+    - **Saved list only** (decided): installs and checks use the saved host list, never the
+      draft; while the editor holds unsaved changes the tab says so and Install stays on
+      (a later save updates an installed file anyway). Each operation takes its list when
+      asked and keeps that value (decided after the 11c review: a reload sets the model's list
+      loading, which reads as no host, so a list read after an `await` could turn an update
+      into a removal): Install and Remove the saved list as the tab showed it, the update
+      after a save the list that save wrote; "Check again" does nothing while the list is
+      loading (the opening checks once it has loaded).
+    - **"Installed" is sticky:** only "Install profiles" creates `muxFinder.json`; the
+      automatic updates (`update(_:)`, `updateExistingGenerated`) rewrite muxFinder's own
+      installed file and never create one, the check and the write one step under the lock,
+      so a file removed after the status was read stays removed.
+    - **After a Settings save** (Save or a removal; decided: update rather than show "out of
+      date"): when muxFinder's installed file no longer matches the list the save wrote, the
+      file is updated to its profiles at once (a rename, a profile turned on or off; edits that
+      do not change the document write nothing); with no host's profile left on that removes
+      the file (installer semantics, accepted). Onboarding saves are not followed (they cannot turn a profile on;
+      the next launch handles a file left over).
+    - **At launch:** only the menu bar app in normal mode (`AppLaunchOptions
+      .rewritesProfilesAtLaunch`, passed to `AppEnvironment.production`; never with
+      `--preview-fixtures`, `--selftest`, `--report-login-item-status`,
+      `--report-menu-bar-item` or unusable arguments, and the self-tests' and tests'
+      environments leave it off) and only for a list loaded as `saved`: `stale` updates the
+      file to the regenerated document (an empty one removes the file, accepted; a file gone by
+      then is not created again, "stale, notInstalled"); `notInstalled`, `current`,
+      `unavailable` (an unusable helper, a refusal) write nothing. In the
+      background, contacting no iTerm2; logged by kind only (category `profiles`, e.g.
+      "profiles at launch: stale, installed", "…: unavailable.helper.unsupportedCharacters"),
+      and a change or failure becomes the tab's result line; the tab's own check shows the
+      status when the window opens.
+    - **Copy (decided):** how to make a profile the default (iTerm2 › Settings › Profiles,
+      select it, Other Actions › Set as Default); that shells started from other profiles or
+      apps are not moved into tmux; for a second tab, that opening the profile again attaches
+      the same session once more, so iTerm2 may show its windows a second time (copy only, not
+      tried); and the parent warning: iTerm2 bases a dynamic profile without a parent on the
+      default profile, so once a persistent profile is the default, another dynamic profile
+      that sets no parent and no command of its own would start that host's session too; the
+      generator is unchanged (it cannot fix the user's other profiles), the copy says so.
 
 ## Verified facts (planning session, 2026-10-21)
 
