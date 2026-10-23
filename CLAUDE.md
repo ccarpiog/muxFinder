@@ -3,7 +3,9 @@
 A native macOS menu bar app (SwiftUI + AppKit) that discovers tmux sessions on the user's Macs and
 attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product brief:
 `docs/REQUIREMENTS.md`. Phased plan, architecture, decisions and verified environment facts:
-`PLAN.md`. Progress checkpoint (written by autoclaude runs): `PROGRESS.md`.
+`PLAN.md`. Progress checkpoint (written by autoclaude runs): `PROGRESS.md`. User docs:
+`README.md`; overview: `docs/ARCHITECTURE.md`; tested vs expected-to-work matrix and real-check
+results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
 
 ## Language and text
 
@@ -32,9 +34,38 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
 - Unit tests (hermetic): `swift test`
 - Format lint: `swift format lint -r Sources Tests`
 - App bundle: `scripts/build-app.sh` → `build/muxFinder.app` (release arm64, with
-  `muxfinder-launch` in `Contents/MacOS/`; signed with hardened runtime by the first "Apple
-  Development" identity, or `MUXFINDER_SIGN_IDENTITY`, else ad hoc with a warning; never
-  notarized). Check it with `codesign --verify --deep --strict build/muxFinder.app`.
+  `muxfinder-launch` in `Contents/MacOS/`; Info.plist key `MuxFinderScriptInterface` 1 tells
+  `uninstall.sh` the binary takes `--remove-persistent-profiles`; signed with hardened runtime
+  by the first "Apple Development" identity, or `MUXFINDER_SIGN_IDENTITY`, else ad hoc with a
+  warning; never notarized). Check it with `codesign --verify --deep --strict
+  build/muxFinder.app`.
+- Install and uninstall (PLAN.md D27; for the user: never run them for real in a check, they
+  change `/Applications`, `~/Applications`, `DynamicProfiles/` and Application Support):
+  `scripts/install.sh [--user] [--dry-run]` copies `build/muxFinder.app` into `/Applications`
+  (or `~/Applications`) with `ditto` and a rename, stopping a running copy there with SIGTERM
+  (its `muxFinder` only: the process whose executable, as the kernel reports it through
+  `codesign -dv <pid>`, is that file; never one that only maps it); `scripts/uninstall.sh
+  [--dry-run]` quits each copy's `muxFinder` (never its `muxfinder-launch` helpers), removes
+  `muxFinder.json` only when it is muxFinder's generated file (through the copy's binary),
+  the support folder, the copies and the app's preferences domain, and prints the login item
+  and `tccutil` steps. Every deletion is bound to the folder inspected (renamed aside, device
+  and inode compared, else put back). Neither ever starts the app. For checks,
+  `MUXFINDER_TEST_HOME` and `MUXFINDER_TEST_APPLICATIONS` (both, private folders of yours
+  physically under `/private/tmp` or `/private/var/folders`, such as from `mktemp -d`; every
+  path derived from them must stay beneath them with no symbolic link on the way, else exit 2
+  before anything) stand in for the home folder and `/Applications` (`MUXFINDER_TEST_SOURCE`,
+  `MUXFINDER_TEST_STOP_WAIT` and the swap hook `MUXFINDER_TEST_SWAP_AT` with
+  `MUXFINDER_TEST_SWAP_WITH` then too); the hermetic check
+  `scripts/dev/test-install-scripts.sh` (needs a current `scripts/build-app.sh`; about 60 s)
+  runs both only that way on stubs and private folders (its guard steps that name real
+  folders are dry runs) and prints one PASS/FAIL line per step, exit 0 when all pass.
+- Profile removal flag (the uninstall script's; writes only `muxFinder.json`, never contacts
+  iTerm2, opens no window): `build/muxFinder.app/Contents/MacOS/muxFinder
+  --remove-persistent-profiles [--dry-run] [--profiles-directory <dir> --lock-directory
+  <dir>]` removes `DynamicProfiles/muxFinder.json` only when it is muxFinder's generated
+  file (D26's rule, under `profiles.lock`), prints one line, exits 0 (removed, none, or would
+  remove), 1 (left: not muxFinder's), 3 (failed) or 2 (usage). In checks always pass both
+  folders, private ones from `mktemp -d`; without them it works on the real folders.
 - Preview fixtures (no menu bar item, engine, host list, login item or iTerm2; one normal
   window with every popover state, or with `--preview-gallery settings` every Settings window
   state, with `--preview-gallery onboarding` every onboarding window state, or with
@@ -99,8 +130,9 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   never `defaults write`) leaving out iTerm2's own copies of muxFinder's profiles (only an
   entry with a well-formed generated `Guid` naming exactly that folder's `muxFinder.json`;
   `excludedMuxFinderEntries`), never a profile's contents. Install or remove profiles in checks
-  only through `PersistentProfileInstaller` on a private folder, never on the real
-  `~/Library/Application Support/iTerm2/DynamicProfiles/` (`e2e-profile` aside). PLAN.md D26.
+  only through `PersistentProfileInstaller` (or the removal flag above with both folders) on a
+  private folder, never on the real `~/Library/Application Support/iTerm2/DynamicProfiles/`
+  (`e2e-profile` aside). PLAN.md D26.
 - Refresh engine check (prints JSON, opens no window, writes nothing): `swift run
   muxfinder-probe refresh --once [--config <path>] [--attachments]` loads the host list like
   `hosts show` (a private `hosts.json` from `mktemp -d` for checks), refreshes every enabled

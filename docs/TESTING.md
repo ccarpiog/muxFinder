@@ -1,7 +1,45 @@
 # Testing
 
-How muxFinder is tested, and what was checked against real hosts. Phase 12 turns this into
-the full "tested vs expected to work" matrix.
+How muxFinder is tested, and what was checked against real hosts: first the tested vs
+expected-to-work matrix, then the unit tests, the real-check procedures and every phase's
+real results. The checks only a person can make are in `docs/MANUAL-CHECKLIST.md`.
+
+## Tested vs expected to work
+
+One row per acceptance bullet of the brief (`docs/REQUIREMENTS.md`, "The app is acceptable
+when"). **Tested for real** means against the real iTerm2 3.7.6 and real tmux 3.8 on Neptuno
+(this Mac) and, where named, Saturno (`saturno-m4`); **tested hermetically** means unit tests
+with fakes; **expected to work, unverified** says why it was not tried. "Orbit" in the brief
+is muxFinder. Every real run below used `muxfinder-test-*` sessions only; probe runs drive the
+same core the app uses, and the self-tests drive the app's own `AppModel` in the bundled
+binary. The last column is the Phase 12b acceptance run's: it reruns every unit test, both
+`e2e-*` runs, `e2e-profile` locally and on Saturno and both self-tests on the final tree and
+records the result there.
+
+| # | Acceptance bullet | Status | Evidence so far (command, date, result, where) | 12b fresh run |
+|---|---|---|---|---|
+| 1 | A local session appears and opens through native iTerm2 tmux integration. | Tested for real (probe and app self-test). A click in the real popover is owed to a person (checklist 3). | `swift run muxfinder-probe e2e-local`, 2026-10-22: exit 0, 16 of 16 PASS in 64.8 s, steps 1–3 create, discover, attach confirmed on a `tmux -CC` connection owned by the launch tab with its identity checked (`docs/progress-archive/6b.md`, closure; earlier runs in `docs/INTEGRATION-PROOF.md`, *Runs of e2e-local*). `muxFinder --selftest attach-local`, 2026-10-22: exit 0, 6 of 6 PASS (*Phase 10b* below). | owed |
+| 2 | A session on an accessible remote host can be discovered and attached. | Tested for real on Saturno. Sirio: expected to work, unverified: it was offline throughout (checklist 10). | `swift run muxfinder-probe e2e-remote saturno-m4`, 2026-10-22: exit 0, 17 of 17 PASS in 123.1 s, steps 2–3 discover over ssh, attach through `ssh -t` confirmed (`docs/progress-archive/6b.md`, closure); runs 4–5 (11 of 11) in *Phase 5b* below and `docs/INTEGRATION-PROOF.md`, *Over SSH*. | owed |
+| 3 | Native tabs and split panes are preserved. | Tested for real, locally and on Saturno. | Step 4 "tabs and split" of `e2e-local` and `e2e-remote` (same runs as rows 1–2): the session's 2 tmux windows appear as 2 native iTerm2 tabs on the run's connection, one with a two-pane split (`docs/INTEGRATION-PROOF.md`, step 4 of each run list). | owed |
+| 4 | Work survives detachment and can be resumed. | Tested for real, locally and on Saturno. | `e2e-local` steps 6–7 and `e2e-remote` steps 5–6: detach by session through `detach-client`, the session alive with its 2 windows and 3 live `sleep` panes, then reattached (same runs); the self-tests' "detach from this Mac" steps (*Phase 10b*). | owed |
+| 5 | Sessions created outside Orbit are discovered. | Tested for real, locally and on Saturno. | `muxfinder-probe discover --local` and `--ssh saturno-m4` on sessions made with the tmux CLI (`tmux new-session -d`), 2026-10-21: `ok`, every session with its exact name and id (*Phase 2* below). Every `e2e-*` run creates its session with tmux directly and discovers it (step 2). | owed |
+| 6 | Two hosts with identically named sessions remain distinct. | Tested hermetically; parts tested for real. Two same-named sessions side by side in the real popover: expected to work, unverified: needs a person (checklist 3). | `RefreshSnapshotTests.theSameSessionNameOnTwoHostsStaysTwoEntries` (two entries, two keys, an attachment marks only one), `ErrorClassifierTests.keysDifferPerHost` (keys carry the host id, PLAN.md D4). Real: Phase 2 created the same names on Neptuno and Saturno and discovered each (2026-10-21); over ssh the identity check tells Saturno's server from Neptuno's by node name although both socket paths are `/private/tmp/tmux-501/default` (`docs/INTEGRATION-PROOF.md`, *Observed behavior over SSH*). | `swift test` |
+| 7 | An unreachable host does not freeze the UI. | Tested hermetically; the bound is tested for real. The real popover with an offline host: expected to work, unverified: needs a person (checklist 3). | `RefreshCoordinatorTests.aSlowHostDoesNotDelayTheOthers`, `theConcurrencyLimitIsThree`; `ProcessRunnerTests.doesNotBlockTheMainActor`; `PopoverContentTests` (an unreachable host's sessions kept, stale). Real: `discover --ssh 192.0.2.1` ends `unreachable(timeout)` after 5.0 s, `something.invalid` `unreachable(dnsFailure)` in 6 ms (*Phase 2*, 2026-10-21). | `swift test` |
+| 8 | Authentication failure is distinguishable from an empty host. | Tested for real (discovery); the popover labels hermetically. | `discover --ssh nonexistent-muxfinder@saturno-m4` → `authFailed`; `discover --ssh saturno-m4` with no server → `noServer` (*Phase 2*, 2026-10-21). Labels "Sign-in needed" vs "No sessions": `PopoverContentTests`, `ErrorClassifierTests`. | `swift test` |
+| 9 | A disappeared session is handled without silently recreating it. | Tested for real, locally and on Saturno. | `e2e-local` step 10 and `e2e-remote` step 11 "vanished session": the attach ends `sessionGone` with no launch tab, request or new session (*Phase 6a*, 2026-10-22, runs 3 and 4; the 6b closure runs); the helper's guard refuses a changed session (step 9, `sessionChanged`). | owed |
+| 10 | Repeated clicks do not launch a burst of duplicate connections. | Tested for real (app self-test and probe). | `muxFinder --selftest attach-local`, 2026-10-22: step 3 "open (5 clicks)" confirmed with 1 launch, step 4 "open again" focused the same connection (*Phase 10b*). `e2e-local` step 8: two concurrent attaches share 1 launch tab and 1 connection; step 5: a second attach of an attached session focuses it, nothing opens. | owed |
+| 11 | New Session creates persistent work on the selected host. | Tested for real, locally and on Saturno; the New session sheet by hand is owed (checklist 3). | `e2e-local` step 14 and `e2e-remote` step 15: created with a name and working directory, confirmed attached, pane in that directory (*Phase 6a*, 2026-10-22). `muxFinder --selftest new-session-local`, 2026-10-22: exit 0, 5 of 5 PASS, the same name again refused as a collision (*Phase 10b*). | owed |
+| 12 | Quitting Orbit leaves the work running. | Tested for real (SIGTERM, the app's normal quit path). Quit clicked in the popover: owed to a person (checklist 3). | `muxFinder --selftest attach-local --selftest-keep`, then `kill -TERM`, 2026-10-22: app exit 0, `tmux has-session` exit 0, iTerm2 still listed the connection owned by its tab (*Phase 10b*). | owed |
+| 13 | Generated persistent profiles work without modifying unrelated settings. | Tested for real through the probe, locally and on Saturno. From the installed app's Settings, as the default profile, a second tab: owed to a person (checklist 11–12). | `swift run muxfinder-probe e2e-profile --local` and `--ssh saturno-m4`, 2026-10-23: exit 0, 14 of 14 PASS each (runs 5–6): `CreateTab` by profile name gets a confirmed control-mode connection; hashes of every other `DynamicProfiles` entry and of `New Bookmarks` identical before install, after install and after removal (*Phase 11b*). `profiles hashes` identical before and after every later phase. | owed |
+
+Other deliverables of the brief:
+
+| Deliverable | Status | Evidence so far | 12b fresh run |
+|---|---|---|---|
+| Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | owed |
+| Signing status | Stated as built | Signed with hardened runtime by an "Apple Development" certificate on Neptuno; never notarized (*Phase 8* onwards). | owed |
+| Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | owed (`scripts/dev/test-install-scripts.sh`) |
+| Unit tests | Tested hermetically | `swift test` (*Phase 12a* for the latest counts). | owed |
 
 ## Unit tests (`swift test`)
 
@@ -939,12 +977,26 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   nothing, a list not loaded as `saved` or a launch that does not rewrite never asks the seam,
   and the log holds kinds only; a file removed after an automatic update read it as stale
   (at launch, after a save) is not created again; only normal mode rewrites
-  (`AppLaunchOptions`: never `--preview-fixtures`, `--selftest`, either report or unusable
-  arguments); `shutdown()` stops profile work; every Settings fixture's model has no
-  environment and no action changes its state; `PersistentProfileFiles` over a private
-  stand-in folder (not installed, an update then creating nothing, installed, stale after a
-  helper move, updated, an unsafe helper still seeing the file and removing it, a file of the
-  user's left exactly as it was).
+  (`AppLaunchOptions`: never `--preview-fixtures`, `--selftest`, either report, the profile
+  removal or unusable arguments); `shutdown()` stops profile work; every Settings fixture's
+  model has no environment and no action changes its state; `PersistentProfileFiles` over a
+  private stand-in folder (not installed, an update then creating nothing, installed, stale
+  after a helper move, updated, an unsafe helper still seeing the file and removing it, a file
+  of the user's left exactly as it was).
+- **Profile removal for the uninstall script** (`PersistentProfileRemovalTests`, PLAN.md D27,
+  private stand-ins for `DynamicProfiles` and muxFinder's folder): a generated file (also of
+  another helper path) is removed, exit 0, every sibling hashed unchanged, the lock file kept;
+  a second run is "none installed"; a file of the user's (another GUID, `{}`, a look-alike
+  GUID, not JSON) is left byte for byte with exit 1, in a dry run and for real; a dry run over
+  the generated file reports it, changes nothing and creates no lock folder; no folder creates
+  neither folder; a linked `muxFinder.json` is left with its target unread; a held lock fails
+  with exit 3 and deletes nothing; every installer error is sorted into left or failed; no
+  folders means the real ones. `AppModelTests.profileRemovalOptions`: the flag, `--dry-run`
+  and both folders parse; each option without the flag, the flag with another mode, one
+  folder alone, a missing, empty or relative folder are usage errors, and none rewrites at
+  launch.
+- **Install and uninstall scripts** (not `swift test`; `scripts/dev/test-install-scripts.sh`,
+  PLAN.md D27): see *Phase 12a* below.
 
 ## Helper test mode: argv digest
 
@@ -1824,3 +1876,89 @@ Environment: Neptuno, macOS 27.2, from the repo root. The support folder held on
 | Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
 | Settings screenshots | `muxFinder --preview-fixtures --preview-gallery settings --appearance light --preview-snapshot docs/screenshots/settings-states-light.png`, then `dark` | exit 0 both; 4528×7920 PNGs, 16 states, inspected (cropped with `sips` into `/tmp`): the persistent profile fields with the `$work` error and Save off, and the Persistent profiles tab not installed (with the unsaved-changes note), installed after an install, out of date after a busy failure, and unavailable (unsafe helper path, Remove still on, the launch failure line), each with the copy; readable in both appearances |
 | Shell check | `muxFinder --report-menu-bar-item` in the background; `pgrep -P`; `kill -TERM` | 7 status-bar-level windows, all visible; no child process; exit status 0; nothing written to the support folder (no `hosts.json`) |
+
+### Phase 12a — scripts and documents (2026-10-23)
+
+Hermetic only: nothing here contacts iTerm2, runs ssh, or touches the real `/Applications`,
+`~/Applications`, iTerm2's `DynamicProfiles`, `~/Library/Application Support/muxFinder` or the
+app's preferences domain. The app binary ran only in its `--remove-persistent-profiles` mode,
+on private folders.
+
+- **The scripts' check.** `scripts/dev/test-install-scripts.sh` (after `scripts/build-app.sh`
+  on the current tree) runs `scripts/install.sh` and `scripts/uninstall.sh` in test mode only
+  (`MUXFINDER_TEST_HOME` and `MUXFINDER_TEST_APPLICATIONS` set to private folders under one
+  `mktemp -d /tmp/mfx.XXXXXX`, used by its physical path `/private/tmp/mfx.…`, removed at the
+  end) and prints one `PASS`/`FAIL` line per step:
+  install into the Applications stand-in (complete, signature verifies, no temporary folder
+  left, no `~/Applications` created); a reinstall (a new folder that verifies); `--dry-run`
+  over a copy and `--user --dry-run` on empty folders (recursive listings identical); `--user`;
+  refusals with nothing changed (no built app, saying to run `build-app.sh`; another app's
+  bundle id at the destination; a symbolic link there); a running copy (only that copy's
+  `muxFinder` stub gets SIGTERM and quits, its `muxfinder-launch` stub and a stub of another
+  copy keep running); a copy that ignores SIGTERM (refused after the shortened wait, nothing
+  changed); uninstall `--dry-run` (listings identical); uninstall of two real copies with a
+  generated `muxFinder.json` (removed through the copy's binary), the user's other
+  `DynamicProfiles` entries (listing and SHA-256 unchanged), the support folder removed, no
+  preferences touched, the `tccutil` command printed; a `muxFinder.json` of the user's left
+  byte for byte (exit 0); a symbolic link as support folder refused, its target unchanged (exit
+  1); only the removed copy's `muxFinder` stopped, its helper left running and another copy's
+  process named in a warning; a copy that does not quit (nothing removed); a copy without the
+  `MuxFinderScriptInterface` key (the profile file left and named, exit 1); processes that
+  only map a copy's `muxFinder` (a reader stub, and one whose argv[0] names the copy): install
+  and uninstall never signal them and proceed (exit 0, the readers alive, no "stopping" line,
+  no warning for a reader of another copy); a reader whose own executable was deleted (its
+  executable cannot be established): never signalled, the install refused after the shortened
+  wait with "could not tell", nothing changed (exit 1); the swap hook (`MUXFINDER_TEST_SWAP_AT`
+  and `MUXFINDER_TEST_SWAP_WITH`) exchanging the inspected place with a different folder after
+  the check, for the install's copy, an uninstalled copy and the support folder: each time the
+  different folder is found at that place byte for byte (relative recursive listing and
+  SHA-256 of its files), no hidden folder is left, and the run exits 1; the test-mode guard
+  (one variable alone, or the real home, exit 2, both as dry runs; the real `~/Applications`,
+  `/Applications`, `~/Library`, a path through a link into the real home, a link to the real
+  `~/Applications`, and a folder others may write, each exit 2 as `install.sh --dry-run` with
+  no "Would" line, the real locations' listing and `~/Applications` unchanged; a home stand-in
+  whose `Applications` and `Library` are links to a private decoy outside it, real runs of
+  `install.sh --user` and `uninstall.sh`, both exit 2 with the decoy and the stand-ins
+  unchanged; the swap hook outside test mode refused by the library's own check, nothing
+  run); and last, the real locations' listing compared with the one taken before the first
+  step. Exit 0 only when all pass.
+- **Stubs.** A running copy is a small C program compiled by the check (`cc`) and copied into
+  a fake bundle as `muxFinder` and `muxfinder-launch`: on macOS 27.2 a copy of `/bin/sleep`
+  run from another path is killed with SIGKILL at once (exit 137), so it cannot stand in. Its
+  `map <file> <ready>` mode maps a file read-only and then creates the ready file, standing in
+  for a Spotlight, QuickLook or backup reader.
+- **Matching processes.** `lsof -d txt` lists every file a process maps, not only its
+  executable (the review reproduced a reader mapping the bundled `muxFinder` being picked),
+  and `ps -o comm` prints argv[0] (`./muxFinder` for a relative start, any text with `exec
+  -a`). So `lsof` (`0x…` device, as `stat -f %d` gives in hex, and inode) only finds the
+  candidates, and each candidate's executable is read with `codesign -dv <pid>`
+  (`Executable=`, from `proc_pidpath`). Checked with stubs: an absolute start, a relative
+  start, a start through a symbolic link and a reader with a forged argv[0] naming the copy
+  gave their true executables (`/private/tmp/…`), a helper in a bundle its own path, a process
+  whose executable was deleted and a dead pid failed (`No such file or directory`, `No such
+  process`); `ps -o comm` gave the forged path for the reader. One `codesign` call takes about
+  9 ms; a scan of every process of the user about 0.35 s.
+- **Regressions against the reverted fixes.** Each fix was reverted in the working tree
+  (every `lsof` match counted as running again; the old root guard, which refused only `/`,
+  the real home and `/Applications`, with no containment check; no comparison of the moved
+  entry with the inspected one), the check run, and the fix restored (`cmp` with a copy of the
+  fixed file): steps 25 to 27, 32 and 33, and 28 to 30 failed respectively, every other step
+  passed, the last step included (the real locations untouched).
+
+Environment: Neptuno, macOS 27.2, from the repo root; no `hosts.json`; the support folder held
+`launch/` (empty) and `profiles.lock` before and after.
+
+| Check | Command | Observed result |
+|---|---|---|
+| iTerm2's profiles, before | `.build/debug/muxfinder-probe profiles hashes` | exit 0: no other `DynamicProfiles` entry; `New Bookmarks` 13 entries, `sha256` `9178e053…3ef5d6f`, `excludedMuxFinderEntries` 0 |
+| Removal flag, private folders | `build/muxFinder.app/Contents/MacOS/muxFinder --remove-persistent-profiles [--dry-run] --profiles-directory <tmp>/DP --lock-directory <tmp>/mf` over a generated `muxFinder.json`; then `muxFinder --dry-run` | dry run: `muxFinder persistent profiles: would remove <tmp>/DP/muxFinder.json (muxFinder's generated file)`, exit 0, no lock folder created; real: `… removed <tmp>/DP/muxFinder.json`, exit 0, `<tmp>/mf/profiles.lock` made; `--dry-run` alone: the usage error and both usage lines, exit 2 |
+| Unit tests | `swift test` with `pipefail`, three times | exit 0 each: 680 tests in 67 suites (core; 8 new in `PersistentProfileRemovalTests`) and 159 in 13 suites (UI; `profileRemovalOptions` new) |
+| Build and lint | `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors`; `swift format lint -r Sources Tests` | exit 0; exit 0; exit 0, no output |
+| Scripts | `bash -n` on `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/lib/app-copies.sh`, `scripts/dev/test-install-scripts.sh`, `scripts/build-app.sh` | exit 0 each; `shellcheck` is not installed on this Mac, so it was not run |
+| Scripts' check | `scripts/dev/test-install-scripts.sh`, twice on the final scripts (after the review fixes) | exit 0 both, `passed (35 steps)`, about 62 s each |
+| Reverted fixes | the same check with each fix reverted in turn, then restored | exit 1 each: `failed (3 of 35 steps)` (25–27), `failed (2 of 35 steps)` (32, 33), `failed (3 of 35 steps)` (28–30) |
+| Clean build | `rm -rf build && scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, "signed with: Apple Development: …; not notarized", `MuxFinderScriptInterface` 1 in the Info.plist; exit 0 |
+| After | `profiles hashes` again (compared with `diff`); `ls` of `/Applications/muxFinder.app`, `~/Applications/muxFinder.app`, `DynamicProfiles`, the support folder; `defaults read cc.carpio.muxfinder`; `ls -A /private/tmp \| rg '^mfx'`; `ps` | hashes identical; neither app copy exists; `DynamicProfiles` empty; the support folder `launch/` (empty) and `profiles.lock`; the domain does not exist; no `/private/tmp/mfx.*` folder left by the check; no stub or muxFinder process |
+
+Owed to the user: a real install into `/Applications` and a real uninstall
+(`docs/MANUAL-CHECKLIST.md`, items 1 and 13).

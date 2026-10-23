@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-23T02:34:16Z",
+  "updated": "2026-10-23T03:52:42Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -329,6 +329,7 @@
       "summary": "Settings tab and host fields for persistent profiles; the app keeps its own installed profile file current and never creates it unasked.",
       "review": "Codex, ship-with-fixes, docs/reviews/phase-11c.md",
       "narrative": "docs/progress-archive/11c.md",
+      "commit": "930994e",
       "added": "2026-10-22T23:02:22Z",
       "started": "2026-10-23T01:46:21Z",
       "status_since": "2026-10-23T02:34:16Z"
@@ -336,9 +337,34 @@
     {
       "id": "12",
       "title": "Packaging, documentation, acceptance run",
+      "status": "in_progress",
+      "risk": "routine",
+      "summary": "Install and uninstall scripts, README, architecture and testing docs, and a fresh acceptance run; split into 12a and 12b.",
+      "started": "2026-10-23T02:36:02Z",
+      "status_since": "2026-10-23T02:36:02Z"
+    },
+    {
+      "id": "12a",
+      "title": "Scripts and documents",
+      "status": "done",
+      "risk": "routine",
+      "parent": "12",
+      "summary": "Install and uninstall scripts with a hermetic check, README, architecture doc, testing matrix and manual checklist are in place.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-12a.md",
+      "narrative": "docs/progress-archive/12a.md",
+      "added": "2026-10-23T02:36:02Z",
+      "started": "2026-10-23T02:36:02Z",
+      "status_since": "2026-10-23T03:52:42Z"
+    },
+    {
+      "id": "12b",
+      "title": "Acceptance run",
       "status": "queued",
       "risk": "routine",
-      "summary": "Builds the signed app bundle, writes the docs and runs the final acceptance checks."
+      "parent": "12",
+      "summary": "Fresh full run of unit tests, every e2e run locally and on Saturno and both self-tests, recorded in the testing matrix.",
+      "added": "2026-10-23T02:36:02Z",
+      "status_since": "2026-10-23T02:36:02Z"
     }
   ]
 }

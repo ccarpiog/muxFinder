@@ -191,10 +191,49 @@ struct AppModelKeyboardTests {
       ["--selftest", "attach-local", "--preview-fixtures"],
       ["--report-login-item-status", "--selftest", "new-session-local"],
       ["--selftest", "Attach-Local"],
+      ["--selftest", "attach-local", "--remove-persistent-profiles"],
     ] {
       #expect(AppLaunchOptions(arguments: bad).usageError != nil, "\(bad)")
     }
   } // End of func selfTestOptions()
+
+  /// `--remove-persistent-profiles` (PLAN.md D27) with `--dry-run` and both test folders; its
+  /// options without the mode, the mode with another mode, one folder alone, a missing or
+  /// relative folder are usage errors, so a mistyped removal never starts the menu bar app.
+  @Test func profileRemovalOptions() {
+    let plain = AppLaunchOptions(arguments: ["--remove-persistent-profiles"])
+    #expect(plain.removesPersistentProfiles)
+    #expect(!plain.profileRemovalDryRun)
+    #expect(plain.profilesDirectory == nil && plain.profilesLockDirectory == nil)
+    #expect(plain.usageError == nil)
+    #expect(!plain.rewritesProfilesAtLaunch)
+    let full = AppLaunchOptions(arguments: [
+      "--dry-run", "--profiles-directory", "/tmp/mfx.a/DynamicProfiles",
+      "--lock-directory=/tmp/mfx.a/muxFinder", "--remove-persistent-profiles",
+    ])
+    #expect(full.removesPersistentProfiles && full.profileRemovalDryRun)
+    #expect(full.profilesDirectory == "/tmp/mfx.a/DynamicProfiles")
+    #expect(full.profilesLockDirectory == "/tmp/mfx.a/muxFinder")
+    #expect(full.usageError == nil)
+    #expect(!AppLaunchOptions(arguments: []).removesPersistentProfiles)
+    for bad in [
+      ["--dry-run"], ["--profiles-directory", "/a", "--lock-directory", "/b"],
+      ["--remove-persistent-profiles", "--profiles-directory", "/a"],
+      ["--remove-persistent-profiles", "--lock-directory", "/b"],
+      ["--remove-persistent-profiles", "--profiles-directory", "a", "--lock-directory", "/b"],
+      ["--remove-persistent-profiles", "--profiles-directory=", "--lock-directory", "/b"],
+      ["--remove-persistent-profiles", "--profiles-directory", "/a", "--lock-directory"],
+      ["--remove-persistent-profiles", "--preview-fixtures"],
+      ["--remove-persistent-profiles", "--report-login-item-status"],
+      ["--remove-persistent-profiles", "--report-menu-bar-item"],
+    ] {
+      let options = AppLaunchOptions(arguments: bad)
+      #expect(options.usageError != nil, "\(bad)")
+      #expect(!options.rewritesProfilesAtLaunch, "\(bad)")
+    }
+    #expect(AppLaunchOptions.usage.contains(AppLaunchOptions.profileRemovalUsage))
+    #expect(AppLaunchOptions.usage.contains(AppLaunchOptions.selfTestUsage))
+  } // End of func profileRemovalOptions()
 }
 
 /// `AppModel` driving a real `RefreshCoordinator` over fake discovery and fake attachment

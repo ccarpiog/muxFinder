@@ -47,8 +47,11 @@ Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, ne
                               socket directory and skips when tmux is absent)
   Fixtures/                   discovery outputs, protobuf golden bytes
 Tests/MuxFinderUITests/       Swift Testing, hermetic: the app model over fakes
-scripts/                      build-app.sh, install.sh, uninstall.sh, dev/ helpers
-docs/                         REQUIREMENTS, ARCHITECTURE, INTEGRATION-PROOF, TESTING
+scripts/                      build-app.sh, install.sh, uninstall.sh (D27), lib/ shared by
+                              the two, dev/ helpers and the scripts' hermetic check
+docs/                         REQUIREMENTS, ARCHITECTURE, INTEGRATION-PROOF, TESTING,
+                              MANUAL-CHECKLIST (the checks owed to a person)
+README.md                     purpose, requirements, build, install, permissions, usage
 ```
 
 Data flow: `RefreshCoordinator` runs `DiscoveryProbe` per enabled host (local process or
@@ -1741,6 +1744,106 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       default profile, so once a persistent profile is the default, another dynamic profile
       that sets no parent and no command of its own would start that host's session too; the
       generator is unchanged (it cannot fix the user's other profiles), the copy says so.
+- **D27 — Install and uninstall scripts** (decided in Phase 12a, 2026-10-23; code in
+  `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/lib/app-copies.sh`,
+  `Sources/MuxFinderCore/Profiles/PersistentProfileRemoval.swift`, `AppLaunchOptions`; check
+  `scripts/dev/test-install-scripts.sh`).
+  - **Which processes belong to a copy** (decided: the kernel's executable path, after the
+    Phase 12a review): a process of this user whose executable, as the kernel reports it, is
+    that copy's file, matched by device and inode. `lsof -d txt` only finds the candidates
+    (device and inode of the file): its `txt` records list every file a process maps, so a
+    Spotlight, QuickLook or backup reader that merely maps the executable is one too. Each
+    candidate's executable is then read with `codesign -dv <pid>`, whose `Executable=` comes
+    from the kernel (`proc_pidpath`, the text vnode); `ps`'s `comm` is argv[0], relative for a
+    relative start and forgeable (`exec -a`), so it cannot prove anything (checked: for a stub
+    started absolutely, relatively, through a symbolic link, and a reader with a forged argv[0]
+    naming the copy, `codesign` gave the true path each time; for a helper in the bundle its
+    own path, not the bundle's main executable; about 9 ms per call). A candidate whose
+    executable is another file only maps it and is never signalled; one whose executable
+    cannot be established (`codesign` fails: the process is gone, or its own executable was
+    deleted) is named, never signalled, and counts as running, so the run waits for it and
+    changes nothing while it stays. Only SIGTERM is sent, once, then up to 20 s (longer than
+    the app's 15 s quit deadline, D22) re-checked the same way; a process still running is
+    reported and nothing is changed, never SIGKILL, `killall`, `osascript` or `open`.
+  - **Install with a running copy** (decided: stop it): quitting muxFinder leaves sessions and
+    iTerm2 tabs as they are (D22), so `install.sh` sends the destination copy's `muxFinder`
+    SIGTERM once the new copy is staged and verified, just before replacing it, and refuses
+    (nothing changed) if it does not quit; a failed copy never stops the app. Only that copy's
+    `muxFinder`; a copy elsewhere (`build/`) is never signalled.
+  - **Which processes uninstall stops** (decided: the app only): `muxFinder` of each copy being
+    removed. `muxfinder-launch` processes of that copy run in iTerm2 tabs (an attach, ssh setup
+    or a persistent profile's tab, holding the user's tmux client or login), so stopping one
+    could end that tab's work; they are reported and left, and keep running after the bundle
+    is gone (the executable stays mapped). Other muxFinder processes (the same kernel-path
+    rule, any `…/muxFinder.app/Contents/MacOS/muxFinder`) are only warned about.
+  - **Deletions bound to what was inspected** (decided after the Phase 12a review): an app
+    copy or the support folder has its device and inode recorded when it is inspected.
+    Deleting it means one `rename` into a new hidden folder beside it (`.muxFinder-install.*`
+    or `.muxFinder-remove.*`, same parent, so atomic), comparing the moved entry's device and
+    inode with the recorded ones, and only then `rm -rf` of the hidden folder (itself checked
+    to be the one just made). When the moved entry is something else (the place was swapped
+    after the check), it is put back, never deleted (kept in the hidden folder and named if its
+    place is taken again), and the run exits 1; a deletion that fails part way puts what is
+    left back too. The install's temporary folder is deleted only while it is the one the run
+    made and an old copy in it is the inspected one.
+  - **Install procedure:** source `build/muxFinder.app` (bundle id, both executables and
+    `codesign --verify --deep --strict` checked first); the destination copy must be a folder
+    with muxFinder's bundle id, never a symbolic link, and its device and inode are recorded;
+    `ditto` into a hidden `mktemp -d` folder beside the destination, verified with `codesign`,
+    then the old copy renamed into that folder and checked to be the inspected one (if not, it
+    is put back, nothing is installed, exit 1), and the new one renamed into place (the old
+    one put back if that fails, kept and named if it cannot be), the folder deleted last.
+    `--user` installs into `~/Applications` (created if missing) and warns when the path has
+    characters D2 refuses. It never starts the app; it prints how, and which prompts the first
+    launch may show.
+  - **The profile file's ownership** (decided: Swift, not shell): `uninstall.sh` runs the app
+    copy's own binary, `muxFinder --remove-persistent-profiles [--dry-run]`, which removes
+    `DynamicProfiles/muxFinder.json` through `PersistentProfileInstaller.remove(onlyIfGenerated:
+    true)` under the `profiles.lock` flock (D26), so the generated-file rule is the app's
+    "Remove profiles" rule. `--dry-run` reads without the lock and creates nothing. Exit 0
+    removed, nothing installed or would remove; 1 left as it is (not a generated document, a
+    link, not regular, another user's, too large, or the folder a link, not a folder or another
+    user's); 3 failed (busy, lock, system call, changed meanwhile); 2 usage. The mode exits
+    before any window, menu bar item, host list or iTerm2 contact. `--profiles-directory` and
+    `--lock-directory` (both or neither, absolute) stand in for the two folders, for checks.
+    The flag's options without the flag, or the flag with another mode, are usage errors.
+  - **Old binaries:** an app built before the flag ignores unknown arguments and would start
+    the menu bar app, so the bundle declares `MuxFinderScriptInterface` = 1 in its Info.plist
+    (`build-app.sh`), and `uninstall.sh` runs the binary only for a copy with that key whose
+    signature verifies. Without one (no copy, an older or a broken copy) the file is left, its
+    path printed with why, and the run exits 1.
+  - **Support folder:** `~/Library/Application Support/muxFinder` removed, bound to the folder
+    inspected (above; `rm -rf` removes links inside, never follows them), after the profile
+    file (whose lock lives there); a symbolic link or a non-folder there is refused and left
+    (exit 1). **Preferences** (decided:
+    remove): AppKit may keep the menu bar item's state in the app's own domain (seen in Phase
+    8), so `/usr/bin/defaults delete cc.carpio.muxfinder` runs when `defaults read` finds the
+    domain, never in a dry run or test mode. **Never:** `tccutil` (the command is printed for
+    the user), the login item (`SMAppService` can only be unregistered by the app; the script
+    says where to remove it), tmux, iTerm2 preferences or other profiles, `~/.ssh`, shell files.
+    Order: find copies, stop them (any failure stops the run before a removal), profile file,
+    support folder, app copies, preferences; exit 0 when everything of muxFinder's is gone
+    (files proven not muxFinder's are named and left), 1 when something was refused or failed.
+  - **Test mode** (checks only; contained after the Phase 12a review): `MUXFINDER_TEST_HOME`
+    and `MUXFINDER_TEST_APPLICATIONS`, both set, stand in for the home folder and
+    `/Applications`. Each must be an absolute existing folder, not itself a link, whose
+    physical path (`pwd -P`, used from then on, so no link remains on the way) lies strictly
+    beneath `/private/tmp` or `/private/var/folders` (the user's `$TMPDIR`), owned by the user,
+    writable by neither group nor others, never the real home, inside it (so never
+    `~/Applications`) or `/Applications`; the two must be apart, and `HOME` must resolve.
+    Every path a script then derives (both app copies, the destination folder, the support
+    folder, `DynamicProfiles/muxFinder.json`, the hidden temporary folders) must lie strictly
+    beneath one of them with no `.`, `..` or symbolic link among the folders on the way,
+    checked before anything is created, moved or deleted (exit 2 otherwise; the last
+    component is each script's own check, which never follows a link), and again just before
+    each deletion. Then `MUXFINDER_TEST_SOURCE` (install), `MUXFINDER_TEST_STOP_WAIT` (1–60 s)
+    and the swap hook are honored: `MUXFINDER_TEST_SWAP_AT` and `MUXFINDER_TEST_SWAP_WITH`
+    (both, beneath the test folders, the second a folder) make the entry at the first path
+    and the second folder exchange places just before that path is moved aside, standing in
+    for another program replacing a folder after the check; outside test mode they are refused
+    (exit 2). The profile flag gets the private folders, the preferences domain is never read
+    or written, and signals reach only processes of the private copies. Both scripts refuse to
+    run as root.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -2655,6 +2758,27 @@ Acceptance: a fresh full run of every unit test and every `muxfinder-probe e2e-*
 Saturno) plus the self-tests, all exit 0 and recorded. The build script reproduces the
 `.app` from a clean `build/`. The docs state signing status truthfully, and every brief
 acceptance bullet maps to evidence or to "unverified: why".
+
+Split (2026-10-23, before the first worker): Phase 12 is two sub-phases, each with its own
+verification, review and commit, so the documents and scripts exist before the acceptance run
+records its results in them.
+
+- **12a — Scripts and documents (routine, hermetic).** `scripts/install.sh` and
+  `scripts/uninstall.sh` (each with a dry run and test overrides for the destination and home
+  folders, so they can be exercised on private folders; the uninstall script stops only
+  processes of the copy it removes, with SIGTERM, never through LaunchServices or Apple
+  events, and removes `DynamicProfiles/muxFinder.json` only when it is muxFinder's generated
+  file, D26), a hermetic check of both scripts on private folders, `README.md`,
+  `docs/ARCHITECTURE.md`, the tested vs expected-to-work matrix in `docs/TESTING.md` (each
+  brief acceptance bullet mapped to the evidence so far or to "unverified: why") and the
+  manual checklist for the user (`docs/MANUAL-CHECKLIST.md`). The build script reproduces the
+  `.app` from a clean `build/`. Opens no iTerm2 window; neither script runs for real on the
+  user's `/Applications`, `~/Applications`, `DynamicProfiles/` or Application Support.
+- **12b — Acceptance run (routine, real runs).** A fresh full run on the final tree: every
+  unit test, `e2e-local`, `e2e-remote saturno-m4`, `e2e-profile --local` and `--ssh
+  saturno-m4`, both self-tests, the clean-`build/` reproduction; results with dates, commands
+  and exit statuses recorded in `docs/TESTING.md`'s matrix. Gated by the iTerm2 thread-count
+  rule like every real run; fixes the run calls for.
 
 ## Deferred (explicitly out of scope for v1)
 

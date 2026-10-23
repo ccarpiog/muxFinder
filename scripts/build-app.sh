@@ -7,7 +7,10 @@
 # - Bundle: Contents/MacOS/muxFinder (the app) and Contents/MacOS/muxfinder-launch (the
 #   helper iTerm2 runs; LaunchHelperPath.locate() looks for it next to the app's executable),
 #   Contents/Info.plist (bundle id cc.carpio.muxfinder, LSUIElement, LSMinimumSystemVersion
-#   14.0, NSAppleEventsUsageDescription) and Contents/PkgInfo.
+#   14.0, NSAppleEventsUsageDescription, and MuxFinderScriptInterface 1: the app binary takes
+#   --remove-persistent-profiles, so scripts/uninstall.sh runs it only when the key says so,
+#   PLAN.md D27; an older binary would ignore the flag and start the menu bar app) and
+#   Contents/PkgInfo.
 # - Signing: the first "Apple Development" identity in the keychain, or the identity named by
 #   MUXFINDER_SIGN_IDENTITY; hardened runtime; the app gets the
 #   com.apple.security.automation.apple-events entitlement and no sandbox. Without an
@@ -73,6 +76,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <string>14.0</string>
   <key>LSUIElement</key>
   <true/>
+  <key>MuxFinderScriptInterface</key>
+  <integer>1</integer>
   <key>NSAppleEventsUsageDescription</key>
   <string>muxFinder asks iTerm2 for access to its Python API, so it can open your tmux sessions in iTerm2.</string>
   <key>NSHighResolutionCapable</key>
@@ -120,4 +125,4 @@ codesign --force --timestamp=none --options runtime --entitlements "$ENTITLEMENT
   --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
 
-echo "Built $APP (signed for development, not notarized)."
+echo "Built $APP (signed with: $IDENTITY_NAME; not notarized)."

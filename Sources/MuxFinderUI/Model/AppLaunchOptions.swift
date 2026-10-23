@@ -1,6 +1,6 @@
 import Foundation
 
-/// The app's command-line flags (PLAN.md D22, D23, D25).
+/// The app's command-line flags (PLAN.md D22, D23, D25, D27).
 ///
 /// - `--preview-fixtures`: no menu bar item, no refresh engine, no host list, no iTerm2; one
 ///   normal window renders every state from synthetic fixtures, for screenshots.
@@ -25,6 +25,14 @@ import Foundation
 ///   and This Mac's tmux and exits with its status (`SelfTestDriver`). An unknown name, a
 ///   missing name, `--selftest-keep` alone, or `--selftest` together with another mode is a
 ///   usage error (`usageError`): the app prints it and exits 2 before contacting anything.
+/// - `--remove-persistent-profiles [--dry-run] [--profiles-directory <folder> --lock-directory
+///   <folder>]` (`scripts/uninstall.sh`, PLAN.md D27): removes
+///   `DynamicProfiles/muxFinder.json` only when it is muxFinder's generated file
+///   (`PersistentProfileRemoval`), prints one line and exits at once, before any window, menu
+///   bar item, host list or iTerm2 contact; `--dry-run` only reports. The two folders (both or
+///   neither, absolute; for checks only) stand in for iTerm2's `DynamicProfiles` and
+///   muxFinder's own folder. Any of the three options without the mode, the mode with another
+///   mode, one folder alone or a folder that is not absolute is a usage error.
 ///
 /// Anything else is ignored, such as the `-psn_…` and `-NS…` arguments macOS may add.
 public struct AppLaunchOptions: Sendable, Hashable {
@@ -63,7 +71,18 @@ public struct AppLaunchOptions: Sendable, Hashable {
   public var reportsLoginItemStatus = false
   /// The self-test to run, if any.
   public var selfTest: SelfTestRequest?
-  /// Why the self-test arguments are unusable, if they are (the app exits 2).
+  /// Whether to remove muxFinder's dynamic profile file and exit
+  /// (`--remove-persistent-profiles`).
+  public var removesPersistentProfiles = false
+  /// With `removesPersistentProfiles`: only report what a removal would do (`--dry-run`).
+  public var profileRemovalDryRun = false
+  /// With `removesPersistentProfiles`: the folder standing in for iTerm2's `DynamicProfiles`
+  /// (`--profiles-directory`, checks only).
+  public var profilesDirectory: String?
+  /// With `removesPersistentProfiles`: the folder standing in for muxFinder's own folder, which
+  /// holds `profiles.lock` (`--lock-directory`, checks only).
+  public var profilesLockDirectory: String?
+  /// Why the arguments are unusable, if they are (the app prints it with `usage` and exits 2).
   public var usageError: String?
 
   /// The options in `arguments`, the process's arguments without the executable path.
@@ -81,9 +100,14 @@ public struct AppLaunchOptions: Sendable, Hashable {
         reportsLoginItemStatus = true
       } else if argument == "--selftest-keep" {
         keepsSelfTest = true
+      } else if argument == "--remove-persistent-profiles" {
+        removesPersistentProfiles = true
+      } else if argument == "--dry-run" {
+        profileRemovalDryRun = true
       } else if Self.valueOptions.contains(argument) {
         guard position < arguments.endIndex else {
           if argument == "--selftest" { usageError = "--selftest needs a self-test name." }
+          if Self.folderOptions.contains(argument) { usageError = "\(argument) needs a folder." }
           break
         }
         set(argument, to: arguments[position])
@@ -93,16 +117,29 @@ public struct AppLaunchOptions: Sendable, Hashable {
       }
     } // End of loop over the arguments
     checkSelfTest(keep: keepsSelfTest)
+    checkProfileRemoval()
   } // End of init(arguments:)
 
   /// The options that take a value as the next argument.
   static let valueOptions: Set = [
     "--appearance", "--preview-snapshot", "--preview-gallery", "--selftest",
+    "--profiles-directory", "--lock-directory",
   ]
+
+  /// The options of `--remove-persistent-profiles` that name a folder.
+  static let folderOptions: Set = ["--profiles-directory", "--lock-directory"]
 
   /// The usage line of the self-tests.
   public static let selfTestUsage =
     "usage: muxFinder --selftest attach-local|new-session-local [--selftest-keep]"
+
+  /// The usage line of the profile removal.
+  public static let profileRemovalUsage =
+    "usage: muxFinder --remove-persistent-profiles [--dry-run] "
+    + "[--profiles-directory <folder> --lock-directory <folder>]"
+
+  /// Every usage line, printed after a usage error.
+  public static let usage = selfTestUsage + "\n" + profileRemovalUsage
 
   /// Applies `--selftest-keep` and refuses self-test arguments that cannot run: keep without a
   /// self-test, or a self-test with another mode.
@@ -111,7 +148,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
     if keep, selfTest == nil {
       usageError = "--selftest-keep needs --selftest."
     } else if selfTest != nil,
-      previewFixtures || reportsMenuBarItem || reportsLoginItemStatus
+      previewFixtures || reportsMenuBarItem || reportsLoginItemStatus || removesPersistentProfiles
     {
       usageError = "--selftest cannot be combined with another mode."
     } else if keep {
@@ -119,13 +156,37 @@ public struct AppLaunchOptions: Sendable, Hashable {
     }
   } // End of func checkSelfTest(keep:)
 
+  /// Refuses profile removal arguments that cannot run: one of its options without the mode
+  /// (so a mistyped removal never starts the menu bar app), the mode with another mode, one
+  /// folder without the other, or a folder that is not an absolute path.
+  private mutating func checkProfileRemoval() {
+    guard usageError == nil else { return }
+    let hasFolders = profilesDirectory != nil || profilesLockDirectory != nil
+    if !removesPersistentProfiles {
+      if profileRemovalDryRun || hasFolders {
+        usageError =
+          "--dry-run, --profiles-directory and --lock-directory need "
+          + "--remove-persistent-profiles."
+      }
+    } else if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus {
+      usageError = "--remove-persistent-profiles cannot be combined with another mode."
+    } else if hasFolders, profilesDirectory == nil || profilesLockDirectory == nil {
+      usageError = "--profiles-directory and --lock-directory go together."
+    } else if hasFolders,
+      ![profilesDirectory, profilesLockDirectory].allSatisfy({ $0?.hasPrefix("/") == true })
+    {
+      usageError = "--profiles-directory and --lock-directory need absolute paths."
+    }
+  } // End of func checkProfileRemoval()
+
   /// Whether this launch may bring an installed, out-of-date persistent profile file up to date
   /// (PLAN.md D26): only the menu bar app in normal mode, never with `--preview-fixtures`,
-  /// `--selftest`, `--report-login-item-status`, `--report-menu-bar-item` or unusable
-  /// arguments. `--appearance` alone keeps normal mode.
+  /// `--selftest`, `--report-login-item-status`, `--report-menu-bar-item`,
+  /// `--remove-persistent-profiles` or unusable arguments. `--appearance` alone keeps normal
+  /// mode.
   public var rewritesProfilesAtLaunch: Bool {
     !previewFixtures && !reportsMenuBarItem && !reportsLoginItemStatus && selfTest == nil
-      && usageError == nil
+      && !removesPersistentProfiles && usageError == nil
   }
 
   /// The options of this process.
@@ -148,6 +209,10 @@ public struct AppLaunchOptions: Sendable, Hashable {
       } else {
         usageError = "Unknown self-test. Use attach-local or new-session-local."
       }
+    case "--profiles-directory":
+      profilesDirectory = value
+    case "--lock-directory":
+      profilesLockDirectory = value
     default:
       break
     }

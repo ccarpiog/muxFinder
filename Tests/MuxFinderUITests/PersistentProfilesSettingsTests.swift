@@ -611,8 +611,8 @@ struct PersistentProfilesSettingsTests {
     #expect(model.profileResult == nil)
   } // End of func automaticUpdatesNeverRecreateARemovedFile()
 
-  /// Only normal mode rewrites at launch: never the preview window, a self-test, either report
-  /// or unusable arguments.
+  /// Only normal mode rewrites at launch: never the preview window, a self-test, either report,
+  /// the profile removal or unusable arguments.
   @Test func onlyNormalModeRewritesAtLaunch() {
     #expect(AppLaunchOptions(arguments: []).rewritesProfilesAtLaunch)
     #expect(AppLaunchOptions(arguments: ["--appearance", "dark"]).rewritesProfilesAtLaunch)
@@ -620,7 +620,8 @@ struct PersistentProfilesSettingsTests {
       ["--preview-fixtures"], ["--preview-fixtures", "--preview-gallery", "settings"],
       ["--selftest", "attach-local"], ["--selftest", "new-session-local", "--selftest-keep"],
       ["--report-login-item-status"], ["--report-menu-bar-item"], ["--selftest-keep"],
-      ["--selftest", "nope"],
+      ["--selftest", "nope"], ["--remove-persistent-profiles"],
+      ["--remove-persistent-profiles", "--dry-run"],
     ] {
       #expect(!AppLaunchOptions(arguments: arguments).rewritesProfilesAtLaunch, "\(arguments)")
     }
