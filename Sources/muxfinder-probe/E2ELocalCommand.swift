@@ -156,9 +156,13 @@ enum E2ECommand {
     return passed == harness.stepCount && ending == .finished ? 0 : 1
   } // End of func run(_:)
 
-  /// Waits until the steps finish, a signal arrives or the overall limit passes; in the last
-  /// two cases the steps are cancelled.
-  static func waitForEnding(of steps: Task<Void, Never>, watcher: SignalWatcher) async -> Ending {
+  /// Waits until the steps finish, a signal arrives or `limit` (by default the overall limit)
+  /// passes; in the last two cases the steps are cancelled.
+  static func waitForEnding(
+    of steps: Task<Void, Never>,
+    watcher: SignalWatcher,
+    limit: Duration = overallLimit
+  ) async -> Ending {
     await withTaskGroup(of: Ending.self) { group in
       group.addTask {
         await steps.value
@@ -170,7 +174,7 @@ enum E2ECommand {
       }
       group.addTask {
         do {
-          try await Task.sleep(for: overallLimit)
+          try await Task.sleep(for: limit)
           return .timeLimit
         } catch {
           return .finished
@@ -181,5 +185,5 @@ enum E2ECommand {
       group.cancelAll()
       return first
     } // End of task group racing the steps against signals and the limit
-  } // End of func waitForEnding(of:watcher:)
+  } // End of func waitForEnding(of:watcher:limit:)
 }

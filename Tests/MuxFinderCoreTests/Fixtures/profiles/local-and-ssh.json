@@ -1,0 +1,24 @@
+{
+  "Profiles" : [
+    {
+      "Close Sessions On End" : true,
+      "Command" : "/Applications/muxFinder.app/Contents/MacOS/muxfinder-launch profile 0f8fad5b-d9cb-469f-a165-70867728950e",
+      "Custom Command" : "Yes",
+      "Guid" : "muxfinder-persistent-0f8fad5b-d9cb-469f-a165-70867728950e",
+      "Name" : "Persistent work – This Mac",
+      "Tags" : [
+        "muxFinder"
+      ]
+    },
+    {
+      "Close Sessions On End" : true,
+      "Command" : "/Applications/muxFinder.app/Contents/MacOS/muxfinder-launch profile 7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "Custom Command" : "Yes",
+      "Guid" : "muxfinder-persistent-7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "Name" : "Persistent work – Remote ü 日本",
+      "Tags" : [
+        "muxFinder"
+      ]
+    }
+  ]
+}

@@ -108,6 +108,22 @@ struct HostDraftValidationTests {
     let new = HostDraft.newHost()
     #expect(new.isNew && new.mode == .ssh && !new.isEnabled && new.sshDestination.isEmpty)
   } // End of func configTrimsAndStoresEmptyAsNone()
+
+  /// A draft keeps a host's persistent-profile values (PLAN.md D26) exactly: the editor has no
+  /// controls for them yet, and saving an edit must not drop them.
+  @Test func draftKeepsPersistentProfileValues() {
+    let host = HostConfig(
+      displayName: "Saturno", mode: .ssh, sshDestination: "saturno.example",
+      persistentProfileEnabled: true, defaultSessionName: "work",
+      persistentProfileParentName: "Base")
+    var draft = HostDraft(host)
+    #expect(draft.config == host)
+    draft.displayName = "Saturno 2"
+    #expect(draft.config.persistentProfileEnabled)
+    #expect(draft.config.defaultSessionName == "work")
+    #expect(draft.config.persistentProfileParentName == "Base")
+    #expect(!HostDraft.newHost().config.persistentProfileEnabled)
+  }
 }
 
 /// The Settings model's Hosts tab over fakes, and over a real `HostStore` in a private folder.

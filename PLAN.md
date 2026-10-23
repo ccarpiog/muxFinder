@@ -31,7 +31,8 @@ Sources/
                               AttachmentIndex (iTerm2 tmux connections -> session keys),
                               LaunchTab (the shared launch tab), SSHSetupLauncher (D24)
     Refresh/                  RefreshCoordinator actor, backoff, live/stale snapshots
-    Profiles/                 Persistent Work dynamic-profile generator/installer
+    Profiles/                 Persistent Work dynamic-profile generator/installer, the hash
+                              snapshot of iTerm2's other profiles, the e2e-profile run (D26)
     Diagnostics/              operation log (ring buffer + os.Logger), no terminal content
   muxfinder-launch/           helper executable that iTerm2 runs inside the launch tab
   muxfinder-probe/            developer/diagnostic CLI that drives the core without the GUI
@@ -130,16 +131,17 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
 - **D8 — Storage.** Configuration lives in `~/Library/Application Support/muxFinder/`
   (`hosts.json`, `launch/`, diagnostics), with directories 0700 and files 0600, and no
   extended ACL (D14 for `launch/`, D19 for the folder itself and `hosts.json`). The app owns
-  exactly one iTerm2 file, `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json`.
-  Never write iTerm2 preferences, other profiles, or shell startup files.
+  exactly one iTerm2 file, `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json`,
+  written and removed only by `PersistentProfileInstaller`, which never touches another entry of
+  that folder (D26). Never write iTerm2 preferences, other profiles, or shell startup files.
 - **D9 — Scope.** Only the current user's **default tmux server**; named sockets are deferred.
   The UI and README say so.
 - **D10 — UI language is English, sentence case** ("New session", "Move here", "Refresh").
 - **D11 — Tests.** `swift test` is hermetic: fakes for the process runner, the clock and
   iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
   Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `attach`,
-  `new-session`, `e2e-*`, `hosts`, `refresh`; all but `discover`, `hosts` and `refresh` open
-  real iTerm2 windows) and the app binary run from the shell (D22: the preview window and the
+  `new-session`, `e2e-*`, `hosts`, `profiles`, `refresh`; all but `discover`, `hosts`,
+  `profiles` and `refresh` open real iTerm2 windows) and the app binary run from the shell (D22: the preview window and the
   menu bar item check, neither of which contacts iTerm2),
   are run explicitly during verification, and their results are recorded in
   `docs/TESTING.md`. A mocked attachment is never reported as a real integration result.
@@ -216,8 +218,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Exit codes:** guard 64 gone, 65 changed, 66 tmux missing (the D5 rule, discovery's
     `tmuxNotFound`), 67 tmux check failed, 68 guard usage. Helper 2 usage, 70 request missing,
     71 expired, 72 unreadable (also a request of the other kind, D24), 73 launch directory
-    unusable, 74 spawn failed, 75 check timed out, 128 + n interrupted by signal n before tmux
-    attached; otherwise tmux's own status (0
+    unusable, 74 spawn failed, 75 check timed out, 76 and 77 in `profile` mode when it ends
+    without starting the login shell (the host list or host unusable; the nesting guard; D26),
+    128 + n interrupted by signal n before tmux attached; otherwise tmux's own status (0
     after a detach, 1 on errors), and 128 + n for signal n. For a remote attach ssh hands back
     the remote status (the guard's codes, tmux's 0 or 1) and uses 255 for its own errors (D17).
     `LaunchFailure.fromCheck(_:timedOut:)` (the check child) and `LaunchFailure.from(_:host:)`
@@ -247,7 +250,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     subprocesses had no deadline and were out of reach of a signal sent to the shell, and
     putting the shell in its own group would have stopped tmux with `SIGTTIN`. The price is
     the check-to-attach window described in D4.
-  - **Helper process:** the attach child runs on the helper's own terminal: descriptors 0–2
+  - **Helper process:** every child gets the helper's environment minus `TMUX`, `TMUX_PANE` and
+    the `MUXFINDER_LAUNCH_*` variables, plus `MUXFINDER_LAUNCHED=1`, the nesting guard's
+    variable (D26). The attach child runs on the helper's own terminal: descriptors 0–2
     are inherited (the one exception is the ssh child's standard error, relayed through a pipe,
     D17), the child stays in the helper's foreground process group (a
     background group would get `SIGTTIN`), and it starts with default dispositions. The helper
@@ -265,8 +270,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     whichever comes first).
   - **Minimum lifetime** (decided in Phase 4c, 2026-10-22): under that same condition the helper
     never exits before it is 10 s old (`LaunchHelper.minimumLifetime`, counted from its start),
-    whatever the outcome and in either mode (`attach` or `ssh-setup`, D24; every way out goes
-    through `LaunchHelper.finish`): it writes the result first, waits for Return if it failed,
+    whatever the outcome and in every mode (`attach` or `ssh-setup`, D24, through
+    `LaunchHelper.finish`; `profile`, D26, except when it hands the tab to the login shell,
+    which keeps it open): it writes the result first, waits for Return if it failed,
     then holds the rest (`LaunchTerminal.holdOpen(for:)`: closing the tab, SIGHUP, still ends it
     at once; SIGINT and SIGTERM never end it, so Ctrl-C at the prompt or during the hold cannot
     end a visible tab early). A launch tab that ends within 3 s of starting raises iTerm2's
@@ -282,7 +288,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     argument's byte length and SHA-256, plus the first canonical launch id found. Right before
     it starts its attach child (tmux locally, ssh remotely) it writes the file again with
     `attachChild`: that child's argv digested the same way and whether it detaches the
-    session's other clients (D21); a launch that ends first has none.
+    session's other clients (D21); a launch that ends first has none. In `profile` mode the
+    login shell is recorded there instead of started (`startsLoginShell`, D26), and the helper
+    reads a test host list for its host id from the launch directory when one exists.
     `LaunchStore.takeArgvDigests()` reads them.
   - **Test launch delay** (decided after the Phase 5b review, 2026-10-22): a request may carry
     `testLaunchDelaySeconds` (1–120; any other value makes it unreadable, 72; absent from every
@@ -302,7 +310,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `LaunchHelperPath.locate()` finds `muxfinder-launch` next to the running executable and
     applies the D2 rule. The tab command is `LaunchHelperPath.commandLine(for:kind:)`:
     `<path> attach <uuid>` (`attachCommandLine(for:)`), or `<path> ssh-setup <uuid>` for "Set
-    up SSH in iTerm2…" (D24).
+    up SSH in iTerm2…" (D24); a persistent profile's `Command` is `<path> profile <host id>`
+    (`profileCommandLine(forHostID:)`, D26).
 - **D15 — Attach coordinator** (decided in Phase 4b, 2026-10-22; code in
   `Sources/MuxFinderCore/Attach/`).
   - **Launch tab:** `CreateTab` without `window_id`, so the tab opens in a new window and never
@@ -658,7 +667,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **File:** `hosts.json` in muxFinder's folder (`HostStore`; the path is injectable). A
     JSON object, schema 1: `{"schemaVersion": 1, "hosts": [ … ]}`, each host with `id` (UUID
     string), `displayName`, `mode` (`local` or `ssh`), `sshDestination` (may be empty),
-    `isEnabled`, and `tmuxPathOverride` and `iTermProfileName` only when set. Written
+    `isEnabled`, and `tmuxPathOverride`, `iTermProfileName`, `defaultSessionName` and
+    `persistentProfileParentName` only when set, `persistentProfileEnabled` only when `true`
+    (D26; a file without them loads with the defaults and saves back unchanged). Written
     pretty-printed with sorted keys and a final newline, at most 1 MiB (`maximumFileSize`);
     unknown keys are ignored when read. Another format gets another `schemaVersion`.
   - **Storage (D8, D14):** `HostStore` is an actor, so its file work runs off the main actor
@@ -716,7 +727,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     the check and the publication through the store's `beforePublishing` hook.
   - **Invariants (`HostList`):** ids are unique; at most one host is in `local` mode ("This
     Mac"); an enabled SSH host's destination passes `Validation.sshDestination` (not empty, no
-    whitespace or control characters, no leading `-`). A disabled SSH host may hold any
+    whitespace or control characters, no leading `-`); a set default session name passes
+    `Validation.persistentSessionName` exactly as stored, and a set persistent profile parent
+    `Validation.profileName` (D26). A disabled SSH host may hold any
     destination, so incomplete entries are kept; other fields are validated where they are
     used (D5 for the override). Each change (`add`, `update`, `remove`, `setEnabled`,
     `makeThisMac`) checks its result and throws a typed `HostListError` without changing the
@@ -1442,6 +1455,155 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     cards, the New session panel empty, with an invalid name, creating and
     after a collision, the banners) and the context menu of a session open here and of one
     attached elsewhere; screenshots `docs/screenshots/attach-states-{light,dark}.png`.
+
+- **D26 — Persistent work profiles** (decided in Phase 11a, 2026-10-23; code in
+  `Sources/MuxFinderCore/Profiles/`: `PersistentProfiles.swift`,
+  `PersistentProfileInstaller.swift`, `ITerm2ProfileSnapshot.swift`, `PersistentProfileRun.swift`;
+  `Launch/ProfileLaunch.swift`, `LaunchHelperProfile.swift`, `LoginShell.swift`;
+  `Config/HostConfig.swift`, `HostList.swift`; `Tmux/TmuxWord.swift`; probe
+  `ProfilesCommand.swift`, `E2EProfileCommand.swift`).
+  - **Host-list fields (D19, still schema 1):** per host, `persistentProfileEnabled` (written
+    only when `true`), `defaultSessionName` and `persistentProfileParentName` (each only when
+    set). A file without them (every file written before) loads with the defaults and saves
+    back byte for byte. An unset session name is `main` (`HostConfig.standardDefaultSessionName`,
+    the name iTerm2's own documentation uses for `tmux -CC new -A -s main`). The parent is per
+    host, not global: hosts differ (a remote host's profile may want other colors), it sits
+    beside the host's `iTermProfileName`, and the file stays a list of hosts. Invariants
+    (`HostList`, checked whether or not the profile is on, as a set tmux path is kept): a set
+    session name passes `Validation.persistentSessionName` exactly as stored (trimmed): D18's
+    `sessionName` rules plus no leading `$ = @ % ! ~ { + ^`, because with `-A` tmux attaches an
+    existing session through a target lookup of its name, where those characters mean an id,
+    an exact match, the marked pane, a token, the last window or an offset (tmux's target
+    syntax; not tried on a server, since test sessions must be named `muxfinder-test-*`),
+    checked on the first Unicode scalar, the byte tmux reads first, not the first `Character`
+    (a combining mark after `$` makes another grapheme cluster but leaves the `$` in front); a set
+    parent name passes `Validation.profileName` (not empty, no control characters). A file
+    breaking them is `invariantBroken`, left as it is. The profile is independent of
+    `isEnabled` (discovery). `HostDraft` carries the three values unchanged; the Settings
+    controls are 11c's.
+  - **The profile file (`PersistentProfiles`, pure):** `{"Profiles": […]}`, one profile per host
+    with the profile on, in list order: `Guid` `muxfinder-persistent-<host id, lowercase>`,
+    `Name` `Persistent work – <display name>` (en dash), `Tags` `["muxFinder"]`, `"Custom
+    Command": "Yes"`, `Command` `<helper> profile <host id, lowercase>`
+    (`LaunchHelperPath.profileCommandLine(forHostID:)`), `"Close Sessions On End": true`, and
+    `Dynamic Profile Parent Name` only when set; pretty-printed, sorted keys, a final newline,
+    deterministic (golden files in `Tests/MuxFinderCoreTests/Fixtures/profiles/`). The keys are
+    iTerm2's own: all seven appear in the 3.7.6 binary's strings and the profile ones in its
+    Python module (read only; `Dynamic Profile Parent GUID` exists too and is not used). The
+    command carries the host id alone: the helper reads mode, destination, tmux path and
+    session name from `hosts.json` when the tab starts, so editing them needs no new file. The
+    helper path must pass D2's rule (`LaunchHelperPath(validating:)`, else
+    `unsupportedHelperPath` and nothing is generated), so the line is three words under any
+    splitting rule, as the attach command was verified to be (*Verified facts*, Phase 4).
+  - **Installer (`PersistentProfileInstaller`, both folders injectable):** writes and removes
+    `DynamicProfiles/muxFinder.json` only. The folder must be the user's and not a symbolic
+    link (decided: a synced or shared folder would carry this Mac's helper path and host ids
+    to other Macs); an install creates it (0755, as iTerm2 does) only when missing and its
+    parent exists; the folder itself is never changed. `muxFinder.json` is opened with
+    `O_NOFOLLOW` only: a link, a non-regular file, another user's or one over 1 MiB is refused
+    and left alone. An install of identical bytes writes nothing (`unchanged`); otherwise a
+    hidden temporary file (`.muxFinder.json.<hex>.tmp`, `O_EXCL|O_NOFOLLOW`, 0600, flushed;
+    iTerm2 3.7.6's binary logs "Skipping it because of leading dot") is published with one
+    rename, `RENAME_EXCL` when no file is there or `RENAME_SWAP` with the checked file, the
+    displaced entry deleted only when it is still that file (device and inode), anything else
+    swapped back, and what that swap back displaces deleted only when it is the install's own
+    temporary file (device and inode taken before publishing), else kept under the hidden name
+    (`displacedEntryKept`). Removal renames the checked file aside (`RENAME_EXCL`) and deletes
+    it only when it is still that file; with expected bytes (the harness), only while it holds
+    them. Installs and removals of every muxFinder process are serialized by an exclusive
+    `flock` on `profiles.lock` in muxFinder's own folder, held from before the file is looked
+    at until the operation ends, waited for at most 5 s (`busy`); reads take no lock (decided:
+    the lock lives in the app's folder, not in `DynamicProfiles`, which is iTerm2's; the folder
+    is opened as D19's stores open it, the file 0600, empty, never removed, since removing a
+    lock file lets two processes hold it). So only a writer outside muxFinder can take the name
+    during an operation, and the identity checks keep its file. Unlike D19's `HostStore`, which
+    has one writer and keeps any displaced file as a backup, the installer swaps a foreign file
+    back to its name, so it must know whose file that swap back displaces.
+    No other entry is ever read, renamed or deleted (a test hashes the siblings at every
+    step). Zero hosts with a profile means no file (decided: an empty file is noise, and it is
+    the state "Remove profiles" leaves), so installing an empty document removes it.
+    `status(for:)` (`notInstalled`, `current`, `stale`: the bytes differ, as when the helper
+    moved) is 11c's launch-time rewrite check.
+  - **Helper `muxfinder-launch profile <host id>`** (`LaunchHelperProfile.swift`): no request
+    file. **Nesting guard** first, before reading anything: `TMUX` or `MUXFINDER_LAUNCHED` set
+    and not empty (empty counts as unset, as tmux treats `TMUX=`) prints one line and starts the
+    login shell. `MUXFINDER_LAUNCHED=1` is in the environment of everything the helper starts,
+    in every mode (attach and ssh-setup children too, for consistency; a tmux server the profile
+    starts keeps it in its global environment, harmless since its panes have `TMUX` anyway).
+    Then `hosts.json` through `HostStore.load()` (read-only: no folder or file created or
+    written) and `ProfileLaunchPlan.make`: no list, an unusable list, an unknown host, the
+    profile off, or an unusable session name, destination or tmux path each explains and
+    starts the login shell. Locally D14's two children: the check `/bin/sh -c
+    <ProfileLaunch.locateScript> muxfinder <override>` (the D5 locator, its own group, the 10 s
+    deadline), then `<tmux> -u -CC new-session -A -s <name>` by argv on the tab's terminal, the
+    name as `TmuxWord.escaped` makes it (`#` doubled, a trailing `;` written `\;`, D18). On an
+    SSH host D17's interactive ssh with the static `ProfileLaunch.remoteScript` (the locator,
+    D18's word functions, `exec "$t" -u -CC new-session -A -s "$w"`) and two quoted arguments,
+    the override and the name. tmux ending normally ends the helper after D14's hold (the tab
+    closes); any failure explains in profile wording and starts the login shell; a closed tab
+    (SIGHUP) starts nothing. **Login shell** (`LoginShell`): the passwd entry's shell
+    (`getpwuid_r(getuid())`), else `/bin/zsh`, else `/bin/sh`, each only when an executable
+    regular file; argv `[-<name>]`; it replaces the helper (`posix_spawn` with
+    `POSIX_SPAWN_SETEXEC`: same pid and process group, default signal dispositions, empty mask,
+    only descriptors 0–2); environment the helper's minus `MUXFINDER_LAUNCH_*` plus
+    `MUXFINDER_LAUNCHED=1` (`TMUX` kept). It is not started in test mode (recorded in the argv
+    digest as `attachChild` with `startsLoginShell`) or on a terminal that is not interactive;
+    the helper then ends like a failed attach (explanation, wait for Return, D14's hold) with
+    76 (host list or host unusable), 77 (nesting guard) or the failure's own status; when every
+    shell fails to exec, the same with 74. Accepted: once the shell runs, a shell ending by
+    itself within 3 s (broken start-up files) is beyond the helper's hold, as for any iTerm2
+    profile with that shell.
+  - **Test seam:** iTerm2, not the probe, starts the profile command, and the production command
+    stays exactly `<helper> profile <id>`. In test mode only (D14's marker or variable), the
+    helper reads `launch/profile-test-<host id>.json` (`LaunchStore.profileTestHostsURL`, the
+    `hosts.json` format under D19's read rules) in place of `hosts.json` when one exists for
+    that very host id; `e2e-profile` writes it (exclusive, 0600) for a fresh test host id and
+    removes it with the marker, so the user's `hosts.json` is never read or written by the run,
+    and a real profile's tab during a run still reads `hosts.json` (no test file has its id).
+  - **Probe:** `profiles show [--config <path>] [--helper <path>]` prints the document the app
+    would install (writes nothing; `--config` is the host list file, as for `hosts show`);
+    `profiles hashes [--directory <path>]` prints `ITerm2ProfileSnapshot`: each other
+    `DynamicProfiles` entry's name, kind and SHA-256 (a file's bytes, a link's text, never
+    followed; folders not descended), and the count and SHA-256 of a canonical form of `New
+    Bookmarks` (`CanonicalPropertyList`: typed, length-prefixed, dictionary keys sorted) from
+    `/usr/bin/defaults export com.googlecode.iterm2 -` run by argv, never a profile's content;
+    `iterm2 list-profiles` already prints every GUID with its name.
+  - **`e2e-profile --local | --ssh <destination>` (`PersistentProfileRun`, every part a seam,
+    tested with fakes):** refuses to start when `DynamicProfiles/muxFinder.json` exists (the
+    user's then) or a session named `muxfinder-test-profile` exists; snapshot; creates that
+    session itself (panes `sleep 600`) so the profile's `-A` attaches it and no login shell
+    ever starts inside tmux (the create branch of `-A` is proven by argv only); writes the
+    test host list and the marker; installs with `createOnly`; waits for `ListProfiles`
+    (filtered to the GUID) to show the profile; `CreateTab(profile_name:)` without a window id
+    and without custom properties; waits for a connection owned by that tab, checks the argv
+    digest (exactly `<helper> profile <id>`, and the expected tmux or ssh child) and the
+    identity through D15's binding (the created server and session, `#{host}` as discovery
+    reported); snapshot; detaches through the binding once the tab is 10 s old and waits for
+    the connection and the tab to close by themselves; kills the session only while unchanged;
+    removes the file only while it holds the run's bytes, and the test host list; waits until
+    the GUID is gone; snapshot; all three snapshots equal. Cleanup on every way out (failure,
+    signal, the 180 s limit), once the tab is 10 s old: every connection iTerm2 lists as owned
+    by its own tab (one that appeared after step 6's wait too) detached through the binding,
+    once per connection, until a listing shows none (a failed or unanswered detach proves
+    nothing); the tab closed (forced) only when it did not close by itself and a listing taken
+    just before shows it owns none; then the conditional kill. A connection still owned, or no
+    listing, leaves the tab open and the session alive (never a forced close of a possible
+    gateway, never a kill under it), and cleanup FAILs with the commands to finish by hand
+    (`muxfinder-probe detach --connection <id> --gateway <tab>`, then the kill by exact name).
+    Then the file only with the run's bytes; the test host list and the marker. Remotely:
+    only `saturno-m4`, the run's own tmux calls over ssh
+    with `BatchMode` and a static script, the tab's ssh interactive as D17's (key
+    authentication), no remote file written.
+  - **Owed to 11b (unverified):** iTerm2 loading the file and dropping it (`ListProfiles`),
+    the dot-file skip, the profile command split into exactly three arguments, `Close Sessions
+    On End` from a dynamic profile, the hashes unchanged through install and removal, no
+    "Dynamic Profiles Error" alert, the unknown-parent fallback ("Using default profile as
+    parent" in the binary's strings), and the confirmed control-mode connection locally and on
+    Saturno. Open for 11c: a second tab of the same profile attaches the same session in
+    control mode again (iTerm2's behavior unknown); and iTerm2 makes dynamic profiles without a
+    parent inherit from the default profile, so once a persistent profile is the default, the
+    user's other dynamic profiles without their own `Custom Command` would inherit its command
+    (the Settings copy must say so, or the generator could set a parent).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -2299,6 +2461,29 @@ Acceptance:
 - Real e2e: `CreateTab(profile_name=…)` gets a confirmed control-mode connection to
   `muxfinder-test-profile`, locally and on Saturno. Clean up afterwards.
 - A nesting-guard test passes.
+
+Split (2026-10-23, before the first worker): Phase 11 is three sub-phases, each with its own
+worker, verification, review and commit, so the profile format meets the real iTerm2 before the
+Settings UI is built on it.
+
+- **11a — Profile core, helper mode and probe (high, hermetic).** The host-list fields the
+  profiles need (per-host opt-in, default session name, optional parent profile; existing
+  `hosts.json` files still load), the `Profiles/` generator (pure) and atomic installer and
+  remover for `DynamicProfiles/muxFinder.json` (injectable directory, never touching any
+  other file), helper mode `muxfinder-launch profile <hostUUID>` with the nesting guard and
+  the login-shell fallback, and the probe commands the real runs need (`ListProfiles` with
+  GUIDs, a read-only hash snapshot of the other `DynamicProfiles/*` files and of `New
+  Bookmarks` from `defaults export com.googlecode.iterm2 -`, and an `e2e-profile` harness).
+  Unit tests, the nesting-guard test included; opens no iTerm2 window, writes no real
+  `DynamicProfiles` file.
+- **11b — Real profile runs (high).** The hash snapshot before install, after install and
+  after removal; `ListProfiles` shows the GUID; `CreateTab(profile_name=…)` gets a confirmed
+  control-mode connection to `muxfinder-test-profile` locally and on Saturno; cleanup. Fixes
+  the real runs call for. Gated by the iTerm2 thread-count rule like every real run.
+- **11c — Settings section and launch-time rewrite (routine).** The Settings controls over
+  11a's fields, "Install profiles" / "Remove profiles", the copy (Set as Default path; shells
+  started elsewhere are not adopted), the rewrite at app launch when the helper path changed,
+  preview fixtures and screenshots.
 
 ### Phase 12 — Packaging, documentation, acceptance run (routine)
 

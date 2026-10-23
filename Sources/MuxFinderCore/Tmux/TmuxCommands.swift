@@ -268,16 +268,12 @@ public struct TmuxCommands: SessionCreating {
   /// tmux's error line need far less.
   public static let outputLimit = 16 * 1024
 
-  /// The script after the locator fragment (steps 1–7). The `-F` format must match
-  /// `CreatedSession.format` (a unit test checks it). `muxfinder_double_hash` sets `h` to its
+  /// Two shell functions shared by every static script that hands tmux a name it must store
+  /// or find exactly (this creation script, and the persistent profile's remote script,
+  /// `ProfileLaunch.remoteScript`, PLAN.md D26): `muxfinder_double_hash` sets `h` to its
   /// argument with every `#` doubled; `muxfinder_tmux_word` sets `w` to its argument with a
-  /// trailing `;` written `\;`.
-  static let body: StaticShellScript = #"""
-    unset TMUX TMUX_PANE
-    PATH=${PATH:-/usr/bin:/bin}:/usr/bin:/bin
-    export PATH
-    if [ "$#" -lt 3 ]; then exit 68; fi
-    case $2 in '' | -*) exit 68 ;; esac
+  /// trailing `;` written `\;`. `TmuxWord.escaped(_:)` is the same transformation in Swift.
+  public static let wordFunctions: StaticShellScript = #"""
     muxfinder_double_hash() {
       h= r=$1
       while :; do
@@ -293,6 +289,25 @@ public struct TmuxCommands: SessionCreating {
         *) w=$1 ;;
       esac
     }
+
+    """#
+
+  /// The first lines of `body`: the environment and the argument checks.
+  static let prelude: StaticShellScript = #"""
+    unset TMUX TMUX_PANE
+    PATH=${PATH:-/usr/bin:/bin}:/usr/bin:/bin
+    export PATH
+    if [ "$#" -lt 3 ]; then exit 68; fi
+    case $2 in '' | -*) exit 68 ;; esac
+
+    """#
+
+  /// The script after the locator fragment (steps 1–7): `prelude`, `wordFunctions`, then
+  /// `steps`. The `-F` format must match `CreatedSession.format` (a unit test checks it).
+  static let body: StaticShellScript = prelude + wordFunctions + steps
+
+  /// The steps of `body` after the word functions.
+  static let steps: StaticShellScript = #"""
     muxfinder_locate_tmux "$1"
     if [ -z "$t" ]; then exit 66; fi
     muxfinder_tmux_word "=$2"

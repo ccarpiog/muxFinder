@@ -88,6 +88,16 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   `~/.ssh/config` and its includes; they are the user's, so never paste them into docs,
   fixtures or logs). Test a save only through `HostStore` on a private folder, never on
   `~/Library/Application Support/muxFinder/hosts.json`.
+- Persistent profile checks (read-only, print JSON; write no file, never contact iTerm2):
+  `swift run muxfinder-probe profiles show [--config <path>] [--helper <path>]` prints the
+  `DynamicProfiles/muxFinder.json` document the app would install for the host list (loaded
+  like `hosts show`; one "Persistent work" profile per host whose persistent profile is on;
+  a helper path iTerm2 could split wrongly is refused), and `profiles hashes [--directory
+  <path>]` prints names, kinds and SHA-256 digests of every other `DynamicProfiles` entry and
+  the count and digest of `New Bookmarks` (`/usr/bin/defaults export com.googlecode.iterm2 -`,
+  never `defaults write`), never a profile's contents. Install or remove profiles in checks
+  only through `PersistentProfileInstaller` on a private folder, never on the real
+  `~/Library/Application Support/iTerm2/DynamicProfiles/` (`e2e-profile` aside). PLAN.md D26.
 - Refresh engine check (prints JSON, opens no window, writes nothing): `swift run
   muxfinder-probe refresh --once [--config <path>] [--attachments]` loads the host list like
   `hosts show` (a private `hosts.json` from `mktemp -d` for checks), refreshes every enabled
@@ -106,13 +116,19 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   ("Set up SSH in iTerm2…", PLAN.md D24) takes only an ssh setup request (`"kind":"sshSetup"`;
   each mode refuses the other kind with 72) and runs plain interactive
   `/usr/bin/ssh -- <destination>`, so never run it by hand with a real request: it starts a
-  real ssh login. For checks, set
+  real ssh login. `muxfinder-launch profile <host id>` (a "Persistent work" profile's tab,
+  PLAN.md D26) takes no request: it reads `hosts.json` read-only and runs `tmux -u -CC
+  new-session -A -s <name>` (over interactive ssh for an SSH host), and with `TMUX` or
+  `MUXFINDER_LAUNCHED` set, or on any failure, execs the login shell; so by hand only in test
+  mode with `MUXFINDER_LAUNCH_NO_WAIT=1` (then no shell is started and the host comes from a
+  `profile-test-<host id>.json` host list in the launch directory, never the real
+  `hosts.json`). For checks, set
   `MUXFINDER_LAUNCH_DIRECTORY=<absolute private dir>` and a private `TMUX_TMPDIR`.
   `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
   argv digest and honors a request's `testLaunchDelaySeconds` (ignored outside test mode);
   `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return and the 10 s minimum
   lifetime (on a terminal the helper never exits younger). Exit codes and the digest format:
-  PLAN.md D14, `docs/TESTING.md`.
+  PLAN.md D14, D26, `docs/TESTING.md`.
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
   `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.
@@ -132,6 +148,15 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   shell), `ssh-setup --ssh <dest> [--profile <name>]` (opens a tab running plain interactive
   ssh, a real login; never in unattended runs, its real run owed with Saturno only) and
   `detach --connection <id> --gateway <session id>` (see `docs/TESTING.md`).
+  `swift run muxfinder-probe e2e-profile --local | --ssh saturno-m4` (14 steps; PLAN.md D26)
+  writes the real `DynamicProfiles/muxFinder.json` for a test host and opens it with
+  `CreateTab`: it refuses to start when that file or a `muxfinder-test-profile` session
+  exists, creates that session itself (`sleep 600` panes), never reads or writes the real
+  `hosts.json` (its host list is a test file in the launch directory, read by the helper in
+  test mode), asks only its own tab's connection, detaches it after 10 s, kills only its
+  session, removes only the file it wrote, and compares the hash snapshot of iTerm2's other
+  profiles before install, after install and after removal; its remote tab runs interactive
+  ssh (key authentication; Saturno only).
   Check `muxfinder-probe iterm2 status` and iTerm2's thread count (`ps -M -p <pid> | wc -l`)
   before and after; each run adds about 12 blocked iTerm2 workers that are reclaimed within
   minutes, so let the count fall back between runs (the API stalls at 64 workers). A timeout

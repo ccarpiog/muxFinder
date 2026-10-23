@@ -26,29 +26,25 @@ file.
 | 9b | Onboarding window and "Set up SSH in iTerm2…" (`ssh-setup` helper mode) | routine | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-9b.md` | `docs/progress-archive/9b.md` |
 | 10a | Attach UX in the app: state machine, row actions, Move here, Detach, New session, banners, self-test flags | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-10a.md` | `docs/progress-archive/10a.md` |
 | 10b | Real self-tests: `attach-local`, `new-session-local`, quit leaves work running | high | none (orchestrator ran the real checks; no code change) | Codex, ship, `docs/reviews/phase-10b.md` | `docs/progress-archive/10b.md` |
+| 11a | Profile core, helper `profile` mode, probe `profiles` / `e2e-profile` (hermetic) | high | opus (impl + fix worker); one inline orchestrator fix | Codex, ship-with-fixes, `docs/reviews/phase-11a.md` | `docs/progress-archive/11a.md` |
 
 ## Current phase
 
-None in progress. Phases 1–10b are done; next is **Phase 11** (*Next action*). Phase 6 was
-split into 6a/6b, Phase 7 into 7a/7b, Phase 9 into 9a/9b and Phase 10 into 10a/10b in
+None in progress. Phases 1–11a are done; next is **Phase 11b** (*Next action*). Phase 6 was
+split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11b/11c in
 `PLAN.md`.
 
 ## Acceptance
 
-- Phases 1–9b: all criteria met, with the recorded deviations and the real runs owed to a
+- Phases 1–10b: all criteria met, with the recorded deviations and the real runs owed to a
   person listed under *Open risks*; criteria and evidence in `docs/progress-archive/<phase>.md`.
-- Phase 10a: all criteria met hermetically, the real self-test runs being 10b's — per-session
-  state machine (5 clicks → 1 launch, focus when open here, confirmed only after the core),
-  Show tab refusing tabs the app did not open, pairwise-distinct failure messages, Move here
-  confirmation, Detach for this Mac only, New session sheet with a fresh-listing "Open
-  existing", banners, `--selftest attach-local | new-session-local [--selftest-keep]` driver
-  tests; 590 core + 138 UI tests, build, lint, bundle, codesign, shell check (no `hosts.json`);
-  attach screenshots via `--preview-snapshot`. Evidence in `docs/progress-archive/10a.md`.
-- Phase 10b: all criteria met — real `--selftest attach-local` exit 0 (6/6: 5 clicks → 1
-  launch, focus, detach, kill) and `--selftest new-session-local` exit 0 (5/5); keep mode quit
-  by SIGTERM exit 0 with the session and its iTerm2 connection still there, then cleaned up;
-  iTerm2 threads 15 → 21, `iterm2 status` exit 0 throughout; no fix needed (590 core + 138 UI
-  tests, lint). Evidence in `docs/progress-archive/10b.md`, records in `docs/TESTING.md`.
+- Phase 11a: all criteria met hermetically — host-list fields load/save compatibly; generator
+  golden tests (local, SSH, with/without parent, unsafe helper paths refused); installer
+  (atomic, identical → no rewrite, stale detection, only `muxFinder.json`, symlink refusal,
+  sibling hashes unchanged, cross-process lock); helper `profile` mode with the nesting guard
+  and login-shell fallback; probe `profiles show | hashes` and `e2e-profile` tested with fakes;
+  real `DynamicProfiles/` untouched. 656 core + 139 UI tests. Evidence in
+  `docs/progress-archive/11a.md`.
 
 ## Decisions
 
@@ -145,6 +141,16 @@ split into 6a/6b, Phase 7 into 7a/7b, Phase 9 into 9a/9b and Phase 10 into 10a/1
 - Phase 10b: the orchestrator ran the real checks itself (no code changed); the 9b "Set up SSH
   in iTerm2…" real round trip is owed to the user, since an interactive ssh login on Saturno
   is outside the remote-host run rules — `docs/progress-archive/10b.md`.
+- Phase 11: split into 11a (hermetic core, helper mode, probe), 11b (real profile runs) and
+  11c (Settings section, launch-time rewrite), recorded in `PLAN.md` before the first worker;
+  real runs come before the UI so the profile format meets iTerm2 first.
+- Phase 11a: new **D26** (host fields `persistentProfileEnabled` / default session `main` /
+  per-host parent, schema still 1; pure generator, `Command` refused for unsafe helper paths;
+  installer with `flock` on `muxFinder/profiles.lock` and identity-checked rollback; helper
+  `profile <host id>` with nesting guard, login-shell fallback, `MUXFINDER_LAUNCHED=1` set by
+  every helper mode; test host list only in test mode for its own id; `e2e-profile` design);
+  D8, D11, D14, D19 edited; session-name and ssh-destination checks now on Unicode scalars —
+  `docs/progress-archive/11a.md`.
 
 ## Open risks / deviations
 
@@ -254,75 +260,61 @@ split into 6a/6b, Phase 7 into 7a/7b, Phase 9 into 9a/9b and Phase 10 into 10a/1
 - 10b: Show tab is still unverified for real; after keep mode the helper's `*.result.json`
   stays in the launch directory until the next launch's sweep (D14, 120 s TTL); the keep
   line's cleanup prints `tmux` without a path — `docs/progress-archive/10b.md`.
+- 11a, owed to 11b: iTerm2 loading/dropping the file (`ListProfiles`), skipping the hidden
+  temp file, the 3-argument split of the profile `Command`, close-on-end, unchanged hashes, no
+  "Dynamic Profiles Error" alert, the unknown-parent fallback, confirmed control-mode
+  connections locally and on Saturno; the `-A` target-syntax restriction is untried on a
+  server; a login shell exiting by itself within 3 s is beyond the helper's hold.
+- 11a, for 11c: a second tab of the same profile attaching the same session is untested;
+  parentless dynamic profiles inherit from the default profile, so a persistent profile made
+  the default would make the user's other parentless dynamic profiles without their own
+  `Custom Command` run the helper — the Settings copy must warn, or the generator must set a
+  parent — `docs/progress-archive/11a.md`.
 
 ## Reviews
 
 - Phases 1–7b: Codex reviewed each (`ship-with-fixes`); blockers and should-fix items and their
   fixes (each regression failing on the old code) are summarized in
   `docs/progress-archive/<phase>.md`, reports in `docs/reviews/phase-<phase>.md`.
-- Phase 6b: Codex → `ship-with-fixes`, 2 blockers (failed identification bypassed the
-  already-attached check, so `-d` could detach this Mac's own connection; a cancelled move
-  could run after a newer attach), 0 should-fix — both fixed by a fix worker
-  (`possiblyAttachedHere`; proof-based launch tracking with a bounded wait), each regression
-  failing on the old code, re-verified hermetically, then by the real final-tree runs;
-  `docs/reviews/phase-6b.md`.
-- Phase 8: Codex → `ship-with-fixes`, 1 blocker (closing the popover did not cancel a pending
-  attachment pass, so cookie/connection/identity requests could reach iTerm2 after close), 0
-  should-fix — fixed by a fix worker (engine cancels the pass and drops its follow-up; client
-  attempt stops before cookie and connect when all callers cancelled; index checks
-  cancellation), 8 regressions (7 fail on the old code, the 8th guards against a second
-  cookie), re-verified; `docs/reviews/phase-8.md`.
-
-- Phase 9a: Codex → `ship-with-fixes`, 1 blocker (Settings saved over a `hosts.json` changed
-  since it loaded, even malformed, without Replace consent), 3 should-fix (Settings probes
-  escaped app shutdown; closing during the window's opening let profile loading go on; a slow
-  removal reset a newer selection and draft) — all fixed by a fix worker (`save(_:expecting:)`
-  with a changed-file banner, `SettingsModel.shutdown()`, an owned and cancelled opening task
-  with window generations, preserve-on-remove), five regressions failing on the old code,
-  re-verified; `docs/reviews/phase-9a.md`.
-- Phase 9b: Codex → `ship-with-fixes`, 0 blockers, 2 should-fix (closing a window dropped
-  in-flight ssh-setup task handles so quit could not await them; an edit during an opening
-  request let the old destination's result show under the edited host) — both fixed by a fix
-  worker (requests owned until they end and awaited on quit; per-host request link dropped on
-  edit/close), each regression failing on the old code, re-verified;
-  `docs/reviews/phase-9b.md`.
-- Phase 10a: Codex → `ship-with-fixes`, 1 blocker (shutdown awaited session actions before
-  stopping other subsystems, so the 5 s reply could cut cleanup off silently), 3 should-fix (a
-  new session's live progress and Show tab were dropped; a failed activation showed as focus;
-  "Open existing" trusted a cached name) — all fixed by a fix worker (concurrent bounded
-  shutdown with a 15 s deadline; created-session hook; distinct activation-failure message;
-  fresh exact-name lookup), each regression failing with the fix reverted, re-verified;
-  `docs/reviews/phase-10a.md`.
-- Phase 10b: Codex → `ship`, 0 findings (records match the code; keep mode quits through
-  `AppTermination`/`AppModel.shutdown`; all four launch paths sweep stale results);
-  `docs/reviews/phase-10b.md`.
+- Phases 6b–10b: Codex reviewed each (6b, 8, 9a, 9b, 10a `ship-with-fixes`; 10b `ship`);
+  every blocker and should-fix was fixed by a fix worker with a regression failing on the old
+  code — summaries in `docs/progress-archive/<phase>.md`, reports in
+  `docs/reviews/phase-<phase>.md`.
+- Phase 11a: Codex → `ship-with-fixes`, 1 blocker (installer rollback could delete a newer
+  concurrent update), 2 should-fix (`e2e-profile` cleanup could force-close a tab still holding
+  a gateway; combining marks bypassed the leading target-character guard) — all fixed by a fix
+  worker (cross-process `flock` + identity-checked rollback; reconcile and detach through
+  bindings, never close a tab that may hold one; first-scalar check), each regression failing
+  with its fix reverted, re-verified; `docs/reviews/phase-11a.md`.
 
 ## Next action
 
-1. **Phase 11** (Persistent Work profiles; `PLAN.md` "### Phase 11"; high). Read only that
-   section and the decisions it touches (D3, D14, D22–D24). Split it **before the first
-   worker**, recorded in `PLAN.md` like 6/7/9/10: **11a** hermetic (the `Profiles/` generator
-   and atomic installer for the app-owned `DynamicProfiles/muxFinder.json`, helper mode
-   `profile <hostUUID>` with the nesting guard and login-shell fallback, the Settings section
-   and its copy, unit tests, the hash-identity check of other `DynamicProfiles/*` files and of
-   `New Bookmarks` from `defaults export com.googlecode.iterm2 -` — read-only, never `defaults
-   write`) and **11b** real (`ListProfiles` shows the GUID; `CreateTab(profile_name=…)` gets a
-   confirmed control-mode connection to `muxfinder-test-profile` locally and on Saturno, then
-   cleanup). The profile file is the only iTerm2 file the app may write (CLAUDE.md safety
-   rules); never write iTerm2 preferences or other profiles.
-2. Owed to the user, not to a run: the 9b "Set up SSH in iTerm2…" real round trip (an
-   interactive ssh login on Saturno, outside the run rules). Phase 12's manual checklist must
-   list it.
+1. **Phase 11b** (Real profile runs; `PLAN.md` "### Phase 11" split paragraph; high). Read
+   D26 and the 11b steps in `docs/TESTING.md`. Gate first (item 3). Then `swift build` and
+   run `swift run muxfinder-probe e2e-profile --local`, then `e2e-profile --ssh saturno-m4`,
+   letting iTerm2's thread count fall back between runs. Each run must show: hash snapshots
+   (other `DynamicProfiles/*` files and `New Bookmarks`) identical before install, after
+   install and after removal; `ListProfiles` showing then dropping the GUID; a confirmed
+   control-mode connection to `muxfinder-test-profile` from `CreateTab(profile_name=…)`;
+   cleanup by `detach-client` (never closing a tmux tab), the session killed, `muxFinder.json`
+   and `muxFinder/profiles.lock` handling as D26 says. It refuses to start if
+   `DynamicProfiles/muxFinder.json` exists. Fix what the real runs call for (a fix worker),
+   record the runs in `docs/TESTING.md`, resolve the 11a items owed to 11b (*Open risks*).
+2. Then **Phase 11c** (Settings section and launch-time rewrite; routine), including the
+   parent-inheritance warning noted under *Open risks*.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
    `ps -axo pid,comm | rg 'MacOS/iTerm2$'` (`pgrep -x iTerm2` finds nothing on this Mac). Stop
    if `status` times out or the count keeps growing across runs (*Open risks*, iTerm2 thread
-   ratchet). Leftover checks: `ls -A` of the launch directory, `ls -A /private/tmp | rg
-   '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno (`fd` is not installed).
-   Real runs only with iTerm2 at **38 threads or lower**; if it stays above 38, stop as
-   `BLOCKED` and ask the user whether to restart iTerm2 or accept a higher baseline. iTerm2
-   was at 21 threads after Phase 10b's runs (2026-10-23 00:00).
+   ratchet). Leftover checks: `ls -A` of the launch directory and of `DynamicProfiles/`,
+   `ls -A /private/tmp | rg '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno
+   (`fd` is not installed). Real runs only with iTerm2 at **38 threads or lower**; if it stays
+   above 38, stop as `BLOCKED` and ask the user whether to restart iTerm2 or accept a higher
+   baseline. iTerm2 was at 21 threads after Phase 10b's runs (2026-10-23 00:00).
+4. Owed to the user, not to a run: the 9b "Set up SSH in iTerm2…" real round trip (an
+   interactive ssh login on Saturno, outside the run rules). Phase 12's manual checklist must
+   list it.
 
 ## Key paths
 
@@ -359,6 +351,11 @@ split into 6a/6b, Phase 7 into 7a/7b, Phase 9 into 9a/9b and Phase 10 into 10a/1
   Gallery}.swift`; self-tests `Sources/MuxFinderUI/SelfTest/{SelfTestDriver,
   SelfTestSeams}.swift`, `Sources/MuxFinderApp/SelfTestAppDelegate.swift`; tests
   `Tests/MuxFinderUITests/{AttachFlowTests,SelfTestDriverTests}.swift`.
+- Persistent profiles (D26): `Sources/MuxFinderCore/Profiles/{PersistentProfiles,
+  PersistentProfileInstaller,ITerm2ProfileSnapshot,PersistentProfileRun}.swift`, helper mode
+  `Sources/MuxFinderCore/Launch/{ProfileLaunch,LaunchHelperProfile,LoginShell}.swift`, probe
+  `Sources/muxfinder-probe/{ProfilesCommand,E2EProfileCommand}.swift`; golden files
+  `Tests/MuxFinderCoreTests/Fixtures/profiles/`.
 - Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
   list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
@@ -371,28 +368,21 @@ split into 6a/6b, Phase 7 into 7a/7b, Phase 9 into 9a/9b and Phase 10 into 10a/1
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 10b (final tree, orchestrator): `swift build` exit 0; `scripts/build-app.sh` and
-  `codesign --verify --deep --strict build/muxFinder.app` exit 0; `iterm2 status` exit 0
-  before and after each run; `--selftest attach-local` exit 0 (6/6), `--selftest
-  new-session-local` exit 0 (5/5), keep mode exit 0 after SIGTERM, cleanup detach and kill exit
-  0; `swift format lint -r Sources Tests` exit 0; `swift test` (pipefail) exit 0, 590 core
-  tests in 58 suites + 138 UI tests in 11 suites — `docs/progress-archive/10b.md`.
-
-- Phase 10a (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
-  `swift format lint -r Sources Tests` exit 0; `swift test` (pipefail) exit 0, 590 core tests
-  in 58 suites + 138 UI tests in 11 suites; `scripts/build-app.sh` and `codesign --verify
-  --deep --strict build/muxFinder.app` exit 0; `--selftest bogus` exit 2; shell check SIGTERM
-  exit 0, no child, support folder only `launch/` — `docs/progress-archive/10a.md`.
-
-- Phases 1–9b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase 11a (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
+  `swift test` (pipefail) exit 0 twice, 656 core tests in 66 suites + 139 UI tests in 11
+  suites; `swift format lint -r Sources Tests` exit 0; `scripts/build-app.sh` and `codesign
+  --verify --deep --strict build/muxFinder.app` exit 0; read-only `profiles hashes` exit 0;
+  real `DynamicProfiles/` empty and support folder only `launch/` afterwards —
+  `docs/progress-archive/11a.md`.
+- Phases 1–10b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
-- All phases through 10a are committed and pushed to `origin/main`: 1 `bb086c9`, 2 `c1ee43d`,
+- All phases through 10b are committed and pushed to `origin/main`: 1 `bb086c9`, 2 `c1ee43d`,
   3a `745e36e`, 3b `0d3b65f`, 4a `1f5a3be`, 4b `f888a2c`, 4c `e631641`, 5a `5b47e14`, 5b
   `6b1aedc` + `dca1228`, 6a `0210999` + `e0fcbdd`, 7a `228f8da`, 7b `d512f47`, 6b `ce26808`
   (closure `cb855c0`, summary `880470f`), 8 `dc1935d`, 9a `ac1b9ee`, 9b `94cc960`, 10a
-  `d6fe103` (parent `94cc960`, pushed, `origin/main` at `d6fe103` before Phase 10b). From 3b
-  on, commit messages carry no AI attribution trailer (user's global rule).
-- Phase 10b: real-run records, review and checkpoint: the commit after `d6fe103`; its SHA
-  and push result are recorded by the next commit.
+  `d6fe103`, 10b `ec402ce` (pushed; `origin/main` at `ec402ce` before Phase 11a). From 3b on,
+  commit messages carry no AI attribution trailer (user's global rule).
+- Phase 11a: code, split, D26, review and checkpoint: the commit after `ec402ce`; its SHA and
+  push result are recorded by the next commit.

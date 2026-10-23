@@ -45,6 +45,11 @@ struct ValidationTests {
     ("-flag", .sessionNameStartsWithHyphen),
     ("  -flag", .sessionNameStartsWithHyphen),
     (String(repeating: "a", count: 101), .sessionNameTooLong(maximumLength: 100)),
+    // A combining mark after the reserved byte makes another grapheme cluster, not another byte.
+    ("a:\u{301}b", .sessionNameContainsColonOrPeriod),
+    ("v1.\u{301}2", .sessionNameContainsColonOrPeriod),
+    ("back\\\u{301}slash", .sessionNameContainsBackslash),
+    ("-\u{301}flag", .sessionNameStartsWithHyphen),
   ])
   func rejectsSessionNames(input: String, expected: ValidationError) {
     #expect(throws: expected) { try Validation.sessionName(input) }
@@ -67,6 +72,7 @@ struct ValidationTests {
     ("bell\u{7}", .sshDestinationContainsControlCharacter),
     ("host\n", .sshDestinationContainsControlCharacter),
     ("-oProxyCommand=evil", .sshDestinationStartsWithHyphen),
+    ("-\u{301}oProxyCommand=evil", .sshDestinationStartsWithHyphen),
   ])
   func rejectsSSHDestinations(input: String, expected: ValidationError) {
     #expect(throws: expected) { try Validation.sshDestination(input) }
@@ -113,6 +119,30 @@ struct ValidationTests {
     #expect(throws: expected) { try Validation.workingDirectory(input) }
   }
 
+  // MARK: Persistent profile session names
+
+  /// Each character tmux's target syntax reserves is refused in front of a default session
+  /// name, also when a combining mark, an enclosing mark or a variation selector follows it:
+  /// those make another grapheme cluster, but tmux still reads the reserved byte first.
+  @Test(arguments: ["$", "=", "@", "%", "!", "~", "{", "+", "^"])
+  func rejectsLeadingTargetCharacters(reserved: String) {
+    for suffix in ["main", "\u{301}main", "\u{301}", "\u{20DD}x", "\u{FE0F}1", "\u{301}\u{302}"] {
+      let name = reserved + suffix
+      #expect(
+        throws: ValidationError.sessionNameStartsWithTargetCharacter, "\(name.debugDescription)"
+      ) {
+        try Validation.persistentSessionName(name)
+      }
+    } // End of loop over the suffixes
+  } // End of func rejectsLeadingTargetCharacters(reserved:)
+
+  /// A reserved character after the first scalar, or a name starting with a combining mark or
+  /// a decomposed letter, passes.
+  @Test(arguments: ["main$", "a=b", "e\u{301}main", "\u{301}$x", "work #1"])
+  func acceptsPersistentSessionNames(name: String) throws {
+    #expect(try Validation.persistentSessionName(name) == name)
+  }
+
   // MARK: Messages
 
   /// Every error has an English, sentence-case message exposed through `localizedDescription`.
@@ -131,6 +161,10 @@ struct ValidationTests {
     .executablePathContainsControlCharacter,
     .workingDirectoryContainsNullCharacter,
     .workingDirectoryContainsLineBreak,
+    .sessionNameStartsWithTargetCharacter,
+    .sessionNameNotTrimmed,
+    .profileNameEmpty,
+    .profileNameContainsControlCharacter,
   ])
   func hasUserFacingMessage(error: ValidationError) throws {
     let message = error.message

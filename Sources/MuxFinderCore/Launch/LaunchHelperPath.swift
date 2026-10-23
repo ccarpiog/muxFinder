@@ -90,6 +90,14 @@ public struct LaunchHelperPath: Sendable, Hashable, CustomStringConvertible {
     "\(path) \(kind.helperMode) \(id.rawValue)"
   }
 
+  /// The `Command` of a host's persistent profile (PLAN.md D26): `<path> profile <host id>`,
+  /// the host id in the canonical lowercase form a launch id has. The path is validated, the
+  /// mode a constant and the id hexadecimal digits and `-`, so iTerm2 splits the line into
+  /// exactly three arguments under any splitting rule.
+  public func profileCommandLine(forHostID hostID: UUID) -> String {
+    "\(path) \(ProfileLaunch.helperMode) \(LaunchToken(uuid: hostID).rawValue)"
+  }
+
   /// The path.
   public var description: String { path }
 }

@@ -420,6 +420,58 @@ public struct LaunchStore: Sendable {
     }
   } // End of func removeTestModeMarker()
 
+  /// The name of the test host list for the persistent profile of `hostID` (PLAN.md D26):
+  /// `profile-test-<host id, lowercase>.json`.
+  public static func profileTestHostsFileName(forHostID hostID: UUID) -> String {
+    "profile-test-\(LaunchToken(uuid: hostID).rawValue).json"
+  }
+
+  /// The URL of `hostID`'s test host list in the launch directory. Only a helper in test mode
+  /// reads it (`HostStore`'s read-only load and trust rules), in place of `hosts.json`, and only
+  /// for that host's profile, so the e2e harness can run a persistent profile for a test host
+  /// without touching the user's host list; a production profile's command is unchanged.
+  public func profileTestHostsURL(forHostID hostID: UUID) -> URL {
+    directory.appending(
+      path: Self.profileTestHostsFileName(forHostID: hostID), directoryHint: .notDirectory)
+  }
+
+  /// Writes `list` as `hostID`'s test host list (the `hosts.json` format, 0600, written like
+  /// every launch file and never replacing one), creating the directory if needed. For the
+  /// e2e harness only.
+  public func writeProfileTestHosts(
+    _ list: HostList,
+    forHostID hostID: UUID
+  ) throws(LaunchStoreError) {
+    let data: Data
+    do throws(HostStoreError) {
+      data = try HostStore.encode(list)
+    } catch {
+      throw .fileMalformed
+    }
+    try withDirectory(create: true) { (directory) throws(LaunchStoreError) in
+      try Self.writeFile(
+        data, named: Self.profileTestHostsFileName(forHostID: hostID), exclusive: true,
+        in: directory)
+    }
+  } // End of func writeProfileTestHosts(_:forHostID:)
+
+  /// Removes `hostID`'s test host list. Returns whether there was one. Never creates the
+  /// directory.
+  @discardableResult
+  public func removeProfileTestHosts(forHostID hostID: UUID) throws(LaunchStoreError) -> Bool {
+    let name = Self.profileTestHostsFileName(forHostID: hostID)
+    do throws(LaunchStoreError) {
+      return try withDirectory(create: false) { (directory) throws(LaunchStoreError) in
+        if unlinkat(directory, name, 0) == 0 { return true }
+        let code = errno
+        if code == ENOENT { return false }
+        throw .systemCallFailed(name: "unlinkat", errno: code)
+      }
+    } catch .directoryMissing {
+      return false
+    }
+  } // End of func removeProfileTestHosts(forHostID:)
+
   /// Whether the test-mode marker exists as a regular file owned by the user. Never creates
   /// the directory.
   public func testModeMarkerExists() -> Bool {

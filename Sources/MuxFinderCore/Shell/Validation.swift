@@ -32,6 +32,17 @@ public enum ValidationError: Error, Sendable, Hashable, LocalizedError {
   case workingDirectoryContainsNullCharacter
   /// The working directory contains a line break.
   case workingDirectoryContainsLineBreak
+  /// A persistent profile's default session name starts with a character tmux's target syntax
+  /// gives a meaning (`$`, `=`, `@`, `%`, `!`, `~`, `{`, `+`, `^`), so `new-session -A` could
+  /// attach another session than the one named (PLAN.md D26).
+  case sessionNameStartsWithTargetCharacter
+  /// A stored session name starts or ends with whitespace, which a typed one would have lost
+  /// (`sessionName(_:)` trims), so it is not the name tmux would get.
+  case sessionNameNotTrimmed
+  /// The iTerm2 profile name is empty.
+  case profileNameEmpty
+  /// The iTerm2 profile name contains a control character.
+  case profileNameContainsControlCharacter
 
   /// The user-facing explanation.
   public var message: String {
@@ -64,6 +75,15 @@ public enum ValidationError: Error, Sendable, Hashable, LocalizedError {
       return "Working directories can't contain null characters."
     case .workingDirectoryContainsLineBreak:
       return "Working directories can't contain line breaks."
+    case .sessionNameStartsWithTargetCharacter:
+      return "Default session names can't start with “$”, “=”, “@”, “%”, “!”, “~”, “{”, “+” "
+        + "or “^”."
+    case .sessionNameNotTrimmed:
+      return "Session names can't start or end with spaces."
+    case .profileNameEmpty:
+      return "Enter a profile name."
+    case .profileNameContainsControlCharacter:
+      return "Profile names can't contain line breaks, tabs or other control characters."
     }
   } // End of var message
 
@@ -84,30 +104,64 @@ public enum Validation {
   /// (tmux rewrites them), `\` (tmux stores it doubled), a leading `-`, and more than
   /// `maximumSessionNameLength` characters. A `#` is allowed: tmux expands formats in a new
   /// session's name, so `TmuxCommands` doubles every `#` before it reaches tmux (PLAN.md D18).
+  /// Every check is on Unicode scalars, the bytes tmux reads, not on `Character`s: a combining
+  /// mark after `:` or `-` makes another grapheme cluster but leaves the ASCII byte in place.
   public static func sessionName(_ raw: String) throws(ValidationError) -> String {
     let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { throw .sessionNameEmpty }
     guard !containsControlCharacter(name) else { throw .sessionNameContainsControlCharacter }
-    guard !name.contains(":"), !name.contains(".") else {
+    guard !name.unicodeScalars.contains(":"), !name.unicodeScalars.contains(".") else {
       throw .sessionNameContainsColonOrPeriod
     }
-    guard !name.contains("\\") else { throw .sessionNameContainsBackslash }
-    guard !name.hasPrefix("-") else { throw .sessionNameStartsWithHyphen }
+    guard !name.unicodeScalars.contains("\\") else { throw .sessionNameContainsBackslash }
+    guard name.unicodeScalars.first != "-" else { throw .sessionNameStartsWithHyphen }
     guard name.count <= maximumSessionNameLength else {
       throw .sessionNameTooLong(maximumLength: maximumSessionNameLength)
     }
     return name
   } // End of func sessionName(_:)
 
+  /// The first characters a persistent profile's default session name may not start with:
+  /// tmux's target syntax reads them as an id (`$`, `@`, `%`), an exact or mouse target (`=`),
+  /// the marked pane (`~`), a token (`{`), the last window (`!`) or an offset (`+`, `^`). All
+  /// are ASCII, so each is one Unicode scalar and one byte.
+  public static let targetSyntaxCharacters: Set<Unicode.Scalar> = [
+    "$", "=", "@", "%", "!", "~", "{", "+", "^",
+  ]
+
+  /// Validates the default session name of a host's persistent profile (PLAN.md D26) and
+  /// returns it trimmed: `sessionName(_:)`'s rules, plus no leading character from
+  /// `targetSyntaxCharacters`. The profile runs `tmux new-session -A -s <name>`, and when a
+  /// session with that name exists tmux attaches it through a target lookup of its name, which
+  /// gives those first characters a meaning of their own. The check is on the first Unicode
+  /// scalar, the first byte tmux reads, not on the first `Character`: a combining mark after
+  /// `$` makes another grapheme cluster but leaves the `$` byte in front.
+  public static func persistentSessionName(_ raw: String) throws(ValidationError) -> String {
+    let name = try sessionName(raw)
+    if let first = name.unicodeScalars.first, targetSyntaxCharacters.contains(first) {
+      throw .sessionNameStartsWithTargetCharacter
+    }
+    return name
+  } // End of func persistentSessionName(_:)
+
+  /// Validates an iTerm2 profile name (a persistent profile's parent, PLAN.md D26) and returns
+  /// it unchanged. Rejected: empty, or any control character.
+  public static func profileName(_ raw: String) throws(ValidationError) -> String {
+    guard !raw.isEmpty else { throw .profileNameEmpty }
+    guard !containsControlCharacter(raw) else { throw .profileNameContainsControlCharacter }
+    return raw
+  }
+
   /// Validates an SSH destination (a host name, `user@host` or an `~/.ssh/config` alias) and
-  /// returns it unchanged. Rejected: empty, any whitespace, control characters, a leading `-`.
+  /// returns it unchanged. Rejected: empty, any whitespace, control characters, a leading `-`
+  /// (checked on the first Unicode scalar, so a combining mark after it does not hide it).
   public static func sshDestination(_ raw: String) throws(ValidationError) -> String {
     guard !raw.isEmpty else { throw .sshDestinationEmpty }
     guard !containsControlCharacter(raw) else { throw .sshDestinationContainsControlCharacter }
     guard !raw.unicodeScalars.contains(where: \.properties.isWhitespace) else {
       throw .sshDestinationContainsWhitespace
     }
-    guard !raw.hasPrefix("-") else { throw .sshDestinationStartsWithHyphen }
+    guard raw.unicodeScalars.first != "-" else { throw .sshDestinationStartsWithHyphen }
     return raw
   }
 

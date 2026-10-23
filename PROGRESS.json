@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-22T23:00:01Z",
+  "updated": "2026-10-23T00:41:02Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -287,9 +287,44 @@
     {
       "id": "11",
       "title": "Persistent Work profiles",
+      "status": "in_progress",
+      "risk": "high",
+      "summary": "Persistent Work profiles, split into 11a (core and helper), 11b (real runs) and 11c (Settings).",
+      "started": "2026-10-22T23:02:22Z",
+      "status_since": "2026-10-22T23:02:22Z"
+    },
+    {
+      "id": "11a",
+      "title": "Profile core, helper mode and probe",
+      "status": "done",
+      "risk": "high",
+      "parent": "11",
+      "summary": "Generates and installs the app-owned iTerm2 dynamic profile file and adds the helper profile mode with its nesting guard.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-11a.md",
+      "narrative": "docs/progress-archive/11a.md",
+      "added": "2026-10-22T23:02:22Z",
+      "started": "2026-10-22T23:02:22Z",
+      "status_since": "2026-10-23T00:41:02Z"
+    },
+    {
+      "id": "11b",
+      "title": "Real profile runs",
       "status": "queued",
       "risk": "high",
-      "summary": "Generates the muxFinder iTerm2 dynamic profile for persistent work sessions."
+      "parent": "11",
+      "summary": "Proves the generated profiles in the real iTerm2, locally and on Saturno, without changing other profiles.",
+      "added": "2026-10-22T23:02:22Z",
+      "status_since": "2026-10-22T23:02:22Z"
+    },
+    {
+      "id": "11c",
+      "title": "Settings section and launch-time rewrite",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "11",
+      "summary": "Adds the Settings controls and copy for persistent work profiles and rewrites them when the helper moves.",
+      "added": "2026-10-22T23:02:22Z",
+      "status_since": "2026-10-22T23:02:22Z"
     },
     {
       "id": "12",

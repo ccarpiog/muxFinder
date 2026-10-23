@@ -1,0 +1,15 @@
+{
+  "Profiles" : [
+    {
+      "Close Sessions On End" : true,
+      "Command" : "/Users/tester/Applications/muxFinder.app/Contents/MacOS/muxfinder-launch profile 7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "Custom Command" : "Yes",
+      "Dynamic Profile Parent Name" : "Base \"profile\" ü",
+      "Guid" : "muxfinder-persistent-7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "Name" : "Persistent work – Remote ü 日本",
+      "Tags" : [
+        "muxFinder"
+      ]
+    }
+  ]
+}

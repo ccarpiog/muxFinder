@@ -11,6 +11,12 @@ public enum HostListError: Error, Sendable, Hashable, LocalizedError {
   case sshDestinationRequired(hostID: UUID, reason: ValidationError)
   /// No host has this id.
   case unknownHost(UUID)
+  /// The host with this id has a default session name that does not pass
+  /// `Validation.persistentSessionName(_:)` exactly as stored (PLAN.md D26).
+  case invalidDefaultSessionName(hostID: UUID, reason: ValidationError)
+  /// The host with this id has a persistent profile parent name that does not pass
+  /// `Validation.profileName(_:)` (PLAN.md D26).
+  case invalidParentProfileName(hostID: UUID, reason: ValidationError)
 
   /// The user-facing explanation.
   public var message: String {
@@ -24,6 +30,10 @@ public enum HostListError: Error, Sendable, Hashable, LocalizedError {
         + reason.message
     case .unknownHost:
       return "That host is no longer in the list."
+    case .invalidDefaultSessionName(_, let reason):
+      return "A host's default session name isn't usable. " + reason.message
+    case .invalidParentProfileName(_, let reason):
+      return "A host's parent profile name isn't usable. " + reason.message
     }
   } // End of var message
 
@@ -36,7 +46,10 @@ public enum HostListError: Error, Sendable, Hashable, LocalizedError {
 ///
 /// - every id is unique;
 /// - at most one host is in local mode, "This Mac";
-/// - an enabled SSH host has a destination that passes `Validation.sshDestination`.
+/// - an enabled SSH host has a destination that passes `Validation.sshDestination`;
+/// - a host's default session name, when set, passes `Validation.persistentSessionName`
+///   exactly as stored (trimmed), and its persistent profile parent name, when set, passes
+///   `Validation.profileName` (PLAN.md D26), whether or not its persistent profile is on.
 ///
 /// A disabled SSH host may have any destination, so an incomplete entry (an onboarding example
 /// with an empty destination) can be kept. Other values (the tmux override, the profile name)
@@ -99,7 +112,8 @@ public struct HostList: Sendable, Hashable {
   }
 
   /// Checks the invariants on `hosts`: unique ids, then at most one This Mac, then a valid
-  /// destination for every enabled SSH host. Throws the first violation found.
+  /// destination for every enabled SSH host, then the persistent-profile values. Throws the
+  /// first violation found.
   public static func validate(_ hosts: [HostConfig]) throws(HostListError) {
     var seen = Set<UUID>()
     for host in hosts where !seen.insert(host.id).inserted {
@@ -113,7 +127,33 @@ public struct HostList: Sendable, Hashable {
         throw .sshDestinationRequired(hostID: host.id, reason: error)
       }
     } // End of loop over enabled SSH hosts
+    for host in hosts {
+      try validatePersistentProfile(of: host)
+    }
   } // End of func validate(_:)
+
+  /// Checks `host`'s persistent-profile values (PLAN.md D26): a set default session name must
+  /// pass `Validation.persistentSessionName` and be stored trimmed (so the name the profile
+  /// starts is exactly the stored one), and a set parent profile name must pass
+  /// `Validation.profileName`.
+  static func validatePersistentProfile(of host: HostConfig) throws(HostListError) {
+    if let name = host.defaultSessionName {
+      do throws(ValidationError) {
+        guard try Validation.persistentSessionName(name) == name else {
+          throw ValidationError.sessionNameNotTrimmed
+        }
+      } catch {
+        throw .invalidDefaultSessionName(hostID: host.id, reason: error)
+      }
+    }
+    if let parent = host.persistentProfileParentName {
+      do throws(ValidationError) {
+        _ = try Validation.profileName(parent)
+      } catch {
+        throw .invalidParentProfileName(hostID: host.id, reason: error)
+      }
+    }
+  } // End of func validatePersistentProfile(of:)
 
   // MARK: - Changes
 

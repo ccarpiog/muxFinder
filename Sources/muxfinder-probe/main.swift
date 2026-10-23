@@ -11,6 +11,7 @@ let usage = """
     help    Show this help.
   \(DiscoverCommand.usage)
   \(HostsCommand.usage)
+  \(ProfilesCommand.usage)
   \(RefreshCommand.usage)
   \(ITerm2Command.usage)
   \(AttachCommand.usage)
@@ -18,6 +19,7 @@ let usage = """
   \(SSHSetupCommand.usage)
   \(E2ELocalCommand.usage)
   \(E2ERemoteCommand.usage)
+  \(E2EProfileCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -34,6 +36,8 @@ case "discover":
   exit(await DiscoverCommand.run(Array(arguments.dropFirst())))
 case "hosts":
   exit(await HostsCommand.run(Array(arguments.dropFirst())))
+case "profiles":
+  exit(await ProfilesCommand.run(Array(arguments.dropFirst())))
 case "refresh":
   exit(await RefreshCommand.run(Array(arguments.dropFirst())))
 case "iterm2":
@@ -50,6 +54,8 @@ case "e2e-local":
   exit(await E2ELocalCommand.run(Array(arguments.dropFirst())))
 case "e2e-remote":
   exit(await E2ERemoteCommand.run(Array(arguments.dropFirst())))
+case "e2e-profile":
+  exit(await E2EProfileCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

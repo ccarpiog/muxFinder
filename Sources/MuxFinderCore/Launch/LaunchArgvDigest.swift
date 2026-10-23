@@ -44,16 +44,26 @@ public struct LaunchArgvDigest: Sendable, Hashable, Codable {
     public var detachesOtherClients: Bool
     /// The child's `argc`.
     public var argumentCount: Int
-    /// One entry per argument, argv[0] (the executable's path: tmux, or `/usr/bin/ssh`) first.
+    /// One entry per argument, argv[0] (the executable's path: tmux, or `/usr/bin/ssh`; for the
+    /// login shell, `-<name>`) first.
     public var arguments: [Argument]
+    /// `true` when the child is the login shell the `profile` mode starts instead of tmux
+    /// (PLAN.md D26; in test mode it is recorded but never started); absent otherwise.
+    public var startsLoginShell: Bool?
 
-    /// Digests the child `executable` with `arguments` (argv after argv[0]).
-    public init(executable: String, arguments: [String], detachesOtherClients: Bool) {
+    /// Digests the child `executable` (its argv[0]) with `arguments` (argv after argv[0]).
+    public init(
+      executable: String,
+      arguments: [String],
+      detachesOtherClients: Bool,
+      startsLoginShell: Bool = false
+    ) {
       self.detachesOtherClients = detachesOtherClients
       let argv = [executable] + arguments
       argumentCount = argv.count
       self.arguments = argv.map { Argument(bytes: Array($0.utf8)) }
-    }
+      self.startsLoginShell = startsLoginShell ? true : nil
+    } // End of init(executable:arguments:detachesOtherClients:startsLoginShell:)
   } // End of struct AttachChild
 
   /// The format version this build writes.

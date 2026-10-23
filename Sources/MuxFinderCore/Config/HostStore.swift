@@ -267,8 +267,11 @@ public enum HostStoreError: Error, Sendable, Hashable, LocalizedError {
 ///
 /// The file is a JSON object, schema 1:
 /// `{"schemaVersion": 1, "hosts": [<HostConfig>, …]}`, each host with `id`, `displayName`,
-/// `mode` (`local` or `ssh`), `sshDestination`, `isEnabled`, and `tmuxPathOverride` and
-/// `iTermProfileName` when set.
+/// `mode` (`local` or `ssh`), `sshDestination`, `isEnabled`, and `tmuxPathOverride`,
+/// `iTermProfileName`, `defaultSessionName` and `persistentProfileParentName` when set, and
+/// `persistentProfileEnabled` when `true` (PLAN.md D26). A file without the persistent-profile
+/// fields, as every file written before they existed, loads with their defaults and saves back
+/// byte for byte the same.
 ///
 /// - **Loading never writes anything**, not even the folder: it is opened with
 ///   `PrivateStorage`'s `inspect` access. No file gives the onboarding defaults, reported as

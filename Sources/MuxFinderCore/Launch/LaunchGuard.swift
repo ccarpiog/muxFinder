@@ -169,13 +169,20 @@ public enum LaunchGuard {
   /// followed, as Homebrew's `tmux` is one). The D2 character rule does not apply: the path is
   /// spawned as argv, never parsed by a shell.
   public static func tmuxPath(fromCheckOutput output: Data, request: LaunchRequest) -> String? {
+    tmuxPath(fromCheckOutput: output, override: request.tmuxPathOverride)
+  }
+
+  /// The tmux path a successful check printed for a host with `override`, or `nil`: the rules
+  /// of `tmuxPath(fromCheckOutput:request:)`, shared with the persistent profile's local check
+  /// (`ProfileLaunch.locateScript`, PLAN.md D26).
+  public static func tmuxPath(fromCheckOutput output: Data, override: String?) -> String? {
     guard output.last == 0x0A, let text = String(data: output.dropLast(), encoding: .utf8),
       text.hasPrefix("/"), !text.utf8.contains(where: { $0 == 0 || $0 == 0x0A || $0 == 0x0D })
     else { return nil }
-    if let override = request.tmuxPathOverride, override != text { return nil }
+    if let override, override != text { return nil }
     var info = stat()
     guard stat(text, &info) == 0, info.st_mode & S_IFMT == S_IFREG, access(text, X_OK) == 0
     else { return nil }
     return text
-  } // End of func tmuxPath(fromCheckOutput:request:)
+  } // End of func tmuxPath(fromCheckOutput:override:)
 }

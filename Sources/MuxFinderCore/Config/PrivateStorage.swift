@@ -170,9 +170,7 @@ enum PrivateStorage {
     synchronize: Bool,
     in directory: Int32
   ) throws(PrivateStorageError) -> String {
-    let temporary =
-      ".\(name).\(String(UInt64.random(in: .min ... .max), radix: 16))"
-      + temporarySuffix
+    let temporary = temporaryName(for: name)
     let descriptor = openat(
       directory,
       temporary,
@@ -198,6 +196,11 @@ enum PrivateStorage {
     Darwin.close(descriptor)
     return temporary
   } // End of func writeTemporaryFile(_:for:synchronize:in:)
+
+  /// A new hidden temporary name for `name`: `.<name>.<random hex>.tmp`.
+  static func temporaryName(for name: String) -> String {
+    ".\(name).\(String(UInt64.random(in: .min ... .max), radix: 16))" + temporarySuffix
+  }
 
   /// Flushes the open file to stable storage: `F_FULLFSYNC` (which also empties the drive's
   /// cache), or `fsync` where the file system does not support it.

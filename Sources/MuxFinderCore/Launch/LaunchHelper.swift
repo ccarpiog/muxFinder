@@ -156,7 +156,10 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 }
 
 /// `muxfinder-launch attach <launch id>` and `muxfinder-launch ssh-setup <launch id>`: the
-/// helper iTerm2 runs in a launch tab (PLAN.md D2, D14, D24).
+/// helper iTerm2 runs in a launch tab (PLAN.md D2, D14, D24). `muxfinder-launch profile <host
+/// id>` is what a "Persistent work" profile's tab runs (PLAN.md D26, `LaunchHelperProfile.swift`):
+/// it takes no request file, reads the host list read-only, has a nesting guard and falls back
+/// to the login shell; it shares the children, the test mode and the minimum lifetime below.
 ///
 /// Each mode takes (reads and deletes) only a request of its own kind (`LaunchRequestKind`); a
 /// well-formed request of the other kind is refused as `requestUnreadable` (72) and runs
@@ -225,6 +228,8 @@ public struct LaunchHelper: Sendable {
     case attach(LaunchToken)
     /// `ssh-setup <launch id>` (PLAN.md D24).
     case sshSetup(LaunchToken)
+    /// `profile <host id>` (PLAN.md D26): a persistent profile's tab.
+    case profile(LaunchToken)
   }
 
   /// What a launch is for, which decides the wording of its explanation.
@@ -242,7 +247,8 @@ public struct LaunchHelper: Sendable {
   /// Prefix of the helper's own variables, removed from the child's environment.
   static let ownVariablePrefix = "MUXFINDER_LAUNCH_"
   /// The usage line.
-  public static let usage = "usage: muxfinder-launch attach|ssh-setup <launch id>"
+  public static let usage =
+    "usage: muxfinder-launch attach|ssh-setup <launch id> | profile <host id>"
   /// The production `minimumLifetime`. iTerm2 3.7.6 warns about sessions that end within 3 s of
   /// starting (its `shortLivedSessionDuration` default); 10 s matches the attach coordinator's
   /// minimum launch tab age (PLAN.md D15).
@@ -269,6 +275,11 @@ public struct LaunchHelper: Sendable {
   /// How old the helper must be, counted from the start of `run`, before it exits while someone
   /// can see its tab (`defaultMinimumLifetime` in production).
   public var minimumLifetime: Duration
+  /// The host list `profile` mode reads, read-only (`hosts.json` in muxFinder's folder in
+  /// production; PLAN.md D26).
+  public var hostStore: HostStore
+  /// Starts the login shell in place of the helper (`profile` mode's fallback, PLAN.md D26).
+  public var loginShell: any LoginShellStarting
 
   /// Creates a helper from its parts. Tests pass fakes.
   public init(
@@ -280,7 +291,9 @@ public struct LaunchHelper: Sendable {
     processID: Int32,
     now: @escaping @Sendable () -> Date = { Date() },
     checkTimeout: Duration = LaunchGuard.defaultTimeout,
-    minimumLifetime: Duration = LaunchHelper.defaultMinimumLifetime
+    minimumLifetime: Duration = LaunchHelper.defaultMinimumLifetime,
+    hostStore: HostStore = HostStore(),
+    loginShell: any LoginShellStarting = ExecLoginShellStarter()
   ) {
     self.store = store
     self.environment = environment
@@ -291,6 +304,8 @@ public struct LaunchHelper: Sendable {
     self.now = now
     self.checkTimeout = checkTimeout
     self.minimumLifetime = minimumLifetime
+    self.hostStore = hostStore
+    self.loginShell = loginShell
   } // End of init(store:environment:childRunner:terminal:log:processID:now:checkTimeout:…)
 
   /// The production helper: the store from `store(for:)`, a `TerminalChildRunner` whose control
@@ -337,7 +352,8 @@ public struct LaunchHelper: Sendable {
   }
 
   /// Parses argv (argv[0] first). Returns `nil` for anything but `help` or exactly
-  /// `attach <canonical launch id>` or `ssh-setup <canonical launch id>`.
+  /// `attach <canonical launch id>`, `ssh-setup <canonical launch id>` or `profile <canonical
+  /// host id>` (a host id in the lowercase form of a launch id).
   static func parse(_ argv: [[UInt8]]) -> Command? {
     let words = argv.dropFirst().map { String(decoding: $0, as: UTF8.self) }
     if words.count == 1, ["help", "-h", "--help"].contains(words[0]) { return .help }
@@ -345,6 +361,7 @@ public struct LaunchHelper: Sendable {
     switch words[0] {
     case LaunchRequestKind.attach.helperMode: return .attach(id)
     case LaunchRequestKind.sshSetup.helperMode: return .sshSetup(id)
+    case ProfileLaunch.helperMode: return .profile(id)
     default: return nil
     }
   } // End of static func parse(_:)
@@ -366,6 +383,8 @@ public struct LaunchHelper: Sendable {
       return await attach(id, startedAt: startedAt, argvDigest: digest)
     case .sshSetup(let id):
       return await sshSetup(id, startedAt: startedAt, argvDigest: digest)
+    case .profile(let hostID):
+      return await profile(hostID, startedAt: startedAt, argvDigest: digest)
     case nil:
       await log.record(
         .launch,
@@ -404,16 +423,20 @@ public struct LaunchHelper: Sendable {
   /// Writes `digest` again with the attach child (`executable` and `arguments`, and whether it
   /// detaches the session's other clients), just before that child starts (test mode only, so
   /// a check can tell a move here from a normal attach, PLAN.md D21); failures are only logged.
+  /// `startsLoginShell` marks `profile` mode's login shell (PLAN.md D26), recorded instead of
+  /// started in test mode.
   func recordAttachChild(
     in digest: LaunchArgvDigest,
     executable: String,
     arguments: [String],
-    detachesOtherClients: Bool
+    detachesOtherClients: Bool,
+    startsLoginShell: Bool = false
   ) async {
     guard let store else { return }
     var updated = digest
     updated.attachChild = LaunchArgvDigest.AttachChild(
-      executable: executable, arguments: arguments, detachesOtherClients: detachesOtherClients)
+      executable: executable, arguments: arguments, detachesOtherClients: detachesOtherClients,
+      startsLoginShell: startsLoginShell)
     do throws(LaunchStoreError) {
       try store.writeArgvDigest(updated)
       await log.record(
@@ -423,7 +446,7 @@ public struct LaunchHelper: Sendable {
     } catch {
       await log.record(.launch, outcome: .failure, detail: "Argv digest not written: \(error)")
     }
-  } // End of func recordAttachChild(in:executable:arguments:detachesOtherClients:)
+  } // End of func recordAttachChild(in:executable:arguments:detachesOtherClients:…)
 
   /// What the helper knows about its children when it finishes.
   struct ChildRecord {
@@ -717,11 +740,15 @@ public struct LaunchHelper: Sendable {
   }
 
   /// The children's environment: the helper's own minus `TMUX`, `TMUX_PANE` and the
-  /// `MUXFINDER_LAUNCH_*` variables, with the Homebrew directories on `PATH`.
+  /// `MUXFINDER_LAUNCH_*` variables, with the Homebrew directories on `PATH` and
+  /// `MUXFINDER_LAUNCHED=1`, so a helper started from inside anything it starts sees the
+  /// nesting guard's variable (PLAN.md D26), in every mode.
   var childEnvironment: [String: String] {
-    DiscoveryProbe.localEnvironment(base: environment).filter {
+    var environment = DiscoveryProbe.localEnvironment(base: environment).filter {
       !$0.key.hasPrefix(Self.ownVariablePrefix)
     }
+    environment[ProfileLaunch.launchedVariable] = ProfileLaunch.launchedValue
+    return environment
   }
 
   /// Finishes an attach of `request` (`nil` when none was taken), worded for its host: see

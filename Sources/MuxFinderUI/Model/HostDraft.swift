@@ -23,6 +23,26 @@ public struct HostDraft: Sendable, Hashable {
   public var profileName: String
   /// Whether the host is turned on.
   public var isEnabled: Bool
+  /// The persistent-profile values (PLAN.md D26), kept exactly as loaded: the editor has no
+  /// controls for them yet (Phase 11c), and a save must not drop them.
+  public var persistentProfile: PersistentProfileSettings
+
+  /// A host's persistent-profile values as the editor carries them.
+  public struct PersistentProfileSettings: Sendable, Hashable {
+    /// `HostConfig.persistentProfileEnabled`.
+    public var isEnabled: Bool
+    /// `HostConfig.defaultSessionName`.
+    public var defaultSessionName: String?
+    /// `HostConfig.persistentProfileParentName`.
+    public var parentProfileName: String?
+
+    /// The values of `host`.
+    public init(_ host: HostConfig) {
+      isEnabled = host.persistentProfileEnabled
+      defaultSessionName = host.defaultSessionName
+      parentProfileName = host.persistentProfileParentName
+    }
+  }
 
   /// The draft of a saved host.
   public init(_ host: HostConfig) {
@@ -34,6 +54,7 @@ public struct HostDraft: Sendable, Hashable {
     tmuxPath = host.tmuxPathOverride ?? ""
     profileName = host.iTermProfileName ?? ""
     isEnabled = host.isEnabled
+    persistentProfile = PersistentProfileSettings(host)
   }
 
   /// The draft of a host not added yet: SSH, no destination, turned off.
@@ -77,7 +98,7 @@ public struct HostDraft: Sendable, Hashable {
   }
 
   /// The configuration this draft saves: trimmed values, an empty tmux path or profile stored
-  /// as none.
+  /// as none, and the persistent-profile values as they were loaded.
   public var config: HostConfig {
     HostConfig(
       id: id,
@@ -86,7 +107,10 @@ public struct HostDraft: Sendable, Hashable {
       sshDestination: trimmedDestination,
       tmuxPathOverride: trimmedTmuxPath.isEmpty ? nil : trimmedTmuxPath,
       iTermProfileName: trimmedProfileName.isEmpty ? nil : trimmedProfileName,
-      isEnabled: isEnabled)
+      isEnabled: isEnabled,
+      persistentProfileEnabled: persistentProfile.isEnabled,
+      defaultSessionName: persistentProfile.defaultSessionName,
+      persistentProfileParentName: persistentProfile.parentProfileName)
   }
 
   /// The configuration a probe runs with: `config`, without the tmux path when `detecting`.

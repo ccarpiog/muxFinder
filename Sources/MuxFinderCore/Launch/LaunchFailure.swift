@@ -4,9 +4,9 @@ import Foundation
 ///
 /// The guard (the check child) owns 64–68. tmux itself only exits 0 or 1, and `/bin/sh` uses
 /// 126/127 for an executable that cannot run and 128 + n for signals, so none of them collide.
-/// The helper adds 2 (usage) and 70–75 for failures before or around its children, and 128 + n
-/// when signal n stopped it before tmux attached; otherwise it exits with tmux's status (128 +
-/// n when tmux was killed by signal n).
+/// The helper adds 2 (usage) and 70–75 for failures before or around its children (76 and 77
+/// in `profile` mode, D26), and 128 + n when signal n stopped it before tmux attached;
+/// otherwise it exits with tmux's status (128 + n when tmux was killed by signal n).
 public enum LaunchExitStatus {
   /// The child exited 0: tmux attached and later detached normally.
   public static let success: Int32 = 0
@@ -37,6 +37,13 @@ public enum LaunchExitStatus {
   public static let spawnFailed: Int32 = 74
   /// Helper: the check did not finish within its deadline; its process group was killed.
   public static let checkTimedOut: Int32 = 75
+  /// Helper, `profile` mode (PLAN.md D26), when it ends without starting the login shell: the
+  /// host list or the profile's host cannot be used (no list, an unusable list, an unknown
+  /// host, its persistent profile off, or an unusable session name, destination or tmux path).
+  public static let profileHostUnavailable: Int32 = 76
+  /// Helper, `profile` mode, when it ends without starting the login shell: the nesting guard
+  /// refused (`TMUX` or `MUXFINDER_LAUNCHED` is set).
+  public static let nestedLaunch: Int32 = 77
   /// Added to the signal number when the child was killed by a signal (shell convention).
   public static let signalBase: Int32 = 128
   /// The status ssh uses for its own errors (a remote attach, PLAN.md D17).
