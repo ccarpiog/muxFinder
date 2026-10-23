@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-23T00:41:02Z",
+  "updated": "2026-10-23T01:44:28Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -309,12 +309,15 @@
     {
       "id": "11b",
       "title": "Real profile runs",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "11",
-      "summary": "Proves the generated profiles in the real iTerm2, locally and on Saturno, without changing other profiles.",
+      "summary": "Real e2e-profile runs pass 14/14 locally and on Saturno; iTerm2 mirroring the profile into New Bookmarks is handled.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-11b.md",
+      "narrative": "docs/progress-archive/11b.md",
       "added": "2026-10-22T23:02:22Z",
-      "status_since": "2026-10-22T23:02:22Z"
+      "started": "2026-10-23T00:42:12Z",
+      "status_since": "2026-10-23T01:44:28Z"
     },
     {
       "id": "11c",

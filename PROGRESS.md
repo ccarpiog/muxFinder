@@ -27,10 +27,11 @@ file.
 | 10a | Attach UX in the app: state machine, row actions, Move here, Detach, New session, banners, self-test flags | high | opus (impl + fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-10a.md` | `docs/progress-archive/10a.md` |
 | 10b | Real self-tests: `attach-local`, `new-session-local`, quit leaves work running | high | none (orchestrator ran the real checks; no code change) | Codex, ship, `docs/reviews/phase-10b.md` | `docs/progress-archive/10b.md` |
 | 11a | Profile core, helper `profile` mode, probe `profiles` / `e2e-profile` (hermetic) | high | opus (impl + fix worker); one inline orchestrator fix | Codex, ship-with-fixes, `docs/reviews/phase-11a.md` | `docs/progress-archive/11a.md` |
+| 11b | Real profile runs: `e2e-profile` local and Saturno 14/14, iTerm2 `New Bookmarks` mirror handled | high | opus (snapshot fix, docs and review-fix workers); real runs by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-11b.md` | `docs/progress-archive/11b.md` |
 
 ## Current phase
 
-None in progress. Phases 1–11a are done; next is **Phase 11b** (*Next action*). Phase 6 was
+None in progress. Phases 1–11b are done; next is **Phase 11c** (*Next action*). Phase 6 was
 split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11b/11c in
 `PLAN.md`.
 
@@ -45,6 +46,11 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   and login-shell fallback; probe `profiles show | hashes` and `e2e-profile` tested with fakes;
   real `DynamicProfiles/` untouched. 656 core + 139 UI tests. Evidence in
   `docs/progress-archive/11a.md`.
+- Phase 11b: all criteria met — final-tree real `e2e-profile --local` and `--ssh saturno-m4`
+  14/14 (hashes identical through install and removal with iTerm2's own mirror left out by a
+  strict rule; `ListProfiles` shows then drops the GUID; confirmed control-mode connection from
+  `CreateTab(profile_name)`; cleanup by `detach-client`, nothing left); independent `profiles
+  hashes` identical at start and end. 668 core + 139 UI tests. `docs/progress-archive/11b.md`.
 
 ## Decisions
 
@@ -151,6 +157,12 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   every helper mode; test host list only in test mode for its own id; `e2e-profile` design);
   D8, D11, D14, D19 edited; session-name and ssh-destination checks now on Unicode scalars —
   `docs/progress-archive/11a.md`.
+- Phase 11b: iTerm2 3.7.6 mirrors each loaded dynamic profile into its saved `New Bookmarks`
+  and drops it ~0.25 s after the file goes (*Verified facts*, D26). The snapshot leaves out
+  only a provable muxFinder mirror (generated GUID, exactly the owned `muxFinder.json` path,
+  in the harness the run's GUID with every written key unchanged), counted in
+  `excludedMuxFinderEntries`; step 1 waits 5 s for a stale mirror or fails; step 13 waits by
+  an absolute 30 s deadline from the removal — `docs/progress-archive/11b.md`.
 
 ## Open risks / deviations
 
@@ -260,11 +272,11 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
 - 10b: Show tab is still unverified for real; after keep mode the helper's `*.result.json`
   stays in the launch directory until the next launch's sweep (D14, 120 s TTL); the keep
   line's cleanup prints `tmux` without a path — `docs/progress-archive/10b.md`.
-- 11a, owed to 11b: iTerm2 loading/dropping the file (`ListProfiles`), skipping the hidden
-  temp file, the 3-argument split of the profile `Command`, close-on-end, unchanged hashes, no
-  "Dynamic Profiles Error" alert, the unknown-parent fallback, confirmed control-mode
-  connections locally and on Saturno; the `-A` target-syntax restriction is untried on a
-  server; a login shell exiting by itself within 3 s is beyond the helper's hold.
+- 11b (11a's owed items, the rest confirmed by the real runs): still unverified — a non-modal
+  "Dynamic Profiles Error" alert during the atomic write (needs a person's glance; the
+  dot-file skip is seen only indirectly), the unknown-parent fallback, `-A` target-syntax
+  cases on a real server, a login shell exiting within 3 s. iTerm2 went 22 → 35 threads over
+  six runs (1–4 per run) — `docs/progress-archive/11b.md`.
 - 11a, for 11c: a second tab of the same profile attaching the same session is untested;
   parentless dynamic profiles inherit from the default profile, so a persistent profile made
   the default would make the user's other parentless dynamic profiles without their own
@@ -286,22 +298,25 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   worker (cross-process `flock` + identity-checked rollback; reconcile and detach through
   bindings, never close a tab that may hold one; first-scalar check), each regression failing
   with its fix reverted, re-verified; `docs/reviews/phase-11a.md`.
+- Phase 11b: Codex → `ship-with-fixes`, 0 blockers, 2 should-fix (the mirror exclusion was too
+  loose; step 13's 30 s was not an absolute deadline) — both fixed by a review-fix worker
+  (strict ownership rule; absolute deadline with capped exports and pauses), each regression
+  failing with its fix reverted, then re-verified hermetically and by final-tree real runs 5
+  and 6; `docs/reviews/phase-11b.md`.
 
 ## Next action
 
-1. **Phase 11b** (Real profile runs; `PLAN.md` "### Phase 11" split paragraph; high). Read
-   D26 and the 11b steps in `docs/TESTING.md`. Gate first (item 3). Then `swift build` and
-   run `swift run muxfinder-probe e2e-profile --local`, then `e2e-profile --ssh saturno-m4`,
-   letting iTerm2's thread count fall back between runs. Each run must show: hash snapshots
-   (other `DynamicProfiles/*` files and `New Bookmarks`) identical before install, after
-   install and after removal; `ListProfiles` showing then dropping the GUID; a confirmed
-   control-mode connection to `muxfinder-test-profile` from `CreateTab(profile_name=…)`;
-   cleanup by `detach-client` (never closing a tmux tab), the session killed, `muxFinder.json`
-   and `muxFinder/profiles.lock` handling as D26 says. It refuses to start if
-   `DynamicProfiles/muxFinder.json` exists. Fix what the real runs call for (a fix worker),
-   record the runs in `docs/TESTING.md`, resolve the 11a items owed to 11b (*Open risks*).
-2. Then **Phase 11c** (Settings section and launch-time rewrite; routine), including the
-   parent-inheritance warning noted under *Open risks*.
+1. **Phase 11c** (Settings section and launch-time rewrite; routine; `PLAN.md` "### Phase 11"
+   split paragraph and D26). The Settings controls over 11a's host fields (persistent profile
+   on/off, default session name, parent profile), "Install profiles" / "Remove profiles"
+   through `PersistentProfileInstaller`, the copy (Set as Default path: Settings → Profiles →
+   select → Other Actions → Set as Default; ordinary shells started elsewhere are not adopted
+   into tmux), the parent-inheritance warning (*Open risks*, 11a for 11c), the rewrite at app
+   launch when the helper path changed, preview fixtures (`--preview-gallery settings`) and
+   screenshots in `docs/screenshots/`. Hermetic: tests and previews never write the real
+   `DynamicProfiles/`; the Settings gallery must not install anything.
+2. Then **Phase 12** (packaging, docs, acceptance run; routine). Its fresh full run of every
+   `e2e-*` (`e2e-profile` included) and the self-tests follows the gate in item 3.
 3. Before and after every real run: `swift build` first, then
    `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
    thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
@@ -311,7 +326,8 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
    `ls -A /private/tmp | rg '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno
    (`fd` is not installed). Real runs only with iTerm2 at **38 threads or lower**; if it stays
    above 38, stop as `BLOCKED` and ask the user whether to restart iTerm2 or accept a higher
-   baseline. iTerm2 was at 21 threads after Phase 10b's runs (2026-10-23 00:00).
+   baseline. iTerm2 was at 35 threads after Phase 11b's runs (2026-10-23 02:50); let it fall
+   back before Phase 12's runs.
 4. Owed to the user, not to a run: the 9b "Set up SSH in iTerm2…" real round trip (an
    interactive ssh login on Saturno, outside the run rules). Phase 12's manual checklist must
    list it.
@@ -368,13 +384,13 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 11a (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
-  `swift test` (pipefail) exit 0 twice, 656 core tests in 66 suites + 139 UI tests in 11
-  suites; `swift format lint -r Sources Tests` exit 0; `scripts/build-app.sh` and `codesign
-  --verify --deep --strict build/muxFinder.app` exit 0; read-only `profiles hashes` exit 0;
-  real `DynamicProfiles/` empty and support folder only `launch/` afterwards —
-  `docs/progress-archive/11a.md`.
-- Phases 1–10b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase 11b (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
+  `swift test` (pipefail) exit 0, 668 core tests in 66 suites + 139 UI tests in 11 suites;
+  `swift format lint -r Sources Tests` exit 0; real `e2e-profile --local` exit 0 (14/14,
+  11.4 s) and `e2e-profile --ssh saturno-m4` exit 0 (14/14, 15.8 s); `profiles hashes` exit 0,
+  identical to the phase start; afterwards `DynamicProfiles/` and the launch folder empty, no
+  tmux server on either Mac, 0 iTerm2 connections — `docs/progress-archive/11b.md`.
+- Phases 1–11a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -384,5 +400,6 @@ split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b and 11 into 11a/11
   (closure `cb855c0`, summary `880470f`), 8 `dc1935d`, 9a `ac1b9ee`, 9b `94cc960`, 10a
   `d6fe103`, 10b `ec402ce` (pushed; `origin/main` at `ec402ce` before Phase 11a). From 3b on,
   commit messages carry no AI attribution trailer (user's global rule).
-- Phase 11a: code, split, D26, review and checkpoint: the commit after `ec402ce`; its SHA and
-  push result are recorded by the next commit.
+- Phase 11a: `289b7f4`, pushed (`origin/main` at `289b7f4` before Phase 11b).
+- Phase 11b: fixes, run record, D26, review and checkpoint: the commit after `289b7f4`; its
+  SHA and push result are recorded by the next commit.

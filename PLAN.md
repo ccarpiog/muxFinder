@@ -1474,7 +1474,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `sessionName` rules plus no leading `$ = @ % ! ~ { + ^`, because with `-A` tmux attaches an
     existing session through a target lookup of its name, where those characters mean an id,
     an exact match, the marked pane, a token, the last window or an offset (tmux's target
-    syntax; not tried on a server, since test sessions must be named `muxfinder-test-*`),
+    syntax; not tried on a server, since test sessions must be named `muxfinder-test-*`;
+    Phase 11b's runs show only that `-A -s muxfinder-test-profile` attaches the existing
+    session of that exact name, locally and on Saturno),
     checked on the first Unicode scalar, the byte tmux reads first, not the first `Character`
     (a combining mark after `$` makes another grapheme cluster but leaves the `$` in front); a set
     parent name passes `Validation.profileName` (not empty, no control characters). A file
@@ -1567,10 +1569,32 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     followed; folders not descended), and the count and SHA-256 of a canonical form of `New
     Bookmarks` (`CanonicalPropertyList`: typed, length-prefixed, dictionary keys sorted) from
     `/usr/bin/defaults export com.googlecode.iterm2 -` run by argv, never a profile's content;
-    `iterm2 list-profiles` already prints every GUID with its name.
+    `iterm2 list-profiles` already prints every GUID with its name. iTerm2 writes every loaded
+    dynamic profile into its saved `New Bookmarks` (with a `Dynamic Profile Filename` key) and
+    drops it once the file goes (within 0.3 s of the removal in Phase 11b's passing runs;
+    *Verified facts*), so the hash leaves out
+    only what it can prove is iTerm2's copy of muxFinder's own profile
+    (`ITerm2ProfileSnapshotter.MirrorRule`): a dictionary whose `Guid` is a well-formed
+    generated GUID (`muxfinder-persistent-` and a lowercase UUID, nothing more) and whose
+    `Dynamic Profile Filename` is an absolute path ending in `muxFinder.json` that,
+    standardized (`.` and repeated `/` dropped, `..` applied), is exactly the snapshotter's
+    own `<DynamicProfiles>/muxFinder.json`; and, when the caller knows what it wrote (the
+    e2e-profile run passes the profile dictionaries of its file), whose `Guid` is one of the
+    written ones and which holds every written key with an equal value (the same canonical
+    form; the keys iTerm2 fills in are not compared). Everything else is hashed: other dynamic
+    profiles' copies, a look-alike GUID (`muxfinder-persistent-custom`), another folder's or a
+    relative `muxFinder.json`, a copy whose written key changed or went. `profiles hashes`
+    knows no install, so it uses the GUID format and the exact path alone (with `--directory`,
+    that folder's `muxFinder.json`). `count` is the hashed entries;
+    `excludedMuxFinderEntries` counts the copies left out, never naming them. Comparisons use
+    `differences(from:)` / `hashesMatch`, which ignore that count (`==` does not).
   - **`e2e-profile --local | --ssh <destination>` (`PersistentProfileRun`, every part a seam,
     tested with fakes):** refuses to start when `DynamicProfiles/muxFinder.json` exists (the
-    user's then) or a session named `muxfinder-test-profile` exists; snapshot; creates that
+    user's then) or a session named `muxfinder-test-profile` exists; snapshot, which must hold
+    no copy of a muxFinder profile (decided: with no `muxFinder.json` such a copy is
+    unexplained, and leaving it out of the baseline while steps 8 and 13 hash it would make
+    the comparison inconsistent; so step 1 snapshots every 0.5 s for at most 5 s until none is
+    left, notes how long that took, and otherwise fails before anything is created); creates that
     session itself (panes `sleep 600`) so the profile's `-A` attaches it and no login shell
     ever starts inside tmux (the create branch of `-A` is proven by argv only); writes the
     test host list and the marker; installs with `createOnly`; waits for `ListProfiles`
@@ -1578,11 +1602,20 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     and without custom properties; waits for a connection owned by that tab, checks the argv
     digest (exactly `<helper> profile <id>`, and the expected tmux or ssh child) and the
     identity through D15's binding (the created server and session, `#{host}` as discovery
-    reported); snapshot; detaches through the binding once the tab is 10 s old and waits for
+    reported); snapshot (step 8: only iTerm2's unchanged copy of the run's own profile in `New
+    Bookmarks`, by its exact GUID, the owned path and the written keys, is left out and counted
+    in a note; anything else that appeared is hashed, and a note gives the hashed counts when
+    they differ); detaches through the binding once the tab is 10 s old and waits for
     the connection and the tab to close by themselves; kills the session only while unchanged;
     removes the file only while it holds the run's bytes, and the test host list; waits until
-    the GUID is gone; snapshot; all three snapshots equal. Cleanup on every way out (failure,
-    signal, the 180 s limit), once the tab is 10 s old: every connection iTerm2 lists as owned
+    the GUID is gone; then (step 13) snapshots every 0.5 s, cancellable, until `New Bookmarks`
+    holds no copy of the run's profile and reports how long after the removal that was. Step
+    13 has one absolute deadline, 30 s after step 11 removed the file (a slow step 12 leaves
+    less); each snapshot's `defaults export` timeout (normally 20 s) and each pause are capped
+    to what is left, and a snapshot that ends after the deadline, or is cut by it, does not
+    count, so the step FAILs then (the file is gone by then, nothing else to clean up); all
+    three snapshots hash the same. Cleanup on every way out (failure, signal, the 180 s
+    limit), once the tab is 10 s old: every connection iTerm2 lists as owned
     by its own tab (one that appeared after step 6's wait too) detached through the binding,
     once per connection, until a listing shows none (a failed or unanswered detach proves
     nothing); the tab closed (forced) only when it did not close by itself and a listing taken
@@ -1594,16 +1627,32 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     only `saturno-m4`, the run's own tmux calls over ssh
     with `BatchMode` and a static script, the tab's ssh interactive as D17's (key
     authentication), no remote file written.
-  - **Owed to 11b (unverified):** iTerm2 loading the file and dropping it (`ListProfiles`),
-    the dot-file skip, the profile command split into exactly three arguments, `Close Sessions
-    On End` from a dynamic profile, the hashes unchanged through install and removal, no
-    "Dynamic Profiles Error" alert, the unknown-parent fallback ("Using default profile as
-    parent" in the binary's strings), and the confirmed control-mode connection locally and on
-    Saturno. Open for 11c: a second tab of the same profile attaches the same session in
-    control mode again (iTerm2's behavior unknown); and iTerm2 makes dynamic profiles without a
-    parent inherit from the default profile, so once a persistent profile is the default, the
-    user's other dynamic profiles without their own `Custom Command` would inherit its command
-    (the Settings copy must say so, or the generator could set a parent).
+  - **Owed to 11b, settled by its real runs (`docs/TESTING.md`, Phase 11b):** the runs
+    confirm that iTerm2 loads the file and drops it (`ListProfiles` shows the GUID 0.2–0.6 s
+    after the install and stops about 0.2 s after the removal); that the profile command splits
+    into exactly three arguments (`<helper> profile <id>`, its child the expected seven); that
+    `Close Sessions On End` works from a dynamic profile (the tab closes by itself once tmux
+    ends after the detach); that the hashes (muxFinder's copies left out) stay the same through
+    install and removal, iTerm2 dropping its copy 238–266 ms after the removal; that iTerm2's
+    copy keeps every key the run wrote with an equal value and names the file by exactly the
+    installer's path, so the strict exclusion rule and step 13's absolute deadline above pass
+    (the final-tree runs; the first fixed runs used a looser rule); and that
+    `CreateTab(profile_name:)` gets a confirmed control-mode connection locally and on Saturno.
+    For `-A` they show only that the run's existing session is attached by its exact name on
+    both hosts (the target-syntax cases above stay untried). Still unverified: the dot-file
+    skip, seen only indirectly (no stray profile, no failure, the API answering throughout),
+    and whether iTerm2 shows a non-modal "Dynamic Profiles Error" alert during the install,
+    which an unattended run cannot see (no screen capture of iTerm2), so a person's glance is
+    owed; the unknown-parent fallback ("Using default profile as parent" in the binary's
+    strings), not tried for real (the harness installs a parentless profile, and a try needs a
+    synthetic parent name and a harness option); a login shell ending by itself within
+    3 s, not exercised (the runs never reach the login-shell fallback). Open for 11c: a
+    second tab of the same profile attaches the same session in control mode again
+    (iTerm2's behavior unknown); and iTerm2 makes dynamic profiles without a parent inherit
+    from the default
+    profile, so once a persistent profile is the default, the user's other dynamic profiles
+    without their own `Custom Command` would inherit its command (the Settings copy must say
+    so, or the generator could set a parent).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -1679,6 +1728,16 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   (`PartialProfile` asks for `["Guid", "Name"]`). Each `json_value` is Python `json.dumps`
   output: ASCII only, `"` `\` and `\b \f \n \r \t` escaped, every other character outside
   U+0020–U+007E as lowercase `\uXXXX` (surrogate pairs above U+FFFF), `/` not escaped.
+- **iTerm2 saves loaded dynamic profiles into `New Bookmarks`** (3.7.6, seen in Phase 11b's
+  `e2e-profile` runs, compared by digests only): while `muxFinder.json` was installed, the
+  `New Bookmarks` array of `com.googlecode.iterm2` held one more entry, the profile with its
+  `Guid` (`muxfinder-persistent-…`) and a `Dynamic Profile Filename` key, the user's entries
+  byte-identical. The copy goes after the removal: in the two passing runs (local and
+  Saturno) step 13's first snapshot, taken right after `ListProfiles` stopped showing the
+  GUID, found it gone, 238 ms and 266 ms after the removal, and the array hashed as before;
+  the diagnosis during the second failing run saw it still there right after the removal and
+  gone seconds later. So the snapshot leaves muxFinder's copies out and step 13 waits for the
+  drop (D26).
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
 
@@ -2455,8 +2514,8 @@ Requirements:
 
 Acceptance:
 - Hashes of other `DynamicProfiles/*` files, and of the `New Bookmarks` array from
-  `defaults export com.googlecode.iterm2 -`, are identical before install, after install and
-  after removal.
+  `defaults export com.googlecode.iterm2 -` (without iTerm2's own copies of muxFinder's
+  profiles, D26), are identical before install, after install and after removal.
 - iTerm2's `ListProfiles` shows the GUID.
 - Real e2e: `CreateTab(profile_name=…)` gets a confirmed control-mode connection to
   `muxfinder-test-profile`, locally and on Saturno. Clean up afterwards.

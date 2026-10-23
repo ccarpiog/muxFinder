@@ -39,7 +39,11 @@ public struct ProfileRunFailure: Error, Sendable, Hashable {
 /// 1. **snapshot before:** iTerm2's API must answer; the run refuses to start when
 ///    `DynamicProfiles/muxFinder.json` exists (it is the user's then) or a session named
 ///    `muxfinder-test-profile` exists (it is not the run's); then the hash snapshot of iTerm2's
-///    other profiles (`ITerm2ProfileSnapshot`).
+///    other profiles (`ITerm2ProfileSnapshot`). A copy of a muxFinder profile in `New
+///    Bookmarks` then (`ITerm2ProfileSnapshotter.MirrorRule` without written profiles) is
+///    unexplained, since no `muxFinder.json` exists: the run snapshots every
+///    `mirrorPollInterval` for at most `baselineMirrorDrop` until none is left (a note says how
+///    long that took) and otherwise fails, so the baseline never holds one.
 /// 2. **create session:** `muxfinder-test-profile` on the host's default server, panes running
 ///    `sleep 600`, so the profile's `new-session -A` attaches it and no login shell ever starts
 ///    in tmux; discovery must list it as created, which gives the host's node name.
@@ -56,14 +60,22 @@ public struct ProfileRunFailure: Error, Sendable, Hashable {
 ///    exactly `<helper> profile <id>` and its child the expected tmux (or ssh) argv.
 /// 7. **identity:** the connection, asked through the owned-connection binding (D15), shows the
 ///    created session on the created server and, by `#{host}`, the host discovery reported.
-/// 8. **snapshot installed:** equal to the first.
+/// 8. **snapshot installed:** hashes the same as the first (`ITerm2ProfileSnapshot.hashesMatch`):
+///    only iTerm2's copy of the run's own profile in `New Bookmarks` is left out of the hash
+///    (its exact GUID, the owned file's path, every key the run wrote unchanged) and counted in
+///    a note; any other entry, a look-alike or a changed copy included, is hashed.
 /// 9. **detach:** once the tab is `minimumTabAge` old, `detach-client` through the binding; the
 ///    connection closes, the helper ends and the tab closes by itself; the session survives.
 /// 10. **kill session:** only while it is still exactly the created one.
 /// 11. **remove profile:** the profile file, only while it holds the bytes the run wrote, and the
 ///    test host list.
 /// 12. **profile gone:** `ListProfiles` no longer shows the GUID.
-/// 13. **snapshot after:** equal to the first.
+/// 13. **snapshot after:** snapshots every `mirrorPollInterval` until `New Bookmarks` holds no
+///    copy of the run's profile any more (iTerm2 drops it after the file goes), reports how long
+///    after the removal that was, and then hashes the same as the first. The wait has one
+///    absolute deadline, `mirrorDrop` after step 11 removed the file (so a slow step 12 leaves
+///    less of it); each snapshot's `defaults export` and each pause are capped to what is left,
+///    and a snapshot that ends after the deadline does not count, so the step fails then.
 ///
 /// **Cleanup** (step 14, on every way out): once the tab is `minimumTabAge` old, every tmux
 /// connection iTerm2 lists as owned by it (one that appeared after step 6's wait too) is
@@ -91,8 +103,10 @@ public actor PersistentProfileRun {
     public var iTerm2: any ITerm2Integration
     /// The installer over iTerm2's `DynamicProfiles` folder.
     public var installer: PersistentProfileInstaller
-    /// Takes the hash snapshot.
-    public var snapshot: @Sendable () async throws -> ITerm2ProfileSnapshot
+    /// Takes the hash snapshot with the given options (what the run wrote, the export's
+    /// deadline).
+    public var snapshot:
+      @Sendable (ITerm2ProfileSnapshotter.Options) async throws -> ITerm2ProfileSnapshot
     /// The launch directory (test-mode marker, test host list, argv digests).
     public var store: LaunchStore
     /// tmux on the host under test.
@@ -108,7 +122,9 @@ public actor PersistentProfileRun {
     public init(
       iTerm2: any ITerm2Integration,
       installer: PersistentProfileInstaller,
-      snapshot: @escaping @Sendable () async throws -> ITerm2ProfileSnapshot,
+      snapshot:
+        @escaping @Sendable (ITerm2ProfileSnapshotter.Options) async throws ->
+        ITerm2ProfileSnapshot,
       store: LaunchStore,
       tmux: any ProfileRunTmux,
       discovery: any HostDiscovering,
@@ -138,6 +154,16 @@ public actor PersistentProfileRun {
     public var digest: Duration = .seconds(5)
     /// The pause between two polls.
     public var pollInterval: Duration = .milliseconds(200)
+    /// How long iTerm2 may keep its copy of muxFinder's profile in `New Bookmarks` after the
+    /// file was removed: step 13's absolute deadline, counted from step 11's removal.
+    public var mirrorDrop: Duration = .seconds(30)
+    /// How long step 1 waits for a copy of a muxFinder profile found in `New Bookmarks` without
+    /// a `muxFinder.json` to go before it fails (iTerm2 dropped its copies within 0.3 s in
+    /// Phase 11b's runs).
+    public var baselineMirrorDrop: Duration = .seconds(5)
+    /// The pause between two snapshots while waiting for such a copy to go (each runs `defaults
+    /// export`).
+    public var mirrorPollInterval: Duration = .milliseconds(500)
     /// How old the tab must be before the run ends it in any way (iTerm2's short-lived-session
     /// warning, PLAN.md D15).
     public var minimumTabAge: Duration = AttachCoordinator.Configuration().minimumLaunchTabAge
@@ -180,6 +206,11 @@ public actor PersistentProfileRun {
   private var nodeName: String?
   /// The installed file's bytes, while the run's file may be installed.
   private var installedBytes: Data?
+  /// The profiles the run wrote into the file (step 3), which steps 8 and 13 leave out of the
+  /// hash only as iTerm2's unchanged copies.
+  private var written: [ITerm2ProfileSnapshotter.WrittenProfile]?
+  /// When step 11 removed the profile file.
+  private var removedAt: ContinuousClock.Instant?
   /// Whether the run wrote the test host list.
   private var testHostsWritten = false
   /// Whether the run created the test-mode marker.
@@ -239,12 +270,12 @@ public actor PersistentProfileRun {
       await step(5, "open tab", { try await self.openTab() }),
       await step(6, "connection", { try await self.waitForConnection() }),
       await step(7, "identity", { try await self.checkIdentity() }),
-      await step(8, "snapshot installed", { try await self.compareSnapshot() }),
+      await step(8, "snapshot installed", { try await self.compareInstalledSnapshot() }),
       await step(9, "detach", { try await self.detach() }),
       await step(10, "kill session", { try await self.killSession() }),
       await step(11, "remove profile", { try await self.removeProfile() }),
       await step(12, "profile gone", { try await self.waitForProfile(listed: false) }),
-      await step(13, "snapshot after", { try await self.compareSnapshot() })
+      await step(13, "snapshot after", { try await self.compareSnapshotAfterRemoval() })
     else { return }
   } // End of func runSteps()
 
@@ -297,11 +328,33 @@ public actor PersistentProfileRun {
         "a session named \(Self.sessionName) exists already; it is not this run's, so the run "
           + "does not start (end it yourself if it is a leftover)")
     }
-    let snapshot = try await parts.snapshot()
+    var snapshot = try await parts.snapshot(ITerm2ProfileSnapshotter.Options())
+    if snapshot.excludedMuxFinderEntries > 0 {
+      // No muxFinder.json exists, so a copy of a muxFinder profile is unexplained: the baseline
+      // must not hold one (it would be left out at steps 8 and 13 for no known reason).
+      let found = snapshot.excludedMuxFinderEntries
+      let start = parts.clock.now()
+      let wait = try await waitForNoMirror(
+        written: nil, until: start + limits.baselineMirrorDrop, after: snapshot)
+      guard let settled = wait.settled, let settledAt = wait.settledAt else {
+        throw ProfileRunFailure(
+          "New Bookmarks holds \(Self.mirrors(wait.last?.excludedMuxFinderEntries ?? found)) "
+            + "naming \(PersistentProfiles.fileName), which does not exist (an earlier run's or "
+            + "the app's), and iTerm2 did not drop it within \(limits.baselineMirrorDrop), so the "
+            + "baseline is unexplained and the run does not start (rerun once muxfinder-probe "
+            + "profiles hashes shows excludedMuxFinderEntries 0)")
+      }
+      snapshot = settled
+      notes.append(
+        "New Bookmarks held \(Self.mirrors(found)) naming \(PersistentProfiles.fileName), which "
+          + "does not exist (an earlier run's); iTerm2 dropped it "
+          + "\(Int((settledAt - start) / .milliseconds(1))) ms later, before the hashes were "
+          + "recorded")
+    } // End of the wait for an unexplained copy to go
     firstSnapshot = snapshot
     return
       "\(snapshot.entryCount) other DynamicProfiles entr\(snapshot.entryCount == 1 ? "y" : "ies"), "
-      + "New Bookmarks with \(snapshot.newBookmarks?.count ?? 0) profile(s); hashes recorded"
+      + "New Bookmarks with \(snapshot.newBookmarks?.count ?? 0) profile(s) hashed; hashes recorded"
   } // End of func snapshotBefore()
 
   /// Step 2.
@@ -330,8 +383,13 @@ public actor PersistentProfileRun {
     try parts.store.writeProfileTestHosts(try HostList([host]), forHostID: host.id)
     testHostsWritten = true
     let document = try PersistentProfiles.document(for: try HostList([host]), helper: helper)
+    guard
+      let profiles = ITerm2ProfileSnapshotter.WrittenProfile.profiles(inDocument: document.data),
+      profiles.map(\.guid) == [guid]
+    else { throw ProfileRunFailure("the generated profile file does not hold the run's profile") }
     try parts.installer.install(document, replacing: .createOnly)
     installedBytes = document.data
+    written = profiles
     notes.append("profile command: <helper> profile <test host id>; helper test mode on")
     return "\(PersistentProfiles.fileName) written with 1 profile (\(document.data.count) bytes)"
   } // End of func installProfile()
@@ -461,17 +519,156 @@ public actor PersistentProfileRun {
       + "server, host matching discovery: a confirmed control-mode attachment"
   } // End of func checkIdentity()
 
-  /// Steps 8 and 13.
-  private func compareSnapshot() async throws -> String {
-    guard let firstSnapshot else { throw ProfileRunFailure("no first snapshot") }
-    let now = try await parts.snapshot()
-    guard now == firstSnapshot else {
-      throw ProfileRunFailure(
-        "iTerm2's other profiles changed: \(now.differences(from: firstSnapshot).joined(separator: ", "))"
-      )
+  /// Step 8: the snapshot with the profile installed hashes the same as the first. Only
+  /// iTerm2's unchanged copy of the run's own profile in `New Bookmarks` is left out of the
+  /// hash; a note counts it.
+  private func compareInstalledSnapshot() async throws -> String {
+    guard let firstSnapshot, let written else {
+      throw ProfileRunFailure("no first snapshot or no installed profile")
     }
+    let now = try await parts.snapshot(ITerm2ProfileSnapshotter.Options(written: written))
+    notes.append(
+      "New Bookmarks: \(Self.mirrors(now.excludedMuxFinderEntries)) left out of the hash "
+        + "(iTerm2 copies loaded dynamic profiles there)")
+    try requireSameHashes(now, as: firstSnapshot)
     return "identical to the first snapshot (\(now.entryCount) entries, New Bookmarks "
-      + "\(now.newBookmarks?.count ?? 0))"
+      + "\(now.newBookmarks?.count ?? 0) hashed)"
+  } // End of func compareInstalledSnapshot()
+
+  /// Step 13: snapshots until `New Bookmarks` holds no copy of the run's profile, by one
+  /// absolute deadline, `mirrorDrop` after step 11's removal (`waitForNoMirror`; the file is
+  /// gone by now, so a copy left is iTerm2's alone and there is nothing to clean up), then
+  /// requires the same hashes as the first snapshot. Reports how long after the removal the
+  /// copy was gone.
+  private func compareSnapshotAfterRemoval() async throws -> String {
+    guard let firstSnapshot, let removedAt, let written else {
+      throw ProfileRunFailure("no first snapshot, no installed profile or no removal")
+    }
+    let wait = try await waitForNoMirror(written: written, until: removedAt + limits.mirrorDrop)
+    guard let settled = wait.settled, let settledAt = wait.settledAt else {
+      let late = wait.endedLate ? "; a snapshot that ended after that was not counted" : ""
+      guard let last = wait.last else {
+        let why =
+          wait.endedLate
+          ? "the last one ended after that and was not counted" : "no time was left after step 12"
+        throw ProfileRunFailure(
+          "no snapshot of New Bookmarks ended within \(limits.mirrorDrop) of "
+            + "\(PersistentProfiles.fileName)'s removal (\(why); the file is gone, nothing else to "
+            + "clean up)")
+      }
+      let changed = last.differences(from: firstSnapshot)
+      let others =
+        changed.isEmpty
+        ? "the other profiles hash as before"
+        : "the other profiles changed too: \(changed.joined(separator: ", "))"
+      throw ProfileRunFailure(
+        "iTerm2 still holds \(Self.mirrors(last.excludedMuxFinderEntries)) in New "
+          + "Bookmarks \(limits.mirrorDrop) after \(PersistentProfiles.fileName) was removed "
+          + "(\(others)\(late); the file is gone, nothing else to clean up)")
+    } // End of the failure without a snapshot free of the run's copy
+    let elapsed = Int((settledAt - removedAt) / .milliseconds(1))
+    notes.append(
+      wait.sawMirror
+        ? "iTerm2 dropped its copy of the profile from New Bookmarks \(elapsed) ms after the file "
+          + "was removed"
+        : "New Bookmarks held no copy of a muxFinder profile \(elapsed) ms after the file was "
+          + "removed")
+    try requireSameHashes(settled, as: firstSnapshot)
+    return "identical to the first snapshot (\(settled.entryCount) entries, New Bookmarks "
+      + "\(settled.newBookmarks?.count ?? 0) hashed) once New Bookmarks held no muxFinder copy, "
+      + "\(elapsed) ms after the removal"
+  } // End of func compareSnapshotAfterRemoval()
+
+  /// What `waitForNoMirror` saw.
+  private struct MirrorWait {
+    /// The first snapshot without a copy that ended by the deadline, if any.
+    var settled: ITerm2ProfileSnapshot?
+    /// When that snapshot ended.
+    var settledAt: ContinuousClock.Instant?
+    /// The last snapshot that ended by the deadline.
+    var last: ITerm2ProfileSnapshot?
+    /// Whether a snapshot held a copy.
+    var sawMirror = false
+    /// Whether the last snapshot ended (or failed) after the deadline and was not counted.
+    var endedLate = false
+  } // End of struct MirrorWait
+
+  /// Snapshots (`written` as the options' written profiles) until one that ends by `deadline`
+  /// holds no copy of a muxFinder profile (`excludedMuxFinderEntries` 0), pausing
+  /// `mirrorPollInterval` between two. Every `defaults export` gets at most what is left before
+  /// `deadline`, every pause too; a snapshot that ends after `deadline`, or fails once it has
+  /// passed, is not counted and ends the wait. `first`, a snapshot already taken that holds a
+  /// copy, makes it pause before its first snapshot. Cancellation ends it with
+  /// `CancellationError`.
+  private func waitForNoMirror(
+    written: [ITerm2ProfileSnapshotter.WrittenProfile]?,
+    until deadline: ContinuousClock.Instant,
+    after first: ITerm2ProfileSnapshot? = nil
+  ) async throws -> MirrorWait {
+    var wait = MirrorWait(last: first, sawMirror: first != nil)
+    if first != nil, try await !pause(before: deadline) { return wait }
+    while true {
+      try Task.checkCancellation()
+      let remaining = deadline - parts.clock.now()
+      guard remaining > .zero else { return wait }
+      let options = ITerm2ProfileSnapshotter.Options(
+        written: written, exportTimeout: min(ITerm2ProfileSnapshotter.exportTimeout, remaining))
+      let snapshot: ITerm2ProfileSnapshot
+      do {
+        snapshot = try await parts.snapshot(options)
+      } catch let error where !(error is CancellationError) && parts.clock.now() >= deadline {
+        // The export was cut at the deadline (or failed past it): out of time, not a failure
+        // of its own.
+        try Task.checkCancellation()
+        wait.endedLate = true
+        return wait
+      }
+      let endedAt = parts.clock.now()
+      guard endedAt <= deadline else {
+        wait.endedLate = true
+        return wait
+      }
+      wait.last = snapshot
+      guard snapshot.excludedMuxFinderEntries > 0 else {
+        (wait.settled, wait.settledAt) = (snapshot, endedAt)
+        return wait
+      }
+      wait.sawMirror = true
+      guard try await pause(before: deadline) else { return wait }
+    } // End of loop over the snapshots
+  } // End of func waitForNoMirror(written:until:after:)
+
+  /// Sleeps `mirrorPollInterval`, or what is left before `deadline` when that is less; returns
+  /// `false` without sleeping when nothing is left.
+  private func pause(before deadline: ContinuousClock.Instant) async throws -> Bool {
+    let left = deadline - parts.clock.now()
+    guard left > .zero else { return false }
+    try await parts.clock.sleep(for: min(limits.mirrorPollInterval, left))
+    return true
+  }
+
+  /// Throws, naming what changed, unless `snapshot` hashes the same as `first`; when the
+  /// number of hashed `New Bookmarks` entries differs, a note gives both (an entry that only
+  /// looks like a copy of the run's profile is hashed, so it shows as one more).
+  private func requireSameHashes(
+    _ snapshot: ITerm2ProfileSnapshot,
+    as first: ITerm2ProfileSnapshot
+  ) throws {
+    guard snapshot.hashesMatch(first) else {
+      if let now = snapshot.newBookmarks?.count, let before = first.newBookmarks?.count,
+        now != before
+      {
+        notes.append("New Bookmarks: \(now) profiles hashed now, \(before) in the first snapshot")
+      }
+      throw ProfileRunFailure(
+        "iTerm2's other profiles changed: "
+          + snapshot.differences(from: first).joined(separator: ", "))
+    }
+  } // End of func requireSameHashes(_:as:)
+
+  /// `count` mirrored muxFinder entries, in words.
+  private static func mirrors(_ count: Int) -> String {
+    "\(count) mirrored muxFinder entr\(count == 1 ? "y" : "ies")"
   }
 
   /// Step 9.
@@ -517,6 +714,7 @@ public actor PersistentProfileRun {
     let outcome = try parts.installer.remove(expecting: installedBytes)
     guard outcome == .removed else { throw ProfileRunFailure("the profile file was gone") }
     self.installedBytes = nil
+    removedAt = parts.clock.now()
     try parts.store.removeProfileTestHosts(forHostID: host.id)
     testHostsWritten = false
     return "\(PersistentProfiles.fileName) removed (it still held the run's bytes); test host list "
@@ -697,6 +895,7 @@ public actor PersistentProfileRun {
   } // End of func waitUntilTabIsOldEnough(ignoringCancellation:)
 
   /// Polls `condition` every `limits.pollInterval` until it returns a value or `limit` passes.
+  /// Cancellation ends it with `CancellationError` (the clock's sleep).
   private func poll<Value: Sendable>(
     within limit: Duration,
     _ condition: () async throws -> Value?

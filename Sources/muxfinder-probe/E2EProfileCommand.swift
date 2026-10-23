@@ -14,18 +14,22 @@ enum E2EProfileCommand {
           Real run of a persistent work profile; writes DynamicProfiles/muxFinder.json and
           opens an iTerm2 window. Refuses to start when muxFinder.json exists there (it is
           yours then) or a session named muxfinder-test-profile exists. Takes a hash
-          snapshot of iTerm2's other profiles, creates muxfinder-test-profile (panes run
-          sleep 600) on the default tmux server of this Mac or of the destination (over ssh
-          with BatchMode), installs a profile for a test host (its host list is a test file
-          in muxFinder's launch folder, read by the helper in test mode; your hosts.json is
-          never read or written), waits until iTerm2 lists it, opens it with CreateTab,
-          checks that its tab gets a control-mode connection to that session, compares the
-          snapshot, detaches through the tab's own connection once the tab is 10 s old,
-          kills only that session, removes only the file it wrote, waits until iTerm2 drops
-          the profile and compares the snapshot again, printing a PASS or FAIL line per
-          step. Cleans up after itself, also on failure or Ctrl-C. Asks only its own tab's
-          tmux connection. Needs iTerm2 running with its API on and TMUX_TMPDIR unset. Run
-          swift build first: iTerm2 runs the muxfinder-launch next to this executable.
+          snapshot of iTerm2's other profiles (waiting up to 5 s for New Bookmarks to hold
+          no copy of a muxFinder profile, else stopping), creates muxfinder-test-profile
+          (panes run sleep 600) on the default tmux server of this Mac or of the
+          destination (over ssh with BatchMode), installs a profile for a test host (its
+          host list is a test file in muxFinder's launch folder, read by the helper in test
+          mode; your hosts.json is never read or written), waits until iTerm2 lists it,
+          opens it with CreateTab, checks that its tab gets a control-mode connection to
+          that session, compares the snapshot (only iTerm2's unchanged copy of this run's
+          profile in New Bookmarks left out), detaches through the tab's own connection
+          once the tab is 10 s old, kills only that session, removes only the file it
+          wrote, waits until iTerm2 drops the profile and (by 30 s after the removal) its
+          copy from New Bookmarks, and compares the snapshot again,
+          printing a PASS or FAIL line per step. Cleans up after itself, also on failure or
+          Ctrl-C. Asks only its own tab's tmux connection. Needs iTerm2 running with its API
+          on and TMUX_TMPDIR unset. Run swift build first: iTerm2 runs the muxfinder-launch
+          next to this executable.
     """
 
   /// How long the whole run may take before it is stopped and cleaned up.
@@ -132,7 +136,7 @@ enum E2EProfileCommand {
     let snapshotter = ITerm2ProfileSnapshotter()
     let parts = PersistentProfileRun.Parts(
       iTerm2: client, installer: PersistentProfileInstaller(),
-      snapshot: { try await snapshotter.snapshot() }, store: LaunchStore(),
+      snapshot: { try await snapshotter.snapshot($0) }, store: LaunchStore(),
       tmux: Tmux(base: base), discovery: DiscoveryProbe(), clock: SystemAttachClock(),
       output: output)
     let harness = PersistentProfileRun(

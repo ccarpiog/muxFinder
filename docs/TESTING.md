@@ -841,7 +841,22 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   counted; the snapshot unchanged by an install and a removal, a changed sibling or bookmark
   named by `differences(from:)`; the bookmarks digest independent of key order and free of
   profile names; booleans, integers and reals told apart; no `New Bookmarks`, output that is
-  not a property list, `New Bookmarks` not an array, a failing `defaults`, a missing folder.
+  not a property list, `New Bookmarks` not an array, a failing `defaults`, a missing folder;
+  the export's timeout is the default 20 s or the one a caller passes.
+  The exclusion of iTerm2's copies of muxFinder's profiles (`MirrorRule`): without written
+  profiles, only a well-formed generated `Guid` together with a `Dynamic Profile Filename`
+  that standardizes to exactly the owned `muxFinder.json` is left out and counted
+  (`excludedMuxFinderEntries`); the GUID alone, the file alone, another dynamic profile's
+  copy, a look-alike GUID (`muxfinder-persistent-custom`, an uppercase UUID, a suffix, a
+  capitalized prefix), another folder's, a bare or a relative `muxFinder.json`, a trailing
+  `/` or `.`, a path climbing out of the folder and non-string values are hashed, in order;
+  no rule or an unusable owned path leaves nothing out. With the profiles written (parsed
+  from a generated document), only a copy with one of their GUIDs holding every written key
+  with an equal value is left out: a changed `Command` or `Name`, `Tags` gone or changed, a
+  boolean turned integer, another generated GUID, another folder's file or no file key is
+  hashed. The snapshotter's owned file is `<its folder>/muxFinder.json`. The JSON holds
+  `count`, `sha256` and `excludedMuxFinderEntries` and nothing of any entry; snapshots
+  differing only in that count match (`hashesMatch`, `differences(from:)`) but are not `==`.
 - **Persistent profiles: launch parts** (`ProfileLaunchTests`): the plan from the host list
   (override, session name, `main`, discovery switch ignored) and every refusal; problems'
   kinds, explanations and exit statuses (77 nesting, 76 host); the nesting variables (empty
@@ -876,7 +891,21 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   nothing left, the user's entries unchanged); an existing `muxFinder.json` or session stops
   the run before anything is created (the file untouched, the session not killed); a tab that
   never connects fails step 6 and cleanup closes only that tab, once 10 s old; a helper whose
-  child is not the expected argv fails step 6 and cleanup detaches through the binding.
+  child is not the expected argv fails step 6 and cleanup detaches through the binding. With
+  a fake `defaults` playing iTerm2's copy of the installed profile in `New Bookmarks`
+  (`MirroringDefaults`: every key of the file plus keys of its own): a copy dropped 12 s after
+  the removal passes all 14 steps (step 8's note counts the copy left out, step 13 reports
+  the drop 12000 ms after the removal); a copy never dropped fails step 13 30 s after the
+  removal with the file gone and nothing left; a renamed user profile still fails step 8
+  (while installed) or step 13 (after the copy went). Beside the run's copy at step 8, a
+  copy with a changed `Command`, a look-alike GUID naming the owned file, the run's GUID
+  naming another folder's `muxFinder.json`, or another generated GUID fails step 8 on `New
+  Bookmarks` with a note of 3 profiles hashed against 2. A copy of a muxFinder profile before
+  the run (no `muxFinder.json`) is waited for in step 1 (dropped after 2 s: noted, all 14
+  pass) or fails step 1 after 5 s with nothing created. Step 13's deadline counts from the
+  removal: with step 12 taking 25 s, a copy that stays fails step 13 after the 5 s left, the
+  exports' timeouts 5 s, 4.5 s … 0.5 s; an export of 6 s then is cut at its 5 s timeout, or
+  overruns it and ends clean after the deadline, and either way fails step 13 as out of time.
 
 ## Helper test mode: argv digest
 
@@ -924,8 +953,8 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
 (exit 75) means a modal iTerm2 dialog is open; stop and report which step caused it.
 
 - `swift run muxfinder-probe e2e-profile --local | --ssh saturno-m4` — the persistent
-  profile run (PLAN.md D26, Phase 11b); its steps are listed under *Phase 11b — planned real
-  runs* below. It writes the real `DynamicProfiles/muxFinder.json` for the run only and
+  profile run (PLAN.md D26, Phase 11b); its steps and real results are under *Phase 11b —
+  real persistent profile runs* below. It writes the real `DynamicProfiles/muxFinder.json` for the run only and
   refuses to start when that file exists.
 - `swift run muxfinder-probe e2e-local` — the local integration proof (PLAN.md Phases 4, 5a,
   6a and 6b). It creates `muxfinder-test-<8 hex digits>` on the default server (two windows, the first
@@ -1630,14 +1659,26 @@ The run made no fix necessary. Still unverified for real: Show tab (a local atta
 reaches "Still connecting"), and the "Set up SSH in iTerm2…" round trip, which needs an
 interactive ssh login and is owed to the user (see `PROGRESS.md`).
 
-### Phase 11b — planned real runs (persistent profiles)
+### Phase 11b — real persistent profile runs (2026-10-23)
 
-Not run yet: Phase 11a is hermetic (no iTerm2 window, no real `DynamicProfiles` file). Phase
-11b runs these with the same rules as every real run: from a shell inside iTerm2, `TMUX_TMPDIR`
-unset, after `swift build` (iTerm2 runs the `muxfinder-launch` next to the probe), checking
-`.build/debug/muxfinder-probe iterm2 status` and iTerm2's thread count (`ps -M -p <pid> | wc
--l`) before and after each run and letting the count fall back between runs; a timeout means a
-modal iTerm2 dialog or an API stall: stop and report.
+The `e2e-profile` harness (PLAN.md D26) against the real iTerm2, locally and on Saturno, with
+`profiles hashes` as an independent record around it. Runs 1 and 2 are on the Phase 11a tree:
+both failed at step 8, because iTerm2 copies a loaded dynamic profile into its saved `New
+Bookmarks` (the diagnosis below; PLAN.md *Verified facts*). The fix: the snapshot leaves out
+iTerm2's copies of muxFinder's own profiles and counts them (`excludedMuxFinderEntries`), and
+step 13 waits, by 30 s after the removal, for iTerm2 to drop its copy (D26). Runs 3 and 4 are
+on the fixed tree. The review of 11b then tightened both after those runs (D26): only a copy
+proven to be the run's (its exact GUID, exactly the installer's `muxFinder.json` path, every
+key the run wrote unchanged) is left out, a baseline holding a copy is waited for (5 s) or
+refused, and step 13's deadline is absolute from the removal, each export and pause capped
+to it. Runs 5 and 6 ran that tightened rule on the final tree, locally and on Saturno, and
+passed.
+
+Procedure, kept for a rerun. Use the same rules as every real run: from a shell inside
+iTerm2, `TMUX_TMPDIR` unset, after `swift build` (iTerm2 runs the `muxfinder-launch` next to
+the probe), checking `.build/debug/muxfinder-probe iterm2 status` and iTerm2's thread count
+(`ps -M -p <pid> | wc -l`) before and after each run and letting the count fall back between
+runs; a timeout means a modal iTerm2 dialog or an API stall: stop and report.
 
 1. Preconditions: `ls -A ~/Library/Application\ Support/iTerm2/DynamicProfiles` shows no
    `muxFinder.json` (the run refuses otherwise; never move the user's file in an unattended
@@ -1646,7 +1687,10 @@ modal iTerm2 dialog or an API stall: stop and report.
    ones the run never asks (it asks only its own tab's).
 2. `swift run muxfinder-probe profiles hashes > /tmp/mfx.<run>/hashes-before.json` (read-only)
    as an independent record besides the run's own snapshots.
-3. `swift run muxfinder-probe e2e-profile --local`: expect 14 PASS lines — 1 snapshot before;
+3. `swift run muxfinder-probe e2e-profile --local`: expect 14 PASS lines — 1 snapshot before (if
+   `New Bookmarks` still holds a copy of a muxFinder profile, an earlier run's, the step waits
+   up to 5 s for iTerm2 to drop it and notes how long that took, or fails: rerun once
+   `profiles hashes` shows `excludedMuxFinderEntries` 0);
    2 create session (`muxfinder-test-profile`, `sleep 600` panes, discovered); 3 install
    profile (`muxFinder.json` with one profile for `muxFinder test <hex>`, the test host list
    and the test-mode marker in the launch directory); 4 profile listed (`ListProfiles` for the
@@ -1654,23 +1698,64 @@ modal iTerm2 dialog or an API stall: stop and report.
    name, a new window); 6 connection (owned by that tab; the argv digest exactly `<helper>
    profile <id>`, the child `/opt/homebrew/bin/tmux -u -CC new-session -A -s
    muxfinder-test-profile`); 7 identity (the created session and server, `#{host}` as
-   discovery reported); 8 snapshot installed (identical); 9 detach (after 10 s; the connection
-   and the tab close by themselves, the session survives); 10 kill session; 11 remove profile;
-   12 profile gone; 13 snapshot after (identical); 14 cleanup (nothing left). A `FAIL 14
-   cleanup` saying the run's tab may still be attached left that tab and the session on
-   purpose: finish with the commands it prints (the bound `detach`, then the kill), never by
-   closing the tab. Record the
-   timings, whether iTerm2 showed any alert (none is expected; "Dynamic Profiles Error" would
-   be one), and that no other window or tab changed.
+   discovery reported); 8 snapshot installed (identical hashes; iTerm2 saves the loaded
+   profile into `New Bookmarks`, and that copy, the run's exact `Guid` with a `Dynamic Profile
+   Filename` that is exactly the installed `muxFinder.json` and every key the run wrote
+   unchanged, is left out of the hash; its note counts the copies left out, expected 1; a
+   FAIL on `New Bookmarks` with a note of one more profile hashed means iTerm2's copy did not
+   match, so record it); 9 detach (after 10 s; the connection and the tab
+   close by themselves, the session survives); 10 kill session; 11 remove profile; 12 profile
+   gone; 13 snapshot after (snapshots every 0.5 s until `New Bookmarks` holds no copy of the
+   run's profile, by 30 s after the removal, each export capped to what is left, then
+   identical hashes; its note says how many ms after the removal iTerm2 dropped the copy; a
+   FAIL saying iTerm2 still holds it 30 s after the removal, or that no snapshot ended in
+   time, needs no cleanup, the file is gone); 14 cleanup (nothing left). A `FAIL 14 cleanup`
+   saying the run's tab may still be attached left that tab and the session on purpose:
+   finish with the commands it
+   prints (the bound `detach`, then the kill), never by closing the tab. Record the timings
+   (iTerm2's drop of its copy included), whether iTerm2 showed any alert (none is expected;
+   "Dynamic Profiles Error" would be one), and that no other window or tab changed.
 4. `swift run muxfinder-probe e2e-profile --ssh saturno-m4`: the same 14 steps on Saturno (the
    tab's ssh is interactive, key authentication; the child is `/usr/bin/ssh -t -o
    ConnectTimeout=10 -- saturno-m4 <D3 string>`), the run's own tmux calls over BatchMode ssh,
    no file written on Saturno.
-5. `swift run muxfinder-probe profiles hashes` again, compared with step 2 (identical), and
+5. `swift run muxfinder-probe profiles hashes` again, compared with step 2 (identical, with
+   `newBookmarks.excludedMuxFinderEntries` 0 in both), and
    `ls -A` of `DynamicProfiles` and of `~/Library/Application Support/muxFinder/launch/` (no
    `muxFinder.json`, no `profile-test-*.json`, no `test-mode`, no `argv-*`), `tmux ls` locally
    and on Saturno (no `muxfinder-test-profile`).
-6. Owed observations for PLAN.md D26 (*Owed to 11b*): iTerm2 loading and dropping the file, the
-   dot-file skip during the atomic write, the three-argument split of the profile command,
-   `Close Sessions On End` from a dynamic profile, and the unknown-parent fallback if a
-   parent is tried (with a synthetic parent name, never one of the user's profiles).
+6. What the steps cannot show by themselves (PLAN.md D26, *Owed to 11b*): a non-modal
+   "Dynamic Profiles Error" alert in iTerm2 during the install (only a person looking at
+   iTerm2 can tell), and the unknown-parent fallback if a parent is tried (with a synthetic
+   parent name, never one of the user's profiles; the harness has no option for it yet).
+
+Environment: Neptuno, macOS 27.2 (build 26B118), iTerm2 3.7.6 (API protocol 1.21), tmux 3.8
+on Neptuno and Saturno. iTerm2's thread count: 22 before run 1, then 25, 26, 28 and 30 after
+runs 1 to 4, still 30 before run 5, then 34 and 35 after runs 5 and 6 (1–4 per run).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Before the runs | `iterm2 status`; `iterm2 list-connections`; listings of `DynamicProfiles`, of `~/Library/Application Support/muxFinder` and of `/private/tmp/mfx.*`; tmux on Neptuno and Saturno | connected (protocol 1.21); 0 connections; `DynamicProfiles` empty; muxFinder's folder only `launch/`, empty; no tmux server on either Mac; no `/private/tmp/mfx.*` |
+| Hashes, before | `swift run muxfinder-probe profiles hashes` | 0 other `DynamicProfiles` entries; `New Bookmarks` count 13, SHA-256 `9178e053…5d6f` |
+| `e2e-profile --local`, runs 1 and 2 (Phase 11a tree) | `swift run muxfinder-probe e2e-profile --local`, twice | exit 1 both times, after 11.0 s and 11.6 s. Steps 1–7 PASS: `ListProfiles` showed the GUID after 213 ms and 408 ms; `CreateTab` by profile name opened a new window; the connection was owned by the tab 210–224 ms after `CreateTab`; iTerm2 split the command into exactly `<helper> profile <id>`, and the helper's child had exactly the expected 7 arguments; the control-mode identity was confirmed. Then `FAIL 8 snapshot installed: iTerm2's other profiles changed: New Bookmarks`, and `PASS 14 cleanup` (`detach-client` through the tab's connection, the session killed, `muxFinder.json` removed) |
+| Diagnosis | during run 2, a digest-only comparison of `/usr/bin/defaults export com.googlecode.iterm2 -` (no value read) | while `muxFinder.json` was installed, `New Bookmarks` went from 13 to 14 entries: the new one had a `Guid` with the `muxfinder-persistent-` prefix and a `Dynamic Profile Filename` key (78 keys), and the 13 user entries were byte-identical. Right after the run's removal the copy was still there; seconds later it was gone and the array identical to before. So iTerm2 3.7.6 mirrors loaded dynamic profiles into `New Bookmarks` and drops them after the file goes |
+| `e2e-profile --local`, run 3 (fixed tree) | `swift run muxfinder-probe e2e-profile --local` | exit 0, 14 of 14 steps PASS in 11.1 s: 1 snapshot before 159 ms (0 other entries, 13 bookmarks hashed); 2 create session 54 ms; 3 install profile 7 ms (440 bytes); 4 profile listed after 208 ms; 5 open tab 118 ms (a new window); 6 connection 215 ms (owned by the tab 214 ms after `CreateTab`; the command split into exactly `<helper> profile <id>`; the child 7 arguments); 7 identity 0 ms (control-mode attachment confirmed); 8 snapshot installed 23 ms, identical (note: 1 mirrored muxFinder entry left out); 9 detach 10086 ms (the connection closed, the helper ended, the tab closed by itself, the session survived); 10 kill session 4 ms; 11 remove profile 0 ms; 12 profile gone after 205 ms; 13 snapshot after 32 ms, identical, iTerm2's copy gone 238 ms after the removal; 14 cleanup, nothing left |
+| `e2e-profile --ssh saturno-m4`, run 4 (fixed tree) | `swift run muxfinder-probe e2e-profile --ssh saturno-m4` | exit 0, 14 of 14 steps PASS in 16.1 s: 1 snapshot before 918 ms; 2 create session 1474 ms; 3 install profile 10 ms (440 bytes); 4 profile listed after 629 ms; 5 open tab 142 ms (a new window); 6 connection 870 ms (owned by the tab 869 ms after `CreateTab`; split exactly; the child 7 arguments); 7 identity 76 ms (confirmed); 8 snapshot installed 40 ms, identical (1 mirrored entry left out); 9 detach 10303 ms (as in run 3: the connection closed, the helper ended, the tab closed by itself, the session survived); 10 kill session 691 ms; 11 remove profile 0 ms; 12 profile gone after 204 ms; 13 snapshot after 61 ms, identical, the copy gone 266 ms after the removal; 14 cleanup, nothing left |
+| `e2e-profile --local`, run 5 (final tree, after the review fixes) | `.build/debug/muxfinder-probe e2e-profile --local`, iTerm2 at 30 threads | exit 0, 14 of 14 steps PASS in 11.4 s: 1 snapshot before 155 ms; 2 create session 55 ms; 3 install profile 5 ms (440 bytes); 4 profile listed after 417 ms; 5 open tab 134 ms (a new window); 6 connection 226 ms (owned by the tab 226 ms after `CreateTab`; split exactly; the child 7 arguments); 7 identity 1 ms (confirmed); 8 snapshot installed 27 ms, identical, iTerm2's copy recognized by the strict rule (exact GUID, exact path, every written key unchanged) and left out; 9 detach 10135 ms (as in run 3); 10 kill session 5 ms; 11 remove profile 0 ms; 12 profile gone after 210 ms; 13 snapshot after 32 ms, identical, the copy gone 243 ms after the removal; 14 cleanup, nothing left. iTerm2 then at 34 threads |
+| `e2e-profile --ssh saturno-m4`, run 6 (final tree) | `.build/debug/muxfinder-probe e2e-profile --ssh saturno-m4` | exit 0, 14 of 14 steps PASS in 15.8 s: 1 snapshot before 904 ms; 2 create session 1439 ms; 3 install profile 8 ms; 4 profile listed after 212 ms; 5 open tab 153 ms (a new window); 6 connection 866 ms (owned by the tab 865 ms after `CreateTab`; split exactly; the child 7 arguments); 7 identity 74 ms (confirmed); 8 snapshot installed 43 ms, identical (the copy left out by the strict rule); 9 detach 10504 ms (as in run 3); 10 kill session 700 ms; 11 remove profile 1 ms; 12 profile gone after 206 ms; 13 snapshot after 38 ms, identical, the copy gone 245 ms after the removal; 14 cleanup, nothing left. iTerm2 then at 35 threads |
+| Hashes, after all runs | `swift run muxfinder-probe profiles hashes` (again after runs 5 and 6) | identical to before: the same entries (none), `New Bookmarks` count 13 with the same SHA-256, `excludedMuxFinderEntries` 0 |
+| Leftovers after all runs | `iterm2 status`; `iterm2 list-connections`; listings of `DynamicProfiles`, of the launch folder and of muxFinder's folder; `tmux ls` on Neptuno and Saturno | connected; 0 connections; `DynamicProfiles` empty; the launch folder empty; muxFinder's folder holds `launch/` and `profiles.lock` (D26: the lock file is never removed); `no server running` on either Mac; no file written on Saturno |
+
+Still unverified (PLAN.md D26):
+
+- The dot-file skip is seen only indirectly: no stray profile, no failure, and the API
+  answered throughout. Whether iTerm2 showed a non-modal "Dynamic Profiles Error" alert while
+  the hidden temporary file existed cannot be seen by an unattended run (no screen capture of
+  iTerm2 is allowed), so a person's glance at iTerm2 during a run is still owed.
+- The unknown-parent fallback was not tried for real: the harness installs a profile without
+  a parent, and a try needs a synthetic parent name and a harness option.
+- `new-session -A -s muxfinder-test-profile` attached the run's existing session by its exact
+  name on both hosts. A name tmux could read as another target (a leading `$ = @ % ! ~ { + ^`)
+  stays untried on a server; validation refuses such names.
+- A login shell ending by itself within 3 s, beyond the helper's hold, was not exercised: the
+  runs never reach the login-shell fallback.

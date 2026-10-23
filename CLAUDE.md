@@ -95,7 +95,9 @@ attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product b
   a helper path iTerm2 could split wrongly is refused), and `profiles hashes [--directory
   <path>]` prints names, kinds and SHA-256 digests of every other `DynamicProfiles` entry and
   the count and digest of `New Bookmarks` (`/usr/bin/defaults export com.googlecode.iterm2 -`,
-  never `defaults write`), never a profile's contents. Install or remove profiles in checks
+  never `defaults write`) leaving out iTerm2's own copies of muxFinder's profiles (only an
+  entry with a well-formed generated `Guid` naming exactly that folder's `muxFinder.json`;
+  `excludedMuxFinderEntries`), never a profile's contents. Install or remove profiles in checks
   only through `PersistentProfileInstaller` on a private folder, never on the real
   `~/Library/Application Support/iTerm2/DynamicProfiles/` (`e2e-profile` aside). PLAN.md D26.
 - Refresh engine check (prints JSON, opens no window, writes nothing): `swift run

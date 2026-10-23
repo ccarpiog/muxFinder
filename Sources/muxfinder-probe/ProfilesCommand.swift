@@ -8,7 +8,11 @@ import MuxFinderCore
 /// prints the read-only hash snapshot of iTerm2's other profiles (`ITerm2ProfileSnapshot`):
 /// entry names, kinds and SHA-256 digests of `DynamicProfiles/*` except `muxFinder.json`, and
 /// the count and digest of `New Bookmarks` from `/usr/bin/defaults export com.googlecode.iterm2
-/// -`; never a profile's contents. Neither contacts iTerm2, runs ssh or writes a file.
+/// -` without iTerm2's copies of muxFinder's own profiles (`excludedMuxFinderEntries` counts
+/// them; knowing no install, it takes for one only an entry with a well-formed generated GUID
+/// naming exactly the snapshotted folder's `muxFinder.json`,
+/// `ITerm2ProfileSnapshotter.MirrorRule`); never a profile's contents. Neither contacts
+/// iTerm2, runs ssh or writes a file.
 enum ProfilesCommand {
   /// Usage lines for this subcommand group.
   static let usage = """
@@ -26,7 +30,11 @@ enum ProfilesCommand {
           Print a read-only hash snapshot of iTerm2's other profiles as JSON: each entry of
           ~/Library/Application Support/iTerm2/DynamicProfiles except muxFinder.json (name,
           kind, SHA-256 of a file's bytes or a link's text) and the count and SHA-256 of a
-          canonical form of New Bookmarks from defaults export com.googlecode.iterm2 -.
+          canonical form of New Bookmarks from defaults export com.googlecode.iterm2 -,
+          without iTerm2's copies of muxFinder's own profiles (a Guid that is exactly
+          muxfinder-persistent-<lowercase UUID> and a Dynamic Profile Filename that is
+          exactly that folder's muxFinder.json): count is the hashed entries,
+          excludedMuxFinderEntries the copies left out.
           Names and hashes only, never profile contents; writes nothing.
           --directory  Snapshot this folder instead of iTerm2's DynamicProfiles.
     """
