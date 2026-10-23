@@ -143,8 +143,10 @@ The README's statement about quarantined copies was not tried.
 
 - **Do:** send `muxFinder.app` to another Mac with AirDrop (or download it), move it to
   `/Applications`, double-click it.
-- **Expect:** macOS refuses to open it at first (not notarized); System Settings › Privacy &
-  Security offers "Open Anyway". A copy made with `ditto`, `rsync` or `scp` opens directly.
+- **Expect:** a build from `scripts/build-app.sh`: macOS refuses to open it at first (not
+  notarized); System Settings › Privacy & Security offers "Open Anyway". A notarized build from
+  `scripts/release.sh` (send `build/muxFinder.zip`): macOS asks once whether to open an app
+  from the internet, then opens it. A copy made with `ditto`, `rsync` or `scp` opens directly.
 - **Undo:** delete that copy.
 
 ## 10. Sirio (`sirio-m5`)

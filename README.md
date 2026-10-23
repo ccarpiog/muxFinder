@@ -49,8 +49,18 @@ codesign --verify --deep --strict build/muxFinder.app
 `scripts/build-app.sh` signs the bundle with hardened runtime using the first "Apple
 Development" certificate in your keychain (or the identity named in `MUXFINDER_SIGN_IDENTITY`).
 Without one it signs ad hoc and warns: then macOS forgets the Automation permission (below)
-on every rebuild. **The app is never notarized.** The builds tested so far were signed with an
-Apple Development certificate.
+on every rebuild. These everyday builds are **not notarized**.
+
+**Notarized builds.** `scripts/release.sh` builds the same bundle signed with your "Developer
+ID Application" certificate and a secure timestamp, submits it to Apple's notary service,
+staples the ticket, checks Gatekeeper's verdict, and leaves `build/muxFinder.zip` for
+distribution. It needs a notarytool keychain profile named `AC_NOTARY_PROFILE` (or the name in
+`MUXFINDER_NOTARY_PROFILE`), created once with `xcrun notarytool store-credentials`. macOS ties
+the Automation permission (below) to the certificate, so the first Developer ID build you run
+asks for it again.
+
+The app icon and the menu bar icon are generated files in `Resources/`; their sources and the
+script that regenerates them are in `scripts/dev/icon/`.
 
 ## Install on each Mac
 
@@ -74,14 +84,16 @@ It never starts the app. Prefer `/Applications`: muxFinder refuses to open sessi
 own path has characters other than letters, digits and `. _ / -`, which a home folder with a
 space in its name would add to `~/Applications`.
 
-**Signing and Gatekeeper.** muxFinder is not notarized. A copy you built on that Mac, or copied
-with a tool that does not mark files as downloaded (`ditto`, `cp`, `rsync`, `scp`), carries no
-quarantine flag, so macOS opens it without Gatekeeper's notarization check; that is how it
-was run during development. A copy that arrives through a browser, AirDrop, Mail or Messages
-is quarantined, and macOS will refuse to open it until you allow it in System Settings ›
-Privacy & Security ("Open Anyway"). That last path is how Gatekeeper treats apps that are not
-notarized; it was not tried with muxFinder. An "Apple Development" signature does not change
-it.
+**Signing and Gatekeeper.** A build from `scripts/build-app.sh` is not notarized. A copy you
+built on that Mac, or copied with a tool that does not mark files as downloaded (`ditto`, `cp`,
+`rsync`, `scp`), carries no quarantine flag, so macOS opens it without Gatekeeper's
+notarization check; that is how it was run during development. A copy that arrives through a
+browser, AirDrop, Mail or Messages is quarantined, and macOS will refuse to open it until you
+allow it in System Settings › Privacy & Security ("Open Anyway"). That last path is how
+Gatekeeper treats apps that are not notarized; it was not tried with muxFinder. An "Apple
+Development" signature does not change it. A notarized build from `scripts/release.sh` opens
+after macOS's usual one-time question about an app from the internet; `scripts/install.sh`
+says which kind it installed.
 
 ## Permissions
 
@@ -187,7 +199,8 @@ profile your default: iTerm2 › Settings › Profiles, select it, Other Actions
   other computer is attached, so muxFinder does not guess.
 - **Not in this version:** deleting sessions, cloud sync, terminal previews, AI features,
   moving running processes between computers, bringing sessions back after a reboot,
-  workspace management, a notarized download, Intel builds.
+  workspace management, a published download (`scripts/release.sh` makes a notarized zip, but
+  none is published), Intel builds.
 - **Known rough edges** (details in `docs/TESTING.md` and `PROGRESS.md`): a few checks need a
   person and are listed in `docs/MANUAL-CHECKLIST.md` (the real popover by hand, launch at
   login, "Show tab", the first Finder launch, Sirio, persistent profiles from Settings);

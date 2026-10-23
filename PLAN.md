@@ -129,8 +129,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `LSMinimumSystemVersion` 14.0 and `NSAppleEventsUsageDescription`. It signs with the first
   "Apple Development" identity (override with `MUXFINDER_SIGN_IDENTITY`), using hardened
   runtime plus the `com.apple.security.automation.apple-events` entitlement, not sandboxed. The
-  ad-hoc fallback warns that macOS permission grants reset on every build. No notarization;
-  never claim it. Target arm64 only, since all three Macs are Apple Silicon (M4, M4, M5).
+  ad-hoc fallback warns that macOS permission grants reset on every build. Everyday builds are
+  not notarized; `scripts/release.sh` signs with Developer ID and notarizes (D28). Never claim
+  notarization for a build that did not go through it. Target arm64 only, since all three
+  Macs are Apple Silicon (M4, M4, M5).
 - **D8 — Storage.** Configuration lives in `~/Library/Application Support/muxFinder/`
   (`hosts.json`, `launch/`, diagnostics), with directories 0700 and files 0600, and no
   extended ACL (D14 for `launch/`, D19 for the folder itself and `hosts.json`). The app owns
@@ -978,8 +980,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Sources/MuxFinderApp/`).
   - **Layers:** the `MuxFinderUI` library holds the model, the popover's content and views,
     and the preview fixtures; `Tests/MuxFinderUITests/` imports it. The `MuxFinderApp`
-    executable keeps only the entry point, the `MenuBarExtra(.window)` scene (SF Symbol
-    `terminal`) and the app delegates (the menu bar app's, the preview window's and the
+    executable keeps only the entry point, the `MenuBarExtra(.window)` scene (muxFinder's
+    template icon, D28; the SF Symbol `terminal` when unbundled) and the app delegates (the menu bar app's, the preview window's and the
     self-tests', D25). `PopoverContent` is a pure value computed from the
     engine's `RefreshState`, the search text, per-session activities, the selection and
     `now`; every displayed rule lives there and is tested without SwiftUI.
@@ -1844,6 +1846,49 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     (exit 2). The profile flag gets the private folders, the preferences domain is never read
     or written, and signals reach only processes of the private copies. Both scripts refuse to
     run as root.
+- **D28 — App icon, menu bar icon and release signing** (decided 2026-10-23, after Phase 12;
+  sources in `scripts/dev/icon/`, generated files in `Resources/`, code in
+  `Sources/MuxFinderUI/Views/MenuBarIconLabel.swift`, `scripts/build-app.sh`,
+  `scripts/release.sh`; test `Tests/MuxFinderUITests/MenuBarIconTests.swift`).
+  - **The mark** (decided: "split window", chosen by the user from three directions on one
+    contact sheet): a rounded window frame split into three panes the way tmux splits them,
+    with a solid status bar along the bottom. White on midnight blue in the app icon; the same
+    mark in black on transparency is the menu bar template image. Its brief (construction,
+    palette, 16 px legibility rule) is `scripts/dev/icon/BRIEF.md`.
+  - **How the art is made** (decided: background painted, mark drawn by code): the background
+    (`plate.png`) is a raster painted by ChatGPT from the prompt in
+    `scripts/dev/icon/README.md`; the mark is drawn by `glyph.swift` (written with Codex),
+    because a template image needs one flat colour, a clean alpha channel and legibility at
+    16 px, which image generators get wrong. The mark is drawn natively at every size
+    (fractions of the size snapped to whole pixels), never scaled; at 32 px and below the
+    background is the brief's two-stop gradient instead of the painting. The generated files
+    are committed in `Resources/`; `build-app.sh` only copies them, and regenerating them
+    (`scripts/dev/icon/build-icon.sh`) is a dev step, never part of `swift build` or `swift
+    test`.
+  - **Menu bar icon** (decided: template PNGs in the bundle): `MenuBarIcon.png`, `@2x`, `@3x`
+    (18, 36, 54 px; the mark drawn on a canvas 24/18 the slot and centre-cropped, so it fills
+    about 15 of the 18 pt like system symbols) in `Contents/Resources`, read with
+    `Bundle.main.image(forResource:)` and marked as a template; the scene's label is a `Label`
+    titled "muxFinder" (the menu bar shows only the icon; accessibility reads the title). An
+    unbundled run (`swift run`) has no such file and shows the SF Symbol `terminal`.
+    Considered: drawing the mark in Swift inside the app (duplicates the renderer's geometry)
+    and an asset catalog (needs Xcode's `actool`; this repo is SwiftPM only).
+  - **App icon:** `Contents/Resources/AppIcon.icns` with `CFBundleIconFile` `AppIcon`. The app
+    is an accessory app (`LSUIElement`), so the icon shows in Finder, System Settings and the
+    Automation prompt, not in the Dock.
+  - **Release signing and notarization** (decided: a separate release flow, replacing D7's "no
+    notarization"): everyday builds keep the Apple Development signature without a timestamp.
+    macOS ties the Automation grant to the designated requirement, which for those builds
+    names the Apple Development leaf certificate, so a different identity would reset it.
+    `scripts/release.sh` checks first that notarytool's keychain profile works
+    (`AC_NOTARY_PROFILE`, or `MUXFINDER_NOTARY_PROFILE`; the script never reads, prints or
+    stores credentials), runs `build-app.sh --release` (the first "Developer ID Application"
+    identity or `MUXFINDER_SIGN_IDENTITY`, hardened runtime, secure timestamp, no ad hoc
+    fallback; the helper is signed before the app, as for every build), uploads a `ditto` zip,
+    waits up to 30 minutes, saves the notary log on any verdict but Accepted, staples (three
+    tries, 30 s apart), validates, requires `spctl`'s "source=Notarized Developer ID", and
+    writes `build/muxFinder.zip`. A Developer ID build is a different app to the Automation
+    check, so the first one run asks for that permission again, once.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -2578,7 +2623,7 @@ Requirements:
 - **Keyboard:** ↑/↓ move, Return opens, ⌘F search, ⌘R refresh, ⌘N new session, ⌘, settings,
   Esc closes.
 - **Appearance and accessibility:** accessibility labels and values on rows and badges;
-  readable in light and dark; menu bar icon is an SF Symbol.
+  readable in light and dark; menu bar icon is a template image (an SF Symbol until D28).
 - Do not request the iTerm2 cookie at app launch. Request it only when the popover opens while
   iTerm2 is running, or on an attach.
 
@@ -2783,4 +2828,5 @@ records its results in them.
 ## Deferred (explicitly out of scope for v1)
 
 Named tmux sockets, session deletion, cloud sync, terminal previews, AI features, process
-migration, reboot resurrection, workspace management, notarized distribution, Intel builds.
+migration, reboot resurrection, workspace management, Intel builds. (Notarized distribution
+was deferred too until D28 added `scripts/release.sh`.)

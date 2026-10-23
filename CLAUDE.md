@@ -37,8 +37,16 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `muxfinder-launch` in `Contents/MacOS/`; Info.plist key `MuxFinderScriptInterface` 1 tells
   `uninstall.sh` the binary takes `--remove-persistent-profiles`; signed with hardened runtime
   by the first "Apple Development" identity, or `MUXFINDER_SIGN_IDENTITY`, else ad hoc with a
-  warning; never notarized). Check it with `codesign --verify --deep --strict
-  build/muxFinder.app`.
+  warning; not notarized; app icon and menu bar template PNGs copied from `Resources/`). Check
+  it with `codesign --verify --deep --strict build/muxFinder.app`.
+- Release (PLAN.md D28; uploads the app to Apple's notary service, so only when the user asks
+  for a release): `scripts/release.sh` runs `build-app.sh --release` (Developer ID identity,
+  secure timestamp), notarizes through the notarytool keychain profile `AC_NOTARY_PROFILE`,
+  staples, requires `spctl` "source=Notarized Developer ID" and writes `build/muxFinder.zip`.
+  A Developer ID build makes macOS ask for the Automation permission again once.
+- Icon (dev only; outputs committed): `scripts/dev/icon/build-icon.sh` regenerates
+  `Resources/AppIcon.icns` and `Resources/MenuBarIcon{,@2x,@3x}.png` from
+  `scripts/dev/icon/` (see its README).
 - Install and uninstall (PLAN.md D27; for the user: never run them for real in a check, they
   change `/Applications`, `~/Applications`, `DynamicProfiles/` and Application Support):
   `scripts/install.sh [--user] [--dry-run]` copies `build/muxFinder.app` into `/Applications`

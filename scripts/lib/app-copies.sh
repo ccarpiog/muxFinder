@@ -537,3 +537,22 @@ mf_signing_summary() {
     *) mf_say "unsigned" ;;
   esac
 } # End of function mf_signing_summary
+
+# Prints what Gatekeeper says about the app copy $1 (scripts/release.sh, PLAN.md D28):
+# "notarized" for an accepted notarized Developer ID, "not notarized" for any other verdict,
+# and "notarization unknown" when spctl gives no verdict within 10 s (it asks the system's
+# assessment service, which may consult its cache or the network). spctl is part of macOS,
+# unlike xcrun's stapler. Test mode never asks it, so the checks stay hermetic.
+mf_notarization_summary() {
+  local verdict
+  if [ "${MF_TEST_MODE:-}" = "1" ]; then
+    printf '%s\n' "notarization not checked in test mode"
+    return 0
+  fi
+  verdict="$(mf_run_bounded 10 /usr/sbin/spctl --assess --type execute -vv "$1" 2>&1 || true)"
+  case "$verdict" in
+    *"accepted"*"source=Notarized Developer ID"*) printf '%s\n' "notarized" ;;
+    *"rejected"* | *"accepted"*) printf '%s\n' "not notarized" ;;
+    *) printf '%s\n' "notarization unknown" ;;
+  esac
+} # End of function mf_notarization_summary

@@ -132,7 +132,7 @@ check_source() {
 
 # Installs: the checks, stopping a running copy, the staged copy, the swap, the report.
 main() {
-  local source destination kind other new_id
+  local source destination kind other new_id notarization
   parse_arguments "$@"
   mf_refuse_root
   mf_resolve_roots || exit 2
@@ -268,7 +268,8 @@ main() {
   STAGE=""
   trap - EXIT INT TERM
 
-  mf_say "Installed $TARGET (signed with: $(mf_signing_summary "$TARGET"); not notarized)."
+  notarization="$(mf_notarization_summary "$TARGET")"
+  mf_say "Installed $TARGET (signed with: $(mf_signing_summary "$TARGET"); $notarization)."
   if [ "$(mf_copy_kind "$other")" != "none" ]; then
     mf_warn "another copy is at $other; macOS may open either. Remove the one you don't use."
   fi
@@ -277,8 +278,20 @@ main() {
   mf_say "in $destination) or from a terminal with: open \"$TARGET\""
   mf_say "The first launch may show macOS prompts: Automation (\"muxFinder wants access to"
   mf_say "control iTerm2\", needed to talk to iTerm2's Python API; allow it), and, for a copy"
-  mf_say "downloaded or AirDropped from another Mac, Gatekeeper (the app is not notarized; see"
-  mf_say "README.md, \"Install on each Mac\")."
+  case "$notarization" in
+    "notarized")
+      mf_say "downloaded or AirDropped from another Mac, Gatekeeper's one-time question whether"
+      mf_say "to open an app from the internet."
+      ;;
+    "not notarized")
+      mf_say "downloaded or AirDropped from another Mac, Gatekeeper (the app is not notarized;"
+      mf_say "see README.md, \"Install on each Mac\")."
+      ;;
+    *)
+      mf_say "downloaded or AirDropped from another Mac, Gatekeeper (see README.md, \"Install on"
+      mf_say "each Mac\")."
+      ;;
+  esac
 } # End of function main
 
 main "$@"

@@ -38,7 +38,7 @@ Other deliverables of the brief:
 | Deliverable | Status | Evidence so far | 12b fresh run |
 |---|---|---|---|
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
-| Signing status | Stated as built | Signed with hardened runtime by an "Apple Development" certificate on Neptuno; never notarized (*Phase 8* onwards). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
+| Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
 | Unit tests | Tested hermetically | `swift test` (*Phase 12a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
@@ -1996,3 +1996,30 @@ order: 16, 17, 19, 18, 18, 18, 17.
 | Quit leaves work running | `build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local --selftest-keep`, then `kill -TERM <pid>` | steps 1–3 PASS and the keep line printed; after SIGTERM the app exited 0; `tmux has-session -t '=<name>'` exit 0; `iterm2 list-connections` still listed connection `tmux` owned by the test's tab |
 | Keep-mode cleanup | `.build/debug/muxfinder-probe detach --connection tmux --gateway <session id>`, then `tmux -u kill-session -t '=<name>'` | detach exit 0, `connectionClosed: true` (`clean: false`, as always without `--launch-id`); kill exit 0; then 0 connections. The helper's `<launch id>.result.json` stays in the launch directory for the next launch's sweep (D14, results older than 120 s), as in Phase 10b |
 | After all runs | `muxfinder-probe profiles hashes`, compared with the one taken before the first real run; tmux on Neptuno and Saturno; `/private/tmp` | hashes byte-identical; no tmux server left on either Mac; no new `mfx.*` folder |
+
+### D28 — app icon, menu bar icon and release signing (2026-10-23)
+
+The menu bar icon and the app icon (PLAN.md D28) were installed and the release flow written.
+The rows down to "Review" ran before `scripts/dev/icon/plate.png` (the painted background)
+was added, when `AppIcon.icns` used `BRIEF.md`'s gradient at every size; the rows after it
+ran with the plate, ending with one real `scripts/release.sh`.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build -Xswiftc -warnings-as-errors` | exit 0 |
+| Unit tests | `swift test` | exit 0: 680 tests in 67 suites (core) and 162 in 14 suites (UI; the 3 new ones are `MenuBarIconTests`: the committed PNGs are 18/36/54 px, black wherever not transparent, 37–41 % covered, outer ring empty; a bundle with them gives one 18 pt template image with representations 18, 36, 54 px; without them, nil and the fallback symbol exists) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0 |
+| Icon regeneration | `scripts/dev/icon/build-icon.sh` twice, outputs compared with `cmp` | exit 0 (warns: no `plate.png`); all four files byte-identical between the runs; the renderer compiles in Swift 6 mode; its output identical to the reviewed scratch renderer at 16, 18, 24, 36, 48, 54, 72 and 1024 px |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict --verbose=2 build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; `Contents/Resources` holds `AppIcon.icns` and `MenuBarIcon.png`, `@2x`, `@3x`; `CFBundleIconFile` = `AppIcon`; "valid on disk", "satisfies its Designated Requirement" |
+| Usage refusal | `scripts/build-app.sh --bogus` | exit 2, usage line |
+| Release signing | `scripts/build-app.sh --release`, then `codesign -dvv` of the app and the helper and `codesign -d --entitlements -` | exit 0, both signed by "Developer ID Application: … (CXVKS8ZNCD)" with a secure timestamp and `flags=0x10000(runtime)`; entitlements only `com.apple.security.automation.apple-events`; verify exit 0. The development build was rebuilt afterwards |
+| Release refusals | `MUXFINDER_NOTARY_PROFILE=muxfinder-no-such-profile scripts/release.sh`; `scripts/release.sh extra-argument` | exit 1 before building, naming the profile and how to create it; exit 2, usage line. Nothing uploaded |
+| Menu bar item | the app shell check (`--report-menu-bar-item`, then SIGTERM) on this build and on a scratch copy of the tree with only the old `MenuBarExtra("muxFinder", systemImage: "terminal")` restored | both: 7 item windows (two displays), each 34 × 30 pt (new) and 35 × 30 pt (old), so one icon-only item either way; exit 0 after SIGTERM, no process left, no `hosts.json` created |
+| Notarization line of `install.sh` | `mf_notarization_summary` from `scripts/lib/app-copies.sh` on the development build, a missing path, and in test mode | "not notarized" (`spctl`: rejected), "notarization unknown", "notarization not checked in test mode" |
+| Scripts' check | `scripts/dev/test-install-scripts.sh` | exit 0, 35 of 35 steps PASS |
+| Review | Codex, read-only, over the whole change | no P0/P1; fixed: `install.sh`'s `spctl` call is now bounded (10 s), skipped in test mode, and tells "unknown" from "not notarized"; the icon renderers compile with `-swift-version 6`; the identity lookup's `awk` reads to the end so `security` cannot get SIGPIPE under `pipefail` |
+| Plate | `sips -g format -g pixelWidth -g pixelHeight -g hasAlpha` on the ChatGPT image; looked at; average colours of its top and bottom tenths | PNG, 1024 × 1024, no alpha: nothing to fix; full-bleed, no rounded corners, frame or symbol. Top `#1D3A6D`, bottom `#071533` (the prompt asked for `#1E2F57` → `#0A1024`), so `BRIEF.md`'s `bg-start`/`bg-end` were set to the measured colours and the 16/32 px gradient matches the painting |
+| Icon with the plate | `scripts/dev/icon/build-icon.sh` | exit 0, no warning; `AppIcon.icns` changed; the three menu bar PNGs byte-identical to the previous ones |
+| Release | `scripts/release.sh` (one real run, 10:34–10:36) | exit 0: profile check passed; built and signed by "Developer ID Application: … (CXVKS8ZNCD)", timestamp 10:34:59, verify passed; notarization submission `f2a44f4a-ea99-40ca-9f7d-e1dc734c6fd9` Accepted ("Ready for distribution", `issues: null`, ticket covering both executables); stapled on the first attempt and validated; `spctl`: "accepted, source=Notarized Developer ID"; `build/muxFinder.zip` written (4.9 MB) |
+| Release zip | `ditto -x -k build/muxFinder.zip <scratch folder>`, then `codesign --verify --deep --strict`, `xcrun stapler validate`, `spctl --assess --type execute -vv` on the extracted app | exit 0 each; "The validate action worked!"; "accepted, source=Notarized Developer ID" |
+| Notarization line of `install.sh`, notarized | `mf_notarization_summary build/muxFinder.app` (real mode) after the release | "notarized" |

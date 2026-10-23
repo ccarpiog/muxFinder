@@ -70,10 +70,13 @@ struct MuxFinderMenuBarApp: App {
   /// Owns the model and the app's lifecycle.
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-  /// The menu bar extra, an SF Symbol in the menu bar.
+  /// The menu bar extra: muxFinder's template icon from the bundle (the SF Symbol `terminal`
+  /// when unbundled, PLAN.md D28) opening the popover window.
   var body: some Scene {
-    MenuBarExtra("muxFinder", systemImage: "terminal") {
+    MenuBarExtra {
       PopoverView(model: appDelegate.model, isLive: true)
+    } label: {
+      MenuBarIconLabel()
     }
     .menuBarExtraStyle(.window)
   }
