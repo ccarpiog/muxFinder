@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-23T03:52:42Z",
+  "updated": "2026-10-23T06:58:10Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -337,11 +337,11 @@
     {
       "id": "12",
       "title": "Packaging, documentation, acceptance run",
-      "status": "in_progress",
+      "status": "done",
       "risk": "routine",
-      "summary": "Install and uninstall scripts, README, architecture and testing docs, and a fresh acceptance run; split into 12a and 12b.",
+      "summary": "Install and uninstall scripts, README, architecture and testing docs, and a fresh acceptance run are done; split into 12a and 12b.",
       "started": "2026-10-23T02:36:02Z",
-      "status_since": "2026-10-23T02:36:02Z"
+      "status_since": "2026-10-23T06:58:10Z"
     },
     {
       "id": "12a",
@@ -359,12 +359,15 @@
     {
       "id": "12b",
       "title": "Acceptance run",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "12",
-      "summary": "Fresh full run of unit tests, every e2e run locally and on Saturno and both self-tests, recorded in the testing matrix.",
+      "summary": "Every unit test, every e2e run locally and on Saturno, both self-tests and the clean build passed and are recorded in the testing matrix.",
+      "review": "Codex, ship, docs/reviews/phase-12b.md",
+      "narrative": "docs/progress-archive/12b.md",
       "added": "2026-10-23T02:36:02Z",
-      "status_since": "2026-10-23T02:36:02Z"
+      "started": "2026-10-23T03:53:31Z",
+      "status_since": "2026-10-23T06:58:10Z"
     }
   ]
 }

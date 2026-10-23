@@ -30,29 +30,26 @@ file.
 | 11b | Real profile runs: `e2e-profile` local and Saturno 14/14, iTerm2 `New Bookmarks` mirror handled | high | opus (snapshot fix, docs and review-fix workers); real runs by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-11b.md` | `docs/progress-archive/11b.md` |
 | 11c | Settings "Persistent profiles" tab, host-editor fields, launch-time and after-save rewrite | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-11c.md` | `docs/progress-archive/11c.md` |
 | 12a | Install and uninstall scripts, hermetic check, README, ARCHITECTURE, testing matrix, manual checklist | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-12a.md` | `docs/progress-archive/12a.md` |
+| 12b | Acceptance run: every unit test, all `e2e-*` locally and on Saturno, both self-tests, clean-`build/` reproduction, recorded | routine | opus (docs worker); real runs by the orchestrator | Codex, ship, `docs/reviews/phase-12b.md` | `docs/progress-archive/12b.md` |
 
 ## Current phase
 
-None in progress. Phases 1–12a are done; next is **Phase 12b**, the acceptance run (*Next
-action*). Phase 6 was split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into
-11a/11b/11c and 12 into 12a/12b in `PLAN.md`.
+None. **The plan is done**: phases 1–12b are complete and reviewed. Phase 6 was split into
+6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into 11a/11b/11c and 12 into 12a/12b
+in `PLAN.md`. What remains is owed to the user, not to a run (*Next action*).
 
 ## Acceptance
 
-- Phases 1–11b: all criteria met, with the recorded deviations and the real runs owed to a
+- Phases 1–12a: all criteria met, with the recorded deviations and the real runs owed to a
   person listed under *Open risks*; criteria and evidence in `docs/progress-archive/<phase>.md`.
-- Phase 11c: all criteria met hermetically — host editor fields validated and round-tripped;
-  Settings "Persistent profiles" tab with status, Install / Remove through the seam and the
-  copy; automatic updates (normal-mode launch, after a save) only rewrite muxFinder's own
-  installed file and never create it; gallery from fakes, screenshots regenerated; real
-  `DynamicProfiles/` untouched (`profiles hashes` identical). 672 core + 158 UI tests.
-  `docs/progress-archive/11c.md`.
-- Phase 12a: all criteria met hermetically — `scripts/install.sh` / `uninstall.sh` with dry run
-  and private-folder test overrides, `scripts/dev/test-install-scripts.sh` 35/35 PASS; clean
-  `build/` reproduces a signed (Apple Development, not notarized) bundle; README,
-  ARCHITECTURE, TESTING matrix (fresh-run column "owed" for 12b), MANUAL-CHECKLIST; real
-  install locations, `DynamicProfiles/` and support folder untouched. 680 core + 159 UI tests.
-  `docs/progress-archive/12a.md`.
+- Phase 12b (the plan's acceptance bar): all criteria met on the final tree, 2026-10-23 — 680
+  core + 159 UI tests, lint and a warnings-free build exit 0; clean-`build/` bundle signed
+  (Apple Development, not notarized), `codesign --verify` exit 0; install-script check 35/35;
+  `e2e-local` 16/16, `e2e-remote saturno-m4` 17/17, `e2e-profile --local` and `--ssh
+  saturno-m4` 14/14 each, `--selftest attach-local` 6/6, `--selftest new-session-local` 5/5,
+  keep-mode quit check (row 12) exit 0; every brief bullet in `docs/TESTING.md` mapped to
+  evidence or to the manual checklist; nothing left behind, `profiles hashes` identical.
+  `docs/progress-archive/12b.md`.
 
 ## Decisions
 
@@ -143,6 +140,10 @@ action*). Phase 6 was split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/
   `--remove-persistent-profiles`, run only on a copy declaring `MuxFinderScriptInterface 1`
   with a valid signature; preferences domain `cc.carpio.muxfinder` deleted only for real;
   test overrides confined to physical private folders) — `docs/progress-archive/12a.md`.
+- Phase 12b: the orchestrator ran every real check, gated between runs; a docs worker recorded
+  the results. Row 12's keep-mode quit check ran fresh although not in 12b's list. The thread
+  gate held after `e2e-local` (33 → 49 for ~2 h 40 min, then 16 in one step); the other runs
+  stayed at 16–19 — `docs/progress-archive/12b.md`.
 
 ## Open risks / deviations
 
@@ -277,54 +278,31 @@ action*). Phase 6 was split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/
   every blocker and should-fix was fixed by a fix worker with a regression failing on the old
   code — summaries in `docs/progress-archive/<phase>.md`, reports in
   `docs/reviews/phase-<phase>.md`.
-- Phase 11a: Codex → `ship-with-fixes`, 1 blocker (installer rollback could delete a newer
-  concurrent update), 2 should-fix (`e2e-profile` cleanup could force-close a tab still holding
-  a gateway; combining marks bypassed the leading target-character guard) — all fixed by a fix
-  worker (cross-process `flock` + identity-checked rollback; reconcile and detach through
-  bindings, never close a tab that may hold one; first-scalar check), each regression failing
-  with its fix reverted, re-verified; `docs/reviews/phase-11a.md`.
-- Phase 11b: Codex → `ship-with-fixes`, 0 blockers, 2 should-fix (the mirror exclusion was too
-  loose; step 13's 30 s was not an absolute deadline) — both fixed by a review-fix worker
-  (strict ownership rule; absolute deadline with capped exports and pauses), each regression
-  failing with its fix reverted, then re-verified hermetically and by final-tree real runs 5
-  and 6; `docs/reviews/phase-11b.md`.
-- Phase 11c: Codex → `ship-with-fixes`, 1 blocker (a Settings reload during the after-save
-  update could install an empty document and delete installed profiles), 1 should-fix
-  (automatic updates could recreate a concurrently removed file) — both fixed by a review-fix
-  worker (saved list carried into the update, lists captured at the press;
-  `updateExistingGenerated` under the lock), each regression failing with its fix reverted,
-  re-verified; `docs/reviews/phase-11c.md`.
-- Phase 12a: Codex → `ship-with-fixes`, 3 blockers (mapped readers taken for running copies;
-  test roots not containing destructive operations; deletion not bound to the inspected
-  folder), 0 should-fix — all fixed by a review-fix worker (kernel executable check via
-  `codesign -dv <pid>`; physical private roots and containment checks; device/inode-bound
-  rename-aside before delete), each regression failing with its fix reverted, re-verified;
-  `docs/reviews/phase-12a.md`.
+- Phases 11a–12a: Codex reviewed each (`ship-with-fixes`): 11a 1 blocker + 2 should-fix
+  (installer rollback, `e2e-profile` cleanup, combining-mark guard), 11b 2 should-fix (mirror
+  exclusion, absolute deadline), 11c 1 blocker + 1 should-fix (empty-document install on
+  reload, recreating a removed file), 12a 3 blockers (mapped readers, test-root containment,
+  deletion bound to the inspected folder). All fixed by a fix worker, each regression failing
+  with its fix reverted, re-verified — summaries in `docs/progress-archive/<phase>.md`, reports
+  in `docs/reviews/phase-<phase>.md`.
+- Phase 12b: Codex → `ship`, 0 findings (record matches the run logs, all 13 bullets mapped,
+  signing distinguished from notarization); `docs/reviews/phase-12b.md`.
 
 ## Next action
 
-1. **Phase 12b** (acceptance run; routine, real runs; `PLAN.md` "### Phase 12", *Split*). On
-   the final tree: `swift build`, `swift test`, `swift format lint -r Sources Tests`,
-   `rm -rf build && scripts/build-app.sh` + `codesign --verify --deep --strict`,
-   `scripts/dev/test-install-scripts.sh`, then the real runs one at a time with the item 2
-   gate between them: `swift run muxfinder-probe e2e-local`, `e2e-remote saturno-m4`,
-   `e2e-profile --local`, `e2e-profile --ssh saturno-m4`, and the self-tests
-   `build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local` and `--selftest
-   new-session-local` (with `TMUX_TMPDIR` unset). Record date, command and exit status of each
-   in `docs/TESTING.md`'s matrix ("12b fresh run" column, now "owed" on every row) and fix
-   what the runs call for. Then Phase 12 is complete and the plan is done.
-2. Before and after every real run: `swift build` first, then
-   `.build/debug/muxfinder-probe iterm2 status` (exit 0, or stop as `BLOCKED`) and iTerm2's
-   thread count, read-only: `ps -M -p <pid> | wc -l`, with the pid from
-   `ps -axo pid,comm | rg 'MacOS/iTerm2$'` (`pgrep -x iTerm2` finds nothing on this Mac). Stop
-   if `status` times out or the count keeps growing across runs (*Open risks*, iTerm2 thread
-   ratchet). Leftover checks: `ls -A` of the launch directory and of `DynamicProfiles/`,
-   `ls -A /private/tmp | rg '^mfx\.'`, and `muxfinder-test-*` sessions on Neptuno and Saturno
-   (`fd` is not installed). Real runs only with iTerm2 at **38 threads or lower**; if it stays
-   above 38, stop as `BLOCKED` and ask the user whether to restart iTerm2 or accept a higher
-   baseline. iTerm2 was at 36 threads at 11c's close (2026-10-23 03:45); 12a ran no real check.
-3. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
-   in iTerm2…" round trip, a real install/uninstall, and the items *Open risks* lists).
+1. **Nothing left for a run: the plan is done.** A confirmation pass (`confirm-done`) re-runs the
+   last three phases' recorded checks (12b's in `docs/progress-archive/12b.md`; 12a's and
+   11c's in theirs) and `git status --short`.
+2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
+   in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
+   Settings, Sirio, the LaunchServices Automation prompt, launch at login from
+   `/Applications`, and the items *Open risks* lists).
+3. If a later change calls for real runs again, the gate stands: `swift build` first, then
+   `.build/debug/muxfinder-probe iterm2 status` (exit 0) and iTerm2's thread count read-only,
+   `ps -M -p <pid> | wc -l` with the pid from `ps -axo pid,comm | rg 'MacOS/iTerm2$'`; real
+   runs only at **38 threads or lower**, and leftover checks after each (launch directory,
+   `DynamicProfiles/`, `/private/tmp` `mfx.*`, `muxfinder-test-*` sessions on Neptuno and
+   Saturno). iTerm2 was at 17 threads at 12b's close (2026-10-23 ~08:00).
 
 ## Key paths
 
@@ -385,13 +363,15 @@ action*). Phase 6 was split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 12a (final tree, orchestrator): `swift build -Xswiftc -warnings-as-errors` exit 0;
-  `swift test` (pipefail) exit 0, 680 core tests in 67 suites + 159 UI tests in 13 suites;
-  `swift format lint -r Sources Tests` exit 0; `bash -n` on all five scripts exit 0;
-  `scripts/dev/test-install-scripts.sh` exit 0 (35/35 PASS); `rm -rf build &&
-  scripts/build-app.sh` exit 0 and `codesign --verify --deep --strict build/muxFinder.app`
-  exit 0; `profiles hashes` identical to the phase start — `docs/progress-archive/12a.md`.
-- Phases 1–11c: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase 12b (final tree `520b7e3`, orchestrator, 2026-10-23): `swift build -Xswiftc
+  -warnings-as-errors` exit 0; `swift test` exit 0, 680 core tests in 67 suites + 159 UI tests
+  in 13 suites; `swift format lint -r Sources Tests` exit 0; `rm -rf build &&
+  scripts/build-app.sh` exit 0 and `codesign --verify --deep --strict build/muxFinder.app` exit
+  0; `scripts/dev/test-install-scripts.sh` exit 0 (35/35); real runs `e2e-local`, `e2e-remote
+  saturno-m4`, `e2e-profile --local`, `e2e-profile --ssh saturno-m4`, `--selftest attach-local`,
+  `--selftest new-session-local`, keep-mode quit check: exit 0 each; `profiles hashes`
+  identical before and after — `docs/progress-archive/12b.md`.
+- Phases 1–12a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -404,5 +384,6 @@ action*). Phase 6 was split into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/
 - Phase 11a: `289b7f4`, pushed (`origin/main` at `289b7f4` before Phase 11b).
 - Phase 11b: `a5ca9e0`, pushed (`origin/main` at `a5ca9e0` before Phase 11c).
 - Phase 11c: `930994e`, pushed (`origin/main` at `930994e` before Phase 12a).
-- Phase 12a: scripts, docs, D27, review and checkpoint: the commit after `930994e`; its SHA and
-  push result are recorded by the next commit.
+- Phase 12a: `520b7e3`, pushed (`origin/main` at `520b7e3` before Phase 12b).
+- Phase 12b: `docs/TESTING.md` results, review, archive and checkpoint: the commit after
+  `520b7e3`; its SHA and push result are in the final status line of the run.
