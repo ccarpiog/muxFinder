@@ -42,6 +42,7 @@ this order):
 |---|---|---|---|
 | I-1 | Popover under the menu bar icon (diagnose, then place; suggested risk high) | `autoclaude/processed/10-popover-under-menu-bar-icon.md` | after Phase 14 |
 | I-2 | New session: pick the directory (split I-2a core, high; I-2b UI, routine) | `autoclaude/processed/20-new-session-directory-picker.md` | after I-1 |
+| I-3 | Global hotkey: session switcher (split I-3a shortcut and Settings; I-3b switcher panel; both routine) | `autoclaude/processed/30-global-hotkey-session-switcher.md` | after I-2 |
 
 ## Current phase
 
@@ -56,7 +57,9 @@ opaque popover so the preview gallery matches the menu bar. It is independent of
 needs no real run. **Inbox** (2026-10-24, before 13c): two items triaged, both queued after
 Phase 14 — I-1 (popover placement) and I-2 (New session directory picker); neither carried
 `priority: next`. I-1's in-process `performClick(_:)` opening step needs the orchestrator's
-call against the no-UI-scripting rule when it runs. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into
+call against the no-UI-scripting rule when it runs. **Inbox** (2026-10-24, after 13c): one
+item, queued as I-3 (global hotkey session switcher) after I-2; its optional
+`--report-hotkey-registration` flag needs the same no-UI-scripting call. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into
 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b.
 
 ## Acceptance
@@ -313,7 +316,7 @@ call against the no-UI-scripting rule when it runs. Earlier splits: 6 into 6a/6b
    inbox phases I-1 (popover under the menu bar icon) and I-2 (New session directory picker,
    split I-2a / I-2b), in that order (table under *Completed*; add each to `PLAN.md` when it is
    selected; I-1's in-process `performClick(_:)` step needs the orchestrator's call against the
-   no-UI-scripting rule).
+   no-UI-scripting rule). Then I-3 (global hotkey session switcher, I-3a / I-3b).
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
