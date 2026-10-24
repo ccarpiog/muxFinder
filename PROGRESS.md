@@ -34,6 +34,14 @@ file.
 | 13a | Client, helper and spike: SetProperty/GetProperty, `buryLaunchTab`, helper restore (result → `Disinter` → DSR, bounded), `e2e-bury` spike local and Saturno, D29 | high | opus (impl, spike and review-fix workers) | Codex, ship-with-fixes, `docs/reviews/phase-13a.md` | `docs/progress-archive/13a.md` |
 | 13b | Coordinator bury (step 10, `AttachResult.burial`), race by order (`peekResult`), in-memory recovery, Show tab restore, buried fakes, e2e assertions (hermetic) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-13b.md` | `docs/progress-archive/13b.md` |
 
+Queued from the inbox (specification in `autoclaude/processed/`; position after Phase 14, in
+this order):
+
+| Phase | Title | Specification | Position |
+|---|---|---|---|
+| I-1 | Popover under the menu bar icon (diagnose, then place; suggested risk high) | `autoclaude/processed/10-popover-under-menu-bar-icon.md` | after Phase 14 |
+| I-2 | New session: pick the directory (split I-2a core, high; I-2b UI, routine) | `autoclaude/processed/20-new-session-directory-picker.md` | after I-1 |
+
 ## Current phase
 
 **Phase 13 — Hide the launch tab once attached (high), added 2026-10-24; 13a and 13b
@@ -47,7 +55,10 @@ in *Verified facts* "Phase 13a spike" and the settled design is **D29**.
 from the user's review of the real popover: a bounded section per host, attach state at a
 glance, a readable "Open in iTerm2 here", a muted unreachable host, footer spacing, and an
 opaque popover so the preview gallery matches the menu bar. It is independent of Phase 13 and
-needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into
+needs no real run. **Inbox** (2026-10-24, before 13c): two items triaged, both queued after
+Phase 14 — I-1 (popover placement) and I-2 (New session directory picker); neither carried
+`priority: next`. I-1's in-process `performClick(_:)` opening step needs the orchestrator's
+call against the no-UI-scripting rule when it runs. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into
 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b.
 
 ## Acceptance
@@ -290,7 +301,8 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
    lists (README, ARCHITECTURE, TESTING matrix and results, INTEGRATION-PROOF, MANUAL-CHECKLIST,
    `CLAUDE.md` command notes). Mind the auto-hide deviation under *Open risks*. Then Phase 14
    (`PLAN.md` *Phase 14*, hermetic UI work, no real run). Phase 14 does not depend on 13, so it
-   may run first if 13c ends `BLOCKED`.
+   may run first if 13c ends `BLOCKED`. Then the queued inbox phases I-1 and I-2, in that order
+   (table under *Completed*; add each to `PLAN.md` when it is selected).
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
