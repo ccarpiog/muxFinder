@@ -44,13 +44,14 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase 13c* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase 14* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's report of 2026-10-24, PLAN.md Phase 13):
+Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
 
 | Requirement | Status | Evidence |
 |---|---|---|
 | An attach (Open, New session, Move here) shows only the session's windows: the launch tab is buried once its first tmux tab is active, leaves by itself after every detach, and comes back after a failure. | Tested for real, locally and on Saturno, with iTerm2's "Automatically bury the tmux client session after connecting" off (its default); with it on, only by the Phase 13a spike. Through the real popover, with that setting on and off, where the focus goes after a detach, and Return after an abnormal end: owed to a person (checklist 14). | Phase 13c, 2026-10-24 (*Phase 13c* below): `e2e-local` 16 of 16 and `e2e-remote saturno-m4` 17 of 17 PASS, every confirmed attach (attach, reattach, concurrent attaches, new session, move here) `burial` `buried` with the tab in `buried_sessions` and in no tab, and after every detach the tab gone by itself, no restore or `Close` of the coordinator's recorded. `e2e-bury --local` and `--ssh saturno-m4` 13 of 13 PASS each: detaches within 10 s and after 10 s; the bury released together with a detach, sent and answered `OK` (`restoredAfterEnd` locally, `buried` on Saturno), the tab gone by itself; a dead buried tab removed by the coordinator's recovery; the attach child killed: the helper's result `childSignaled(9)`, the tab back with an answered status report and in a tab, its helper alive, past the helper's minimum lifetime, and the session alive. Both self-tests PASS with "launch tab buried" and "launch tab left". Hermetic: `LaunchTabBurialTests`, `ShowLaunchTabTests`, `LaunchTabRestoreTests`, `RecordingITerm2IntegrationTests`, `LaunchTabChecksTests`, `SelfTestDriverTests`. |
+| The popover reads at a glance: an opaque background, a bounded section per host, each row's attach state at a glance, a readable "Open in iTerm2 here" badge, an unreachable host muted rather than red, even footer spacing. | Tested hermetically and in the preview renders (both appearances). The real popover over the menu bar extra's material, by a person (checklist 15). | Phase 14, 2026-10-24 (*Phase 14* below): `PopoverStyleTests` (the badge at least 4.5:1 against what is behind it, light and dark, unselected, selected and hovered rows; a neutral selection; opaque fills; no red host status, a hollow dot only for the muted tone; distinct indicators; the footer's spacing); `PopoverContentTests` (every status's tone, `.unreachable` alone muted, the row-state mapping, the fixtures covering a selected row with the badge and an unreachable host next to an attention one). `docs/screenshots/popover-states-*.png` and `attach-states-*.png` regenerated and inspected. |
 
 ## Unit tests (`swift test`)
 
@@ -690,10 +691,21 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   over retired probes, the `refreshOnce` work epoch, the adapter's start generation or the
   backoff steps makes these tests fail.
 - **App model and popover** (`Tests/MuxFinderUITests/`: `PopoverContentTests`,
-  `AppModelKeyboardTests`, `AppModelEngineTests`; PLAN.md D22). Content, from the preview
-  fixtures and hand-built snapshots: every host outcome to its status label (SSH and This
-  Mac, every unreachable reason, both host-key problems, `probeError`), a refresh keeping the
-  last label, the exact label texts and one explanation per failure; relative times at every
+  `PopoverStyleTests`, `AppModelKeyboardTests`, `AppModelEngineTests`; PLAN.md D22). Content,
+  from the preview fixtures and hand-built snapshots: every host outcome to its status label
+  (SSH and This Mac, every unreachable reason, both host-key problems, `probeError`), a
+  refresh keeping the last label, the exact label texts and one explanation per failure;
+  every status's tone ("Unreachable" alone muted, the four the user can act on "attention")
+  and only an unreachable host's section muted; each row's attach state (open here, attached
+  elsewhere, detached, stale; "open here" first even for a stale row) with only the first two
+  reading as attached. Look (`PopoverStyleTests`, colors resolved with `Color.resolve(in:)`
+  in light and dark environments and composited in sRGB): the "Open in iTerm2 here" badge's
+  text at least 4.5:1 (WCAG 2) against its fill over an unselected, a selected and a hovered
+  row, the old accent-on-accent badge shown to fail the same measure, the selection a
+  neutral gray and neither the badge's fill nor its text the accent color, every fill
+  opaque, no host status red and only the muted tone's dot hollow, four distinct attach-state
+  symbols and colors, and the footer's buttons at least three times as far apart as an icon
+  from its title. Relative times at every
   boundary ("just now" under a minute and for future dates, then minutes, hours, days) and
   the "Last checked …" / "Last seen … · not live" sentences; counts ("4 windows · 1 client",
   "1 window · Detached"); stale marking (an unreachable host's sessions kept, all stale, no
@@ -704,7 +716,8 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   its sessions), ignoring case, diacritics and spaces, and no match; empty and never-checked
   hosts, "Not reached yet", "Loading hosts…", "No hosts turned on", the host-list notices;
   `AttachState` to row activity; the fixtures covering every status, activity, placeholder,
-  notice, badge, stale row, selection and empty host, with synthetic data only. Model over
+  notice, badge, stale row, selection (one on a row with the badge), attach state and empty
+  host, and an unreachable host next to an attention one, with synthetic data only. Model over
   fixtures: ↑/↓ through the listed rows across hosts, clamped at the ends, restarting when
   the search hid the selection; Return and clicks selecting without opening anything (a
   fixture builds no attach coordinator); ⌘F, ⌘N, ⌘, and Esc; a fixture model starting
@@ -2157,3 +2170,34 @@ count stayed at 17–23.
 | `e2e-profile`, locally | `swift run muxfinder-probe e2e-profile --local` | exit 0, 14 of 14 PASS in 11.3 s, unchanged (its tab is not the coordinator's, so nothing buries it); the snapshots before install, after install and after removal identical (0 other `DynamicProfiles` entries, 13 `New Bookmarks` entries hashed). Threads 18 → 18 |
 | Leftovers after every run | `tmux ls` on Neptuno and Saturno; `iterm2 list-sessions` (summary); `ls` of the launch directory, `DynamicProfiles/` and `/private/tmp`; `ps` | no `muxfinder-test-*` session on either Mac; 0 buried sessions and iTerm2's listing as before the run; the launch directory empty (after attempt 1, the one helper result above); no `mfx.*` folder; no `muxFinder.json`; no process of the bundle left after the self-tests |
 | After all runs | `muxfinder-probe profiles hashes`, compared with the one taken before the first run | byte-identical |
+
+### Phase 14 — popover readability (2026-10-24)
+
+Hermetic UI work (PLAN.md Phase 14, D22 *Look*): no iTerm2 window was opened and no real run
+was needed. The real popover, drawn over the menu bar extra's material, needs a click, so
+comparing it with the screenshots is owed to a person (checklist 15). A row with clients is
+"attached elsewhere" (green dot) only when this Mac's attachment check worked or found iTerm2
+not running (`PopoverContent.knowsWhatIsOpenHere(_:)`); while the check failed or has not
+run, the engine clears every attachment, so such a row is attached with its location unknown
+(a gray dot in a dashed ring, `attachedUnknownLocation`), on This Mac and SSH hosts alike
+(one check covers every host). No row's text ever says "elsewhere". No accessibility label,
+value or trait changed (the attach-state indicator is hidden from VoiceOver; the row's value
+already says "1 client", "Detached", "Last seen … · not live" or "Open in iTerm2 here"); the
+only existing expectation changed is `statusTexts`'s tone for "Unreachable" (`.muted`, was
+`.problem`). The first render used the system `windowBackgroundColor` behind the content:
+resolved outside a window it is white (`#1E1E1E` dark), but a window draws it 0.925 (0.196
+dark, sampled from the PNG), which matched the light header band, so the palette now fixes
+the window gray per scheme and every fill above it.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build --build-tests` | exit 0, no warnings, each |
+| Unit tests | `swift test` | exit 0: 745 tests in 74 suites (core), 178 in 15 suites (UI; 12 new: `PopoverStyleTests`, 8, with the badge contrast over 2 appearances × 3 rows and every indicator an existing SF Symbol, the location-unknown one never green; `PopoverContentTests.statusTones`, `mutedSections`, `attachStateMapping`, `attachStateFollowsTheAttachmentCheck` over 5 checks (`checked` and `iTermNotRunning`: elsewhere; `failed` with and without an iTerm2 error and `notChecked`: location unknown, on the SSH and the This Mac host; detached and stale unchanged; no row text says "elsewhere"); `failedAttachmentCheck` gained that no row with clients is "elsewhere"; `fixturesCoverEveryState` gained the badge on a selected row, every attach state and a muted host next to an attention one). With the old mapping (clients always "elsewhere") `failedAttachmentCheck`, `attachStateFollowsTheAttachmentCheck` (3 failing checks) and `fixturesCoverEveryState` fail |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Popover screenshots | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --appearance light --preview-snapshot docs/screenshots/popover-states-light.png`, then `dark` | exit 0 both; 4672×2168 PNGs, 11 states in rows of 6 (the new "Selected session open here, offline host" second), inspected: an opaque popover, one bordered box per host with a header band, a leading indicator per row (blue window, green dot, gray ring, dim clock; in "iTerm2 check failed" Saturno's "build-farm", 1 client, the gray dot in a dashed ring, never the green dot) and semibold attached names, white-on-blue "Open in iTerm2 here" on a selected (gray fill, accent outline) and an unselected row, Sirio "Unreachable" muted (hollow dot, gray name, info icon, Retry) next to Saturno "Sign-in needed" in orange, the footer's buttons evenly spaced with "Quit" trailing. "Progress and errors" and "Host problems" scroll inside the 440 pt list, as in the menu bar |
+| Attach screenshots | `muxFinder --preview-fixtures --preview-gallery attach --appearance light --preview-snapshot docs/screenshots/attach-states-light.png`, then `dark` | exit 0 both; 3136×4088 PNGs, 15 states and the context menu card, inspected: the same sections and indicators, the badge on "photo-export", red only on failed session actions, the panels on the opaque background |
+| Settings screenshots | `muxFinder --preview-fixtures --preview-gallery settings --appearance light --preview-snapshot docs/screenshots/settings-states-light.png`, then `dark` | exit 0 both; 4528×7920 PNGs, regenerated because the Settings host list and "Test connection" share `StatusDot`: Sirio's dot is now the hollow gray ring; nothing else in that window changed |
+| Sizing and closing | read from the code | `PopoverView` keeps `.frame(width: 360)` and the measured list height capped at 440 pt; the opaque background is a `.background` behind that frame, so it changes no size; the `MenuBarExtra(.window)` scene and `PopoverWindowBridge` (visibility, keys, Esc closing the window) are unchanged |
+| Shell check, safety | `CFFIXED_USER_HOME=<private folder from mktemp -d> .build/debug/muxfinder-probe hosts show`; a scratch program printing `URL.applicationSupportDirectory`, `FileManager.default.homeDirectoryForCurrentUser` and `NSHomeDirectory()` with the same variable | the default `HostStore()` (the app's) read `<folder>/Library/Application Support/muxFinder/hosts.json`: `notSavedYet`, the three onboarding hosts all off; every path under the folder. The user's real `hosts.json` exists now, so the check ran only this way: with no host turned on the engine discovers nothing (no ssh, no tmux), with the popover closed no attachment check runs (D20) so iTerm2 is not contacted, and `--report-menu-bar-item` turns off the profile rewrite (D26) |
+| Shell check | `CFFIXED_USER_HOME=<that folder> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`; after the listing `pgrep -P <pid>`; `kill -TERM <pid>` | 7 status-bar-level windows, all visible, 34 × 30 pt (as in D28's run); no child process; exit 0 after SIGTERM; no copy left. The folder still empty (no `hosts.json` or anything else created); the real `hosts.json` with the same modification time, size and SHA-256 before and after; the user's installed copy, running throughout, untouched |

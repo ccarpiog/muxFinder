@@ -72,7 +72,8 @@ struct PopoverContentTests {
     #expect(HostStatusLabel(failing) == .unreachable)
     let first = Fixtures.snapshot(Fixtures.sirio, outcome: nil, isRefreshing: true)
     #expect(HostStatusLabel(first) == .checking)
-    let section = PopoverContent.section(for: failing, activities: [:], selection: nil, now: .now)
+    let section = PopoverContent.section(
+      for: failing, attachmentCheck: .notChecked, activities: [:], selection: nil, now: .now)
     #expect(section.isRefreshing)
   }
 
@@ -85,10 +86,35 @@ struct PopoverContentTests {
         "Host key problem", "tmux not found", "Check failed",
       ])
     #expect(HostStatusLabel.reachable.tone == .good)
-    #expect(HostStatusLabel.unreachable.tone == .problem)
+    #expect(HostStatusLabel.unreachable.tone == .muted)
     #expect(HostStatusLabel.signInNeeded.tone == .attention)
     #expect(HostStatusLabel.checking.tone == .neutral)
   } // End of func statusTexts()
+
+  /// "Unreachable" alone has the muted tone (an offline Mac is routine, PLAN.md D22); every
+  /// other status keeps its tone, and the statuses the user can act on stay "attention".
+  @Test func statusTones() {
+    let expected: [HostStatusLabel: HostStatusLabel.Tone] = [
+      .checking: .neutral, .reachable: .good, .thisMac: .good, .noSessions: .neutral,
+      .unreachable: .muted, .signInNeeded: .attention, .hostKeyProblem: .attention,
+      .tmuxNotFound: .attention, .checkFailed: .attention,
+    ]
+    #expect(expected.count == HostStatusLabel.allCases.count)
+    for status in HostStatusLabel.allCases {
+      #expect(status.tone == expected[status], "\(status)")
+    }
+    #expect(HostStatusLabel.allCases.filter { $0.tone == .muted } == [.unreachable])
+  } // End of func statusTones()
+
+  /// Only an unreachable host's section reads muted; an attention host's does not.
+  @Test func mutedSections() throws {
+    let content = Self.overview()
+    #expect(content.sections.filter(\.isMuted).map(\.name) == ["Sirio"])
+    let problems = Self.content(Fixtures.hostProblems)
+    #expect(problems.sections.allSatisfy { !$0.isMuted })
+    let sirio = try #require(content.sections.last)
+    #expect(sirio.problem != nil && sirio.rows.allSatisfy { $0.attachState == .stale })
+  }
 
   /// Every failure has an explanation; successes have none; a probe error shows its message.
   @Test func problemTexts() {
@@ -176,14 +202,95 @@ struct PopoverContentTests {
     }
   } // End of func badgeMapping()
 
-  /// A failed iTerm2 check shows no badge and a notice that the badges are unknown.
+  /// Each row's attach state (its leading indicator) after an iTerm2 check that worked: open
+  /// in iTerm2 here, attached elsewhere (clients, none here), detached, stale; only the first
+  /// two read as attached. The badge comes first even for a stale row, since the attachment
+  /// index is live.
+  @Test func attachStateMapping() throws {
+    let rows = Self.overview().sections.flatMap(\.rows)
+    let states = Dictionary(uniqueKeysWithValues: rows.map { ($0.name, $0.attachState) })
+    #expect(
+      states == [
+        "build-farm": .here, "experiments": .detached, "notes": .detached,
+        "index-rebuild": .attachedElsewhere, "thesis-draft": .stale, "photo-export": .stale,
+      ])
+    #expect(rows.map(\.clientCount) == [1, 0, 0, 2, 1, 0])
+    #expect(rows.filter(\.isAttached).map(\.name) == ["build-farm", "index-rebuild"])
+    let openHere = Fixtures.session(
+      "draft", id: 50, on: Fixtures.sirio, windows: 1, clients: 1, openHere: true)
+    let staleOpenHere = Fixtures.snapshot(
+      Fixtures.sirio, outcome: .failed(.unreachable(.timeout)), sessions: [openHere],
+      lastSuccessAgo: 60, lastAttemptAgo: 5)
+    let section = PopoverContent.section(
+      for: staleOpenHere, attachmentCheck: .checked(at: Fixtures.now, counts: .init(mapped: 1)),
+      activities: [:], selection: nil, now: Fixtures.now)
+    let row = try #require(section.rows.first)
+    #expect(row.isStale && row.isOpenInITerm2Here)
+    #expect(row.attachState == .here)
+  } // End of func attachStateMapping()
+
+  /// A row with clients is "attached elsewhere" only when this Mac's iTerm2 check says where
+  /// (it worked, or found iTerm2 not running). A failed check, or one not run yet, leaves the
+  /// location unknown on every host, This Mac and SSH ones alike (the one check covers them
+  /// all); nothing in a row's text says "elsewhere" either way. Without a working check no
+  /// session carries an attachment (the engine clears them), as here; detached and stale rows
+  /// read the same whatever the check.
+  @Test(arguments: [
+    (AttachmentCheck.checked(at: Fixtures.now, counts: .init(mapped: 1)), true),
+    (AttachmentCheck.iTermNotRunning(at: Fixtures.now), true),
+    (AttachmentCheck.failed(at: Fixtures.now, error: .apiDisabled), false),
+    (AttachmentCheck.failed(at: Fixtures.now, error: nil), false),
+    (AttachmentCheck.notChecked, false),
+  ])
+  func attachStateFollowsTheAttachmentCheck(check: AttachmentCheck, knowsWhere: Bool) {
+    #expect(PopoverContent.knowsWhatIsOpenHere(check) == knowsWhere)
+    let isChecked = if case .checked = check { true } else { false }
+    let hosts = Fixtures.overviewHosts.map { snapshot in
+      var snapshot = snapshot
+      if !isChecked {
+        snapshot.sessions = snapshot.sessions.map {
+          HostSnapshot.Session(discovered: $0.discovered)
+        }
+      }
+      return snapshot
+    }
+    let content = PopoverContent(
+      state: Fixtures.state(hosts, attachmentCheck: check), hostList: .saved, query: "",
+      activities: [:], selection: nil, now: Fixtures.now)
+    let rows = content.sections.flatMap(\.rows)
+    let states = Dictionary(uniqueKeysWithValues: rows.map { ($0.name, $0.attachState) })
+    let attached: SessionRow.AttachState =
+      knowsWhere ? .attachedElsewhere : .attachedUnknownLocation
+    #expect(
+      states == [
+        "build-farm": isChecked ? .here : attached, "experiments": .detached, "notes": .detached,
+        "index-rebuild": attached, "thesis-draft": .stale, "photo-export": .stale,
+      ])
+    #expect(rows.filter(\.isAttached).map(\.name) == ["build-farm", "index-rebuild"])
+    // "build-farm" is on Saturno (SSH), "index-rebuild" on Neptuno (This Mac).
+    #expect(Fixtures.saturno.mode == .ssh && Fixtures.neptuno.mode == .local)
+    for row in rows {
+      #expect(!row.detail.lowercased().contains("elsewhere"), "\(row.name)")
+      #expect(!row.accessibilityValue.lowercased().contains("elsewhere"), "\(row.name)")
+    }
+  } // End of func attachStateFollowsTheAttachmentCheck(check:knowsWhere:)
+
+  /// A failed iTerm2 check shows no badge, a notice that the badges are unknown, and no row
+  /// with clients as attached elsewhere: their location is unknown.
   @Test func failedAttachmentCheck() {
     let content = Self.content(Fixtures.iTermCheckFailed)
-    #expect(content.sections.flatMap(\.rows).allSatisfy { !$0.isOpenInITerm2Here })
+    let rows = content.sections.flatMap(\.rows)
+    #expect(rows.allSatisfy { !$0.isOpenInITerm2Here })
+    #expect(rows.contains { $0.clientCount > 0 })
+    for row in rows where row.clientCount > 0 {
+      #expect(row.attachState == .attachedUnknownLocation, "\(row.name)")
+      #expect(row.isAttached)
+    }
+    #expect(!rows.contains { $0.attachState == .attachedElsewhere })
     #expect(content.notices.map(\.kind) == [.attachmentCheck])
     #expect(content.notices[0].text.contains("could not check which sessions are open in iTerm2"))
     #expect(content.notices[0].text.contains("Enable Python API"))
-  }
+  } // End of func failedAttachmentCheck()
 
   /// Rows and headers carry accessibility labels and values.
   @Test func accessibility() throws {
@@ -335,7 +442,9 @@ struct PopoverContentTests {
   // MARK: - Fixtures
 
   /// Together the fixtures show every status, progress text, placeholder, notice, a badge, a
-  /// stale session, a selection and an empty host: the preview window covers every state.
+  /// stale session, a selection (one on a row with the badge), every attach state, an
+  /// unreachable host next to an attention one, and an empty host: the preview window covers
+  /// every state.
   @Test func fixturesCoverEveryState() {
     let contents = Fixtures.all.map(Self.content)
     let statuses = Set(contents.flatMap { $0.sections.map(\.status) })
@@ -355,6 +464,14 @@ struct PopoverContentTests {
     #expect(rows.contains { $0.isOpenInITerm2Here })
     #expect(rows.contains { $0.isStale })
     #expect(rows.contains { $0.isSelected })
+    #expect(rows.contains { $0.isSelected && $0.isOpenInITerm2Here })
+    #expect(Set(rows.map(\.attachState)) == Set(SessionRow.AttachState.allCases))
+    let mutedNextToAttention = contents.contains { content in
+      zip(content.sections, content.sections.dropFirst()).contains { pair in
+        Set([pair.0.status.tone, pair.1.status.tone]) == [.muted, .attention]
+      }
+    }
+    #expect(mutedNextToAttention)
     #expect(contents.contains { $0.sections.contains { $0.emptyState != nil } })
     #expect(Set(Fixtures.all.map(\.id)).count == Fixtures.all.count)
   } // End of func fixturesCoverEveryState()

@@ -193,6 +193,26 @@ public enum PreviewFixtures {
     id: "overview", title: "Hosts and sessions", state: state(overviewHosts),
     selection: saturnoSessions[1].key)
 
+  /// The keyboard selection on a session open in iTerm2 here (the badge on a selected row),
+  /// beside one attached elsewhere; Saturno needing a sign-in (the orange attention tone) next
+  /// to Sirio unreachable (muted, its last sessions stale).
+  public static let selectedBadgeOffline: PreviewFixture = {
+    let local = [
+      session("notes", id: 9, on: neptuno, windows: 2, clients: 1, openHere: true),
+      session("index-rebuild", id: 10, on: neptuno, windows: 3, clients: 1),
+    ]
+    let hosts = [
+      snapshot(neptuno, outcome: .sessionsListed, sessions: local, lastSuccessAgo: 30),
+      snapshot(saturno, outcome: .failed(.authFailed), lastAttemptAgo: 30),
+      snapshot(
+        sirio, outcome: .failed(.unreachable(.timeout)), sessions: sirioSessions,
+        lastSuccessAgo: 3_600 * 20, lastAttemptAgo: 30),
+    ]
+    return PreviewFixture(
+      id: "selected-badge-offline", title: "Selected session open here, offline host",
+      state: state(hosts), selection: local[0].key)
+  }()
+
   /// "Opening…", "Waiting for iTerm2…", "Still connecting — check the iTerm2 tab" with "Show
   /// tab", a failure with "Try again" and "Show tab", and an Automation failure with its
   /// fix-it.
@@ -261,8 +281,9 @@ public enum PreviewFixtures {
     id: "invalid-host-list", title: "Unusable host list",
     state: state([], attachmentCheck: .notChecked), hostList: .invalid(.notJSON))
 
-  /// A failed iTerm2 check (badges unknown, never "not open here") with its fix-it's
-  /// explanation shown, and "Check failed".
+  /// A failed iTerm2 check (badges unknown, never "not open here", so a session with clients
+  /// is attached with its location unknown, never "elsewhere") with its fix-it's explanation
+  /// shown, and "Check failed".
   public static let iTermCheckFailed = PreviewFixture(
     id: "iterm2-check-failed", title: "iTerm2 check failed",
     state: state(
@@ -284,7 +305,7 @@ public enum PreviewFixtures {
 
   /// Every fixture, in the preview window's order.
   public static let all = [
-    overview, progress, hostProblems, checkingAndEmpty, search, noMatches, noHosts,
-    invalidHostList, iTermCheckFailed, loading,
+    overview, selectedBadgeOffline, progress, hostProblems, checkingAndEmpty, search, noMatches,
+    noHosts, invalidHostList, iTermCheckFailed, loading,
   ]
 }

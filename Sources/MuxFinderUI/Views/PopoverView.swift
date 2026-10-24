@@ -1,8 +1,9 @@
 import MuxFinderCore
 import SwiftUI
 
-/// The menu bar popover (PLAN.md Phase 8): a search field, notices, the hosts with their
-/// sessions (or a placeholder), and the footer.
+/// The menu bar popover (PLAN.md Phase 8, D22): a search field, notices, the hosts with their
+/// sessions (or a placeholder), and the footer, on its own opaque window background, so the
+/// real popover (over the menu bar extra's material) and the preview galleries look the same.
 ///
 /// With `isLive` the view also tracks its window, so the model learns when the popover opens
 /// and closes, and handles the popover's keys (`PopoverWindowBridge`). The preview window and
@@ -21,6 +22,8 @@ public struct PopoverView: View {
   @FocusState private var isSearchFocused: Bool
   /// The host list's natural height, measured.
   @State private var listHeight: CGFloat = 0
+  /// Light or dark, for the palette.
+  @Environment(\.colorScheme) private var colorScheme
 
   /// A popover for `model`; `isLive` only in the menu bar extra.
   public init(model: AppModel, isLive: Bool) {
@@ -57,6 +60,7 @@ public struct PopoverView: View {
       }
     } // End of VStack holding the popover
     .frame(width: Self.width)
+    .background(PopoverPalette(colorScheme).background)
     .background {
       if isLive { PopoverWindowBridge(model: model) }
     }
@@ -65,9 +69,10 @@ public struct PopoverView: View {
     }
   } // End of var body
 
-  /// The search field, with a clear button while it holds text.
+  /// The search field, with a clear button while it holds text, boxed like the host sections.
   private var searchField: some View {
-    HStack(spacing: 6) {
+    let palette = PopoverPalette(colorScheme)
+    return HStack(spacing: 6) {
       Image(systemName: "magnifyingglass")
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
@@ -88,19 +93,21 @@ public struct PopoverView: View {
     } // End of HStack holding the search field
     .padding(.horizontal, 8)
     .padding(.vertical, 6)
-    .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.7)))
+    .background(RoundedRectangle(cornerRadius: 7).fill(palette.sectionFill))
+    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(palette.border))
   } // End of var searchField
 
-  /// The host groups, scrolling once taller than `maximumListHeight`, keeping the keyboard
-  /// selection in view.
+  /// The host groups, one bounded box each, scrolling once taller than `maximumListHeight`,
+  /// keeping the keyboard selection in view.
   private func hostList(_ sections: [HostSection]) -> some View {
     ScrollViewReader { proxy in
       ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
           ForEach(sections) { section in
             HostSectionView(section: section, model: model)
           }
         }
+        .padding(.horizontal, 10)
         .padding(.vertical, 10)
         .onGeometryChange(for: CGFloat.self) { geometry in
           geometry.size.height

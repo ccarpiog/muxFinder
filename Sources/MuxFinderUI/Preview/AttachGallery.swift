@@ -60,13 +60,13 @@ public struct AttachGallery: View {
     }
   }
 
-  /// One state: its title above a popover-like frame.
+  /// One state: its title above a popover-like frame (the popover paints its own opaque
+  /// background, as in the menu bar).
   private func stateCard(_ entry: PreviewGallery.Entry) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(entry.fixture.title)
         .font(.headline)
       PopoverView(model: entry.model, isLive: false)
-        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.18), radius: 6, y: 2)

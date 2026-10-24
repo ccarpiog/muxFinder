@@ -1,47 +1,94 @@
 import MuxFinderCore
 import SwiftUI
 
-/// One host's group: its header (name, last check, status), its problem with "Retry", its
-/// empty state, and its session rows.
+/// One host's group (PLAN.md D22): a bounded box with a hairline border, its header band
+/// (name, last check, status), its problem with "Retry", its empty state, and its session
+/// rows separated by hairlines. An unreachable host's section reads muted.
 struct HostSectionView: View {
+  /// The section's corner radius, in points.
+  static let cornerRadius: CGFloat = 8
+  /// Where a row separator starts: past the row's inset and its indicator column.
+  static let separatorInset: CGFloat = 4 + 8 + AttachStateIndicator.width + 8
+
   /// The host's content.
   let section: HostSection
   /// The model the buttons talk to.
   let model: AppModel
+  /// Light or dark, for the palette.
+  @Environment(\.colorScheme) private var colorScheme
+  /// The display's scale, for hairlines one pixel wide.
+  @Environment(\.displayScale) private var displayScale
 
   /// The group's layout.
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    let palette = PopoverPalette(colorScheme)
+    let hairline = 1 / max(displayScale, 1)
+    let hasMessages =
+      section.problem != nil || section.offersSSHSetup || section.emptyState != nil
+    VStack(alignment: .leading, spacing: 0) {
       header
+        .background(palette.headerBand)
+      if hasMessages || !section.rows.isEmpty {
+        Rectangle()
+          .fill(palette.border)
+          .frame(height: hairline)
+      }
+      if hasMessages {
+        messages
+          .padding(.horizontal, 10)
+          .padding(.vertical, 7)
+      }
+      if !section.rows.isEmpty {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(section.rows) { row in
+            if row.key != section.rows.first?.key {
+              Rectangle()
+                .fill(palette.border)
+                .frame(height: hairline)
+                .padding(.leading, Self.separatorInset)
+                .padding(.trailing, 8)
+            }
+            SessionRowView(row: row, model: model)
+              .id(row.key)
+          }
+        }
+        .padding(.vertical, 3)
+      }
+    } // End of VStack holding the group
+    .background(palette.sectionFill)
+    .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
+    .overlay(
+      RoundedRectangle(cornerRadius: Self.cornerRadius)
+        .strokeBorder(palette.border, lineWidth: hairline)
+    )
+  } // End of var body
+
+  /// The problem with "Retry" (an orange triangle for what the user can fix, a neutral icon
+  /// for an unreachable host), "Set up SSH in iTerm2 first" and the empty state.
+  private var messages: some View {
+    VStack(alignment: .leading, spacing: 6) {
       if let problem = section.problem {
         MessageLine(
-          text: problem, systemImage: "exclamationmark.triangle.fill", tint: .orange,
+          text: problem,
+          systemImage: section.isMuted ? "info.circle" : "exclamationmark.triangle.fill",
+          tint: section.isMuted ? .secondary : .orange,
           actionTitle: "Retry"
         ) {
           model.retry(hostID: section.id)
         }
-        .padding(.horizontal, 6)
       }
       if section.offersSSHSetup {
         sshSetupLine
-          .padding(.leading, 24)
-          .padding(.trailing, 6)
+          .padding(.leading, 18)
       }
       if let emptyState = section.emptyState {
         Text(emptyState)
           .font(.callout)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
       }
-      ForEach(section.rows) { row in
-        SessionRowView(row: row, model: model)
-          .id(row.key)
-      }
-    } // End of VStack holding the group
-    .padding(.horizontal, 8)
-  } // End of var body
+    } // End of VStack holding the messages
+  } // End of var messages
 
   /// "Set up SSH in iTerm2 first" under a sign-in or host key problem (PLAN.md D24), and what
   /// it did.
@@ -59,12 +106,14 @@ struct HostSectionView: View {
   } // End of var sshSetupLine
 
   /// Name and "Last checked …" on the left, a spinner while refreshing and the status on the
-  /// right. One accessibility element, marked as a header.
+  /// right, on the header band; a muted section's name in secondary color. One accessibility
+  /// element, marked as a header.
   private var header: some View {
     HStack(alignment: .firstTextBaseline, spacing: 6) {
       VStack(alignment: .leading, spacing: 1) {
         Text(section.name)
           .font(.headline)
+          .foregroundStyle(section.isMuted ? .secondary : .primary)
           .lineLimit(1)
         if let caption = section.caption {
           Text(caption)
@@ -80,7 +129,9 @@ struct HostSectionView: View {
       }
       StatusLabelView(status: section.status)
     } // End of HStack holding the header
-    .padding(.horizontal, 6)
+    .padding(.horizontal, 10)
+    .padding(.vertical, 7)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(section.accessibilityLabel)
     .accessibilityValue(section.accessibilityValue)
@@ -88,8 +139,8 @@ struct HostSectionView: View {
   } // End of var header
 }
 
-/// A host's status: a colored dot and the status text (the text always says it, so color is
-/// never the only signal).
+/// A host's status: its dot (`StatusDot`, hollow for an unreachable host) and the status text
+/// (the text always says it, so color is never the only signal).
 struct StatusLabelView: View {
   /// The status shown.
   let status: HostStatusLabel
@@ -97,9 +148,7 @@ struct StatusLabelView: View {
   /// The dot and the text.
   var body: some View {
     HStack(spacing: 4) {
-      Circle()
-        .fill(Self.color(for: status))
-        .frame(width: 7, height: 7)
+      StatusDot(tone: status.tone)
       Text(status.text)
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -108,16 +157,6 @@ struct StatusLabelView: View {
     .accessibilityLabel("Status")
     .accessibilityValue(status.text)
   } // End of var body
-
-  /// The dot's color for a status's tone.
-  static func color(for status: HostStatusLabel) -> Color {
-    switch status.tone {
-    case .good: return .green
-    case .neutral: return .gray
-    case .attention: return .orange
-    case .problem: return .red
-    }
-  }
 }
 
 /// An icon, an explanation that wraps, and an optional button ("Retry").

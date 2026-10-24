@@ -1056,6 +1056,33 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     check the iTerm2 tab" with "Show tab", "Confirmed…", a failure with its recoveries) is model
     state set by D25's attach state machine; `SessionActivity.init(_:movingHere:)` maps
     `AttachState`.
+  - **Look** (`Views/PopoverStyle.swift`): the popover paints its own opaque background, the
+    gray `windowBackgroundColor` draws in a window (0.925 light, 0.196 dark), so no vibrancy
+    or blur from the menu bar extra's material reaches the content and the real popover looks
+    like the preview galleries; the `MenuBarExtra(.window)` still sizes to the view (360 pt
+    wide, the host list up to 440 pt before it scrolls) and closes as before. Every fill is
+    opaque and fixed per color scheme (`PopoverPalette`). Each host is a bounded box, flat
+    like a grouped form: a hairline border, a header band (name, "Last checked …", status),
+    then its problem line, empty state and session rows, the rows separated by hairlines.
+    Each row starts with an attach-state indicator (`SessionRow.AttachState`): a blue window
+    glyph when open in iTerm2 here, a green dot when attached elsewhere (tmux clients, and
+    this Mac's last attachment check worked, or found iTerm2 not running, and shows none of
+    them in this Mac's iTerm2), a gray dot in a dashed ring when attached with the location
+    unknown (tmux clients while that check failed or has not finished: one check covers
+    every host, SSH ones too, so no row then claims "elsewhere"), a gray ring when detached,
+    a dim clock when stale ("open here" wins over stale, since the index is live).
+    The row's text still says the state, attached names are semibold, the order is
+    unchanged, and accessibility labels and values are as before (the indicator is hidden
+    from VoiceOver). "Open in iTerm2 here" is white semibold text on a solid blue capsule,
+    at least 4.5:1 in light and dark on any row (`PopoverStyleTests`); the keyboard
+    selection is a neutral gray fill with an accent outline, so accent never sits on accent.
+    Status tones: green (answered), gray (checking, no sessions), orange for what the user
+    can act on ("Sign-in needed", "Host key problem", "tmux not found", "Check failed", with
+    the orange triangle on the problem line), and muted for "Unreachable" alone, since an
+    offline Mac is routine: a hollow gray dot, the host's name in secondary color, a neutral
+    info icon on the problem line, "Retry" as usual. Red is only for failed session actions.
+    The footer's buttons are 16 pt apart and each icon 4 pt from its title
+    (`FooterLabelStyle`), "Quit" trailing.
   - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch, the onboarding window
     included (D24). The popover's only iTerm2 requests on their own are the engine's
     attachment checks, which run only while the popover is visible and are cancelled when it

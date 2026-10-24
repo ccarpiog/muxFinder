@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T12:25:35Z",
+  "updated": "2026-10-24T13:02:25Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -421,11 +421,14 @@
     {
       "id": "14",
       "title": "Popover readability",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
-      "summary": "Gives each host a bounded section, shows attach state at a glance, mutes unreachable hosts and fixes badge contrast and footer spacing.",
+      "summary": "Opaque popover with a bounded section per host, attach state per row, a readable badge, muted unreachable hosts and even footer spacing.",
+      "review": "docs/reviews/phase-14.md",
+      "narrative": "docs/progress-archive/14.md",
       "added": "2026-10-24T07:41:19Z",
-      "status_since": "2026-10-24T07:41:19Z"
+      "started": "2026-10-24T12:26:40Z",
+      "status_since": "2026-10-24T13:02:25Z"
     },
     {
       "id": "I-1",

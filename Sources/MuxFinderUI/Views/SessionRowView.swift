@@ -1,10 +1,11 @@
 import MuxFinderCore
 import SwiftUI
 
-/// One session: its name, "4 windows · 1 client" (or "Last seen … · not live"), the
-/// "Open in iTerm2 here" badge, and any progress, result or failure. A click opens it; the
-/// context menu offers "Move here…" and, for an attachment in this Mac's iTerm2, "Detach from
-/// this Mac" (PLAN.md D25).
+/// One session: its attach-state indicator, its name (stronger while attached), "4 windows ·
+/// 1 client" (or "Last seen … · not live"), the "Open in iTerm2 here" badge, and any progress,
+/// result or failure. A click opens it; the context menu offers "Move here…" and, for an
+/// attachment in this Mac's iTerm2, "Detach from this Mac" (PLAN.md D25). The keyboard
+/// selection is a neutral fill with an accent outline (PLAN.md D22).
 struct SessionRowView: View {
   /// The row's content.
   let row: SessionRow
@@ -12,43 +13,55 @@ struct SessionRowView: View {
   let model: AppModel
   /// Whether the pointer is over the row.
   @State private var isHovered = false
+  /// Light or dark, for the palette.
+  @Environment(\.colorScheme) private var colorScheme
 
   /// The row's layout and its single accessibility element.
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(row.name)
-          .lineLimit(1)
-          .truncationMode(.middle)
-          .foregroundStyle(row.isStale ? .secondary : .primary)
-        Spacer(minLength: 8)
-        if row.isStale {
-          Image(systemName: "clock")
-            .imageScale(.small)
+    let palette = PopoverPalette(colorScheme)
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      AttachStateIndicator(state: row.attachState)
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(row.name)
+            .fontWeight(row.isAttached ? .semibold : .regular)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .foregroundStyle(row.attachState == .stale ? .secondary : .primary)
+          Spacer(minLength: 8)
+          Text(row.detail)
+            .font(.caption)
             .foregroundStyle(.secondary)
+            .lineLimit(1)
+        } // End of HStack holding the name and the detail
+        if row.isOpenInITerm2Here {
+          OpenHereBadge()
         }
-        Text(row.detail)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      } // End of HStack holding the name and the detail
-      if row.isOpenInITerm2Here {
-        OpenHereBadge()
-      }
-      if let activity = row.activity {
-        ActivityLine(activity: activity, key: row.key, model: model)
-      }
-      if let note = row.note {
-        Text(note)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.leading, 18)
-      }
-    } // End of VStack holding the row
-    .padding(.vertical, 5)
-    .padding(.horizontal, 6)
-    .background(RoundedRectangle(cornerRadius: 6).fill(background))
+        if let activity = row.activity {
+          ActivityLine(activity: activity, key: row.key, model: model)
+        }
+        if let note = row.note {
+          Text(note)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 18)
+        }
+      } // End of VStack holding the name, badge and activity
+    } // End of HStack holding the indicator and the row's text
+    .padding(.vertical, 6)
+    .padding(.horizontal, 8)
+    .background {
+      RoundedRectangle(cornerRadius: 6)
+        .fill(palette.rowFill(isSelected: row.isSelected, isHovered: isHovered))
+        .overlay {
+          if row.isSelected {
+            RoundedRectangle(cornerRadius: 6)
+              .strokeBorder(palette.selectionOutline, lineWidth: 1.5)
+          }
+        }
+    }
+    .padding(.horizontal, 4)
     .contentShape(Rectangle())
     .onTapGesture { model.open(row.key) }
     .onHover { isHovered = $0 }
@@ -79,12 +92,6 @@ struct SessionRowView: View {
       }
     }
   } // End of var accessibilityActions
-
-  /// The selection's tint, a faint hover tint, or nothing.
-  private var background: Color {
-    if row.isSelected { return Color.accentColor.opacity(0.22) }
-    return isHovered ? Color.primary.opacity(0.06) : .clear
-  }
 }
 
 /// A session row's context menu: "Open in iTerm2", "Move here…" (not while this Mac's iTerm2
@@ -115,16 +122,21 @@ struct SessionMenu: View {
 }
 
 /// "Open in iTerm2 here": an iTerm2 tmux connection on this Mac shows the session (from
-/// `AttachmentIndex` only).
+/// `AttachmentIndex` only). White text on a solid blue capsule (`PopoverPalette`), readable
+/// on a selected row and an unselected one alike.
 struct OpenHereBadge: View {
+  /// Light or dark, for the palette.
+  @Environment(\.colorScheme) private var colorScheme
+
   /// The capsule.
   var body: some View {
+    let palette = PopoverPalette(colorScheme)
     Label(SessionRow.openHereBadge, systemImage: "macwindow")
-      .font(.caption2.weight(.medium))
-      .foregroundStyle(Color.accentColor)
-      .padding(.horizontal, 6)
+      .font(.caption2.weight(.semibold))
+      .foregroundStyle(palette.badgeText)
+      .padding(.horizontal, 7)
       .padding(.vertical, 2)
-      .background(Capsule().fill(Color.accentColor.opacity(0.14)))
+      .background(Capsule().fill(palette.badgeFill))
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(SessionRow.openHereBadge)
   }

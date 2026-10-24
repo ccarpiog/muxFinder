@@ -2,14 +2,21 @@ import MuxFinderCore
 import SwiftUI
 
 /// The footer: "New session", "Refresh", "Settings", and "Quit" (which leaves every session
-/// and iTerm2 tab running).
+/// and iTerm2 tab running). Each icon sits closer to its own title than to the next button
+/// (PLAN.md D22): the buttons are `buttonSpacing` apart, at least three times the
+/// `iconTitleSpacing` inside each label.
 struct FooterView: View {
+  /// The gap between a button's icon and its title, in points.
+  static let iconTitleSpacing: CGFloat = 4
+  /// The gap between two buttons, in points.
+  static let buttonSpacing: CGFloat = 16
+
   /// The model the buttons talk to.
   let model: AppModel
 
   /// The buttons.
   var body: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: Self.buttonSpacing) {
       Button {
         model.newSession()
       } label: {
@@ -28,17 +35,28 @@ struct FooterView: View {
         Label("Settings", systemImage: "gearshape")
       }
       .help("Settings (⌘,)")
-      Spacer(minLength: 4)
+      Spacer(minLength: 0)
       Button("Quit") {
         model.quit()
       }
       .help("Quit muxFinder. Your tmux sessions and iTerm2 tabs keep running.")
     } // End of HStack holding the buttons
     .buttonStyle(.borderless)
-    .labelStyle(.titleAndIcon)
+    .labelStyle(FooterLabelStyle())
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
   } // End of var body
+}
+
+/// A footer button's label: its icon, then its title, `FooterView.iconTitleSpacing` apart.
+struct FooterLabelStyle: LabelStyle {
+  /// The icon and the title in a row.
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: FooterView.iconTitleSpacing) {
+      configuration.icon
+      configuration.title
+    }
+  }
 }
 
 /// What replaces the host list: loading, no host turned on, or no search match.

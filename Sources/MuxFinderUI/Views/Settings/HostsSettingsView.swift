@@ -200,11 +200,8 @@ struct HostRowView: View {
       }
       Spacer(minLength: 4)
       if let status = row.status {
-        Circle()
-          .fill(StatusLabelView.color(for: status))
-          .frame(width: 7, height: 7)
+        StatusDot(tone: status.tone)
           .help(status.text)
-          .accessibilityHidden(true)
       }
     } // End of HStack holding the row
     .padding(.vertical, 4)

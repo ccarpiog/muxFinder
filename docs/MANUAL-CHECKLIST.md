@@ -250,6 +250,27 @@ looked at the screen or pressed a key; they ran only with iTerm2's auto-hide set
   session is still listed in the popover. 5: the same as 1–3.
 - **Undo:** put iTerm2's auto-hide setting back as it was; detach and kill `manual-check`.
 
+## 15. The popover's look
+
+Owed by Phase 14 (its new look was seen only in the preview galleries; nobody opened the real
+popover, which draws over the menu bar extra's material).
+
+- **Do:** from the installed app with This Mac, Saturno and Sirio turned on, open the popover
+  while Sirio is offline (asleep or away), in light and in dark appearance (System Settings
+  › Appearance), over a busy or colorful desktop picture. Select a session open in iTerm2
+  here with ↑/↓, hover a few rows, and press "Retry" on Sirio.
+- **Expect:** it matches `docs/screenshots/popover-states-light.png` and `-dark.png`: an
+  opaque background (no desktop showing through, and no square corners poking out of the
+  window's rounded ones), one bordered box per host with a header band, a mark at the start
+  of each row (blue window here, green dot attached elsewhere, gray ring detached, dim clock
+  not live; a gray dot in a dashed ring, attached with the location unknown, only while the
+  iTerm2 check has failed or not finished), "Open in iTerm2 here" easy to read with and without the selection (a gray fill
+  with a blue outline), Sirio muted (a hollow gray dot, its name gray, a gray info icon, no
+  red or orange) while a host needing a sign-in or a host key check stays orange, "Retry"
+  working, and the footer's icons clearly closer to their own titles than to the next
+  button, "Quit" at the right. The popover is as wide as before and closes with Esc.
+- **Undo:** nothing.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -268,3 +289,4 @@ looked at the screen or pressed a key; they ran only with iTerm2's auto-hide set
 | 12 | | | |
 | 13 | | | |
 | 14 | | | |
+| 15 | | | |

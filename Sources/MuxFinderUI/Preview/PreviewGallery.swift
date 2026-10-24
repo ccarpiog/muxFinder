@@ -17,7 +17,7 @@ public struct PreviewGallery: View {
   }
 
   /// How many states each row holds.
-  public static let columns = 5
+  public static let columns = 6
 
   /// The states, each with its own model (made once).
   @State private var entries: [Entry]
@@ -46,13 +46,13 @@ public struct PreviewGallery: View {
     .background(Color(nsColor: .underPageBackgroundColor))
   } // End of var body
 
-  /// One state: its title above a popover-like frame.
+  /// One state: its title above a popover-like frame (the popover paints its own opaque
+  /// background, as in the menu bar).
   private func card(_ entry: Entry) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(entry.fixture.title)
         .font(.headline)
       PopoverView(model: entry.model, isLive: false)
-        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
@@ -62,6 +62,10 @@ public struct PreviewGallery: View {
 
 #Preview("Hosts and sessions") {
   PopoverView(model: AppModel(fixture: PreviewFixtures.overview), isLive: false)
+}
+
+#Preview("Selected session open here, offline host") {
+  PopoverView(model: AppModel(fixture: PreviewFixtures.selectedBadgeOffline), isLive: false)
 }
 
 #Preview("Progress and errors") {

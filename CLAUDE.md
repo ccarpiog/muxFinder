@@ -99,7 +99,9 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   item's windows after 2 s (macOS 27 draws the item outside the app, so `CGWindowList` does
   not show it under the app's pid); without a `hosts.json` it also shows the onboarding
   window, which contacts nothing; then `kill -TERM <pid>` must exit 0 with no child left
-  and no `hosts.json` created. See `docs/TESTING.md` (Phases 8 and 9b).
+  and no `hosts.json` created. The user's real `hosts.json` exists, so run it only with
+  `CFFIXED_USER_HOME=$(mktemp -d)` in front: the app then reads an empty private home (no
+  host turned on, nothing refreshed). See `docs/TESTING.md` (Phases 8, 9b and 14).
 - App self-tests (real runs: they open real iTerm2 windows; run explicitly, never from `swift
   test`, with `TMUX_TMPDIR` unset, after `scripts/build-app.sh`, with the same iTerm2
   thread-count caution as the e2e runs below; never through `open`/LaunchServices):

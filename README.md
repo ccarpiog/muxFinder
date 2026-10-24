@@ -137,9 +137,13 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
 - **The popover** lists each turned-on host with its status ("This Mac", "Reachable", "No
   sessions", "Unreachable", "Sign-in needed", "Host key problem", "tmux not found") and "Last
   checked …", and its sessions with windows and clients ("4 windows · 1 client", "2 windows ·
-  Detached"). A session open in iTerm2 on this Mac is marked as such; a client count alone
-  only says it is attached somewhere. When a host stops answering, its last known sessions
-  stay listed as "Last seen … · not live", never as live. It refreshes when it opens, every
+  Detached"). Each host gets a box of its own, and each session starts with a mark for where
+  it is attached (open in iTerm2 here, attached elsewhere, detached, not live; while
+  muxFinder cannot check iTerm2, a session with clients is marked attached without saying
+  where). A session open in iTerm2 on this Mac is also marked "Open in iTerm2 here"; a
+  client count alone only says it is attached somewhere. When a host stops answering, its last known sessions stay
+  listed as "Last seen … · not live", never as live, and an unreachable host is shown muted
+  rather than as an alert, since a Mac that is asleep or away is routine. It refreshes when it opens, every
   15 s while open and every 5 minutes in the background (with a growing pause for a host that
   keeps failing), at most three hosts at a time, so an unreachable host does not hold up the
   others.

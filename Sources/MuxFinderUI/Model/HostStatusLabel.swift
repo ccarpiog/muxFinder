@@ -24,16 +24,18 @@ public enum HostStatusLabel: String, Sendable, Hashable, CaseIterable {
   case checkFailed
 
   /// How a status reads at a glance; the text always says it too, so color is never the only
-  /// signal.
-  public enum Tone: Sendable, Hashable {
-    /// The host answered.
+  /// signal. No host status is red: red is kept for failed session actions (PLAN.md D22).
+  public enum Tone: Sendable, Hashable, CaseIterable {
+    /// The host answered (a green dot).
     case good
-    /// Nothing to report yet, or nothing running.
+    /// Nothing to report yet, or nothing running (a gray dot).
     case neutral
-    /// The user can fix it (sign in, host key, tmux path).
+    /// The user can fix it: sign in, host key, tmux path, a failed check (an orange dot, and
+    /// the orange triangle on the problem line).
     case attention
-    /// The host is out of reach.
-    case problem
+    /// The host is out of reach, which is routine (a Mac asleep or away): a hollow gray dot,
+    /// the section dimmed, a neutral icon on the problem line.
+    case muted
   }
 
   /// The label for `snapshot`: "Checking…" before any attempt finished, then the last
@@ -90,7 +92,7 @@ public enum HostStatusLabel: String, Sendable, Hashable, CaseIterable {
     case .reachable, .thisMac: return .good
     case .checking, .noSessions: return .neutral
     case .signInNeeded, .hostKeyProblem, .tmuxNotFound, .checkFailed: return .attention
-    case .unreachable: return .problem
+    case .unreachable: return .muted
     }
   }
 }
