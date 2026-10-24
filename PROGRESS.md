@@ -39,24 +39,21 @@ file.
 | I-1b | Own `NSStatusItem` + non-activating `NSPanel` placed by `PopoverPlacement` (D30), anchor and toggle rules, press identity, height limit | high | opus (impl + review-fix worker); orchestrator record edits | Codex, ship-with-fixes, `docs/reviews/phase-I-1b.md` | `docs/progress-archive/i-1b.md` |
 | I-2a | `directories.json` store (D31) with lock and refusal of unusable files, nonce-framed `path` probe record, recording on `onCreated`, in-memory store for self-tests | high | opus (impl + review-fix worker); real checks and records by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-2a.md` | `docs/progress-archive/i-2a.md` |
 | I-2b | Directory list in New session (in-popover, ⌥↓/↑/↓/Return/Esc), Settings › Directories with a merging Save, galleries, docs | routine | opus (impl + review-fix worker); self-test and one test-harness fix by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-2b.md` | `docs/progress-archive/i-2b.md` |
+| I-3a | Global shortcut: `GlobalShortcut`, `preferences.json` store, Carbon registrar, Settings › General recorder, `--report-hotkey-registration`, interim popover toggle (D32) | routine | opus (impl + review-fix worker); one checklist step by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-3a.md` | `docs/progress-archive/i-3a.md` |
 
-Queued from the inbox (specification in `autoclaude/processed/`; position after I-2, in
-this order):
-
-| Phase | Title | Specification | Position |
-|---|---|---|---|
-| I-3 | Global hotkey: session switcher (split I-3a shortcut and Settings; I-3b switcher panel; both routine) | `autoclaude/processed/30-global-hotkey-session-switcher.md` | after I-2b |
+Queued (plan in `PLAN.md` "### Phase I-3"; specification
+`autoclaude/processed/30-global-hotkey-session-switcher.md`): **I-3b** — switcher panel
+(routine).
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b) and I-2 (a, b) are complete and reviewed. **Phase I-2b — Picker,
-keys, Settings "Directories", galleries and documents (routine): complete** 2026-10-24
-(`docs/progress-archive/i-2b.md`; D31 extended). **Next: I-3**, not yet in `PLAN.md` (add it
-when it is selected). I-3's optional `--report-hotkey-registration` flag still needs the
-orchestrator's call against the no-UI-scripting rule. Phase 13's settled design is **D29**;
-real facts in `PLAN.md` *Verified facts* "Phase 13a spike" and "Phase 13c real runs". Earlier
-splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into 11a/11b/11c, 12
-into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b, I-2 into I-2a/I-2b.
+Phases 1–14, I-1 (a, b), I-2 (a, b) and I-3a are complete and reviewed. **Phase I-3a —
+Shortcut, storage, registrar, Settings recorder (routine): complete** 2026-10-24
+(`docs/progress-archive/i-3a.md`; new **D32**, D23 edited). **Next: I-3b** (switcher panel).
+Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
+into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
+I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 
 ## Acceptance
 
@@ -91,6 +88,12 @@ into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b, I-2 into I-2a/I-2b.
   step 26 harness fix. `--selftest new-session-local` 7/7 with no `directories.json` created.
   Bundle and `codesign` exit 0. The real keys and creating from each source are owed
   (checklist 17) — `docs/progress-archive/i-2b.md`.
+- Phase I-3a: all criteria met, 2026-10-24 — shortcut, label, storage (private folders) and
+  registrar tests pass (815 core + 292 UI tests; 20 + 29 new, no existing test changed);
+  `--report-hotkey-registration` in the signed bundle exit 0, 8/8, nothing left registered;
+  `--report-menu-bar-item` as before; install-script check 35/35; uninstall removes
+  `preferences.json` with the support folder; bundle and `codesign` exit 0. A real press, the
+  real recorder and the user's layout are owed (checklist 18) — `docs/progress-archive/i-3a.md`.
 
 ## Decisions
 
@@ -146,56 +149,32 @@ into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b, I-2 into I-2a/I-2b.
   render it. Settings' Save is a three-way `mergeSaved` run by the store under its lock, and
   list rows compare byte for byte. `--preview-snapshot` fits the window to its content first.
   Step 26 of the install-script check matches the readers' pids — `docs/progress-archive/i-2b.md`.
+- Phase I-3: split into I-3a/I-3b in `PLAN.md` before the first worker, with three calls:
+  `--report-hotkey-registration` allowed (own-process Carbon registration posts no event, so it
+  is not UI scripting; bounded); the shortcut in `preferences.json` under the support folder,
+  not the defaults domain (`CLAUDE.md`'s ownership rule, hermetic tests, `CFFIXED_USER_HOME`);
+  the recorder applies at once. New **D32** (I-3a part): ⌥-only shortcuts warn instead of being
+  refused, since macOS 27.2 registered them; a failed unregistration keeps the hotkey and its
+  handle; an unusable file found by a save turns the hotkey off with "Try again" —
+  `docs/progress-archive/i-3a.md`.
 
 ## Open risks / deviations
 
-- **13: iTerm2's auto-hide setting** ("Automatically bury the tmux client session after
-  connecting", read only, never written) was on for 13a's spike and at its default (off) for
-  13c's runs (iTerm2 exited between 12:15 and 12:24 on 2026-10-24, not the run's doing, and
-  came back without the key). So the default branch is proven for real; the "on" branch only by
-  the 13a spike's old harness, never by the 13c harness.
-- 13a: "Return works" after an abnormal end is inferred from an answered DSR, never typed (no
-  synthesized keystrokes); it is in `docs/MANUAL-CHECKLIST.md` item 14. A SIGHUP or SIGKILL of
-  the helper in the middle of its exchange cannot restore raw mode (the tab ends with it).
-  iTerm2 sources (`v3.7.6`) were downloaded to `/tmp/mfx-iterm2-src` for reading only.
-- 13b/13c: the refresh engine's attachment checks do not feed recovery (only the coordinator's
-  own listings do). The race's dangerous order (bury landing after the helper's restore) was
-  not forced for real — on both hosts the bury landed first; forcing it needs a seam inside
-  `ITerm2APIClient.buryLaunchTab`; 13b's unit tests cover the order. Step 7's retry path ran
-  only in unit tests. `CreatedSessionTests.killsOnlyTheRecordedSessionOnAPrivateServer` (6a)
-  failed once with `scripts/build-app.sh` running in parallel, then passed alone and 3/3
-  isolated — another load-sensitive private-server test. `CLAUDE.md` / `docs/TESTING.md` say
-  about 123 s for `e2e-remote` (13c: 120.4 s). The user's own muxFinder.app had attachments
-  open during 13c's runs; every check left them out — `docs/progress-archive/13c.md`.
-- 14: the real popover is unseen (needs a click): opaque corners in the menu bar window,
-  badge, muted Sirio, footer — `docs/MANUAL-CHECKLIST.md` item 15. The unknown-location mark
-  shows briefly on each popover open until the first attachment check ends; a working check
-  with unmatched connections (5a `nonUTF8`) can still read "elsewhere" —
-  `docs/progress-archive/14.md`.
-- I-1a: the pre-fix popover frame is unmeasured and the cause (SwiftUI anchoring at a replica
-  status-bar window's placeholder frame at the second display's right edge) inferred; where the
-  system draws the icon vs window 0's x 1413 was not checked; the lock state disagreed between
-  the worker's runs (unlocked) and the orchestrator's (locked); the watchdog has no unit test —
-  `docs/progress-archive/i-1a.md`.
-- I-1b: keys, focus, Edit-menu equivalents, the real closing paths, the other display's icon,
-  ⌘-drag, a full-screen Space and content resizing are unverified for real (checklist 16);
-  whether the system draws the icon at AppKit's button rect (screen 1's right edge when screen
-  1 is main) is unchecked; the hardware press count inside the app is unverified (falls back to
-  the old time/distance rule) — `docs/progress-archive/i-1b.md`.
-- I-2a: the private-server tests `boundsAFloodOfTmuxErrors` and
-  `discoversSessionsOnAPrivateServer` are load-sensitive (one run of 103 issues under machine
-  load, one single failure, then every run passed; the second races the tmux server's exit).
-  An orphaned `TestSupport.swift` fixture loop from an earlier iteration was found and stopped
-  — another test can leave one behind. The 4,096-byte producer bound needs tmux ≥ 3.2; a file
-  changed after the store's first look meets only the write-time checks; the uninstall
-  dry-run text does not name `directories.json` (it removes the whole folder) —
-  `docs/progress-archive/i-2a.md`.
+- Phases 13–I-2a: their open risks and deviations moved verbatim to
+  `docs/progress-archive/open-risks-13-i-2a.md` (iTerm2's auto-hide setting's "on" branch only
+  proven by 13a's old harness; the real popover, its keys, focus and clicks unseen, checklist
+  15–16; load-sensitive private-server tests; the race's dangerous order unforced).
 - I-2b: the list highlight drops on a field edit, not on a click back into the field.
   `NewSessionDraft.directory`'s observer still compares with `String ==`. Real keys in the
   non-activating panel and creating from each source are unverified (checklist 17). The full
   `swift test` fails in private-tmux-server suites under extreme machine load (~500, another
   project's simulator run). Install-script step 35 can fail while the user's installed app
   writes its `launch/` folder — `docs/progress-archive/i-2b.md`.
+- I-3a: no key was pressed, so whether a real press fires the Carbon handler (dispatcher
+  target, registration on the application target) and whether macOS 27.2 delivers ⌥-only
+  shortcuts are checklist 18's. The flag briefly registers the plain-letter ⌥J and ⌥⇧J
+  system-wide. Leaving the General tab mid-recording is tested in the model only. The
+  uninstall dry-run text does not name `preferences.json` — `docs/progress-archive/i-3a.md`.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -242,20 +221,23 @@ into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b, I-2 into I-2a/I-2b.
   review-fix worker fixed all three (`mergeSaved` under the store's lock; the highlight
   dropped on edit; byte identity), each with regressions failing with the fix reverted;
   re-verified by the orchestrator — `docs/reviews/phase-I-2b.md`.
+- Phase I-3a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
+  blockers, 3 should-fix (a failed unregistration lost its handle; an unusable file found by a
+  save blocked recovery; leaving General kept recording). A review-fix worker fixed all three,
+  each regression failing with its fix reverted; re-verified by the orchestrator —
+  `docs/reviews/phase-I-3a.md`.
 
 ## Next action
 
-1. **Start I-3** (global hotkey: session switcher; binding specification
-   `autoclaude/processed/30-global-hotkey-session-switcher.md`). Poll the inbox first. Then add
-   "### Phase I-3" to `PLAN.md` after "### Phase I-2", with the split already in
-   `PROGRESS.json`: I-3a is the shortcut, its storage, the Carbon registrar and the Settings
-   recorder; I-3b is the switcher panel; both routine. Before the first worker, decide whether
-   the optional `--report-hotkey-registration` flag is allowed. It may only register and report
-   in process, with no synthesized key events (the no-UI-scripting rule); record the call in
-   `PLAN.md`. Then mark I-3a `in_progress` and spawn one worker. The I-2b patterns carry over:
-   keys through `PopoverKey`/`AppModel.handle(_:)`, Settings Save/Revert (D23), injected
-   stores for self-tests and previews, galleries through `--preview-snapshot`, and the
-   install-script check (about 60 s).
+1. **Start I-3b** (switcher panel, routine; `PLAN.md` "### Phase I-3", the I-3b bullet, and
+   the specification's Design 5–10 in `autoclaude/processed/30-global-hotkey-session-switcher.md`).
+   Poll the inbox first, mark I-3b `in_progress`, spawn one worker. It switches
+   `AppModel.globalShortcutPressed()` from the interim popover toggle to the switcher, records
+   the panel's width in D32 and edits D22 for the combined visibility rule. Patterns: keys
+   through `PopoverKey`/`AppModel.handle(_:)`, the D30 panel and `PopoverPlacement`, Phase 14's
+   row look (`PopoverStyle.swift`, `PopoverContent`), `NewSessionPanelView` with I-2b's
+   directory list, galleries through `--preview-snapshot`. No `e2e-*` run unless the attach
+   path changes; `--report-hotkey-registration` need not run again.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -357,20 +339,25 @@ into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b, I-2 into I-2a/I-2b.
   hermetic check `scripts/dev/test-install-scripts.sh`; app flag `--remove-persistent-profiles`
   (`Sources/MuxFinderCore/Profiles/PersistentProfileRemoval.swift`). User docs: `README.md`,
   `docs/ARCHITECTURE.md`, `docs/MANUAL-CHECKLIST.md`, matrix at the top of `docs/TESTING.md`.
+- Global shortcut (D32, I-3a): `Sources/MuxFinderCore/Config/{GlobalShortcut,
+  PreferencesStore}.swift`, `Sources/MuxFinderUI/Model/{GlobalShortcutLabel,HotkeyRegistrar,
+  GlobalShortcutModel}.swift`, `Views/Settings/ShortcutRecorderView.swift`, flag
+  `Sources/MuxFinderApp/HotkeyRegistrationReport.swift`; tests
+  `Tests/MuxFinderCoreTests/{GlobalShortcut,PreferencesStore}Tests.swift`,
+  `Tests/MuxFinderUITests/{GlobalShortcutModel,GlobalShortcutApp}Tests.swift`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-2b (final tree, orchestrator, 2026-10-24): `swift build` exit 0, no warnings;
-  `swift test` 795 core tests in 79 suites + 263 UI tests in 25 suites passed; `swift format
-  lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep
-  --strict build/muxFinder.app` exit 0; `scripts/dev/test-install-scripts.sh` 35/35 exit 0
-  (step 26 still fails with the uninstall identity check removed); `--selftest
-  new-session-local` 7/7 (iTerm2 17 → 19 threads), no `directories.json`, no
-  `muxfinder-test-*` session, empty `launch/` — `docs/progress-archive/i-2b.md`.
-- Phases 1–I-2a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase I-3a (final tree, orchestrator, 2026-10-24): `swift build` exit 0; `swift test` 815
+  core tests in 81 suites + 292 UI tests in 27 suites passed; `swift format lint -r Sources
+  Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep --strict
+  build/muxFinder.app` exit 0; `scripts/dev/test-install-scripts.sh` 35/35 PASS;
+  `--report-hotkey-registration` exit 0, 8/8, nothing left registered —
+  `docs/progress-archive/i-3a.md`.
+- Phases 1–I-2b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -394,6 +381,7 @@ into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b, I-2 into I-2a/I-2b.
 - Phase I-1a: `72e635a`, pushed.
 - Phase I-1b: `adf79ec`, pushed (`origin/main` at `adf79ec` before Phase I-2a).
 - Phase I-2a: `3feab0e`, pushed (`origin/main` at `3feab0e` before Phase I-2b).
-- Phase I-2b: the commit after `3feab0e` (picker, Settings tab, review fixes, harness fix,
-  galleries, docs, review, archive and checkpoint); its SHA and push result are in the run's
-  final status line.
+- Phase I-2b: `e36e471`, pushed (`origin/main` at `e36e471` before Phase I-3a).
+- Phase I-3a: the commit after `e36e471` (shortcut, store, registrar, recorder, flag, review
+  fixes, galleries, docs, review, archive and checkpoint); its SHA and push result are in the
+  run's final status line.

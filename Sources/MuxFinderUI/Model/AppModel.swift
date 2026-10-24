@@ -47,6 +47,12 @@ import os
 ///   model through one ordered stream, so the row's activity follows the core's states and
 ///   "Confirmed" appears only once the core confirmed the attachment. A session that vanished or
 ///   changed meanwhile gets a banner and its host is refreshed.
+/// - **Session switcher shortcut** (PLAN.md D32): `shortcut` loads `preferences.json` and
+///   registers the saved hotkey at the start of `start()` (normal mode only: without
+///   `AppEnvironment.globalShortcut` nothing is read or registered), and `shutdown()`
+///   unregisters it. Its press reaches one entry point, `globalShortcutPressed()`, which until
+///   the session switcher exists (Phase I-3b) toggles the popover through `togglePopover`
+///   (`PopoverController.shortcutPressed()`, set by `MenuBarPopover`).
 /// - **Fixtures:** `init(fixture:)` renders a fixed state for previews and screenshots; it
 ///   never starts an engine, reads the host list or contacts iTerm2.
 @MainActor
@@ -203,6 +209,12 @@ public final class AppModel {
   public let onboarding: OnboardingModel
   /// The popover's "Set up SSH in iTerm2…" (no action for a fixture or without settings seams).
   public let sshSetup: SSHSetupActions
+  /// The session switcher shortcut (PLAN.md D32; inert without
+  /// `AppEnvironment.globalShortcut`). Settings › General shows the same model.
+  public let shortcut: GlobalShortcutModel
+  /// What the session switcher shortcut does until the switcher exists: toggles the popover
+  /// (`MenuBarPopover` sets it to `PopoverController.shortcutPressed()`); `nil` does nothing.
+  @ObservationIgnored public var togglePopover: (@MainActor () -> Void)?
 
   /// The dependencies; `nil` for a fixture.
   @ObservationIgnored let environment: AppEnvironment?
@@ -278,8 +290,12 @@ public final class AppModel {
             store: $0.store, sshSetup: $0.sshSetup, diagnostics: $0.diagnostics))
       } ?? OnboardingModel(fixture: OnboardingFixtures.blank)
     sshSetup = SSHSetupActions(opener: environment.settings?.sshSetup)
+    shortcut = GlobalShortcutModel(
+      environment: environment.globalShortcut, diagnostics: environment.diagnostics)
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     (actionEvents, actionSink) = AsyncStream.makeStream(of: ActionEvent.self)
+    settings.globalShortcut = shortcut
+    shortcut.onPress = { [weak self] in self?.globalShortcutPressed() }
     settings.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
     settings.onDirectoriesSaved = { [weak self] lists in
       self?.directoriesChanged(lists, tellingSettings: false)
@@ -310,6 +326,7 @@ public final class AppModel {
     settings = SettingsModel(fixture: SettingsFixtures.blank)
     onboarding = OnboardingModel(fixture: OnboardingFixtures.blank)
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
+    shortcut = GlobalShortcutModel(fixture: GlobalShortcutFixture())
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     commandSink.finish()
     (actionEvents, actionSink) = AsyncStream.makeStream(of: ActionEvent.self)
@@ -347,9 +364,13 @@ public final class AppModel {
   }
 
   /// The body of `start()`. Stops building as soon as `shutdown()` was called; whatever it
-  /// built by then, `shutdown()` stops once this returns. A list loaded as `notSavedYet` shows
-  /// the onboarding window first (`OnboardingModel.prepare(_:)` decides; it reads nothing).
+  /// built by then, `shutdown()` stops once this returns. The session switcher shortcut is
+  /// loaded and registered first (PLAN.md D32; nothing without `AppEnvironment.globalShortcut`).
+  /// A list loaded as `notSavedYet` shows the onboarding window first
+  /// (`OnboardingModel.prepare(_:)` decides; it reads nothing).
   private func performStart(_ environment: AppEnvironment) async {
+    await shortcut.start()
+    guard lifecycle == .starting else { return }
     let (hosts, loaded) = await loadHostList(environment)
     guard lifecycle == .starting else { return }
     if environment.rewritesProfilesAtLaunch, loaded?.state == .saved {
@@ -482,21 +503,23 @@ public final class AppModel {
     return report
   } // End of func shutdown()
 
-  /// The part of `shutdown()` that never waits for a session action: Settings, onboarding and
-  /// the popover's "Set up SSH in iTerm2…" requests stop concurrently with the engine's chain
-  /// (the start in progress, the request queue, the system events adapter, the engine and its
-  /// updates).
+  /// The part of `shutdown()` that never waits for a session action: Settings, onboarding,
+  /// the popover's "Set up SSH in iTerm2…" requests and the session switcher shortcut (its
+  /// save in progress awaited, its hotkey unregistered, PLAN.md D32) stop concurrently with the
+  /// engine's chain (the start in progress, the request queue, the system events adapter, the
+  /// engine and its updates).
   private func stopSubsystems() async {
     async let settingsStopped: Void = settings.shutdown()
     async let onboardingStopped: Void = onboarding.shutdown()
     async let sshSetupStopped: Void = sshSetup.shutdown()
+    async let shortcutStopped: Void = shortcut.shutdown()
     await startTask?.value
     commandSink.finish()
     await commandTask?.value
     await systemEvents?.stop()
     await engine?.stop()
     await updatesTask?.value
-    _ = await (settingsStopped, onboardingStopped, sshSetupStopped)
+    _ = await (settingsStopped, onboardingStopped, sshSetupStopped, shortcutStopped)
   } // End of func stopSubsystems()
 
   /// Records the session actions `shutdown()` stopped waiting for, kinds only, in the system
@@ -605,6 +628,14 @@ public final class AppModel {
     case .openLoginItems:
       settings.perform(fixIt)
     }
+  }
+
+  /// The session switcher shortcut was pressed (PLAN.md D32): the one entry point of the
+  /// hotkey's action. Until the session switcher exists (Phase I-3b) it toggles the popover
+  /// through `togglePopover`. Does nothing for a fixture or after `shutdown()`.
+  public func globalShortcutPressed() {
+    guard environment != nil, lifecycle != .stopped else { return }
+    togglePopover?()
   }
 
   /// "Quit": ends the app through `AppEnvironment.terminate`, whose shutdown stops the engine

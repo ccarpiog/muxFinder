@@ -93,15 +93,26 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-login-item-status` prints
   `SMAppService.mainApp.status` and exits 0. Never call `register`/`unregister` for real
   (that changes the user's login items); the toggle's real round trip is the user's.
+- Hotkey registration check (PLAN.md D32; registers nothing of the user's: no window, menu
+  bar item, engine, host list, iTerm2 or `preferences.json`, no event posted; a few runs per
+  phase at most; never through `open`/LaunchServices):
+  `build/muxFinder.app/Contents/MacOS/muxFinder --report-hotkey-registration` registers fixed
+  test combinations through Carbon in its own process (⌃⌥⇧⌘F19 twice, the second refused as
+  taken; unregistered and registered again; ⌥F19, ⌥⇧F19, ⌥J, ⌥⇧J, which macOS 27.2
+  registers), unregisters everything before it exits (SIGTERM/SIGINT are held until then),
+  prints one `muxFinder hotkey registration: …` line per check and exits 0 (all as
+  expected), 1 (a check not as expected) or 3 (a signal arrived); 2 when combined with
+  another mode. It proves registration, never a press (checklist 18).
 - App shell check (normal mode, except that it never rewrites the persistent profile file
-  as a normal launch may, PLAN.md D26; contacts no iTerm2 while no host is enabled and the
+  as a normal launch may, PLAN.md D26, and never reads `preferences.json` or registers the
+  session switcher shortcut, D32; contacts no iTerm2 while no host is enabled and the
   popover stays closed; never through `open`/LaunchServices):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints the windows
   of muxFinder's own status item (PLAN.md D30; AppKit's replicas included) after 2 s (macOS 27
   draws the item outside the app, so `CGWindowList` does not show it under the app's pid);
   without a `hosts.json` it also shows the onboarding
   window, which contacts nothing; then `kill -TERM <pid>` must exit 0 with no child left
-  and no `hosts.json` created. The user's real `hosts.json` exists, so run it only with
+  and no `hosts.json` or `preferences.json` created. The user's real `hosts.json` exists, so run it only with
   `CFFIXED_USER_HOME=$(mktemp -d)` in front: the app then reads an empty private home (no
   host turned on, nothing refreshed). See `docs/TESTING.md` (Phases 8, 9b, 14 and I-1b).
 - Popover placement check (read-only; muxFinder's menu bar item and popover panel, PLAN.md
@@ -167,9 +178,11 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   symbolic link, such as one from `mktemp -d`) and `hosts suggestions` (`Host` names from
   `~/.ssh/config` and its includes; they are the user's, so never paste them into docs,
   fixtures or logs). Test a save only through `HostStore` on a private folder, never on
-  `~/Library/Application Support/muxFinder/hosts.json`, and a directory-list change only
+  `~/Library/Application Support/muxFinder/hosts.json`, a directory-list change only
   through `DirectoryStore` (or `InMemoryDirectoryStore`) on a private folder, never on the
-  real `directories.json` there (PLAN.md D31).
+  real `directories.json` there (PLAN.md D31), and a shortcut change only through
+  `PreferencesStore` (or `InMemoryPreferencesStore`) on a private folder, never on the real
+  `preferences.json` and never through `UserDefaults` (PLAN.md D32).
 - Persistent profile checks (read-only, print JSON; write no file, never contact iTerm2):
   `swift run muxfinder-probe profiles show [--config <path>] [--helper <path>]` prints the
   `DynamicProfiles/muxFinder.json` document the app would install for the host list (loaded

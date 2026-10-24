@@ -7,7 +7,9 @@ import SwiftUI
 /// The entry point (PLAN.md D22, D23, D25, D27): unusable arguments print the usage and exit
 /// 2; `--remove-persistent-profiles` removes muxFinder's dynamic profile file (only when it is
 /// muxFinder's generated file) and exits; `--report-login-item-status` prints the login item
-/// status and exits; `--preview-fixtures` runs the fixture window on a plain `NSApplication`
+/// status and exits; `--report-hotkey-registration` checks Carbon's hotkey registration with
+/// fixed test combinations and exits (PLAN.md D32); `--preview-fixtures` runs the fixture
+/// window on a plain `NSApplication`
 /// (no `MenuBarPopover`, so no menu bar item is ever created and nothing is recorded for one);
 /// `--selftest` runs a self-test on a plain `NSApplication` too; every other launch runs the
 /// menu bar app (with `--report-popover-placement`, over a model that is never started, to
@@ -28,6 +30,8 @@ enum MuxFinderMain {
       removePersistentProfiles(options)
     } else if options.reportsLoginItemStatus {
       reportLoginItemStatus()
+    } else if options.reportsHotkeyRegistration {
+      HotkeyRegistrationReport.run()
     } else if options.previewFixtures {
       PreviewAppDelegate.run(options: options)
     } else {

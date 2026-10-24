@@ -44,7 +44,7 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-2b* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-3a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
 Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
 
@@ -57,6 +57,7 @@ Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 1
 then once after the review fixes, unlocked, with screen 1 main: the button at screen 1's right
 edge and the panel clamped 8 pt inside it, top on the menu bar's bottom, "after-fix check:
 passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the toggle bug, occlusion, size) and `PopoverAnchoringTests` (the anchor rule over this Mac's displays, the replica frames never anchors, the after-fix check). |
+| A global shortcut, off until recorded in Settings › General ("Show session switcher"): checked (a modifier besides ⇧ unless F1–F20, macOS's own combinations refused, a warning before ⌘ with one key or only ⌥/⌥⇧), shown with the current layout's key, kept in `preferences.json`, registered at launch, again on a change, unregistered on clear and at quit, suspended while recording, a taken one explained beside the recorder; until the switcher exists it toggles the popover (PLAN.md Phase I-3a, D32). | Registration and its refusal of a second registration tested for real in the signed bundle (`--report-hotkey-registration`); the rest hermetically and in the preview renders (both appearances). Recording in the real Settings window, a taken shortcut, "Clear", a relaunch, the label on the user's layout and a press from another app: by a person (checklist 18). | Phase I-3a, 2026-10-24 (*Phase I-3a* below): `--report-hotkey-registration` exit 0, 8 of 8 checks as expected; `GlobalShortcutTests`, `PreferencesStoreTests`, `GlobalShortcutModelTests`, `GlobalShortcutAppTests`; `docs/screenshots/settings-states-*.png` regenerated and inspected. |
 
 ## Unit tests (`swift test`)
 
@@ -680,6 +681,23 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   file unchanged) and a linked one refused (`lockUnavailable`), the lock file 0600, empty, no
   ACL; lists over 1 MiB refused; the default path beside `hosts.json`; `hosts.json` and its
   backups never touched; the in-memory store's rules.
+- **Session switcher shortcut: value and storage** (`GlobalShortcutTests`,
+  `PreferencesStoreTests`, private temporary folders only, never `UserDefaults` or
+  `~/Library/Preferences`; PLAN.md D32): a typing key without ⌃, ⌥ or ⌘ (none, or ⇧ alone)
+  refused, all 20 F-keys alone or with ⇧ usable; ⌘Space, ⌘Tab, ⌘⇧Tab, ⌘⇧3/4/5 and ⌘⌥Esc
+  refused, neighbours not; ⌘ with one key and only ⌥ or ⌥⇧ warned about, not refused; key
+  codes past 127 refused; modifier names round-trip in ⌃⌥⇧⌘ order. The store: a missing file
+  or folder gives no shortcut and creates nothing; record, change and clear round-trip
+  (0600 file, 0700 folder, the lock file, schema 1 with the key code and modifier names);
+  unchanged changes write nothing; eight unusable files (not JSON, an array, no or a string
+  version, schema 2 and 0, open permissions, over 64 KiB) and a link, a folder and an ACL at
+  the name give no shortcut and refuse both a record and a clear, the folder byte for byte
+  unchanged; a folder that is a link refused; ten unusable `globalShortcut` values (a
+  string, no modifiers key, a fractional, too large or negative key code, an unknown or
+  non-array modifier, a combination the check refuses, a boolean key code) dropped with the
+  file usable, and a recording then keeps the old file as a backup; unknown keys kept on
+  write; a file another program wrote during a write kept as a 0600 backup; a held
+  `preferences.lock` gives `busy` with nothing written; the in-memory store.
 - **SSH config suggestions** (`SSHConfigSuggestionsTests`, a synthetic home per test, never
   the user's `~/.ssh`): `Host` lines with several patterns; every keyword form (any case,
   `Host=a`, `Host = a`, `Host =a`, `Host= a`, tabs, indentation; `Hostname` and
@@ -1037,6 +1055,40 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   entry, and the save keeps it as a backup; changes from New session follow while there are
   no unsaved edits; the app gives the tab and New session's list one store instance; the
   fixtures load and save nothing.
+- **Session switcher shortcut: label, registrar and recorder**
+  (`Tests/MuxFinderUITests/GlobalShortcutModelTests.swift`, `GlobalShortcutAppTests.swift`
+  over `FakeHotkeyRegistrar`, a Spanish-like `StaticKeyboardLayout` and in-memory or scripted
+  stores; PLAN.md D32): the label prints Ñ, Ç, the grave accent and + from the fake layout
+  after ⌃⌥⇧⌘ in macOS order, fixed names for F-keys, Space, Return, Tab, Delete, Esc and the
+  arrows, the key code for a key that types nothing, and a spoken form; the real layout
+  reads a letter (read-only); event flags map to the four modifiers. The model: a saved
+  shortcut registered at launch and its press reaching `onPress`, nothing registered without
+  one; a change unregisters the old one while recording and registers and saves the new one;
+  "Clear" and Delete unregister and save none; quitting unregisters and stops listening; a
+  taken shortcut at launch and while recording shows "Another app uses this shortcut. Choose
+  another." (the recorder keeps listening, Esc brings the saved one back); while recording
+  the hotkey is unregistered so a press never reaches `onPress`; refusals keep listening;
+  ⌘K and ⌥J ask first ("Use it anyway", Return, "Choose another"); a failed save or clear
+  brings the previous shortcut back with the reason; an unusable file or folder leaves the
+  hotkey off, the recorder disabled, with "Try again"; a save or clear that finds the file
+  unusable (a real `PreferencesStore` on a private `mkdtemp` folder) leaves it byte for byte
+  as it is and the hotkey off, and "Try again" registers what the fixed file holds; a failed
+  unregistration keeps the hotkey registered (recording does not start, "Clear" saves
+  nothing, a failed save keeps the new shortcut), says so and names the kind in
+  diagnostics, and the next attempt unregisters it; `CarbonHotkeyRegistrar` over fake Carbon
+  calls keeps a registration whose unregistration fails, and `unregisterAll()` keeps and
+  counts it and keeps the handler until nothing is registered; inert and fixture models do
+  nothing; the log holds kinds only. In the app: `AppModel.start()` registers and the press
+  reaches `globalShortcutPressed()`, which toggles the popover through `togglePopover`, and
+  `shutdown()` unregisters; with no shortcut environment nothing is read or registered;
+  Settings' window closing or losing the focus, or another tab, stops recording;
+  `PopoverController`'s `shortcutPressed()` opens under the button and closes; only normal
+  mode gets a shortcut
+  (`registersGlobalShortcut`), `--report-hotkey-registration` with any other mode is a usage
+  error; the app's environment has `preferences.json`, the Carbon registrar and the system
+  layout, the placement diagnostic and the self-tests none; the gallery covers the recorder
+  empty, recording with a refusal, warning, set and taken; "Copy diagnostics" names the
+  state by kind.
 - **Self-test drivers** (`Tests/MuxFinderUITests/SelfTestDriverTests.swift`, PLAN.md D25).
   `SelfTestDriver` over the real model, engine and coordinator with `SimulatedITerm2`, a
   `SimulatedTmux` (sessions in memory: the driver's tmux, discovery and New session's creator)
@@ -2575,3 +2627,25 @@ a field edit, byte identity for list rows).
 | Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery attach\|settings --appearance light\|dark --preview-snapshot <png>`, each image looked at | `attach-states-*.png` 3136 × 5374 px (the four New session list states: three sections with a highlighted recent row and a path shortened in the middle, nothing to pick, saved already, an unusable file), `settings-states-*.png` 4528 × 8740 px (Directories with unsaved changes and an inline issue, and with an unusable file); readable in both appearances. `--preview-snapshot` now sizes the window to the content's natural size first: on this display the taller attach gallery had been shrunk to the screen's height, squeezing its host lists |
 | Install scripts | `scripts/dev/test-install-scripts.sh` (after `scripts/build-app.sh`) | exit 0, 35 of 35 PASS. Before that, step 26 ("uninstall: never signalled, and no muxFinder warning for a reader of another copy") failed on every run only because its `log_lacks "also running from"` also matched the warning about the user's own muxFinder running from `/Applications`; the step now checks that no warning names either reader's pid (the warning prints `(pid N)`). With the uninstall script's executable-identity check removed for a moment, step 26 failed again (1 of 35), so the step still catches what it guards. Step 35 (the real folders untouched) can still fail when the user's installed app writes its own `launch/` folder during the run |
 | Self-test | `build/muxFinder.app/Contents/MacOS/muxFinder --selftest new-session-local` (`TMUX_TMPDIR` unset; gate: `iterm2 status` connected, iTerm2 17 threads) | exit 0, 7 of 7 PASS; iTerm2 17 → 19 threads; afterwards no `muxfinder-test-*` session, an empty `launch/` folder and no `directories.json` |
+
+### Phase I-3a — session switcher shortcut (2026-10-24)
+
+The shortcut value, `preferences.json`, the Carbon registrar, its lifecycle in normal mode
+and the recorder in Settings › General (PLAN.md Phase I-3, D32). The attach path did not
+change, so no `e2e-*` run or self-test was made. No hotkey was pressed and no event was
+posted (a press is checklist 18's). The real `hosts.json`, `directories.json` and
+`preferences.json` were neither read nor written; nothing was written to
+`~/Library/Preferences`.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites (20 new in 2 suites: `GlobalShortcutTests`, `PreferencesStoreTests`) and 288 UI tests in 27 suites (25 new in 2 suites: `GlobalShortcutModelTests`, `GlobalShortcutAppTests`). No existing test changed |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Registration, run 1 | `build/muxFinder.app/Contents/MacOS/muxFinder --report-hotkey-registration` (the first tree, which still refused only-⌥ shortcuts) | exit 1: ⌃⌥⇧⌘F19 registered; registered again: taken (`eventHotKeyExistsErr`); unregistered; registered and unregistered again; ⌥F19, ⌥⇧F19, ⌥J and ⌥⇧J all **registered** (`noErr`) where the tree expected a refusal, so macOS 27.2 does not refuse them; nothing left registered. The validation then warns about them instead of refusing them (PLAN.md D32, *Verified facts*) |
+| Registration, run 2 | the same, on the final tree | exit 0: `macOS Version 27.2 (Build 26B118)`; the same eight results, each as expected ("registered, as muxFinder only warns about it" for the four ⌥ ones); "8 checks, all as expected; nothing left registered" |
+| App shell | `CFFIXED_USER_HOME=$(mktemp -d) build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`, then `kill -TERM` | 7 status-bar windows printed as before (the item at {1520, 1698} and {4152, 2139}, the replicas at {0, −30}); no child process; exit 0; the private home still empty (no `hosts.json`, no `preferences.json`) |
+| Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery settings --appearance light\|dark --preview-snapshot <png>`, each image looked at | `settings-states-*.png` 4528 × 10808 px, 23 states: the five new General states (no shortcut, recording with a refusal, the ⌘K warning with "Use it anyway" and "Choose another", ⌃⌥Space set, ⌃⌥K taken with its message) readable in both appearances; the General frames are 420 pt tall (were 330) for the new section |
+| Install scripts | `scripts/dev/test-install-scripts.sh` (after `scripts/build-app.sh`) | exit 0, 35 of 35 PASS. `scripts/uninstall.sh` removes the whole support folder (`remove_support_folder`), so `preferences.json` and `preferences.lock` go with it; the script did not change |
+| Review fixes | `swift build` (and `-Xswiftc -warnings-as-errors`), `swift test`, `swift format lint -r Sources Tests`, `scripts/build-app.sh`, `codesign --verify --deep --strict build/muxFinder.app` | exit 0 each: 815 core tests in 81 suites and 292 UI tests in 27 suites, 4 of them new (`carbonRegistrarKeepsAFailedUnregistration`, `aFailedUnregistrationKeepsTheHotkey`, `anUnusableFileFoundBySavingCanBeRetried`, `settingsStopsRecordingOnAnotherTab`), each failing with its fix reverted. The Settings gallery's look did not change, so it was not regenerated; no `--report-hotkey-registration` run |

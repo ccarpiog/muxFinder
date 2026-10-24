@@ -2,10 +2,10 @@ import MuxFinderCore
 import SwiftUI
 
 /// The `--preview-fixtures --preview-gallery settings` window's content (PLAN.md D23, D26,
-/// D31): every Settings state from `SettingsFixtures.all`, each in a frame like the Settings
-/// window. Nothing here reads `hosts.json` or `directories.json`, runs a probe, contacts
-/// iTerm2, reads a login item, or reads, installs or removes a persistent profile file (fixture
-/// models have no environment).
+/// D31, D32): every Settings state from `SettingsFixtures.all`, each in a frame like the
+/// Settings window. Nothing here reads `hosts.json`, `directories.json` or `preferences.json`,
+/// runs a probe, contacts iTerm2, reads a login item, registers a hotkey, or reads, installs
+/// or removes a persistent profile file (fixture models have no environment).
 public struct SettingsGallery: View {
   /// One state and the model that renders it.
   struct Entry: Identifiable {
@@ -21,7 +21,7 @@ public struct SettingsGallery: View {
   /// How many states each row holds.
   public static let columns = 3
   /// The height of a General tab's frame, which needs less room than the others.
-  static let generalHeight: CGFloat = 330
+  static let generalHeight: CGFloat = 420
 
   /// The states, each with its own model (made once).
   @State private var entries: [Entry]
@@ -91,7 +91,12 @@ public struct SettingsGallery: View {
 
 #Preview("Settings: launch at login needs approval") {
   SettingsView(model: SettingsModel(fixture: SettingsFixtures.loginRequiresApproval))
-    .frame(width: SettingsView.defaultSize.width, height: 330)
+    .frame(width: SettingsView.defaultSize.width, height: SettingsGallery.generalHeight)
+}
+
+#Preview("Settings: session switcher shortcut taken") {
+  SettingsView(model: SettingsModel(fixture: SettingsFixtures.shortcutTaken))
+    .frame(width: SettingsView.defaultSize.width, height: SettingsGallery.generalHeight)
 }
 
 #Preview("Settings: diagnostics") {

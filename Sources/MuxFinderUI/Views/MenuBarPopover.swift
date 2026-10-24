@@ -8,6 +8,8 @@ import SwiftUI
 ///
 /// - **Button:** its action (sent on the left or right mouse press) is the controller's
 ///   `buttonPressed()`.
+/// - **Session switcher shortcut** (PLAN.md D32, until the switcher exists): the model's
+///   `togglePopover` is the controller's `shortcutPressed()`.
 /// - **Panel:** at the pop-up menu level, on every Space and over full-screen apps; it becomes
 ///   key without activating the app, so the frontmost app stays frontmost and the search field
 ///   takes the keys. Its own close (Esc through the key monitor of `PopoverWindowBridge`) goes
@@ -54,6 +56,7 @@ public final class MenuBarPopover {
     self.host = host
     self.controller = controller
     button.onPress = { [weak controller] in controller?.buttonPressed() }
+    model.togglePopover = { [weak controller] in controller?.shortcutPressed() }
     host.panel.closeRequest = { [weak controller] in controller?.close(.escape) }
     host.onPressOutside = { [weak controller] in controller?.close(.pressOutside) }
     host.onContentSizeChange = { [weak controller] in controller?.contentSizeChanged() }

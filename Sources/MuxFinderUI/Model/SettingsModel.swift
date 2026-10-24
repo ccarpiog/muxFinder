@@ -156,8 +156,11 @@ public final class SettingsModel {
 
   // MARK: - State
 
-  /// The selected tab.
-  public var selectedTab: Tab = .hosts
+  /// The selected tab. Any tab but General stops the shortcut recorder, so its key monitor goes
+  /// and the saved hotkey is registered again (PLAN.md D32).
+  public var selectedTab: Tab = .hosts {
+    didSet { if selectedTab != .general { globalShortcut.cancelRecording() } }
+  }
   /// How far the host list got.
   public private(set) var loadState = LoadState.notLoaded
   /// The saved host list (or the examples).
@@ -236,6 +239,9 @@ public final class SettingsModel {
   public let isPreview: Bool
   /// "Set up SSH in iTerm2…" for the hosts edited here.
   public let sshSetup: SSHSetupActions
+  /// The General tab's session switcher shortcut (PLAN.md D32): `AppModel`'s model in the app,
+  /// a fixture's in previews, an inert one otherwise.
+  public internal(set) var globalShortcut: GlobalShortcutModel
 
   /// Called after every successful save with the list now on disk (`AppModel` hands it to the
   /// engine).
@@ -274,6 +280,7 @@ public final class SettingsModel {
     self.environment = environment
     isPreview = false
     sshSetup = SSHSetupActions(opener: environment.sshSetup)
+    globalShortcut = GlobalShortcutModel(environment: nil)
   }
 
   /// A model that shows `fixture` and never runs anything.
@@ -311,6 +318,7 @@ public final class SettingsModel {
     directorySaveError = fixture.directorySaveError
     directorySaveNotice = fixture.directorySaveNotice
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
+    globalShortcut = GlobalShortcutModel(fixture: fixture.globalShortcut)
   } // End of init(fixture:)
 
   // MARK: - Window
@@ -351,9 +359,11 @@ public final class SettingsModel {
   }
 
   /// The window closed: cancels its opening (a profile request in progress with it) and the
-  /// probes, drops their late results, and forgets dialogs and unsaved changes (the next
-  /// opening reloads the list).
+  /// probes, drops their late results, forgets dialogs and unsaved changes (the next opening
+  /// reloads the list), and stops the shortcut recorder (the saved hotkey is registered again,
+  /// PLAN.md D32).
   public func windowDidClose() {
+    globalShortcut.cancelRecording()
     guard isWindowOpen else { return }
     isWindowOpen = false
     windowGeneration += 1
@@ -367,6 +377,12 @@ public final class SettingsModel {
     shownExplanation = nil
     copyNotice = nil
   } // End of func windowDidClose()
+
+  /// The window stopped being the key window: the shortcut recorder stops listening and the
+  /// saved hotkey is registered again (PLAN.md D32), so it is never left suspended.
+  public func windowDidResignKey() {
+    globalShortcut.cancelRecording()
+  }
 
   /// Quitting (`AppModel.shutdown()`): refuses new work from now on (no opening, load, profile
   /// request, probe, ssh tab or save), cancels the window's opening, every probe and any ssh
@@ -1026,7 +1042,8 @@ public final class SettingsModel {
         hostListStatus: hostListStatus,
         refreshState: refreshState,
         loginItem: loginItemStatus,
-        events: diagnosticEvents))
+        events: diagnosticEvents,
+        globalShortcut: globalShortcut.diagnosticsCode))
   } // End of func diagnosticsReport()
 
   /// "Copy diagnostics": puts the report on the pasteboard.

@@ -111,6 +111,8 @@ says which kind it installed.
   copy in `/Applications`; macOS may ask you to approve it under System Settings › General ›
   Login Items.
 - Nothing else: no Accessibility, no Screen Recording, no Full Disk Access, no keychain items.
+  The session switcher shortcut (below) is a standard system-wide hotkey, which needs no
+  permission either.
 
 Started from Finder, the app has its own identity, so the Automation prompt appears the first
 time it contacts iTerm2 (started from a terminal inside iTerm2, it inherits iTerm2's
@@ -190,6 +192,19 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   directory you saved from New session in the meantime. Both lists live in
   `~/Library/Application Support/muxFinder/directories.json` (paths only, never terminal
   content).
+- **Session switcher shortcut:** a keyboard shortcut that works in every app. There is none
+  until you record one in Settings › General › "Show session switcher": click the shortcut
+  field, then press the keys (for example ⌃⌥Space). Esc cancels, Delete (or "Clear") turns the
+  shortcut off. It applies at once; there is nothing to save. It needs ⌃, ⌥ or ⌘ (F1 to F20 may
+  go alone), and the combinations macOS keeps for itself (⌘Space, ⌘Tab, ⌘⇧3/4/5, ⌘⌥Esc) are
+  refused. Before ⌘ with a single key it asks first, since that key's ⌘ shortcut would stop
+  working in every app, and before only ⌥ or ⌥⇧ with a key, which macOS may not pass to apps.
+  If another app already uses the combination, the message "Another app uses this shortcut.
+  Choose another." shows beside the field. The field shows the key as your keyboard layout
+  prints it. For now the shortcut opens and closes the popover; the session switcher itself
+  comes in a later version. The shortcut lives in
+  `~/Library/Application Support/muxFinder/preferences.json`; if that file cannot be used,
+  muxFinder leaves it as it is and the shortcut stays off.
 - **Set up SSH in iTerm2…** (on a host that needs a sign-in or has a host key problem) opens an
   iTerm2 tab running plain `ssh <destination>`, where you sign in or accept the host key the
   normal way. muxFinder never weakens host key checking.
@@ -254,7 +269,8 @@ scripts/uninstall.sh
 
 It quits the app (SIGTERM to each installed copy's `muxFinder`, up to 20 s, never forced),
 then removes `DynamicProfiles/muxFinder.json` only when it is muxFinder's generated file (the
-app's own code decides), `~/Library/Application Support/muxFinder` (host list, launch folder),
+app's own code decides), `~/Library/Application Support/muxFinder` (host list, directories,
+preferences such as the session switcher shortcut, launch folder),
 `muxFinder.app` from `/Applications` and `~/Applications`, and the app's preferences
 (`cc.carpio.muxfinder`, where macOS keeps the menu bar item's state). Helpers still running in
 iTerm2 tabs are left alone and end with their tabs. It does not touch your tmux sessions,

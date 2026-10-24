@@ -31,6 +31,14 @@ import Foundation
 /// - `--report-login-item-status`: a read-only diagnostic; the app prints
 ///   `SMAppService.mainApp.status` and exits at once, before any window, menu bar item, host
 ///   list or iTerm2 contact. Nothing is registered or unregistered.
+/// - `--report-hotkey-registration` (PLAN.md D32, Phase I-3): a diagnostic of Carbon's hotkey
+///   registration in this process. The app registers fixed test combinations unlikely to be in
+///   use (⌃⌥⇧⌘F19, then ⌥ and ⌥⇧ ones), checks that a second registration of the same
+///   combination is refused as taken, unregisters every one before it exits on every way out,
+///   prints one `muxFinder hotkey registration: …` line per check and exits (0 every check as
+///   expected, 1 a check failed, 3 SIGTERM or SIGINT arrived during the checks). No window,
+///   menu bar item, engine, host list, iTerm2 or `preferences.json`; no event is posted.
+///   Combined with another mode it is a usage error.
 /// - `--selftest attach-local|new-session-local` (or `--selftest=…`), optionally with
 ///   `--selftest-keep`: a hidden self-test that drives the real `AppModel` path against iTerm2
 ///   and This Mac's tmux and exits with its status (`SelfTestDriver`). An unknown name, a
@@ -82,6 +90,9 @@ public struct AppLaunchOptions: Sendable, Hashable {
   public var reportsPopoverPlacement = false
   /// Whether to print the login item status and exit.
   public var reportsLoginItemStatus = false
+  /// Whether to run the hotkey registration diagnostic and exit
+  /// (`--report-hotkey-registration`).
+  public var reportsHotkeyRegistration = false
   /// The self-test to run, if any.
   public var selfTest: SelfTestRequest?
   /// Whether to remove muxFinder's dynamic profile file and exit
@@ -113,6 +124,8 @@ public struct AppLaunchOptions: Sendable, Hashable {
         reportsPopoverPlacement = true
       } else if argument == "--report-login-item-status" {
         reportsLoginItemStatus = true
+      } else if argument == "--report-hotkey-registration" {
+        reportsHotkeyRegistration = true
       } else if argument == "--selftest-keep" {
         keepsSelfTest = true
       } else if argument == "--remove-persistent-profiles" {
@@ -134,6 +147,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
     checkSelfTest(keep: keepsSelfTest)
     checkProfileRemoval()
     checkPopoverPlacement()
+    checkHotkeyRegistration()
   } // End of init(arguments:)
 
   /// The options that take a value as the next argument.
@@ -158,9 +172,13 @@ public struct AppLaunchOptions: Sendable, Hashable {
   public static let popoverPlacementUsage =
     "usage: muxFinder --report-popover-placement [--appearance light|dark]"
 
+  /// The usage line of the hotkey registration diagnostic.
+  public static let hotkeyRegistrationUsage = "usage: muxFinder --report-hotkey-registration"
+
   /// Every usage line, printed after a usage error.
   public static let usage =
-    selfTestUsage + "\n" + profileRemovalUsage + "\n" + popoverPlacementUsage
+    selfTestUsage + "\n" + profileRemovalUsage + "\n" + popoverPlacementUsage + "\n"
+    + hotkeyRegistrationUsage
 
   /// Applies `--selftest-keep` and refuses self-test arguments that cannot run: keep without a
   /// self-test, or a self-test with another mode.
@@ -170,7 +188,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
       usageError = "--selftest-keep needs --selftest."
     } else if selfTest != nil,
       previewFixtures || reportsMenuBarItem || reportsLoginItemStatus || removesPersistentProfiles
-        || reportsPopoverPlacement
+        || reportsPopoverPlacement || reportsHotkeyRegistration
     {
       usageError = "--selftest cannot be combined with another mode."
     } else if keep {
@@ -191,7 +209,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
           + "--remove-persistent-profiles."
       }
     } else if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus
-      || reportsPopoverPlacement
+      || reportsPopoverPlacement || reportsHotkeyRegistration
     {
       usageError = "--remove-persistent-profiles cannot be combined with another mode."
     } else if hasFolders, profilesDirectory == nil || profilesLockDirectory == nil {
@@ -208,19 +226,44 @@ public struct AppLaunchOptions: Sendable, Hashable {
   /// themselves).
   private mutating func checkPopoverPlacement() {
     guard usageError == nil, reportsPopoverPlacement else { return }
-    if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus {
+    if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus || reportsHotkeyRegistration
+    {
       usageError = "--report-popover-placement cannot be combined with another mode."
+    }
+  }
+
+  /// Refuses `--report-hotkey-registration` with another mode (the preview window, the menu
+  /// bar item report, the login item report; the self-tests, the profile removal and the
+  /// popover placement diagnostic refuse it themselves).
+  private mutating func checkHotkeyRegistration() {
+    guard usageError == nil, reportsHotkeyRegistration else { return }
+    if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus {
+      usageError = "--report-hotkey-registration cannot be combined with another mode."
     }
   }
 
   /// Whether this launch may bring an installed, out-of-date persistent profile file up to date
   /// (PLAN.md D26): only the menu bar app in normal mode, never with `--preview-fixtures`,
   /// `--selftest`, `--report-login-item-status`, `--report-menu-bar-item`,
-  /// `--report-popover-placement`, `--remove-persistent-profiles` or unusable arguments.
-  /// `--appearance` alone keeps normal mode.
+  /// `--report-popover-placement`, `--report-hotkey-registration`,
+  /// `--remove-persistent-profiles` or unusable arguments. `--appearance` alone keeps normal
+  /// mode.
   public var rewritesProfilesAtLaunch: Bool {
+    isNormalMode
+  }
+
+  /// Whether this launch reads `preferences.json` and registers the session switcher shortcut
+  /// (PLAN.md D32): only the menu bar app in normal mode, as `rewritesProfilesAtLaunch`; never
+  /// a self-test, a preview, a `--report-*` flag or `--remove-persistent-profiles`.
+  public var registersGlobalShortcut: Bool {
+    isNormalMode
+  }
+
+  /// The menu bar app with no diagnostic, preview, self-test or removal and usable arguments.
+  var isNormalMode: Bool {
     !previewFixtures && !reportsMenuBarItem && !reportsLoginItemStatus && selfTest == nil
-      && !removesPersistentProfiles && !reportsPopoverPlacement && usageError == nil
+      && !removesPersistentProfiles && !reportsPopoverPlacement && !reportsHotkeyRegistration
+      && usageError == nil
   }
 
   /// The options of this process.

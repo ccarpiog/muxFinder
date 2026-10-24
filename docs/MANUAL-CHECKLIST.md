@@ -349,6 +349,52 @@ the real popover, press keys in it or create a session from the real app, and th
 - **Undo:** remove the saved entries in Settings › Directories (Save) and clear the recent
   ones from New session's list.
 
+## 18. The session switcher shortcut
+
+Owed by Phase I-3a (PLAN.md Phase I-3, D32): the shortcut's checks, storage, registration
+lifecycle and recorder are unit-tested over fakes, and `--report-hotkey-registration` showed
+that registration works in the signed bundle, but no unattended run may press a key, record
+in the real Settings window or write the real `preferences.json`. Until Phase I-3b the
+shortcut opens and closes the menu bar popover.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`):
+  1. Settings › General › "Session switcher": the field says "Record shortcut". Click it
+     ("Type the shortcut"), press ⌃⌥Space.
+  2. Switch to another app (Finder, iTerm2) and press ⌃⌥Space; press it again. Do the same
+     over a full-screen app.
+  3. Click the field again and press ⌃⌥Space itself, then Esc in a second recording.
+  4. Click the field and press, in turn: K alone, ⇧K, ⌘Space (or ⌘⇧4, if Spotlight takes
+     ⌘Space before muxFinder sees it), ⌘K (then "Choose another"), ⌥J (then "Use it anyway"),
+     and finally press ⌥J from another app.
+  5. A taken shortcut: in an app that registers a global shortcut exclusively (Alfred,
+     Raycast, or another muxFinder copy with the same shortcut recorded), set one, then record
+     the same combination in muxFinder.
+  6. Record a key whose character differs on your Spanish layout (for example the key right of
+     L, which prints Ñ), with ⌃⌥.
+  7. Quit muxFinder (the popover's Quit) and open it again; check the field and press the
+     shortcut.
+  8. Click the field (recording), then click another Settings tab; press a letter key, then
+     press the shortcut from another app.
+  9. Click "Clear"; press the old shortcut from another app. Quit and reopen.
+- **Expect:** 1: the field shows ⌃⌥Space at once (no Save). 2: each press opens the popover
+  under the menu bar icon, the next one closes it, whichever app is in front, and over the
+  full-screen app too. 3: pressing the recorded shortcut while recording records it (it does
+  not open the popover); Esc keeps it as it was. 4: K and ⇧K: "Add ⌃, ⌥ or ⌘ to the shortcut.
+  Only F1 to F20 work on their own."; ⌘Space or ⌘⇧4: "macOS uses this shortcut itself. Choose
+  another." (or the system's own action, the field still listening); ⌘K: "⌘K would stop
+  working in every app while muxFinder uses it. Use it anyway?"; ⌥J: the ⌥ warning; whether a
+  ⌥J press from another app opens the popover tells whether macOS passes ⌥-only shortcuts to
+  apps on this Mac: note it in the results (D32 refuses them if it does not). 5: "Another app
+  uses this shortcut. Choose another." beside the field, no alert, the field still listening
+  (or, if that app registered it non-exclusively, both apps react: note which). 6: the field
+  shows ⌃⌥Ñ, not the US key's ";". 7: the shortcut is still set and works after the relaunch.
+  8: leaving the tab ends the recording (the field shows the shortcut again when you come
+  back), the letter key is not captured, and the shortcut opens the popover. 9: the field says
+  "Record shortcut", the old combination does nothing in muxFinder, and it stays off after
+  the relaunch.
+- **Undo:** "Clear" in Settings › General (or remove
+  `~/Library/Application Support/muxFinder/preferences.json` while muxFinder is not running).
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -370,3 +416,4 @@ the real popover, press keys in it or create a session from the real app, and th
 | 15 | | | |
 | 16 | | | |
 | 17 | | | |
+| 18 | | | |

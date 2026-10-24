@@ -4,8 +4,9 @@ import MuxFinderCore
 /// The plain text "Copy diagnostics" puts on the pasteboard (PLAN.md D23).
 ///
 /// It holds muxFinder's and macOS's versions, the launch-at-login status, how the host list
-/// loaded, the last iTerm2 check, each host's display name, id, mode, on/off state and status,
-/// and the operation log. Content rules:
+/// loaded, the last iTerm2 check, the session switcher shortcut's state by kind (PLAN.md D32;
+/// never the combination), each host's display name, id, mode, on/off state and status, and
+/// the operation log. Content rules:
 ///
 /// - Hosts appear by display name and id only. SSH destinations, tmux paths, iTerm2 profile
 ///   names and node names are the user's data and are left out (the report says whether a tmux
@@ -35,6 +36,8 @@ public enum DiagnosticsReport {
     public var loginItem: LoginItemStatus?
     /// The operation log, oldest first.
     public var events: [DiagnosticEvent]
+    /// The session switcher shortcut's state by kind (`GlobalShortcutModel.diagnosticsCode`).
+    public var globalShortcut: String?
 
     /// Creates an input.
     public init(
@@ -45,7 +48,8 @@ public enum DiagnosticsReport {
       hostListStatus: HostListStatus?,
       refreshState: RefreshState?,
       loginItem: LoginItemStatus?,
-      events: [DiagnosticEvent]
+      events: [DiagnosticEvent],
+      globalShortcut: String? = nil
     ) {
       self.appVersion = appVersion
       self.systemVersion = systemVersion
@@ -55,6 +59,7 @@ public enum DiagnosticsReport {
       self.refreshState = refreshState
       self.loginItem = loginItem
       self.events = events
+      self.globalShortcut = globalShortcut
     } // End of init(appVersion:systemVersion:generatedAt:hosts:hostListStatus:…)
   }
 
@@ -73,6 +78,7 @@ public enum DiagnosticsReport {
       "Launch at login: \(input.loginItem?.code ?? "unknown")",
       "Host list: \(hostListLine(input.hostListStatus, hosts: input.hosts))",
       "iTerm2 check: \(attachmentLine(input.refreshState?.attachmentCheck))",
+      "Session switcher shortcut: \(clean(input.globalShortcut ?? "unknown"))",
       "",
       "Hosts (\(input.hosts.hosts.count)):",
     ]

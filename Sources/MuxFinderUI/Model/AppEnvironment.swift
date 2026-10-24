@@ -62,6 +62,12 @@ public struct AppEnvironment: Sendable {
   /// menu bar app in normal mode sets it (`AppLaunchOptions.rewritesProfilesAtLaunch`); every
   /// other mode, the self-tests and the tests leave it off, so they never call the installer.
   public var rewritesProfilesAtLaunch: Bool
+  /// The session switcher shortcut's preferences file, hotkey registrar and keyboard layout
+  /// (PLAN.md D32). Only the menu bar app in normal mode has them
+  /// (`AppLaunchOptions.registersGlobalShortcut`); `nil` everywhere else (the self-tests, the
+  /// preview modes, every `--report-*` flag, the tests of other parts), so those never read
+  /// `preferences.json` or register a hotkey.
+  public var globalShortcut: GlobalShortcutEnvironment?
 
   /// Creates an environment from its parts.
   public init(
@@ -81,7 +87,8 @@ public struct AppEnvironment: Sendable {
     newSessionCommand: [String] = [],
     directories: (any DirectoryStoring)? = nil,
     sessionActionShutdownBudget: Duration = AppModel.sessionActionShutdownBudget,
-    rewritesProfilesAtLaunch: Bool = false
+    rewritesProfilesAtLaunch: Bool = false,
+    globalShortcut: GlobalShortcutEnvironment? = nil
   ) {
     self.loadHosts = loadHosts
     self.makeEngine = makeEngine
@@ -98,6 +105,7 @@ public struct AppEnvironment: Sendable {
     self.directories = directories
     self.sessionActionShutdownBudget = sessionActionShutdownBudget
     self.rewritesProfilesAtLaunch = rewritesProfilesAtLaunch
+    self.globalShortcut = globalShortcut
   } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
 
   /// The real app: `hosts.json` through one `HostStore` (loading never writes; Settings saves
@@ -116,7 +124,11 @@ public struct AppEnvironment: Sendable {
   /// it is read when New session or the Settings window opens, and written only when a session
   /// is created in a directory or the user saves or clears directories).
   /// `rewritesProfilesAtLaunch` is the caller's: only the menu bar app in normal mode passes
-  /// `true`.
+  /// `true`. So is `usesGlobalShortcut` (PLAN.md D32): only normal mode passes `true`, which
+  /// adds the session switcher shortcut over `preferences.json` (`PreferencesStore`, read at
+  /// launch, written only when the user records or clears a shortcut), Carbon's hotkeys
+  /// (`CarbonHotkeyRegistrar`) and the current keyboard layout; otherwise nothing reads that
+  /// file or registers a hotkey.
   ///
   /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
@@ -128,7 +140,9 @@ public struct AppEnvironment: Sendable {
   /// cookie is never requested at launch, nor once the popover has closed, nor while iTerm2 is
   /// not running. The onboarding window contacts nothing by itself.
   @MainActor
-  public static func production(rewritesProfilesAtLaunch: Bool) -> AppEnvironment {
+  public static func production(
+    rewritesProfilesAtLaunch: Bool, usesGlobalShortcut: Bool = false
+  ) -> AppEnvironment {
     let diagnostics = DiagnosticsLog()
     let iTerm2 = ITerm2APIClient(diagnostics: diagnostics)
     let index = AttachmentIndex(iTerm2: iTerm2)
@@ -173,8 +187,13 @@ public struct AppEnvironment: Sendable {
           helperPath: try LaunchHelperPath.locate(), diagnostics: diagnostics, onUpdate: onUpdate)
       },
       directories: directories,
-      rewritesProfilesAtLaunch: rewritesProfilesAtLaunch)
-  } // End of static func production(rewritesProfilesAtLaunch:)
+      rewritesProfilesAtLaunch: rewritesProfilesAtLaunch,
+      globalShortcut: usesGlobalShortcut
+        ? GlobalShortcutEnvironment(
+          store: PreferencesStore(), registrar: CarbonHotkeyRegistrar(),
+          layout: SystemKeyboardLayout())
+        : nil)
+  } // End of static func production(rewritesProfilesAtLaunch:usesGlobalShortcut:)
 
   /// The popover placement diagnostic's (`--report-popover-placement`, PLAN.md Phase I-1): an
   /// inert environment for a model the app never starts. Its host list is an empty in-memory
@@ -182,8 +201,9 @@ public struct AppEnvironment: Sendable {
   /// written, no onboarding); an engine built for it would have no host to discover and no
   /// attachment index, so it could not run a probe or contact iTerm2; no system events, no
   /// Settings seams (inert Settings and onboarding models), no attach coordinator, no directory
-  /// store (no `directories.json` read or written), and no persistent profile rewrite. Quitting
-  /// goes through `AppTermination` as usual.
+  /// store (no `directories.json` read or written), no persistent profile rewrite, and no
+  /// session switcher shortcut (no `preferences.json` read, no hotkey). Quitting goes through
+  /// `AppTermination` as usual.
   public static func placementDiagnostic() -> AppEnvironment {
     AppEnvironment(
       loadHosts: { .inMemory(HostList()) },

@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D31); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D32); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -14,7 +14,7 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | `MuxFinderCore` (library) | All logic, no SwiftUI, fully unit-testable. |
 | ├ `Process/` | `ProcessRunner` over `posix_spawn` (argv only, own process group, hard timeouts, bounded output). |
 | ├ `Shell/` | POSIX single-quoting for the one remote command string, input validation. |
-| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
+| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), the session switcher shortcut (`GlobalShortcut`, `PreferencesStore` on `preferences.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
 | ├ `Tmux/` | tmux locator, the static discovery script and its parser, session identity, error classification, session creation commands. |
 | ├ `Refresh/` | `RefreshCoordinator` actor (concurrency limit, cadence, backoff, stale results dropped), `HostSnapshot`, sleep/wake and network events. |
 | ├ `ITerm2/` | The hand-written iTerm2 API client: WebSocket over iTerm2's Unix socket, a minimal protobuf codec, typed requests, the `ITerm2Integration` protocol and its fake. |
@@ -23,7 +23,7 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | ├ `Profiles/` | Persistent profile generator, installer and remover, the hash snapshot of iTerm2's other profiles, the `e2e-profile` run. |
 | ├ `Diagnostics/` | Operation log (ring buffer plus `os.Logger`); outcomes and timings, never terminal content. |
 | └ `Concurrency/` | Small helpers for awaited, cancellable tasks. |
-| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
+| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
 | `MuxFinderApp` (executable) | Entry point, the SwiftUI app shell (its standard main menu and an empty `Settings` scene nothing opens) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
 | `muxfinder-launch` (executable) | The helper iTerm2 runs in a launch tab: `attach <id>`, `ssh-setup <id>`, `profile <host id>`. Bundled next to the app. |
 | `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, iTerm2 queries, single attaches and detaches, the `e2e-*` real runs, host list and profile checks. Not bundled. |
@@ -79,6 +79,46 @@ over full-screen apps (`MenuBarPopover`, only AppKit wiring). Every decision is
 
 The placement diagnostic `--report-popover-placement` opens it through the button's own action
 and checks the frame against the anchor and the menu bar.
+
+## The session switcher shortcut (D32)
+
+A system-wide hotkey, off until the user records one in Settings › General ("Show session
+switcher"). The pieces, each behind a seam so tests use fakes:
+
+- **The value** (`GlobalShortcut`, core): a virtual key code and ⌃⌥⇧⌘ modifiers. `check`
+  refuses a typing key without ⌃, ⌥ or ⌘ (F1–F20 may go alone) and macOS's own combinations
+  (⌘Space, ⌘Tab, ⌘⇧Tab, ⌘⇧3/4/5, ⌘⌥Esc), and warns before ⌘ with one key and before only ⌥
+  or ⌥⇧.
+- **The label** (`GlobalShortcutLabel`): the modifier symbols in macOS order and the key as the
+  current keyboard layout prints it (`SystemKeyboardLayout`: `TISCopyCurrentKeyboardLayoutInputSource`
+  and `UCKeyTranslate`; `StaticKeyboardLayout` in tests and previews), fixed names for F-keys,
+  Space, Return, arrows and the like.
+- **Storage** (`PreferencesStore`, core): `preferences.json` in muxFinder's folder, schema 1,
+  with D19/D31's rules (loading never writes, an unusable file is left as it is and refuses
+  every change, 0600 and atomic publication under `preferences.lock`, other keys kept), written
+  only when the user records or clears. Not the defaults domain: muxFinder owns only its
+  support folder.
+- **Registration** (`HotkeyRegistering`; `CarbonHotkeyRegistrar`): `RegisterEventHotKey` with
+  `kEventHotKeyExclusive` for the application target, a `kEventHotKeyPressed` handler on the
+  event dispatcher target; `eventHotKeyExistsErr` is `taken`. No permission is needed. A
+  registration whose unregistration fails keeps its reference and token, so it can still be
+  undone later; tests drive the registrar over fake Carbon calls (`CarbonHotkeyCalls`).
+- **Lifecycle** (`GlobalShortcutModel`, owned by `AppModel`, shown by Settings): only the menu
+  bar app in normal mode has one (`AppEnvironment.globalShortcut`); it loads and registers at
+  `AppModel.start()`, registers again on a change, unregisters on clear and at quit. The
+  recorder applies at once: clicking it suspends the hotkey, the next combination is checked,
+  registered, then saved; a refusal, a taken combination or a failed save shows beside it
+  (never an alert) and leaves the previous shortcut in place, except that a save finding
+  `preferences.json` unusable leaves the hotkey off as at launch, with "Try again" to reload
+  it. A failed unregistration leaves the hotkey on and says so. Another Settings tab, the
+  window closing or losing the focus stop recording.
+- **The press** reaches one entry point, `AppModel.globalShortcutPressed()`; until the session
+  switcher exists (Phase I-3b) it toggles the popover through
+  `PopoverController.shortcutPressed()`.
+
+`--report-hotkey-registration` registers fixed test combinations on F19 and J in its own
+process, checks that a second registration is refused as taken, and unregisters everything
+before it exits; no event is posted.
 
 ## Attach flow and the launch protocol
 
@@ -206,7 +246,7 @@ use a fake.
 - Discovery is read-only, noninteractive and bounded (12 s, process group killed); host key
   checking is never weakened (D6).
 - Private files: 0700 folders, 0600 files, extended ACLs stripped, atomic writes, symbolic
-  links refused (D8, D14, D19, D31). Logs hold outcomes and timings, never terminal contents
+  links refused (D8, D14, D19, D31, D32). Logs hold outcomes and timings, never terminal contents
   or directories.
 
 ## Persistent profiles (D26)
@@ -253,3 +293,4 @@ All in `PLAN.md` *Decisions*:
 | | | D29 | Hiding the launch tab once attached |
 | | | D30 | muxFinder's own menu bar item and popover panel |
 | | | D31 | New session directories and session start folders |
+| | | D32 | Session switcher shortcut (and, in Phase I-3b, the switcher) |

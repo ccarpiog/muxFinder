@@ -68,6 +68,8 @@ public struct SettingsFixture: Sendable, Identifiable {
   public var directorySaveError: String?
   /// A directory save's notice.
   public var directorySaveNotice: String?
+  /// The General tab's session switcher shortcut (PLAN.md D32).
+  public var globalShortcut = GlobalShortcutFixture()
 
   /// A fixture of `hosts` with `configure` applied.
   public init(
@@ -336,6 +338,66 @@ public enum SettingsFixtures {
   public static let loginNotFound = general(
     "login-not-found", "Launch at login: not found", .notFound)
 
+  // MARK: - Session switcher shortcut (PLAN.md D32)
+
+  /// ⌃⌥Space, the previews' saved shortcut.
+  public static let switcherShortcut = GlobalShortcut(
+    keyCode: GlobalShortcut.KeyCode.space, modifiers: [.control, .option])
+  /// ⌃⌥K, the previews' taken shortcut (K on `StaticKeyboardLayout.previews`).
+  public static let takenShortcut = GlobalShortcut(keyCode: 0x28, modifiers: [.control, .option])
+  /// ⌘K, the previews' shortcut that needs the warning first.
+  public static let commandShortcut = GlobalShortcut(keyCode: 0x28, modifiers: .command)
+
+  /// A General tab fixture with launch at login on and the recorder as `configure` sets it.
+  static func shortcut(
+    _ id: String, _ title: String, configure: (inout GlobalShortcutFixture) -> Void
+  ) -> SettingsFixture {
+    SettingsFixture(id: id, title: title, hosts: hostList) {
+      $0.tab = .general
+      $0.loginItemStatus = .enabled
+      configure(&$0.globalShortcut)
+    }
+  }
+
+  /// No shortcut recorded: the hotkey is off.
+  public static let shortcutNone = shortcut("shortcut-none", "Session switcher: no shortcut") {
+    _ in
+  }
+
+  /// Listening, after a combination without ⌃, ⌥ or ⌘ was refused; ⌃⌥Space suspended.
+  public static let shortcutRecording = shortcut(
+    "shortcut-recording", "Session switcher: recording, a refusal"
+  ) {
+    $0.shortcut = switcherShortcut
+    $0.registration = .suspended
+    $0.recorder = .recording
+    $0.issue = GlobalShortcutRefusal.needsModifier.message
+  }
+
+  /// ⌘K typed: the warning asks first.
+  public static let shortcutWarning = shortcut(
+    "shortcut-warning", "Session switcher: ⌘ with one key"
+  ) {
+    $0.shortcut = switcherShortcut
+    $0.registration = .suspended
+    $0.recorder = .confirming(commandShortcut)
+  }
+
+  /// ⌃⌥Space recorded and registered.
+  public static let shortcutSet = shortcut("shortcut-set", "Session switcher: shortcut set") {
+    $0.shortcut = switcherShortcut
+    $0.registration = .registered
+  }
+
+  /// ⌃⌥K saved, but another app holds it: the message beside the recorder.
+  public static let shortcutTaken = shortcut(
+    "shortcut-taken", "Session switcher: shortcut taken"
+  ) {
+    $0.shortcut = takenShortcut
+    $0.registration = .failed(.taken)
+    $0.issue = HotkeyRegistrationError.taken.message
+  }
+
   // MARK: - Diagnostics tab
 
   /// The log, newest first, with the iTerm2 check's problem and its explanation shown.
@@ -375,6 +437,6 @@ public enum SettingsFixtures {
     hosts, validation, thisMac, testFailed, invalidFile, newHost, profileEditor,
     profilesNotInstalled, profilesCurrent, profilesStale, profilesUnavailable, directories,
     directoriesUnusable, diagnostics, loginEnabled, loginNotRegistered, loginRequiresApproval,
-    loginNotFound,
+    loginNotFound, shortcutNone, shortcutRecording, shortcutWarning, shortcutSet, shortcutTaken,
   ]
 }

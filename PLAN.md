@@ -20,6 +20,7 @@ Sources/
   MuxFinderCore/              library: all logic, no SwiftUI, fully unit-testable
     Config/                   HostConfig, HostList, HostStore (JSON), SSHConfigSuggestions,
                               DirectoryLists + DirectoryStore (directories.json, D31),
+                              GlobalShortcut + PreferencesStore (preferences.json, D32),
                               AppPaths, PrivateStorage + ExtendedACL (private files)
     Process/                  ProcessRunner protocol + posix_spawn implementation
     Shell/                    POSIX quoting, remote-command builder, input validation
@@ -41,8 +42,9 @@ Sources/
                               item and popover panel (MenuBarPopover, PopoverController,
                               D30), the Settings window (SettingsModel, views, window
                               controller), the onboarding window (OnboardingModel, view,
-                              window controller), preview fixtures (D22, D23, D24); tests
-                              import it
+                              window controller), the session switcher shortcut
+                              (GlobalShortcutModel, CarbonHotkeyRegistrar, the recorder,
+                              D32), preview fixtures (D22, D23, D24); tests import it
   MuxFinderApp/               SwiftUI app shell (main menu, an empty Settings scene): entry
                               point, scene and app delegates only
 Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, never the
@@ -137,9 +139,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   notarization for a build that did not go through it. Target arm64 only, since all three
   Macs are Apple Silicon (M4, M4, M5).
 - **D8 — Storage.** Configuration lives in `~/Library/Application Support/muxFinder/`
-  (`hosts.json`, `directories.json`, `launch/`, diagnostics), with directories 0700 and files
-  0600, and no extended ACL (D14 for `launch/`, D19 for the folder itself and `hosts.json`,
-  D31 for `directories.json`). The app owns
+  (`hosts.json`, `directories.json`, `preferences.json`, `launch/`, diagnostics), with
+  directories 0700 and files 0600, and no extended ACL (D14 for `launch/`, D19 for the folder
+  itself and `hosts.json`, D31 for `directories.json`, D32 for `preferences.json`; muxFinder
+  keeps no setting in its defaults domain). The app owns
   exactly one iTerm2 file, `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json`,
   written and removed only by `PersistentProfileInstaller`, which never touches another entry of
   that folder (D26). Never write iTerm2 preferences, other profiles, or shell startup files.
@@ -1196,7 +1199,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     cancelled `ITerm2ProfileSource` asks nothing), late results are dropped by window
     generation and nothing more starts, probes and "Set up SSH in iTerm2…" requests (D24) are
     cancelled and dialogs dropped (unsaved edits are lost, since the next opening reloads the
-    list); becoming key reads the login item status again. Quitting runs
+    list); becoming key reads the login item status again; resigning key, like closing, stops
+    the session switcher shortcut's recorder (D32). Quitting runs
     `SettingsModel.shutdown()` from `AppModel.shutdown()` (D22): no opening, load, profile
     request, probe, ssh tab or save starts any more, the opening, every probe still running (a
     replaced one too) and any ssh tab request are cancelled, and it returns only once all have
@@ -1276,13 +1280,24 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     Unattended runs only read the status: `muxFinder --report-login-item-status` prints it and
     exits before any window, menu bar item, host list or iTerm2 contact. Registering changes
     the user's login items, so the real round trip is owed to the user.
+  - **Session switcher shortcut** (Phase I-3a, D32): the General tab has a "Session switcher"
+    section between "Startup" and "About muxFinder": "Show session switcher" with a
+    hand-written recorder and "Clear". It **applies at once**, like the launch-at-login toggle
+    (no Save or Revert): whether a combination registers is only known by registering it, so
+    a taken one is shown as the user records. Refusals, warnings ("Use it anyway", "Choose
+    another"), a taken shortcut and a failed save show beside the recorder, never in an
+    alert; an unusable `preferences.json` disables it with its notice and "Try again". The
+    model is `AppModel`'s `GlobalShortcutModel` (`SettingsModel.globalShortcut`), inert in
+    every mode but normal mode.
   - **Diagnostics:** the tab lists the `DiagnosticsLog` entries newest first (host ids shown as
     display names) and the last iTerm2 check's problem with its fix-it. "Copy diagnostics"
     (`DiagnosticsReport`) is plain text: muxFinder's and macOS's versions, the launch-at-login
     status, the load state, the iTerm2 check (kind, time, counts), each host by display name
     and id with its mode, on or off, whether a tmux path or profile is set (never which), its
     popover label and status kind, times, session count and failures in a row, then the log
-    (ISO 8601, UTC). Decided: destinations, tmux paths, profile names, node names and session
+    (ISO 8601, UTC), with a line for the session switcher shortcut's state by kind after the
+    iTerm2 check (D32; never the combination). Decided: destinations, tmux paths, profile
+    names, node names and session
     names are the user's and never appear, and neither does a failed probe's message, which
     may quote ssh or tmux output naming the destination; a log host id no host has is shown
     as the id, anything else as "unknown". Settings records its own events (category
@@ -1298,7 +1313,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     and Diagnostics tab, and a failed "Set up SSH in iTerm2…" line (D24) show them. The
     Automation URL was not opened in an unattended run.
   - **Preview fixtures:** `--preview-fixtures --preview-gallery settings` shows
-    `SettingsFixtures.all` (16 states, the persistent profile fields and tab's included) in the
+    `SettingsFixtures.all` (23 states: the persistent profile fields and tab's, the
+    Directories tab's (D31) and the session switcher recorder's, empty, recording with a
+    refusal, the ⌘ warning, set and taken (D32), included; General frames 420 pt tall) in the
     same plain preview window, with the same
     `--appearance` and `--preview-snapshot` flags; screenshots
     `docs/screenshots/settings-states-{light,dark}.png`. Synthetic data only (`*.example`
@@ -2411,6 +2428,143 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Uninstall:** `scripts/uninstall.sh` removes the whole support folder, `directories.json`,
     its backups and `directories.lock` included (no change).
 
+- **D32 — Session switcher shortcut** (decided in Phase I-3a, 2026-10-24, from
+  `autoclaude/processed/30-global-hotkey-session-switcher.md` and the orchestrator's calls in
+  *Phase I-3*; the switcher panel itself is Phase I-3b's and will extend this decision. Code
+  in `Sources/MuxFinderCore/Config/GlobalShortcut.swift` and `PreferencesStore.swift`,
+  `Sources/MuxFinderUI/Model/GlobalShortcutLabel.swift`, `HotkeyRegistrar.swift`,
+  `GlobalShortcutModel.swift`, `AppModel.swift` (`globalShortcutPressed()`),
+  `PopoverController.swift` (`shortcutPressed()`), `AppLaunchOptions.swift`,
+  `Views/Settings/ShortcutRecorderView.swift`, `Sources/MuxFinderApp/HotkeyRegistrationReport.swift`;
+  tests `Tests/MuxFinderCoreTests/GlobalShortcutTests.swift`, `PreferencesStoreTests.swift`,
+  `Tests/MuxFinderUITests/GlobalShortcutModelTests.swift`, `GlobalShortcutAppTests.swift`).
+  - **The value** (`GlobalShortcut`): a virtual key code (Carbon's `kVK_…` numbering, the
+    key's position whatever the layout, as `NSEvent.keyCode` gives it; at most 127) and the
+    modifiers ⌃⌥⇧⌘ (`GlobalShortcut.Modifiers`, stored by name). No default: the hotkey is off
+    until the user records one. `check`: **refused** a typing key with no modifier but ⇧ (or
+    none), F1–F20 excepted (`needsModifier`); macOS's own combinations, ⌘Space, ⌘Tab, ⌘⇧Tab,
+    ⌘⇧3, ⌘⇧4, ⌘⇧5 and ⌘⌥Esc (`systemShortcut`); a key code past 127 (`unknownKey`).
+    **Warned about**, then taken if the user confirms: ⌘ and nothing else with the key
+    (`commandWithOneKey`: that key's ⌘ shortcut would stop working in every app) and only ⌥ or
+    ⌥⇧ (`optionOnly`). The ⌥ rule is a warning, not the refusal the specification expected:
+    macOS 15 and later is reported to refuse or ignore such app hotkeys, but on this Mac
+    (macOS 27.2) Carbon registered ⌥F19, ⌥⇧F19, ⌥J and ⌥⇧J with `noErr`
+    (`--report-hotkey-registration`, *Verified facts*), so a refusal is not confirmed and
+    whether a press is delivered is checklist 18's; should it not be, a later phase turns the
+    warning into a refusal. Any other combination another app or macOS takes first shows as
+    taken (below) or simply never fires.
+  - **The label** (`GlobalShortcutLabel`): the modifier symbols in macOS order (⌃⌥⇧⌘), then
+    the key: F1–F20 by name, Space, Return (↩), Tab (⇥), Delete (⌫), forward delete (⌦), Esc
+    (⎋), Enter, Clear, Help, the arrows and Home/End/Page up/Page down by fixed symbols, every
+    other key as the current layout types it with no modifier, uppercased (macOS menus show
+    letters so), through `KeyboardLayoutNaming`: `SystemKeyboardLayout`
+    (`TISCopyCurrentKeyboardLayoutInputSource`, falling back to the current ASCII-capable
+    layout when that one has no `uchr` data, and `UCKeyTranslate` with
+    `kUCKeyTranslateNoDeadKeysMask`, so a dead key shows its accent; read at each label, on
+    the main actor), `StaticKeyboardLayout` for tests (a Spanish-like table: Ñ, Ç, `, +) and
+    previews; a key that types nothing printable shows "Key <code>". A spoken form
+    ("Control-Option-Ñ") is VoiceOver's value. The user types on a Spanish layout.
+  - **Storage** (`PreferencesStore`; the orchestrator's call): `preferences.json` in
+    muxFinder's folder, not the app's defaults domain, because muxFinder owns only its support
+    folder (and `DynamicProfiles/muxFinder.json`), tests then use a private folder like the
+    other stores and never `~/Library/Preferences`, and the app shell check's empty
+    `CFFIXED_USER_HOME` isolates it without relying on `cfprefsd`. Schema 1:
+    `{"globalShortcut": {"keyCode": 49, "modifiers": ["control", "option"]},
+    "schemaVersion": 1}`, pretty-printed, sorted keys, final newline, at most 64 KiB. Other
+    keys are ignored when read and **kept** when written (the object read is written back with
+    only `globalShortcut` and `schemaVersion` set), so a later setting or a newer muxFinder's
+    key survives. Loading never writes; a missing file or a missing or `null` value is "off";
+    a value that is not a usable shortcut (not an object, a key code that is not an integer
+    up to 127, an unknown modifier, a combination `check` refuses) is left out
+    (`droppedShortcut`, a notice "Record a new one") with the file usable; a file that cannot
+    be used (D14's rules for files read, not JSON, not an object with an integer
+    `schemaVersion`, another schema version) leaves the hotkey off and is left as it is, and
+    every change refuses it (`fileNotUsable`), as D31 does. Written only when the user records
+    or clears a shortcut, and not at all when nothing changes; a write takes `preferences.lock`
+    (`PrivateStorage.acquireLock`, 2 s, `busy`), reads the file again under it and publishes
+    with D31's rename and backup rules (`preferences.backup-<UTC>.json` for a displaced file
+    this store did not last read as fully usable). `InMemoryPreferencesStore` for tests.
+  - **Registration** (`HotkeyRegistering`; `CarbonHotkeyRegistrar`): `RegisterEventHotKey`
+    for the application event target with `kEventHotKeyExclusive` (an app that holds the
+    combination exclusively makes it fail, and while muxFinder holds it other apps'
+    non-exclusive registrations get no press), the `EventHotKeyID` signature "mxfd" and one id
+    per registration; one `kEventHotKeyPressed` handler on the event dispatcher target
+    (MASShortcut's arrangement: every event the main run loop dispatches passes through it),
+    installed at the first registration, removed by `unregisterAll()`. `OSStatus` mapping:
+    `eventHotKeyExistsErr` is `taken` ("Another app uses this shortcut. Choose another.";
+    Carbon also returns it for a second registration in the same process), `eventHotKeyInvalidErr`
+    and `paramErr` `invalid`, anything else `failed(status)`. No Accessibility or Input
+    Monitoring permission is needed; `NSEvent.addGlobalMonitorForEvents` would need
+    Accessibility and cannot consume the key. A registration is forgotten only once
+    `UnregisterEventHotKey` returned `noErr`: a failed one keeps its reference and its token
+    (its presses still arrive), so a later `unregister(_:)` can still undo it, and
+    `unregisterAll()` keeps and counts the ones that fail and removes the handler only once
+    nothing is registered (Phase I-3a review). The Carbon calls go through
+    `CarbonHotkeyCalls`, so tests drive the registrar over fakes and never reach Carbon. A fake
+    registrar in the tests records calls, refuses "taken" combinations, fails unregistrations
+    when told and fires presses.
+  - **Lifecycle (normal mode only):** `AppEnvironment.globalShortcut` exists only when
+    `AppLaunchOptions.registersGlobalShortcut` (the menu bar app with no `--report-*` flag,
+    preview, self-test or removal), through `production(rewritesProfilesAtLaunch:usesGlobalShortcut:)`;
+    every other mode, the placement diagnostic, the self-tests and the tests of other parts
+    have none, so they never read `preferences.json` or register. `GlobalShortcutModel`
+    (owned by `AppModel`, shown by Settings) loads and registers at the start of
+    `AppModel.start()` (launching has finished), registers again on a change, unregisters on
+    clear and in `AppModel.shutdown()` (its save in progress awaited first). A saved shortcut
+    that does not register at launch shows its message beside the recorder and in
+    diagnostics. The model drops its token only once the registrar unregistered it: a failure
+    leaves the hotkey registered and working (`registration` stays `registered`), says so
+    beside the recorder ("macOS couldn't turn off the shortcut (error …), so it still
+    works.") and in diagnostics (`unregistrationFailure`), and what needed it does not go on
+    (recording does not start, "Clear" keeps the shortcut and saves nothing, "Try again"
+    loads nothing); the next attempt tries again. At quit it is only logged.
+  - **The recorder applies at once** (the orchestrator's call; like the launch-at-login toggle,
+    D23, not Save/Revert: whether a combination registers is only known by registering it).
+    Settings › General gains a "Session switcher" section between "Startup" and "About
+    muxFinder": "Show session switcher", the hand-written recorder (no package: a field-like
+    button showing the label, "Record shortcut" without one, "Type the shortcut" while
+    listening, accent border; accessibility label "Session switcher shortcut", the spoken
+    label or "None" or "Recording" as value, a hint) and "Clear". Clicking it suspends the
+    hotkey (unregistered, so pressing it records it) and installs a local key-down monitor on
+    the Settings window (only while listening; repeats swallowed, other windows' keys passed
+    on). Esc cancels (the saved shortcut is registered again), Delete or forward delete clears,
+    any other combination is checked: a refusal shows beside the field and it keeps
+    listening; a warning shows with "Use it anyway" (or Return) and "Choose another"; a usable
+    one is registered, then saved in the background. A registration that fails keeps it
+    listening with the reason; a save that fails unregisters it, brings the previous shortcut
+    back and says why ("muxFinder couldn't save the shortcut. …"); nothing is ever an alert.
+    A save (or a clear's save) that finds the file unusable, because another program broke or
+    replaced it after it loaded, is the exception (Phase I-3a review): the hotkey is then off,
+    as a launch with that file leaves it: the change's registration is undone and the
+    previous shortcut is not registered again, so the notice ("… the shortcut is off until it
+    is fixed or moved away") is true; the file is left as it is (D31's refusal rule); the line
+    beside the field says the change was not saved; and "Try again" reloads the file, so once
+    the user fixes or removes it the shortcut it holds is registered and the recorder works
+    again. (Keeping the previous shortcut registered instead would have needed "Try again" to
+    replace a live registration while the notice said the hotkey was off.) Clicking the field
+    again, closing the window, the window losing the focus, choosing another Settings tab
+    (`SettingsModel.selectedTab`) or the recorder leaving the window (`onDisappear`) stops
+    listening, so the key monitor goes and the saved hotkey is registered again. While a save
+    runs the recorder is disabled. An unusable file or folder disables it with its notice and
+    "Try again". Diagnostics ("Copy diagnostics", `Session switcher shortcut:`) and the log
+    record the state by kind (`registered`, `off`, `suspended`, `failed.taken`, `unregistration
+    failed (failed(-108))`, the file's problem code), never the combination.
+  - **The press** reaches one entry point, `AppModel.globalShortcutPressed()`. Until the
+    switcher exists (Phase I-3b) it toggles the popover panel through
+    `PopoverController.shortcutPressed()` (wired by `MenuBarPopover` as `AppModel.togglePopover`):
+    open, it closes (`CloseReason.shortcut`); closed, it opens anchored at the status item
+    button's rectangle as with no mouse event (D30). The Settings note says so.
+  - **The diagnostic** (`--report-hotkey-registration`; the orchestrator's call: allowed with
+    bounds, not UI scripting): in its own process, through `CarbonHotkeyRegistrar`, it
+    registers ⌃⌥⇧⌘F19 (expected registered), again (expected taken), unregisters it, registers
+    and unregisters it again, then registers and unregisters ⌥F19, ⌥⇧F19, ⌥J and ⌥⇧J (expected
+    registered while `check` only warns about them, refused if it refuses them), runs
+    `unregisterAll()` and exits: 0 all as expected, 1 a check not as expected or an
+    unregistration failed, 3 SIGTERM or SIGINT arrived (they are blocked for the checks and
+    found pending afterwards, so every registration is undone first), 2 combined with another
+    mode. No window, menu bar item, engine, host list, iTerm2 or `preferences.json`; no event
+    posted; it proves registration, never a press.
+
 ## Verified facts (planning session, 2026-10-21)
 
 - This Mac is **Neptuno** (`neptuno-m4`), macOS 27.2 arm64, Xcode 27.1, Swift 6.4, tmux 3.8
@@ -2946,6 +3100,21 @@ Verified in Phase 2 (2026-10-21):
   and an empty known-hosts file: `No ED25519 host key is known for saturno-m4 and you have
   requested strict checking.` plus `Host key verification failed.`; with a wrong key the
   `REMOTE HOST IDENTIFICATION HAS CHANGED!` banner comes first, then the same last line.
+
+Verified in Phase I-3a (2026-10-24, macOS 27.2 Build 26B118, the signed bundle binary's
+`--report-hotkey-registration` run from the shell, twice; `docs/TESTING.md`, *Phase I-3a*):
+
+- **`RegisterEventHotKey` with `kEventHotKeyExclusive`** on the application event target
+  registered ⌃⌥⇧⌘F19 (`noErr`); a second registration of the same combination in the same
+  process returned `eventHotKeyExistsErr` (−9878); after `UnregisterEventHotKey` it
+  registered again. Nothing was left registered at exit (`unregisterAll()` reported no
+  failure).
+- **Only ⌥ or ⌥⇧ is not refused:** ⌥F19, ⌥⇧F19, ⌥J and ⌥⇧J all registered with `noErr` on
+  this macOS 27.2, so the "macOS 15 and later refuses them" rule was not confirmed at
+  registration. Whether their presses are delivered is not known (no press can be made
+  unattended; checklist 18); D32 warns about them instead of refusing them.
+- The run needs no permission and printed no prompt; `NSApplication.shared` was created but no
+  window, status item or event was.
 
 ## Unattended-run rules (binding for every phase)
 
@@ -3961,6 +4130,95 @@ Split (recorded before the first worker):
   install-script check's step 26 now matches the readers' pids instead of any "also running
   from" warning (the user's installed muxFinder had tripped it); 35/35, and it still fails
   with the uninstall script's identity check removed (`docs/progress-archive/i-2b.md`).
+
+### Phase I-3 — Global hotkey: session switcher (routine)
+
+From the inbox (2026-10-24). The full specification, with the user's request verbatim, the
+user's decisions (a switcher panel of its own, Spotlight-like and keyboard-first; no default
+shortcut; not part of Phase 14; after I-1 and I-2), the findings, the design (shortcut value,
+storage, registrar, Settings recorder, panel, content, actions, engine visibility, keys,
+accessibility) and the acceptance, is `autoclaude/processed/30-global-hotkey-session-switcher.md`.
+It binds both sub-phases; its design is recorded as **D32** (D22 and D23 edited).
+
+**Calls made before the first worker (orchestrator, 2026-10-24):**
+
+- **The diagnostic flag is allowed.** `--report-hotkey-registration` calls Carbon's
+  `RegisterEventHotKey`/`UnregisterEventHotKey` on muxFinder's own event target in its own
+  process. That is not UI scripting under `CLAUDE.md` and *Unattended-run rules* 6: no event is
+  posted or synthesized, no Accessibility or AppleScript is used, no other app is touched, and
+  nothing is pressed (so it proves registration and its refusals, never that a press fires; a
+  press stays a check by hand). Bounds: only fixed test combinations unlikely to be in use
+  (never the user's saved shortcut), the shortcut file never read or written, every
+  registration undone before exit on every way out, no window, menu bar item, engine, host
+  list or iTerm2; a few runs per sub-phase at most; never through `open`/LaunchServices.
+- **Storage is a file, not the defaults domain.** The shortcut lives in
+  `~/Library/Application Support/muxFinder/preferences.json` (schema 1, D19's safe writes
+  through `PrivateStorage`), not in `cc.carpio.muxfinder` defaults: `CLAUDE.md` binds the app to
+  owning only that support folder and `DynamicProfiles/muxFinder.json`; tests then run on a
+  private folder from `mktemp -d` like `HostStore` and `DirectoryStore` and never touch
+  `~/Library/Preferences`; and the app shell check's empty `CFFIXED_USER_HOME` isolates it
+  without relying on how `cfprefsd` treats that variable. Uninstall already removes the folder.
+- **The recorder applies at once** (like the launch-at-login toggle, D23), not through
+  Save/Revert: whether a combination registers is only known by registering it, and "taken"
+  must show as the user records.
+
+Split (recorded before the first worker):
+
+- **I-3a — Shortcut, storage, registrar, Settings recorder (routine).** Deliverables: the
+  shortcut value (key code + modifiers; validation: a modifier besides ⇧ unless F1–F20, the
+  system's own combinations refused, a warning before ⌘ plus one key, and whatever macOS 15+
+  refuses to register, verified with the flag); the label (modifier symbols plus the key as the
+  current layout prints it, through a layout seam with a fake for tests); `preferences.json`
+  (loading never writes; missing, invalid or unsafe → hotkey off, the file left as it is;
+  written only when the user records or clears); the `HotkeyRegistering` seam, the Carbon
+  implementation and a fake; the lifecycle in normal mode only (register once launching has
+  finished, again on a change, unregister on clear and at quit; self-tests, previews, every
+  `--report-*` flag and `--remove-persistent-profiles` never read the file or register); the
+  Settings > General "Show session switcher" section with a hand-written recorder (click, type;
+  Esc cancels, Delete clears, a "Clear" button; the current hotkey suspended while recording;
+  a failed registration shown beside it, never an alert; diagnostics by kind only); the
+  hotkey's action through one entry point that, until I-3b, toggles the existing popover panel
+  (D30) as an interim; `--report-hotkey-registration`; the Settings gallery's recorder states
+  (empty, recording, set, taken) light and dark; **D32** (I-3a part), D23 edited; `README.md`
+  (setting the shortcut), `docs/ARCHITECTURE.md`, the `docs/TESTING.md` matrix, the `CLAUDE.md`
+  flag note, `docs/MANUAL-CHECKLIST.md` (record, a taken shortcut's message, "Clear", survives
+  a relaunch, the label on the user's layout, a press from another app). Acceptance: the
+  specification's shortcut, label, storage and registrar tests pass (storage on a private
+  folder); existing UI tests pass unchanged; the flag run in the signed bundle registers and
+  unregisters its combination (exit 0, recorded in `docs/TESTING.md`) and leaves nothing
+  registered; `--report-menu-bar-item` behaves as before; the hermetic install-script check
+  passes and uninstall removes `preferences.json` with the support folder; shared verification
+  and `scripts/build-app.sh` + `codesign --verify --deep --strict` pass. Outcome: **D32** (the
+  value with its refusals and warnings, the label through `KeyboardLayoutNaming`,
+  `preferences.json` with `preferences.lock` and other keys kept, the exclusive Carbon
+  registrar with its handler on the event dispatcher target, the lifecycle through
+  `AppEnvironment.globalShortcut` in normal mode only, the recorder applying at once, the
+  interim popover toggle through `AppModel.globalShortcutPressed()`, the flag) and D23
+  edited. The flag's first run found that macOS 27.2 registers only-⌥ and only-⌥⇧
+  combinations (`noErr`), so they are warned about rather than refused (*Verified facts*);
+  the second run on the final tree exited 0, 8 of 8 checks as expected, nothing left
+  registered. 45 new unit tests (20 core, 25 UI), no existing test changed; the Settings
+  gallery regenerated light and dark with five recorder states; `--report-menu-bar-item` as
+  before with no `preferences.json` created; the install-script check 35/35, and
+  `scripts/uninstall.sh` removes `preferences.json` with the support folder (unchanged). A
+  press, a taken shortcut, a relaunch and the label on the user's layout are checklist 18.
+  Review fixes (Phase I-3a review, D32): a failed unregistration keeps the registrar's
+  reference and the model's token and is shown beside the recorder and in diagnostics
+  instead of claiming the hotkey is off; a save that finds `preferences.json` unusable leaves
+  the hotkey off as at launch, the file as it is, and "Try again" able to reload it; and
+  another Settings tab or the recorder going away stops recording; with four regression
+  tests (`carbonRegistrarKeepsAFailedUnregistration`, `aFailedUnregistrationKeepsTheHotkey`,
+  `anUnusableFileFoundBySavingCanBeRetried`, `settingsStopsRecordingOnAnotherTab`) that fail
+  with their fix reverted.
+- **I-3b — Switcher panel (routine).** Deliverables: the non-activating switcher `NSPanel`
+  (width recorded in D32), its content, keys, actions and failure carry-over as the
+  specification's items 5–10; the hotkey's entry point switched from the interim popover toggle
+  to the switcher; the combined visibility rule for the engine (D22 edited); `--preview-gallery
+  switcher` light and dark; `README.md`, `docs/ARCHITECTURE.md`, the `docs/TESTING.md` matrix,
+  `docs/MANUAL-CHECKLIST.md` (press over a full-screen app, filter and open, create, Esc
+  returns the focus). Acceptance: the specification's content, keys, visibility-rule and
+  failure-carry-over tests pass; existing UI tests pass unchanged; the gallery is rendered and
+  inspected; shared verification and `scripts/build-app.sh` + `codesign` pass.
 
 ## Deferred (explicitly out of scope for v1)
 

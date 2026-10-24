@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The General tab: launch at login (`SMAppService.mainApp` through the model's seam), with
-/// the status's explanation, its fix-it and any error, and a note on what quitting does.
+/// the status's explanation, its fix-it and any error; the session switcher shortcut's
+/// recorder (PLAN.md D32); and a note on what quitting does.
 struct GeneralSettingsView: View {
   /// The model shown.
   let model: SettingsModel
@@ -27,6 +28,7 @@ struct GeneralSettingsView: View {
             IssueText(text: error)
           }
         } // End of SettingsSection "Startup"
+        SessionSwitcherSettingsSection(model: model.globalShortcut)
         SettingsSection(title: "About muxFinder") {
           NoteText(
             text: "muxFinder lists the tmux sessions on your Macs (each Mac's default tmux "

@@ -103,13 +103,16 @@ public final class PopoverController {
     case resignedKey
     /// The displays changed (arrangement, resolution, one added or removed).
     case displaysChanged
+    /// The session switcher shortcut was pressed while it was open (PLAN.md D32, until the
+    /// switcher exists).
+    case shortcut
 
     /// Whether this close comes from outside the popover, so it may be the button's own press
     /// (`PopoverPressRules`).
     var isOutside: Bool {
       switch self {
       case .pressOutside, .appSwitch, .resignedKey: true
-      case .button, .escape, .displaysChanged: false
+      case .button, .escape, .displaysChanged, .shortcut: false
       }
     }
   }
@@ -182,6 +185,19 @@ public final class PopoverController {
     case .ignore: break
     }
   } // End of func buttonPressed()
+
+  /// The session switcher shortcut (PLAN.md D32; the interim action until the switcher
+  /// exists): closes the open popover, or opens it under the status item button, anchored at
+  /// the button's rectangle as when the action comes from no mouse event (on the button's
+  /// display; the pointer when the button has no usable rectangle).
+  public func shortcutPressed() {
+    if isOpen {
+      close(.shortcut)
+    } else {
+      rules.forgetPresses()
+      open(click: nil, screens: system.screens())
+    }
+  }
 
   /// Closes the popover for `reason`. A close from outside that is the press the button's
   /// action just handled is ignored. Does nothing while closed.

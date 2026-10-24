@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T17:47:28Z",
+  "updated": "2026-10-24T19:08:41Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -504,20 +504,24 @@
     {
       "id": "I-3",
       "title": "Global hotkey: session switcher",
-      "status": "queued",
-      "summary": "Open a keyboard-first session switcher from a user-recorded global hotkey; split into I-3a and I-3b.",
+      "status": "in_progress",
+      "summary": "Opens a keyboard-first session switcher from a user-recorded global hotkey; split into I-3a (done) and I-3b.",
       "added": "2026-10-24T12:25:35Z",
-      "status_since": "2026-10-24T12:25:35Z"
+      "started": "2026-10-24T19:08:41Z",
+      "status_since": "2026-10-24T19:08:41Z"
     },
     {
       "id": "I-3a",
       "title": "Shortcut, storage, registrar and Settings recorder",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "I-3",
-      "summary": "Record a global shortcut in Settings and register it system-wide through Carbon.",
+      "summary": "Records a global shortcut in Settings, stores it in preferences.json and registers it system-wide through Carbon.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-3a.md",
+      "narrative": "docs/progress-archive/i-3a.md",
       "added": "2026-10-24T12:25:35Z",
-      "status_since": "2026-10-24T12:25:35Z"
+      "started": "2026-10-24T17:49:58Z",
+      "status_since": "2026-10-24T19:08:41Z"
     },
     {
       "id": "I-3b",

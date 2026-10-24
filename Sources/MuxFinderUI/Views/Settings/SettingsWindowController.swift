@@ -57,6 +57,11 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate {
   public func windowDidBecomeKey(_ notification: Notification) {
     model?.refreshLoginItemStatus()
   }
+
+  /// The window lost the focus: the shortcut recorder stops listening (PLAN.md D32).
+  public func windowDidResignKey(_ notification: Notification) {
+    model?.windowDidResignKey()
+  }
 }
 
 /// The Settings window. Its text fields get the standard editing keys (⌘X, ⌘C, ⌘V, ⌘A, ⌘Z,

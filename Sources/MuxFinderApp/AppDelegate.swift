@@ -8,8 +8,9 @@ import SwiftUI
 /// - **Launch:** an accessory app (no Dock icon) that puts its menu bar item and popover panel
 ///   in place (`MenuBarPopover`) and starts its model once launching finished: it loads the host
 ///   list and starts the refresh engine, and in normal mode brings an installed, out-of-date
-///   persistent profile file up to date (PLAN.md D26; never with `--report-menu-bar-item`).
-///   Nothing contacts iTerm2.
+///   persistent profile file up to date (PLAN.md D26) and loads and registers the session
+///   switcher shortcut (PLAN.md D32); never with `--report-menu-bar-item`. Nothing contacts
+///   iTerm2.
 /// - **Popover placement diagnostic** (`--report-popover-placement`, PLAN.md Phase I-1): the
 ///   same menu bar item and panel over an inert model that is never started (no host list,
 ///   engine, onboarding or iTerm2; `AppEnvironment.placementDiagnostic()`);
@@ -47,7 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     model = AppModel(
       environment: options.reportsPopoverPlacement
         ? .placementDiagnostic()
-        : .production(rewritesProfilesAtLaunch: options.rewritesProfilesAtLaunch))
+        : .production(
+          rewritesProfilesAtLaunch: options.rewritesProfilesAtLaunch,
+          usesGlobalShortcut: options.registersGlobalShortcut))
     super.init()
   }
 
