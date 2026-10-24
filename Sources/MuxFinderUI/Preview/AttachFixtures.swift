@@ -3,9 +3,10 @@ import MuxFinderCore
 
 /// The session actions' states for `--preview-fixtures --preview-gallery attach` (PLAN.md
 /// D25): progress and results, every failure with its recoveries, the Move here dialog, Detach,
-/// the New session sheet (empty, invalid name, creating, collision) and the banners. Synthetic
-/// data only (invented session names, `*.example` destinations, a fake socket path, fixed ids);
-/// building them runs nothing.
+/// the New session sheet (empty, invalid name, creating, collision; its directory list open
+/// with entries, with nothing to pick, with the directory saved already and with an unusable
+/// file, D31) and the banners. Synthetic data only (invented session names and paths,
+/// `*.example` destinations, a fake socket path, fixed ids); building them runs nothing.
 public enum AttachFixtures {
   /// Shorthand.
   typealias Fixtures = PreviewFixtures
@@ -230,6 +231,81 @@ public enum AttachFixtures {
       state: hosts(saturno: [], neptuno: neptuno), panel: .newSession, newSessionDraft: draft)
   }()
 
+  // MARK: - New session's directory list (PLAN.md D31)
+
+  /// A synthetic session on `host` that started in `folder` (`nil`: none reported).
+  static func session(
+    _ name: String, id: Int, on host: HostConfig, startedIn folder: String?
+  ) -> HostSnapshot.Session {
+    var session = Fixtures.session(name, id: id, on: host, windows: 1)
+    session.discovered.startDirectory = folder
+    return session
+  }
+
+  /// Saturno's sessions with their start folders: two in one folder, one without any.
+  static let saturnoFolderSessions = [
+    session("api-server", id: 101, on: Fixtures.saturno, startedIn: "/Users/example/projects/api"),
+    session("api-tests", id: 102, on: Fixtures.saturno, startedIn: "/Users/example/projects/api"),
+    session("site", id: 103, on: Fixtures.saturno, startedIn: "/Users/example/projects/site"),
+    session("scratch", id: 104, on: Fixtures.saturno, startedIn: nil),
+  ]
+
+  /// The directory lists of the picker fixtures: three saved directories (one long enough to
+  /// be shortened in the middle), Saturno's two recent ones and This Mac's one.
+  static let directoryLists = DirectoryLists(
+    saved: [
+      "~/projects/site", "~/projects/api",
+      "~/Documents/client work/2026/quarterly reports/drafts/final",
+    ],
+    recent: [
+      Fixtures.saturno.id: ["~/projects/experiments", "~/scratch"],
+      Fixtures.neptuno.id: ["~/notes"],
+    ])
+
+  /// A New session fixture with its directory list open.
+  static func directoryFixture(
+    id: String,
+    title: String,
+    draft: NewSessionDraft,
+    lists: DirectoryLists,
+    status: DirectoryListStatus = .usable(droppedEntryCount: 0),
+    highlighted: DirectoryPickerContent.Item? = nil
+  ) -> PreviewFixture {
+    PreviewFixture(
+      id: id, title: title, state: hosts(saturno: saturnoFolderSessions, neptuno: neptuno),
+      panel: .newSession, newSessionDraft: draft, directoryLists: lists, directoryStatus: status,
+      directoryPicker: DirectoryPickerState(isOpen: true, highlighted: highlighted))
+  } // End of func directoryFixture(id:title:draft:lists:status:highlighted:)
+
+  /// Saturno's list: "Recent", "Saved" and "Sessions on Saturno" (one folder per two
+  /// sessions), the first recent directory highlighted, "Save this directory" off (the field is
+  /// empty).
+  public static let newSessionDirectories = directoryFixture(
+    id: "new-session-directories", title: "New session: directory list",
+    draft: NewSessionDraft(hostID: Fixtures.saturno.id, name: "site-preview"),
+    lists: directoryLists, highlighted: .entry(.recent, "~/projects/experiments"))
+
+  /// This Mac with nothing saved, recorded or reported yet: the list says so; "Save this
+  /// directory" is on for the typed directory.
+  public static let newSessionNothingToPick = directoryFixture(
+    id: "new-session-nothing-to-pick", title: "New session: nothing to pick yet",
+    draft: NewSessionDraft(
+      hostID: Fixtures.neptuno.id, name: "new-app", directory: "~/projects/new-app"),
+    lists: DirectoryLists(), highlighted: .action(.saveDirectory))
+
+  /// This Mac with the typed directory saved already: "Save this directory" is off.
+  public static let newSessionSavedAlready = directoryFixture(
+    id: "new-session-saved-already", title: "New session: directory saved already",
+    draft: NewSessionDraft(
+      hostID: Fixtures.neptuno.id, name: "site", directory: "~/projects/site"),
+    lists: directoryLists, highlighted: .entry(.saved, "~/projects/site"))
+
+  /// A directory list file muxFinder can't use: the list shows why, and offers no change.
+  public static let newSessionUnusableFile = directoryFixture(
+    id: "new-session-unusable-file", title: "New session: unusable directory list",
+    draft: NewSessionDraft(hostID: Fixtures.saturno.id, name: "site-preview"),
+    lists: DirectoryLists(), status: .fileNotUsable(.unsafe(.permissionsTooOpen)))
+
   /// A session that vanished and one that changed between the listing and Open.
   public static let banners = PreviewFixture(
     id: "attach-banners", title: "Vanished and changed sessions",
@@ -260,6 +336,7 @@ public enum AttachFixtures {
   public static let all = [
     progress, launchFailures, moreLaunchFailures, checkFailures, moreCheckFailures, hostFailures,
     iTermFailures, moveHere, detach, detachProblems, newSession, newSessionInvalid,
-    newSessionCreating, newSessionCollision, banners,
+    newSessionCreating, newSessionCollision, newSessionDirectories, newSessionNothingToPick,
+    newSessionSavedAlready, newSessionUnusableFile, banners,
   ]
 }

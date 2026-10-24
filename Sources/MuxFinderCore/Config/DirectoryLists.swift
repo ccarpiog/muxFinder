@@ -53,8 +53,12 @@ public enum DirectoryListChange: Sendable, Hashable {
   case removeSaved(String)
   /// Moves the saved entry at `from` so it ends at position `to`.
   case moveSaved(from: Int, to: Int)
-  /// Replaces the saved list (Settings' Save): checked entry by entry, duplicates collapsed.
+  /// Replaces the saved list: checked entry by entry, duplicates collapsed.
   case replaceSaved([String])
+  /// Settings' Save: applies the edits that turned `base` (the saved list the edits started
+  /// from) into `edited` to the saved list as it is when the change runs
+  /// (`DirectoryLists.mergeSaved(base:edited:)`), so what changed elsewhere since is kept.
+  case mergeSaved(base: [String], edited: [String])
   /// Records a directory New session created a session in, newest first, for one host.
   case recordRecent(String, hostID: UUID)
   /// Forgets every recent directory of one host.
@@ -67,6 +71,7 @@ public enum DirectoryListChange: Sendable, Hashable {
     case .removeSaved: return "removeSaved"
     case .moveSaved: return "moveSaved"
     case .replaceSaved: return "replaceSaved"
+    case .mergeSaved: return "mergeSaved"
     case .recordRecent: return "recordRecent"
     case .clearRecents: return "clearRecents"
     }
@@ -82,7 +87,8 @@ public enum DirectoryListChange: Sendable, Hashable {
 ///   (PLAN.md D18); muxFinder cannot know a remote home folder, so `~/x` and `/Users/…/x` are two
 ///   entries.
 /// - Duplicates collapse by exact string, compared byte for byte (UTF-8), so two spellings of
-///   the same accented name stay two entries, as they can be two folders on a host.
+///   the same accented name stay two entries, as they can be two folders on a host. Two lists
+///   are equal (`==`) by the same rule.
 /// - At most `maximumSavedCount` saved entries (adding more is refused) and
 ///   `maximumRecentCount` recent ones per host (recording one more drops the oldest).
 /// - Directories are user data: they never go into logs or diagnostics (kinds and counts only).
@@ -161,6 +167,25 @@ public struct DirectoryLists: Sendable, Hashable {
     first.utf8.elementsEqual(second.utf8)
   }
 
+  /// Whether `first` and `second` hold the same entries in the same order, each compared byte
+  /// for byte (`same(_:_:)`).
+  public static func sameEntries(_ first: [String], _ second: [String]) -> Bool {
+    first.count == second.count && zip(first, second).allSatisfy { same($0, $1) }
+  }
+
+  /// Whether both lists hold the same entries byte for byte: the same saved list in the same
+  /// order and, for every host, the same recent directories. (`String`'s own `==` would take
+  /// two spellings of an accented name for one, and `@Observable` models skip telling their
+  /// views about a value equal to the one they hold.) The synthesized hash stays consistent:
+  /// entries equal byte for byte hash alike.
+  public static func == (first: DirectoryLists, second: DirectoryLists) -> Bool {
+    guard sameEntries(first.saved, second.saved), first.recent.count == second.recent.count
+    else { return false }
+    return first.recent.allSatisfy { hostID, entries in
+      second.recent[hostID].map { sameEntries(entries, $0) } ?? false
+    }
+  }
+
   /// `entries` checked, in order, without duplicates, at most `cap` long; adds the entries
   /// left out for a rule or the cap to `droppedCount`.
   static func cleaned(_ entries: [String], cap: Int, droppedCount: inout Int) -> [String] {
@@ -190,6 +215,7 @@ public struct DirectoryLists: Sendable, Hashable {
     case .removeSaved(let entry): removeSaved(entry)
     case .moveSaved(let from, let to): try moveSaved(from: from, to: to)
     case .replaceSaved(let entries): try replaceSaved(entries)
+    case .mergeSaved(let base, let edited): try mergeSaved(base: base, edited: edited)
     case .recordRecent(let entry, let hostID): try recordRecent(entry, for: hostID)
     case .clearRecents(let hostID): clearRecents(for: hostID)
     }
@@ -232,6 +258,28 @@ public struct DirectoryLists: Sendable, Hashable {
     guard kept.count <= Self.maximumSavedCount else { throw .tooManySaved }
     saved = kept
   } // End of mutating func replaceSaved(_:)
+
+  /// Settings' Save (PLAN.md D31): applies the edits that turned `base` (the saved list the
+  /// edits started from) into `edited` to the saved list as it is now, a three-way merge with
+  /// entries compared byte for byte. The result is `edited` (its order, its additions, without
+  /// what it removed) less the entries removed from the saved list since `base`, followed by the
+  /// entries added to it since `base` that `edited` lacks, in their current order. With the
+  /// saved list still `base`, that is `edited` itself. Then `replaceSaved(_:)` checks it: an
+  /// entry that breaks a rule, or more than `maximumSavedCount` entries, changes nothing.
+  public mutating func mergeSaved(base: [String], edited: [String]) throws(DirectoryListError) {
+    let baseEntries = Set(base.map { Array($0.utf8) })
+    let editedEntries = Set(edited.map { Array($0.utf8) })
+    let currentEntries = Set(saved.map { Array($0.utf8) })
+    let kept = edited.filter { entry in
+      let bytes = Array(entry.utf8)
+      return !baseEntries.contains(bytes) || currentEntries.contains(bytes)
+    }
+    let addedElsewhere = saved.filter { entry in
+      let bytes = Array(entry.utf8)
+      return !baseEntries.contains(bytes) && !editedEntries.contains(bytes)
+    }
+    try replaceSaved(kept + addedElsewhere)
+  } // End of mutating func mergeSaved(base:edited:)
 
   /// Records `entry` as `hostID`'s newest recent directory: an earlier copy of it moves to the
   /// front, and the oldest entry goes once there are more than `maximumRecentCount`.

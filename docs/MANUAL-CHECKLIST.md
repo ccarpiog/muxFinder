@@ -302,6 +302,53 @@ another display's copy of it, or press keys.
   6: its top edge stays under the menu bar while its height changes. The look is item 15's.
 - **Undo:** ⌘-drag the icon back where you want it.
 
+## 17. New session's directory list
+
+Owed by Phase I-2b (PLAN.md Phase I-2, D31): the list's content, picking, its keys and the
+Settings tab are unit-tested and rendered in the galleries, but no unattended run may click
+the real popover, press keys in it or create a session from the real app, and the real
+`directories.json` is the user's.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
+  This Mac and Saturno turned on and a tmux session on each started in a folder of yours
+  (`tmux new-session -d -s muxfinder-test-dir -c <folder>`):
+  1. ⌘N, This Mac, name `muxfinder-test-recent`, a directory of yours typed in Directory;
+     Create. Detach the session afterwards ("Detach from this Mac").
+  2. ⌘N again, This Mac: click the button at the end of Directory. Pick the directory from
+     "Recent", name `muxfinder-test-recent2`, Create.
+  3. ⌘N, This Mac, type a directory; open the list and choose "Save this directory". Then
+     Settings › Directories: it is listed; add another one, move it up, remove one, Save; Revert
+     after an unsaved change. Then remove one entry in the tab without saving, save another
+     directory from New session's list, and Save in the tab.
+  4. ⌘N, This Mac: pick a directory from "Saved", name `muxfinder-test-saved`, Create.
+  5. ⌘N, This Mac: pick the folder of `muxfinder-test-dir` from "Sessions on <host>", name
+     `muxfinder-test-folder`, Create.
+  6. Steps 2, 4 and 5 again with Saturno chosen (a saved `~/…` directory resolves in
+     Saturno's home folder; its own recents and session folders are listed, not This Mac's).
+     Change the host while the field holds text, with the list open.
+  7. Keys, in New session with the cursor in Directory: ⌥↓ (the list opens on its first row),
+     ↑/↓ (the highlight moves, the session list behind does not), Return (the highlighted
+     directory fills the field and the list closes), ⌥↓ then Esc (only the list closes), Esc
+     again (New session closes). Open the list with the mouse and press Return with nothing
+     highlighted (New session creates). ⌥↓, then type in Directory and press Return (the
+     highlight went with the typing; New session creates in what you typed, name
+     `muxfinder-test-typed`). With macOS's keyboard navigation on (System Settings ›
+     Keyboard), Tab to the button and press Space.
+  8. "Clear recent directories on <host>" for This Mac; reopen the list.
+  9. Kill every `muxfinder-test-*` session you made (`tmux kill-session -t '=<name>'`, and over
+     ssh on Saturno).
+- **Expect:** 1–6: each session is created in the directory picked (its first pane starts
+  there; on Saturno `~/…` is Saturno's home), and the directory used becomes that host's first
+  "Recent" entry; long paths are shortened in the middle, with the full path as the row's help.
+  3: the saved list matches the tab after Save, and New session lists it for both hosts; the
+  last Save removes only the entry removed in the tab and keeps the one saved from New
+  session (the tab then lists it). 6:
+  the list follows the host, and the field keeps its text. 7: as described, and every other
+  popover key works as in item 16. 8: "Recent" disappears for This Mac only. With nothing
+  recent, saved or reported, the list says "Nothing to pick yet".
+- **Undo:** remove the saved entries in Settings › Directories (Save) and clear the recent
+  ones from New session's list.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -322,3 +369,4 @@ another display's copy of it, or press keys.
 | 14 | | | |
 | 15 | | | |
 | 16 | | | |
+| 17 | | | |

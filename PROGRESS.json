@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T16:26:44Z",
+  "updated": "2026-10-24T17:47:28Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -469,11 +469,11 @@
     {
       "id": "I-2",
       "title": "New session: pick the directory",
-      "status": "in_progress",
-      "summary": "Pick the New session directory from recent, saved and session folders; split into I-2a and I-2b.",
+      "status": "done",
+      "summary": "Picks the New session directory from recent, saved and session folders; split into I-2a and I-2b, both done.",
       "added": "2026-10-24T12:24:40Z",
       "started": "2026-10-24T16:26:44Z",
-      "status_since": "2026-10-24T16:26:44Z"
+      "status_since": "2026-10-24T17:47:28Z"
     },
     {
       "id": "I-2a",
@@ -491,12 +491,15 @@
     {
       "id": "I-2b",
       "title": "Directory picker UI and saved list in Settings",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "I-2",
-      "summary": "Add the directory pull-down to New session and a saved-directories editor in Settings.",
+      "summary": "Adds the directory list to New session and a saved-directories editor in Settings, with keys and merging Save.",
+      "review": "docs/reviews/phase-I-2b.md",
+      "narrative": "docs/progress-archive/i-2b.md",
       "added": "2026-10-24T12:24:40Z",
-      "status_since": "2026-10-24T12:24:40Z"
+      "started": "2026-10-24T16:28:31Z",
+      "status_since": "2026-10-24T17:47:28Z"
     },
     {
       "id": "I-3",

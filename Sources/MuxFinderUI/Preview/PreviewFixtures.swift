@@ -33,6 +33,12 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var newSessionDraft: NewSessionDraft
   /// Attachments muxFinder made or found here (Detach is offered for them).
   public var attachedHere: [SessionKey: AttachmentRecord]
+  /// New session's directory lists (PLAN.md D31; synthetic paths only).
+  public var directoryLists: DirectoryLists
+  /// How the directory lists loaded.
+  public var directoryStatus: DirectoryListStatus
+  /// New session's directory list: open or closed, the highlighted row.
+  public var directoryPicker: DirectoryPickerState
 
   /// Creates a fixture.
   public init(
@@ -50,7 +56,10 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     banners: [SessionBanner] = [],
     panel: PopoverPanel? = nil,
     newSessionDraft: NewSessionDraft = NewSessionDraft(),
-    attachedHere: [SessionKey: AttachmentRecord] = [:]
+    attachedHere: [SessionKey: AttachmentRecord] = [:],
+    directoryLists: DirectoryLists = DirectoryLists(),
+    directoryStatus: DirectoryListStatus = .notLoaded,
+    directoryPicker: DirectoryPickerState = DirectoryPickerState()
   ) {
     self.id = id
     self.title = title
@@ -67,6 +76,9 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.panel = panel
     self.newSessionDraft = newSessionDraft
     self.attachedHere = attachedHere
+    self.directoryLists = directoryLists
+    self.directoryStatus = directoryStatus
+    self.directoryPicker = directoryPicker
   } // End of init(id:title:state:hostList:searchText:selection:activities:shownExplanation:…)
 }
 

@@ -152,7 +152,7 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   keeps failing), at most three hosts at a time, so an unreachable host does not hold up the
   others.
 - **Keys:** ↑/↓ select, Return opens, ⌘F search (host or session name), ⌘R refresh, ⌘N new
-  session, ⌘, Settings, Esc closes.
+  session, ⌘, Settings, Esc closes. In New session, ⌥↓ opens the directory list (below).
 - **Open a session:** click it (or Return). muxFinder checks the session is still the one
   listed, opens a dedicated iTerm2 tab that runs its helper, which attaches with `tmux -CC`
   (locally, or through `ssh -t` to the host), confirms the new tmux connection through iTerm2's
@@ -176,7 +176,20 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   `detach-client`; the session and its processes keep running. muxFinder never closes tmux
   tabs to detach (closing a tmux window in iTerm2 can kill it).
 - **New session:** pick the host, a name and optionally a working directory there. muxFinder
-  creates the session (refusing a name that exists, never replacing work) and opens it.
+  creates the session (refusing a name that exists, never replacing work) and opens it. The
+  Directory field takes any path (`~/…` is in that host's home folder; empty is the home
+  folder itself). The button at its end, or ⌥↓, lists that host's recent directories (the last
+  8 it created sessions in), your saved directories (one list for every host) and the folders
+  the host's sessions started in. Click one, or move with ↑/↓ and press Return, to put it in
+  the field; Esc closes the list (a second Esc closes New session), and Return with nothing
+  highlighted creates as usual (typing in the field takes the highlight away). With macOS's
+  keyboard navigation on, Tab also reaches the button and Space opens it. "Save this
+  directory" adds what the field holds to the saved list; "Clear recent directories on
+  <host>" forgets that host's recent ones. Settings › Directories edits the saved list: add
+  (checked as you type), remove, move up and down, then Save (or Revert); Save keeps any
+  directory you saved from New session in the meantime. Both lists live in
+  `~/Library/Application Support/muxFinder/directories.json` (paths only, never terminal
+  content).
 - **Set up SSH in iTerm2…** (on a host that needs a sign-in or has a host key problem) opens an
   iTerm2 tab running plain `ssh <destination>`, where you sign in or accept the host key the
   normal way. muxFinder never weakens host key checking.

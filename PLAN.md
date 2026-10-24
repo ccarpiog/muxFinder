@@ -2198,8 +2198,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Tmux/ProbeScript.swift`, `ProbeReport.swift`, `TmuxModels.swift`,
   `Sources/MuxFinderUI/Model/AppModelSessions.swift` (`recordRecentDirectory(_:for:)`) and
   `AppEnvironment.swift`; tests `Tests/MuxFinderCoreTests/DirectoryStoreTests.swift`,
-  `ProbeSessionPathTests.swift`, `Tests/MuxFinderUITests/DirectoryRecordingTests.swift`; Phase
-  I-2b extends it with the picker, its keys and the Settings section).
+  `ProbeSessionPathTests.swift`, `Tests/MuxFinderUITests/DirectoryRecordingTests.swift`;
+  extended in Phase I-2b with the picker, its keys and the Settings section:
+  `Sources/MuxFinderUI/Model/DirectoryPicker.swift`, `AppModelDirectories.swift`,
+  `SettingsModelDirectories.swift`, `PopoverKey.swift`, `Views/DirectoryPickerViews.swift`,
+  `Views/Settings/DirectoriesSettingsView.swift`; tests `DirectoryPickerTests.swift`,
+  `SettingsDirectoriesTests.swift`).
   - **File:** `directories.json` in muxFinder's folder (`DirectoryStore`; the path is
     injectable), schema 1: `{"schemaVersion": 1, "saved": [ … ], "recent": {"<host id>":
     [ … ]}}`, pretty-printed with sorted keys and a final newline, at most 1 MiB, unknown keys
@@ -2214,9 +2218,13 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     recent per host (a ninth drops the oldest; recording one again moves it to the front).
     Duplicates collapse by exact string, compared byte for byte (no Unicode normalization),
     keeping the first place; `~/x` and `/Users/…/x` stay two entries (the app cannot know a
-    remote home folder). Changes (`DirectoryListChange`): add, remove, move and replace saved,
-    record a host's recent, clear a host's recents; a refused one (`DirectoryListError`)
-    changes nothing.
+    remote home folder). **Byte identity** holds everywhere a directory is compared: two lists
+    are equal (`DirectoryLists ==`) only byte for byte (`String`'s `==` would take two spellings
+    of an accented name for one, and an `@Observable` model skips telling its views about a
+    value equal to the one it holds), and so are New session's rows and the merge below
+    (Phase I-2b review). Changes (`DirectoryListChange`): add, remove, move, replace and merge
+    saved (`mergeSaved`, Settings' Save below), record a host's recent, clear a host's recents;
+    a refused one (`DirectoryListError`) changes nothing.
   - **Loading** never writes, not even the folder (`PrivateStorage` `inspect`), and trusts the
     file under D14's rules for files read (`O_NOFOLLOW|O_NONBLOCK`, a regular file of the
     user's, no group or other bits, no ACL, at most 1 MiB): `saved`, `notSavedYet` (empty) or
@@ -2230,11 +2238,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     what it holds, forget the recents of hosts not in `knownHosts` (`nil` forgets none), then
     write unless the result is what the file holds already (or there is no file and the lists
     are empty). **A file that cannot be used refuses every change** (record, clear, saved add,
-    remove, move and replace, prune) with `fileNotUsable(problem)`: its contents and metadata
-    stay as they are and nothing is written, so a file with unsafe permissions, one a newer
-    muxFinder wrote (after a downgrade) or one that is not JSON is never replaced; the user
-    fixes it or moves it away (Phase I-2a review). A file with entries left out is usable and
-    is replaced (and kept as a backup, below).
+    remove, move, replace and merge, prune) with `fileNotUsable(problem)`: its contents and
+    metadata stay as they are and nothing is written, so a file with unsafe permissions, one a
+    newer muxFinder wrote (after a downgrade) or one that is not JSON is never replaced; the
+    user fixes it or moves it away (Phase I-2a review). A file with entries left out is usable
+    and is replaced (and kept as a backup, below).
   - **Serialization across processes** (Phase I-2a review): the first read, without the lock,
     ends a refused or unusable-file change and one that writes nothing, so those never create
     the folder or the lock file. Any other change takes an exclusive `flock` on
@@ -2305,6 +2313,101 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `directories.json`), and `nil` in `placementDiagnostic()` and the tests of other parts;
     preview fixtures (`AppModel(fixture:)`) have no environment, so no preview mode reaches a
     store (pinned by `DirectoryRecordingTests.eachModeGetsItsOwnStore`).
+  - **The picker (Phase I-2b):** the Directory field stays a text field (typing, pasting,
+    `~/…`), with a pull-down button at its trailing edge that opens a list **drawn inside the
+    popover panel** under the field (`DirectoryListView`). Decided against a SwiftUI `Menu` or
+    an `NSMenu`: a menu runs its own event tracking loop, so its ↑/↓, Return and Esc would
+    never reach the panel's key monitor (`PopoverWindowTrackingView`) or `AppModel.handle(_:)`
+    and could not be unit-tested through them; SwiftUI cannot open a `Menu` from a key, so ⌥↓
+    in the text field would need an `NSMenu` popped up by hand at a computed position from a
+    non-activating panel (D30) whose closing rules (resigning key closes the popover) a menu
+    might trip, which was not worth verifying; and `--preview-snapshot` draws the panel's
+    view, so a menu (another window) would never appear in the galleries. The content is a
+    pure value, `DirectoryPickerContent`, for the draft's host: "Recent" (that host's recents,
+    newest first), "Saved" (the shared list, in the user's order) and "Sessions on <host>"
+    (the distinct start folders of the host's listed sessions, stale ones included, that pass
+    `DirectoryLists.check`, distinct by exact string, sorted with `localizedStandardCompare`
+    and byte order for ties, at most 10), each only when not empty; a folder may show in two
+    sections. With all three empty the list (and the button's help and accessibility value)
+    says "Nothing to pick yet". Below them: "Save this directory" (`addSaved` of the field as
+    typed; off while the store takes no change, the field is empty or breaks the entry rules,
+    the value is saved already byte for byte, or the list holds 50) and "Clear recent
+    directories on <host>" (`clearRecents` of that host; off with no recent directory or
+    while the store takes no change); an unusable file's or unreadable folder's notice shows
+    at the top of the list (entries left out are Settings' notice only). Rows shorten long
+    paths in the middle, with the full path as help and accessibility label; the highlighted
+    row has the popover's selection look and the pointer moves the same highlight. A row's
+    identity (equality, hashing, the view's row identity, the keyboard's position) is its
+    section and the directory's UTF-8 bytes (`DirectoryPickerContent.Item`), and sections
+    compare byte for byte, so two spellings of one accented name are two rows the keys pass
+    through in turn (Phase I-2b review). Picking a
+    directory only fills the field and closes the list; the draft then checks it like typed
+    text (`directoryIssue`, `request(hosts:command:)`, `Validation.workingDirectory`) before
+    any `NewSessionRequest` (D3, D18). Changing the host updates the list and keeps the
+    field; a highlight the new list lacks is dropped. The list closes with the panel, on a
+    creation and when New session opens again.
+  - **Keys (Phase I-2b):** `PopoverKey.openList` is ⌥↓ (⌥ alone, the arrows' own flags
+    ignored). In New session it opens the list on its first row; while the list is open
+    (`handleDirectoryListKey(_:)`), ↑/↓ and ⌥↓ move the highlight and stop at the ends (the
+    session rows' selection never moves), Return picks the highlighted row (an action runs and
+    the list stays open) or, with none, closes the list and creates (Return in the field still
+    means Create). Any change to the field's text (byte for byte: typing, pasting) ends the
+    list's navigation and drops the highlight, the list staying open (`AppModel`'s
+    `newSessionDraft` observer), so Return then creates from what the field holds instead of
+    picking a row highlighted before the edit; ↓ or the pointer highlights again (Phase I-2b
+    review). Esc closes the list and leaves the panel open (a second Esc closes it);
+    ⌘F and ⌘N still do nothing and ⌘R and ⌘, act as in any panel. Everywhere else ⌥↓ returns
+    the new `PopoverKeyResult.ignored`, and the key goes on to the focused view as before
+    (`PopoverKey` used to return `nil` for it). Tab to the button and Space press it like any
+    button (with macOS's keyboard navigation on). Every other key is unchanged.
+  - **Store use from the popover (Phase I-2b):** every load and change goes through
+    `AppEnvironment.directories` on one queue (`enqueueDirectoryOperation(_:)`; the recording
+    above runs on it too, and quitting waits for it within the budget). The lists are read
+    afresh each time New session opens (reading never writes; a problem status that is new is
+    logged as `directory list not usable: <code>`); each change's result becomes the lists
+    shown, with the recents of hosts no longer in the host list forgotten in the same write.
+    A refused save or clear changes nothing else, shows "muxFinder couldn't save this
+    directory." (or "…couldn't clear the recent directories.") with the store's explanation in
+    the list, makes the list read-only for `fileNotUsable`, and is logged as `directory list:
+    <change kind> not done: <code>`, never a directory. A model without a store (tests of
+    other parts) offers no change; fixtures show the actions as on and run nothing.
+  - **Settings › Directories (Phase I-2b):** its own tab, between Persistent profiles and
+    General, over `SettingsEnvironment.directories` (in the app the same `DirectoryStore`
+    instance as `AppEnvironment.directories`). D23's pattern: a working copy of the saved list
+    with "Add" (checked inline with `DirectoryLists.check`, which includes
+    `Validation.workingDirectory`, plus no duplicate by exact string and the 50-entry cap;
+    appended as typed, Return in the field adds), move up, move down and remove per row, and
+    "Revert" and "Save"; nothing is written before Save, which is one `mergeSaved(base:edited:)`
+    change (`knownHosts` `nil`: recents untouched, nothing pruned) and says "Saved."; closing
+    the window drops unsaved edits (the next opening reads the file again). **Save's rule**
+    (Phase I-2b review): a three-way merge that the store runs on the file as it is under
+    `directories.lock`, in the same `apply` as its write, so it is atomic with New session's
+    changes (the same store) and with other muxFinder processes. `base` is the saved list the
+    tab's edits started from (as loaded, saved, reverted, or followed while there were no
+    edits), `edited` the working copy; the result is `edited` (its order, its additions,
+    without its removals) less the entries removed from the file since `base`, followed by the
+    entries added since `base` that `edited` lacks, in the file's order, all compared byte for
+    byte, then checked as `replaceSaved` is (a rule or the 50-entry cap refuses it, and the
+    working copy stays). So a "Save this directory" (or another muxFinder's change) made during
+    an edit is never lost or undone, recents recorded or cleared meanwhile stay as they are,
+    and the tab then shows what the file holds. Chosen over refusing a Save whose base is stale
+    (as D19's `save(_:expecting:)` does for the host list): New session only ever adds to the
+    saved list, so the merge has nothing ambiguous to resolve, and a refusal would make the
+    user redo the edits. An unusable file or
+    unreadable folder shows its notice with "Try again" and offers no edit (the store would
+    refuse every change); a file with entries left out is editable, and its notice says the
+    save keeps that file as a backup. Saves and loads are logged by kind and count only. A save
+    there hands the lists to `AppModel` (`onDirectoriesSaved`); a change from New session's
+    list hands them to the tab (`directoriesChangedElsewhere(_:)`), whose saved list follows
+    and whose working copy follows only while it has no unsaved edits. No recents editor:
+    they are cleared per host from New session's list.
+  - **Previews (Phase I-2b):** the attach gallery shows New session with the list open (three
+    sections, a highlighted recent row, a long path shortened), nothing to pick, a value saved
+    already and an unusable file; the Settings gallery the Directories tab with unsaved edits
+    and an inline issue, and with an unusable file; synthetic paths only. `--preview-snapshot`
+    sizes the preview window to its content's natural size before drawing, since a titled
+    window taller than the screen is shrunk to it and the attach gallery's host lists, which
+    can shrink, then rendered squeezed.
   - **Uninstall:** `scripts/uninstall.sh` removes the whole support folder, `directories.json`,
     its backups and `directories.lock` included (no change).
 
@@ -3842,7 +3945,22 @@ Split (recorded before the first worker):
   session folder, on This Mac and Saturno). Acceptance: the specification's picker, picking
   and key tests pass; the galleries are regenerated and inspected; the hermetic
   install-script check passes; shared verification and `scripts/build-app.sh` + `codesign`
-  pass.
+  pass. Outcome: **D31** extended (an in-popover list rather than a menu, so its keys go
+  through `PopoverKey.openList` and `AppModel.handle(_:)` and the galleries render it; the pure
+  `DirectoryPickerContent`; one store queue in `AppModel`; Settings' own Directories tab with
+  Save and Revert); 28 new UI tests in `DirectoryPickerTests` and `SettingsDirectoriesTests`,
+  no existing test changed; the attach and Settings galleries regenerated light and dark
+  (`--preview-snapshot` now fits the window to the content first); the self-test's create
+  path unchanged; creating from each source in the real app and the keys by hand are
+  checklist 17. Review fixes (Phase I-2b review, D31): Settings' Save is a `mergeSaved`
+  three-way merge run by the store under its lock (one new `DirectoryListChange` case in
+  `DirectoryLists.swift`), editing the Directory field drops the list's highlight, and list
+  rows, sections and `DirectoryLists ==` compare byte for byte; 6 more UI tests and 2 more
+  core tests (`everyChange` gained `mergeSaved`), each failing with its fix reverted. Real
+  run: `--selftest new-session-local` 7/7 with no `directories.json` created. The
+  install-script check's step 26 now matches the readers' pids instead of any "also running
+  from" warning (the user's installed muxFinder had tripped it); 35/35, and it still fails
+  with the uninstall script's identity check removed (`docs/progress-archive/i-2b.md`).
 
 ## Deferred (explicitly out of scope for v1)
 

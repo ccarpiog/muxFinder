@@ -83,9 +83,10 @@ extension AppModel {
 
   /// Closes the panel (Cancel, or Esc): a Move here confirmation runs nothing; a New session
   /// being created goes on (its result shows on its row) and "Open existing" stops looking (its
-  /// lookup is cancelled and opens nothing).
+  /// lookup is cancelled and opens nothing). New session's directory list closes with it.
   public func cancelPanel() {
     panel = nil
+    closeDirectoryList()
     if let id = currentLookupID { lookups[id]?.cancel() }
     currentLookupID = nil
     if newSessionDraft.state == .findingExisting { newSessionDraft.state = .collision }
@@ -210,7 +211,9 @@ extension AppModel {
   // MARK: - New session
 
   /// "New session" (⌘N): shows the sheet with a fresh draft for This Mac (or the first enabled
-  /// host), or the draft being created. Does nothing for a fixture or after `shutdown()`.
+  /// host), or the draft being created, with its directory list closed, and reads the
+  /// directory lists afresh in the background (`loadDirectoryLists()`, PLAN.md D31). Does
+  /// nothing for a fixture or after `shutdown()`.
   public func newSession() {
     guard environment != nil, lifecycle != .stopped else { return }
     if case .newSession = panel { return }
@@ -219,7 +222,9 @@ extension AppModel {
       newSessionDraft = NewSessionDraft(
         hostID: (hosts.first(where: \.isThisMac) ?? hosts.first)?.id)
     }
+    directoryPicker = DirectoryPickerState()
     panel = .newSession
+    loadDirectoryLists()
   }
 
   /// The sheet's "Create": checks the fields (the issues show inline), then creates the
@@ -278,51 +283,12 @@ extension AppModel {
     activities[key] = .opening
     notes[key] = nil
     if newSessionDraft.state == .creating { newSessionDraft.state = .editing }
-    if case .newSession = panel { panel = nil }
+    if case .newSession = panel {
+      panel = nil
+      closeDirectoryList()
+    }
     refreshHost(host.id)
   } // End of func sessionCreated(_:_:on:directory:)
-
-  // MARK: - Recent directories
-
-  /// Records `directory` (as New session checked it) as `hostID`'s newest recent directory
-  /// (PLAN.md D31), once a creation made a session there: before the session's attach, so an
-  /// attach that fails afterwards changes nothing. An empty field (`nil`, the home folder)
-  /// records nothing, and neither does a collision, a failed creation or `mayHaveCreated`,
-  /// which never report a created session. The recents of hosts no longer in the host list
-  /// (`knownHostIDs`) are forgotten in the same write. The store is written in the background,
-  /// one recording after another; a failure is logged by its kind only, never the directory,
-  /// and never blocks or fails the creation or its attach.
-  func recordRecentDirectory(_ directory: String?, for hostID: UUID) {
-    guard let directory, !directory.isEmpty, let store = environment?.directories else { return }
-    let previous = directoryRecording
-    let knownHosts = knownHostIDs
-    let diagnostics = environment?.diagnostics
-    let logger = self.logger
-    directoryRecording = Task {
-      await previous?.value
-      let failure: String?
-      do throws(DirectoryStoreError) {
-        let result = try await store.apply(
-          .recordRecent(directory, hostID: hostID), knownHosts: knownHosts)
-        failure = result.displacedFileError.map { "displaced file not kept: \($0.code)" }
-      } catch {
-        failure = "not recorded: \(error.code)"
-      }
-      guard let failure else {
-        logger.info("Recent directory recorded")
-        return
-      }
-      logger.error("Recent directory \(failure, privacy: .public)")
-      await diagnostics?.record(
-        .settings, outcome: .failure, hostID: hostID.uuidString,
-        detail: "recent directory \(failure)")
-    }
-  } // End of func recordRecentDirectory(_:for:)
-
-  /// Returns once every recording of a recent directory started so far has ended.
-  func directoryRecordingsHandled() async {
-    await directoryRecording?.value
-  }
 
   /// "Open existing" after a collision: lists the draft's host afresh through the attach
   /// coordinator (`currentSession(named:on:)`), never trusting the popover's list, since the

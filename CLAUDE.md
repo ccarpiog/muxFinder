@@ -84,8 +84,8 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   popover|settings|onboarding|attach] [--appearance light|dark]` prints `muxFinder preview
   window <n> …`; capture only that window with `screencapture -x -o -l <n> <file.png>`, then
   `kill -TERM` it (exit 0). With a locked screen or a sleeping display `screencapture` fails:
-  add `--preview-snapshot <file.png>`, which renders the window into the PNG from inside the
-  app and quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
+  add `--preview-snapshot <file.png>`, which sizes the window to its content and renders it
+  into the PNG from inside the app, then quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
   `settings-states-*.png`, `onboarding-states-*.png`, `attach-states-*.png`); never capture
   the screen or another app's window.
 - Login item check (read-only; registers nothing, opens no window or menu bar item, reads no

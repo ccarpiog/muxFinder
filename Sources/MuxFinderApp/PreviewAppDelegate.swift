@@ -17,6 +17,8 @@ import SwiftUI
 final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
   /// How long the window settles (layout, measured list heights) before a snapshot.
   static let snapshotDelay: Duration = .milliseconds(1_500)
+  /// How long the window settles again after `fitWindow(to:)` resized it.
+  static let refitDelay: Duration = .milliseconds(500)
 
   /// The command-line options.
   private let options: AppLaunchOptions
@@ -68,6 +70,7 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     if let path = options.previewSnapshotPath {
       Task {
         try? await Task.sleep(for: Self.snapshotDelay)
+        if fitWindow(to: hosting) { try? await Task.sleep(for: Self.refitDelay) }
         writeSnapshot(of: hosting, to: path)
       }
     }
@@ -76,6 +79,19 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
   /// Closing the window quits.
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     true
+  }
+
+  /// Before a snapshot: gives the window exactly the content's natural size, so the PNG shows
+  /// every state at full height whatever the display. Showing a titled window taller than the
+  /// screen shrinks it to fit, and a gallery whose host lists can shrink (each popover's list
+  /// scrolls when offered less) then renders squeezed and cut off; `setFrame(_:display:)` is
+  /// not held to the screen. Returns whether the size changed.
+  private func fitWindow(to view: NSView) -> Bool {
+    let size = view.fittingSize
+    guard let window = view.window, size != view.bounds.size else { return false }
+    let content = NSRect(origin: window.frame.origin, size: size)
+    window.setFrame(window.frameRect(forContentRect: content), display: true)
+    return true
   }
 
   /// Draws `view` (the window's contents) into a PNG at `path` from inside the app, at the

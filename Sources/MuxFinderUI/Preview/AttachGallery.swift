@@ -4,7 +4,8 @@ import SwiftUI
 /// The `--preview-fixtures --preview-gallery attach` window's content (PLAN.md D25): every
 /// session-action state from `AttachFixtures.all`, each in a frame like the menu bar popover,
 /// and a card with the session row's context menu for a session open here and one attached
-/// elsewhere. Nothing here runs an engine, reads `hosts.json` or contacts iTerm2.
+/// elsewhere. Nothing here runs an engine, reads `hosts.json` or `directories.json`, or
+/// contacts iTerm2.
 public struct AttachGallery: View {
   /// How many cards each row holds.
   public static let columns = 4
@@ -97,6 +98,10 @@ public struct AttachGallery: View {
     } // End of VStack holding the card
     .frame(width: PopoverView.width, alignment: .leading)
   } // End of var menuCard
+}
+
+#Preview("New session: directory list") {
+  PopoverView(model: AppModel(fixture: AttachFixtures.newSessionDirectories), isLive: false)
 }
 
 #Preview("Session actions") {

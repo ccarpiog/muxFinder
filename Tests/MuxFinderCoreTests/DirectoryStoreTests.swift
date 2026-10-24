@@ -467,8 +467,8 @@ struct DirectoryStoreTests {
       modified: [Int(info.st_mtimespec.tv_sec), Int(info.st_mtimespec.tv_nsec)])
   }
 
-  /// Every kind of change: recording and clearing a recent, adding, removing, moving and
-  /// replacing saved entries, and pruning removed hosts.
+  /// Every kind of change: recording and clearing a recent, adding, removing, moving,
+  /// replacing and merging saved entries, and pruning removed hosts.
   static let everyChange: [(DirectoryListChange, Set<UUID>?)] = [
     (.recordRecent("~/r", hostID: hostA), nil),
     (.recordRecent("~/r", hostID: hostA), [hostA]),
@@ -479,6 +479,7 @@ struct DirectoryStoreTests {
     (.moveSaved(from: 0, to: 0), nil),
     (.replaceSaved(["~/s"]), nil),
     (.replaceSaved([]), [hostB]),
+    (.mergeSaved(base: ["~/x"], edited: ["~/s"]), nil),
   ]
 
   /// A file that cannot be used (unsafe permissions on valid lists, a newer schema after a
@@ -779,6 +780,64 @@ struct DirectoryListsTests {
     #expect(lists.recent.values.first == (1...8).map { "~/r\($0)" })
     #expect(dropped == 4)
   }
+
+  /// Settings' merge (PLAN.md D31): the edits from `base` to `edited` land on the saved list as
+  /// it is now. With nothing changed since `base` the result is `edited` (duplicates collapsed);
+  /// otherwise the edits' removals, order and additions hold, what was removed since stays
+  /// removed and what was added since follows at the end, entries compared byte for byte; a
+  /// result over the cap, or an entry that breaks a rule, changes nothing (recents included).
+  @Test func mergeSavedAppliesTheEditsToTheListAsItIsNow() throws {
+    var lists = DirectoryLists(saved: ["~/a", "~/b", "~/c"], recent: [:])
+    try lists.mergeSaved(base: ["~/a", "~/b", "~/c"], edited: ["~/c", "~/a", "~/new", "~/c"])
+    #expect(lists.saved == ["~/c", "~/a", "~/new"])
+
+    // Since the base, ~/a was removed and ~/x added elsewhere; the edits removed ~/b, moved
+    // ~/c up and added ~/d.
+    lists = DirectoryLists(saved: ["~/b", "~/c", "~/x"], recent: [:])
+    try lists.mergeSaved(base: ["~/a", "~/b", "~/c"], edited: ["~/c", "~/a", "~/d"])
+    #expect(lists.saved == ["~/c", "~/d", "~/x"])
+
+    let composed = "~/caf\u{E9}"
+    let decomposed = "~/cafe\u{301}"
+    lists = DirectoryLists(saved: [composed, decomposed], recent: [:])
+    try lists.mergeSaved(base: [composed], edited: [])
+    #expect(DirectoryLists.sameEntries(lists.saved, [decomposed]), "added since, by its bytes")
+
+    let host = UUID()
+    let full = (1...50).map { "~/s\($0)" }
+    var capped = DirectoryLists(saved: full, recent: [host: ["~/r"]])
+    #expect(throws: DirectoryListError.tooManySaved) {
+      try capped.mergeSaved(
+        base: Array(full.prefix(49)), edited: Array(full.prefix(49)) + ["~/mine"])
+    }
+    #expect(throws: DirectoryListError.entryInvalid(.workingDirectoryContainsLineBreak)) {
+      try capped.mergeSaved(base: full, edited: ["a\nb"])
+    }
+    #expect(capped.saved == full)
+    #expect(capped.recent(for: host) == ["~/r"])
+    #expect(DirectoryListChange.mergeSaved(base: [], edited: []).kind == "mergeSaved")
+  } // End of func mergeSavedAppliesTheEditsToTheListAsItIsNow()
+
+  /// Lists are equal byte for byte, as their duplicates rule compares entries: two spellings of
+  /// one accented name make two different lists, saved or recent, and two set members.
+  @Test func equalityIsByteForByte() {
+    let composed = "~/caf\u{E9}"
+    let decomposed = "~/cafe\u{301}"
+    let host = UUID()
+    let savedComposed = DirectoryLists(saved: [composed], recent: [:])
+    #expect(savedComposed == DirectoryLists(saved: [composed], recent: [:]))
+    #expect(savedComposed != DirectoryLists(saved: [decomposed], recent: [:]))
+    #expect(
+      DirectoryLists(saved: [], recent: [host: [composed]])
+        != DirectoryLists(saved: [], recent: [host: [decomposed]]))
+    #expect(
+      DirectoryLists(saved: [], recent: [host: [composed]])
+        != DirectoryLists(saved: [], recent: [UUID(): [composed]]))
+    #expect(
+      DirectoryLists(saved: ["~/a"], recent: [host: ["~/r"]])
+        == DirectoryLists(saved: ["~/a"], recent: [host: ["~/r"]]))
+    #expect(Set([savedComposed, DirectoryLists(saved: [decomposed], recent: [:])]).count == 2)
+  } // End of func equalityIsByteForByte()
 
   /// Messages name the rule, never the entry.
   @Test func messagesNameNoDirectory() {

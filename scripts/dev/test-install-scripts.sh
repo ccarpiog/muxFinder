@@ -585,10 +585,12 @@ reader_steps() {
   start_reader "$reader" "$reader" "$SCENARIO/elsewhere/muxFinder.app/Contents/MacOS/muxFinder"
   pid_other="$STARTED"
   run_script "$UNINSTALL"
+  # The warning names each process by pid; matching the readers' pids keeps a muxFinder of
+  # the user's own, running from a real folder, out of this step.
   expect "  uninstall: never signalled, and no muxFinder warning for a reader of another copy" \
     all_of status_is 0 -- alive "$pid_reader" -- alive "$pid_other" -- \
     absent "$APPS_ROOT/muxFinder.app" -- log_lacks "stopping muxFinder" -- \
-    log_lacks "also running from"
+    log_lacks "(pid $pid_reader)" -- log_lacks "(pid $pid_other)"
   kill -KILL "$pid_reader" "$pid_other" 2>/dev/null || true
 
   new_roots install-unknown

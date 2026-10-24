@@ -70,10 +70,11 @@ public struct ITerm2ProfileSource: ITerm2ProfileListing {
 }
 
 /// What the Settings window runs on (PLAN.md D23), and with it the onboarding window and the
-/// popover's "Set up SSH in iTerm2…" (D24) and the persistent profile file (D26).
-/// `AppEnvironment.production()` wires the real ones; tests pass fakes, so `swift test` never
-/// saves the real `hosts.json`, runs a probe, contacts iTerm2, opens a tab, changes a login
-/// item, opens System Settings, touches the pasteboard or writes in iTerm2's `DynamicProfiles`.
+/// popover's "Set up SSH in iTerm2…" (D24), the persistent profile file (D26) and the saved
+/// directories (D31). `AppEnvironment.production()` wires the real ones; tests pass fakes, so
+/// `swift test` never saves the real `hosts.json` or `directories.json`, runs a probe, contacts
+/// iTerm2, opens a tab, changes a login item, opens System Settings, touches the pasteboard or
+/// writes in iTerm2's `DynamicProfiles`.
 public struct SettingsEnvironment: Sendable {
   /// The host list file (`HostStore`, shared with the app model).
   public var store: any HostListPersisting
@@ -104,6 +105,10 @@ public struct SettingsEnvironment: Sendable {
   /// Persistent profiles tab, the update after a save and the rewrite at launch go through it
   /// only (`PersistentProfileFiles` in production).
   public var persistentProfiles: any PersistentProfileManaging
+  /// New session's directory lists for the Directories tab (PLAN.md D31): the same
+  /// `DirectoryStore` as `AppEnvironment.directories` in the app; `nil` shows the tab empty and
+  /// saves nothing (the tests of other parts).
+  public var directories: (any DirectoryStoring)?
 
   /// Creates an environment from its parts.
   public init(
@@ -119,7 +124,8 @@ public struct SettingsEnvironment: Sendable {
     systemVersion: String,
     now: @escaping @Sendable () -> Date = { Date() },
     sshSetup: (any SSHSetupOpening)? = nil,
-    persistentProfiles: any PersistentProfileManaging
+    persistentProfiles: any PersistentProfileManaging,
+    directories: (any DirectoryStoring)? = nil
   ) {
     self.store = store
     self.discovery = discovery
@@ -134,6 +140,7 @@ public struct SettingsEnvironment: Sendable {
     self.now = now
     self.sshSetup = sshSetup
     self.persistentProfiles = persistentProfiles
+    self.directories = directories
   } // End of init(store:discovery:profiles:sshSuggestions:loginItem:diagnostics:…)
 
   /// Puts `text` on the general pasteboard as plain text.

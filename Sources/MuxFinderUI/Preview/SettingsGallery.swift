@@ -1,10 +1,11 @@
 import MuxFinderCore
 import SwiftUI
 
-/// The `--preview-fixtures --preview-gallery settings` window's content (PLAN.md D23, D26):
-/// every Settings state from `SettingsFixtures.all`, each in a frame like the Settings window.
-/// Nothing here reads `hosts.json`, runs a probe, contacts iTerm2, reads a login item, or reads,
-/// installs or removes a persistent profile file (fixture models have no environment).
+/// The `--preview-fixtures --preview-gallery settings` window's content (PLAN.md D23, D26,
+/// D31): every Settings state from `SettingsFixtures.all`, each in a frame like the Settings
+/// window. Nothing here reads `hosts.json` or `directories.json`, runs a probe, contacts
+/// iTerm2, reads a login item, or reads, installs or removes a persistent profile file (fixture
+/// models have no environment).
 public struct SettingsGallery: View {
   /// One state and the model that renders it.
   struct Entry: Identifiable {
@@ -80,6 +81,11 @@ public struct SettingsGallery: View {
 
 #Preview("Settings: persistent profiles out of date") {
   SettingsView(model: SettingsModel(fixture: SettingsFixtures.profilesStale))
+    .frame(width: SettingsView.defaultSize.width, height: SettingsView.defaultSize.height)
+}
+
+#Preview("Settings: directories") {
+  SettingsView(model: SettingsModel(fixture: SettingsFixtures.directories))
     .frame(width: SettingsView.defaultSize.width, height: SettingsView.defaultSize.height)
 }
 

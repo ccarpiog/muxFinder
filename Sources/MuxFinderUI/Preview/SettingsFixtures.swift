@@ -56,6 +56,18 @@ public struct SettingsFixture: Sendable, Identifiable {
   public var profileResult: PersistentProfileResult?
   /// Whether a profile operation runs.
   public var isProfileOperationRunning = false
+  /// How the directory lists loaded (PLAN.md D31).
+  public var directoryStatus = DirectoryListStatus.notLoaded
+  /// The saved directories as loaded (synthetic paths only).
+  public var savedDirectories: [String] = []
+  /// The Directories tab's working copy; `nil`: the saved list.
+  public var directoryDraft: [String]?
+  /// The Directories tab's "Add" field.
+  public var newDirectory = ""
+  /// A directory save's error.
+  public var directorySaveError: String?
+  /// A directory save's notice.
+  public var directorySaveNotice: String?
 
   /// A fixture of `hosts` with `configure` applied.
   public init(
@@ -264,6 +276,37 @@ public enum SettingsFixtures {
       .failed(.helper(.unsupportedCharacters)), trigger: .launch)
   }
 
+  // MARK: - Directories tab (PLAN.md D31)
+
+  /// The synthetic saved directories.
+  public static let savedDirectoryList = [
+    "~/projects/site", "~/projects/api", "/Volumes/Archive/photos/2026",
+    "~/Documents/client work/2026/quarterly reports/drafts/final",
+  ]
+
+  /// The saved directories with an unsaved change (one moved, one added) and a directory
+  /// typed that is in the list already.
+  public static let directories = SettingsFixture(
+    id: "directories", title: "Directories: unsaved changes", hosts: hostList
+  ) {
+    $0.tab = .directories
+    $0.directoryStatus = .usable(droppedEntryCount: 0)
+    $0.savedDirectories = savedDirectoryList
+    $0.directoryDraft = [
+      savedDirectoryList[1], savedDirectoryList[0], savedDirectoryList[2], savedDirectoryList[3],
+      "~/scratch",
+    ]
+    $0.newDirectory = "~/projects/site"
+  }
+
+  /// A directory list file muxFinder can't use: its notice with "Try again", nothing editable.
+  public static let directoriesUnusable = SettingsFixture(
+    id: "directories-unusable", title: "Directories: unusable file", hosts: hostList
+  ) {
+    $0.tab = .directories
+    $0.directoryStatus = .fileNotUsable(.unsafe(.permissionsTooOpen))
+  }
+
   // MARK: - General tab
 
   /// A General tab fixture for `status`, with `error` if given.
@@ -330,7 +373,8 @@ public enum SettingsFixtures {
   /// Every fixture, in the preview window's order.
   public static let all = [
     hosts, validation, thisMac, testFailed, invalidFile, newHost, profileEditor,
-    profilesNotInstalled, profilesCurrent, profilesStale, profilesUnavailable, diagnostics,
-    loginEnabled, loginNotRegistered, loginRequiresApproval, loginNotFound,
+    profilesNotInstalled, profilesCurrent, profilesStale, profilesUnavailable, directories,
+    directoriesUnusable, diagnostics, loginEnabled, loginNotRegistered, loginRequiresApproval,
+    loginNotFound,
   ]
 }

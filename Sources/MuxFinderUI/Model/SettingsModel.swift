@@ -3,8 +3,9 @@ import MuxFinderCore
 import Observation
 
 /// The Settings window's model (PLAN.md Phase 9a, D23): the Hosts tab's list and host editor,
-/// the General tab's launch at login, the Diagnostics tab's log and "Copy diagnostics", and the
-/// fix-its shown with their errors.
+/// the Directories tab's saved directories (D31, `SettingsModelDirectories.swift`), the General
+/// tab's launch at login, the Diagnostics tab's log and "Copy diagnostics", and the fix-its
+/// shown with their errors.
 ///
 /// - **Saving:** only through `SettingsEnvironment.store` (`HostStore`), only on "Save", on a
 ///   confirmed removal, and only while the list is editable. Every save expects the file's
@@ -50,6 +51,8 @@ public final class SettingsModel {
     case hosts
     /// muxFinder's persistent profile file in iTerm2 (PLAN.md D26).
     case profiles
+    /// New session's saved directories (PLAN.md D31).
+    case directories
     /// Launch at login.
     case general
     /// The operation log.
@@ -60,6 +63,7 @@ public final class SettingsModel {
       switch self {
       case .hosts: return "Hosts"
       case .profiles: return "Persistent profiles"
+      case .directories: return "Directories"
       case .general: return "General"
       case .diagnostics: return "Diagnostics"
       }
@@ -208,6 +212,24 @@ public final class SettingsModel {
   public internal(set) var profileResult: PersistentProfileResult?
   /// Profile operations queued or running (they run one at a time).
   public internal(set) var profileOperations = 0
+  /// How New session's directory lists loaded for the Directories tab (PLAN.md D31).
+  public internal(set) var directoryStatus = DirectoryListStatus.notLoaded
+  /// The saved directories as loaded, last saved or last changed from New session's list
+  /// (what "Revert" brings back).
+  public internal(set) var savedDirectories: [String] = []
+  /// The Directories tab's working copy of the saved list, in the user's order.
+  public internal(set) var directoryDraft: [String] = []
+  /// The saved list the working copy's edits started from: what "Save" merges them against
+  /// (`DirectoryListChange.mergeSaved(base:edited:)`), so changes made elsewhere since are kept.
+  @ObservationIgnored var directoryDraftBase: [String] = []
+  /// The Directories tab's "Add" field, as typed.
+  public var newDirectory = ""
+  /// Whether a save of the saved directories runs.
+  public internal(set) var isSavingDirectories = false
+  /// Why the last save of the saved directories failed.
+  public internal(set) var directorySaveError: String?
+  /// What the last save of the saved directories did ("Saved.").
+  public internal(set) var directorySaveNotice: String?
   /// Whether the window is open.
   public private(set) var isWindowOpen = false
   /// Whether this model renders a fixture.
@@ -218,6 +240,9 @@ public final class SettingsModel {
   /// Called after every successful save with the list now on disk (`AppModel` hands it to the
   /// engine).
   @ObservationIgnored public var onHostListSaved: (@MainActor (HostList) -> Void)?
+  /// Called after every successful save of the saved directories with the lists now kept
+  /// (`AppModel` shows them in New session's list).
+  @ObservationIgnored public var onDirectoriesSaved: (@MainActor (DirectoryLists) -> Void)?
   /// The dependencies; `nil` for a fixture.
   @ObservationIgnored let environment: SettingsEnvironment?
   /// The last profile operation queued; the next one waits for it (`SettingsModelProfiles`).
@@ -240,7 +265,7 @@ public final class SettingsModel {
   @ObservationIgnored private var probeGeneration = 0
   /// Increases when the window opens or closes; work started for an earlier opening drops its
   /// results and starts nothing more.
-  @ObservationIgnored private var windowGeneration = 0
+  @ObservationIgnored private(set) var windowGeneration = 0
   /// Whether `shutdown()` ran: nothing new starts.
   @ObservationIgnored private(set) var isShutDown = false
 
@@ -278,14 +303,21 @@ public final class SettingsModel {
     profileStatus = fixture.profileStatus
     profileResult = fixture.profileResult
     profileOperations = fixture.isProfileOperationRunning ? 1 : 0
+    directoryStatus = fixture.directoryStatus
+    savedDirectories = fixture.savedDirectories
+    directoryDraft = fixture.directoryDraft ?? fixture.savedDirectories
+    directoryDraftBase = fixture.savedDirectories
+    newDirectory = fixture.newDirectory
+    directorySaveError = fixture.directorySaveError
+    directorySaveNotice = fixture.directorySaveNotice
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
   } // End of init(fixture:)
 
   // MARK: - Window
 
   /// The window opened: reads the login item status, loads the host list, then the profiles,
-  /// the SSH suggestions, the log and the persistent profile file's status, in a task the model
-  /// owns (`windowDidClose()` cancels it), and returns once that task has ended. Does nothing
+  /// the SSH suggestions, the log, the persistent profile file's status and the saved
+  /// directories, in a task the model owns (`windowDidClose()` cancels it), and returns once that task has ended. Does nothing
   /// for a fixture, while already open, or after `shutdown()`.
   public func windowDidOpen() async {
     guard environment != nil, !isWindowOpen, !isShutDown else { return }
@@ -308,7 +340,8 @@ public final class SettingsModel {
     async let names: Void = loadSuggestions()
     async let log: Void = refreshDiagnostics()
     async let files: Void = checkProfiles()
-    _ = await (profiles, names, log, files)
+    async let directories: Void = loadDirectories()
+    _ = await (profiles, names, log, files, directories)
   }
 
   /// Whether work started for the window opened as `generation` may go on: that window is

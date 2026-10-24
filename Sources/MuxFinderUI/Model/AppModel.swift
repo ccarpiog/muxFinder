@@ -169,8 +169,19 @@ public final class AppModel {
   public internal(set) var banners: [SessionBanner] = []
   /// The Move here confirmation or the New session sheet, while shown.
   public internal(set) var panel: PopoverPanel?
-  /// The New session sheet's fields and state.
-  public var newSessionDraft = NewSessionDraft()
+  /// The New session sheet's fields and state. Any change to the Directory field's text (byte
+  /// for byte: typing, pasting, a pick) drops the directory list's highlight
+  /// (`directoryFieldChanged(from:)`), so Return then creates from what the field holds.
+  public var newSessionDraft = NewSessionDraft() {
+    didSet { directoryFieldChanged(from: oldValue.directory) }
+  }
+  /// New session's directory lists as last loaded or changed (PLAN.md D31); empty until the
+  /// sheet first opens.
+  public internal(set) var directoryLists = DirectoryLists()
+  /// How the directory lists last loaded.
+  public internal(set) var directoryStatus = DirectoryListStatus.notLoaded
+  /// New session's directory list: open or closed, the highlighted row, the last problem.
+  public internal(set) var directoryPicker = DirectoryPickerState()
   /// Attachments in this Mac's iTerm2 that muxFinder made or found, by session.
   public internal(set) var attachedHere: [SessionKey: AttachmentRecord] = [:]
   /// The latest actions that ended, oldest first (at most `finishedActionLimit`).
@@ -245,9 +256,10 @@ public final class AppModel {
   /// hosts in the same write (PLAN.md D31). `nil` while the list is not known to be saved, so
   /// nothing is forgotten on the strength of onboarding defaults or an unusable file.
   @ObservationIgnored var knownHostIDs: Set<UUID>?
-  /// The latest recording of a recent directory; the next one waits for it, so they keep their
-  /// order (`recordRecentDirectory(_:for:)`).
-  @ObservationIgnored var directoryRecording: Task<Void, Never>?
+  /// The latest directory store operation (a load, a recording of a recent directory, a save
+  /// or a clear from New session's list); the next one waits for it, so they keep their order
+  /// (`enqueueDirectoryOperation(_:)`).
+  @ObservationIgnored var directoryOperation: Task<Void, Never>?
   /// Records what the session actions did (kinds only: no names or other user data).
   @ObservationIgnored let logger = Logger(subsystem: "cc.carpio.muxfinder", category: "app")
 
@@ -269,6 +281,9 @@ public final class AppModel {
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     (actionEvents, actionSink) = AsyncStream.makeStream(of: ActionEvent.self)
     settings.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
+    settings.onDirectoriesSaved = { [weak self] lists in
+      self?.directoriesChanged(lists, tellingSettings: false)
+    }
     onboarding.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
     onboarding.onOpenSettings = { [weak self] in self?.openSettings() }
   } // End of init(environment:)
@@ -287,6 +302,9 @@ public final class AppModel {
     banners = fixture.banners
     panel = fixture.panel
     newSessionDraft = fixture.newSessionDraft
+    directoryLists = fixture.directoryLists
+    directoryStatus = fixture.directoryStatus
+    directoryPicker = fixture.directoryPicker
     attachedHere = fixture.attachedHere
     shownExplanation = fixture.shownExplanation
     settings = SettingsModel(fixture: SettingsFixtures.blank)
@@ -443,8 +461,8 @@ public final class AppModel {
   ///   awaited), and, in this order, the request queue (requests still queued are dropped), the
   ///   system events adapter and the engine, whose `stop()` cancels any attachment check and
   ///   kills any running probe's process group.
-  /// - Then a recording of a recent directory still being written (PLAN.md D31) is awaited for
-  ///   at most the same budget.
+  /// - Then a directory store operation still running (a recording of a recent directory, a
+  ///   load, a save or a clear, PLAN.md D31) is awaited for at most the same budget.
   ///
   /// Quitting muxFinder never detaches a tmux client, ends a session or closes an iTerm2 tab.
   /// Later calls do nothing and report nothing.
@@ -459,7 +477,7 @@ public final class AppModel {
     await subsystemsStopped
     actionSink.finish()
     await actionReader?.value
-    if let recording = directoryRecording { _ = await Self.ends(recording, within: budget) }
+    if let operation = directoryOperation { _ = await Self.ends(operation, within: budget) }
     if !report.isComplete { await reportUnfinished(report, budget: budget) }
     return report
   } // End of func shutdown()
@@ -625,12 +643,18 @@ public final class AppModel {
 
   /// Carries out a popover key and says whether the popover should close. While a panel
   /// shows (Move here, New session), Return confirms it, Esc closes it, and the arrows, ⌘F and
-  /// ⌘N do nothing.
+  /// ⌘N do nothing. In New session, ⌥↓ opens the directory list; while it is open, ↑/↓ move
+  /// through it, Return picks the highlighted row (with none, it closes the list and creates)
+  /// and Esc closes the list, not the panel (`handleDirectoryListKey(_:)`, PLAN.md D31). ⌥↓
+  /// anywhere else is left to the focused view (`ignored`).
   public func handle(_ key: PopoverKey) -> PopoverKeyResult {
     if let panel {
+      if case .newSession = panel, let result = handleDirectoryListKey(key) { return result }
       switch (key, panel) {
       case (.open, .moveHere): confirmMoveHere()
       case (.open, .newSession): createSession()
+      case (.openList, .newSession): openDirectoryList(highlightingFirst: true)
+      case (.openList, .moveHere): return .ignored
       case (.close, _): cancelPanel()
       case (.refresh, _): refresh()
       case (.settings, _): openSettings()
@@ -647,6 +671,7 @@ public final class AppModel {
     case .refresh: refresh()
     case .newSession: newSession()
     case .settings: openSettings()
+    case .openList: return .ignored
     }
     return .handled
   } // End of func handle(_:)

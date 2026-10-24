@@ -47,10 +47,11 @@ public struct AppEnvironment: Sendable {
   /// The first pane's command of a session made with New session, as argv; empty (the app's
   /// value) runs the user's shell. The self-tests run `sleep` instead, so no login shell starts.
   public var newSessionCommand: [String]
-  /// Where New session records the directories it created sessions in (PLAN.md D31):
-  /// `DirectoryStore` on the real `directories.json` in the app, an `InMemoryDirectoryStore` in
-  /// the self-tests, `nil` (nothing recorded) in the tests of other parts and the placement
-  /// diagnostic. Preview fixtures have no environment, so they never reach a store.
+  /// Where New session reads its directory list, records the directories it created sessions
+  /// in and saves or clears directories from the list (PLAN.md D31): `DirectoryStore` on the
+  /// real `directories.json` in the app, an `InMemoryDirectoryStore` in the self-tests, `nil`
+  /// (nothing read or recorded) in the tests of other parts and the placement diagnostic.
+  /// Preview fixtures have no environment, so they never reach a store.
   public var directories: (any DirectoryStoring)?
   /// How long `AppModel.shutdown()` waits for the session actions it cancelled before it
   /// reports the ones still running and returns (`AppModel.sessionActionShutdownBudget` by
@@ -110,10 +111,12 @@ public struct AppEnvironment: Sendable {
   /// file (`PersistentProfileFiles` over iTerm2's `DynamicProfiles` folder, PLAN.md D26). The
   /// session actions run on one `AttachCoordinator` over the same client, `DiscoveryProbe`, the
   /// launch store and the bundled `muxfinder-launch` (`LaunchHelperPath.locate()`), with the
-  /// standard existing-attachment check (PLAN.md D16, D25). New session records its
-  /// directories in `directories.json` through one `DirectoryStore` (PLAN.md D31; nothing is
-  /// read or written until a session is created). `rewritesProfilesAtLaunch` is the caller's:
-  /// only the menu bar app in normal mode passes `true`.
+  /// standard existing-attachment check (PLAN.md D16, D25). New session's directory list and
+  /// Settings' Directories tab share one `DirectoryStore` on `directories.json` (PLAN.md D31;
+  /// it is read when New session or the Settings window opens, and written only when a session
+  /// is created in a directory or the user saves or clears directories).
+  /// `rewritesProfilesAtLaunch` is the caller's: only the menu bar app in normal mode passes
+  /// `true`.
   ///
   /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
@@ -130,6 +133,7 @@ public struct AppEnvironment: Sendable {
     let iTerm2 = ITerm2APIClient(diagnostics: diagnostics)
     let index = AttachmentIndex(iTerm2: iTerm2)
     let store = HostStore()
+    let directories = DirectoryStore()
     let sshSetup = SSHSetupLauncher(
       iTerm2: iTerm2, store: LaunchStore(), diagnostics: diagnostics)
     let settings = SettingsEnvironment(
@@ -146,7 +150,8 @@ public struct AppEnvironment: Sendable {
       appVersion: AppVersion.current,
       systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
       sshSetup: sshSetup,
-      persistentProfiles: PersistentProfileFiles())
+      persistentProfiles: PersistentProfileFiles(),
+      directories: directories)
     return AppEnvironment(
       loadHosts: { try await store.load() },
       makeEngine: { hosts in
@@ -167,7 +172,7 @@ public struct AppEnvironment: Sendable {
           iTerm2: iTerm2, discovery: DiscoveryProbe(), store: LaunchStore(),
           helperPath: try LaunchHelperPath.locate(), diagnostics: diagnostics, onUpdate: onUpdate)
       },
-      directories: DirectoryStore(),
+      directories: directories,
       rewritesProfilesAtLaunch: rewritesProfilesAtLaunch)
   } // End of static func production(rewritesProfilesAtLaunch:)
 

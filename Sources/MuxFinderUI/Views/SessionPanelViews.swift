@@ -63,8 +63,8 @@ struct MoveHerePanelView: View {
 }
 
 /// "New session": the host (enabled hosts), the name with its inline issue, the optional
-/// directory, the creation's state (a collision offers "Open existing"), "Cancel" and
-/// "Create".
+/// directory with its directory list (`DirectoryFieldView`, PLAN.md D31), the creation's state
+/// (a collision offers "Open existing"), "Cancel" and "Create".
 struct NewSessionPanelView: View {
   /// The model whose draft the fields edit.
   @Bindable var model: AppModel
@@ -83,9 +83,7 @@ struct NewSessionPanelView: View {
       .disabled(draft.isBusy)
       field(
         "Name", text: $model.newSessionDraft.name, prompt: "work", issue: draft.nameIssue)
-      field(
-        "Directory (optional)", text: $model.newSessionDraft.directory,
-        prompt: "Home folder on the host", issue: draft.directoryIssue)
+      DirectoryFieldView(model: model)
       if let message = draft.stateMessage {
         stateLine(message, state: draft.state)
       }

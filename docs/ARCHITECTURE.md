@@ -74,7 +74,8 @@ over full-screen apps (`MenuBarPopover`, only AppKit wiring). Every decision is
   (`PopoverHeightLimit`).
 - **Model glue:** `popoverVisibilityChanged` follows the panel (open and not occluded), so
   attachment checks run only while it shows; a key monitor hands the popover's shortcuts to
-  `AppModel.handle(_:)` first.
+  `AppModel.handle(_:)` first (one it does not use, such as ⌥↓ outside New session, goes on
+  to the focused view).
 
 The placement diagnostic `--report-popover-placement` opens it through the button's own action
 and checks the frame against the anchor and the menu bar.
@@ -122,6 +123,32 @@ records its directory (not an empty field) as that host's newest recent director
 the attach fails afterwards, in the background; a failed write is logged by kind only. The
 self-tests use an in-memory store; preview fixtures have none. Directories are user data: they
 never appear in logs, diagnostics or fixtures.
+
+**The picker.** New session's Directory field stays a text field, with a pull-down button at
+its end that opens a list drawn inside the popover panel, under the field (not a SwiftUI
+`Menu` or `NSMenu`: a menu runs its own tracking loop, so its keys would bypass the popover's
+key monitor and `AppModel.handle(_:)`, it cannot be opened from the text field by a key, and
+the preview galleries could not render it). `DirectoryPickerContent` is a pure value built
+from the lists, the host's listed sessions and the field: "Recent" (that host's), "Saved" (the
+shared list) and "Sessions on <host>" (the distinct start folders of its sessions, sorted, at
+most 10), each only when not empty, else "Nothing to pick yet"; then "Save this directory"
+(off for an empty, invalid or saved value, a full list or an unusable file) and "Clear recent
+directories on <host>". Its keys are `PopoverKey`s: ⌥↓ opens the list, ↑/↓ move inside it,
+Return picks the highlighted row (with none it creates, as in the field) and Esc closes the
+list before the panel; editing the field drops the highlight, so Return then creates. Rows
+are identified by section and UTF-8 bytes, as the store compares directories, so two
+spellings of one accented name are two rows. Picking only fills the field; the draft checks
+it like typed text before any request. Every load (at each New session opening) and change
+runs on one queue in `AppModel` (`AppModelDirectories.swift`); a refused change is shown in
+the list and logged by its code only.
+
+**Settings › Directories** edits the saved list on a working copy (add, checked inline;
+remove; move up and down) with Save and Revert, as the host editor does (D23); Save is one
+change through the same store (`mergeSaved`) that applies the tab's edits, under the store's
+lock, to the saved list as the file holds it then, so a directory saved from New session (or
+by another muxFinder) during an edit is kept, and recents are left alone. An unusable file
+shows its notice with "Try again" and offers no edit. A save there updates New session's
+list, and a change from New session's list updates the tab while it has no unsaved edits.
 
 ## Hiding the launch tab (D29)
 

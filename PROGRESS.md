@@ -38,26 +38,25 @@ file.
 | I-1a | Diagnose: `--report-popover-placement`, `PopoverPlacement` with tests, cause inferred (pre-fix frame unmeasured) | high | opus (impl + review-fix worker); orchestrator record edits | Codex, ship-with-fixes, `docs/reviews/phase-I-1a.md` | `docs/progress-archive/i-1a.md` |
 | I-1b | Own `NSStatusItem` + non-activating `NSPanel` placed by `PopoverPlacement` (D30), anchor and toggle rules, press identity, height limit | high | opus (impl + review-fix worker); orchestrator record edits | Codex, ship-with-fixes, `docs/reviews/phase-I-1b.md` | `docs/progress-archive/i-1b.md` |
 | I-2a | `directories.json` store (D31) with lock and refusal of unusable files, nonce-framed `path` probe record, recording on `onCreated`, in-memory store for self-tests | high | opus (impl + review-fix worker); real checks and records by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-2a.md` | `docs/progress-archive/i-2a.md` |
+| I-2b | Directory list in New session (in-popover, ⌥↓/↑/↓/Return/Esc), Settings › Directories with a merging Save, galleries, docs | routine | opus (impl + review-fix worker); self-test and one test-harness fix by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-2b.md` | `docs/progress-archive/i-2b.md` |
 
-Queued from the inbox (specification in `autoclaude/processed/`; position after Phase 14, in
+Queued from the inbox (specification in `autoclaude/processed/`; position after I-2, in
 this order):
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-2b | New session: the directory picker, keys, Settings "Directories", galleries, docs (routine; in `PLAN.md` "### Phase I-2") | `autoclaude/processed/20-new-session-directory-picker.md` | after I-2a |
 | I-3 | Global hotkey: session switcher (split I-3a shortcut and Settings; I-3b switcher panel; both routine) | `autoclaude/processed/30-global-hotkey-session-switcher.md` | after I-2b |
 
 ## Current phase
 
-Phases 1–14, I-1a, I-1b and I-2a are complete and reviewed. **Phase I-2a — Directory store,
-session folders in discovery, recording (high): complete** 2026-10-24
-(`docs/progress-archive/i-2a.md`; D31). **Next: I-2b** (the picker UI, routine; already in
-`PLAN.md` "### Phase I-2"), then I-3 — not yet in `PLAN.md` (add it when it is selected).
-I-3's optional `--report-hotkey-registration` flag still needs the orchestrator's call against
-the no-UI-scripting rule. Phase 13's settled design is **D29**; real facts in
-`PLAN.md` *Verified facts* "Phase 13a spike" and "Phase 13c real runs". Earlier splits: 6 into
-6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13
-into 13a/13b/13c.
+Phases 1–14, I-1 (a, b) and I-2 (a, b) are complete and reviewed. **Phase I-2b — Picker,
+keys, Settings "Directories", galleries and documents (routine): complete** 2026-10-24
+(`docs/progress-archive/i-2b.md`; D31 extended). **Next: I-3**, not yet in `PLAN.md` (add it
+when it is selected). I-3's optional `--report-hotkey-registration` flag still needs the
+orchestrator's call against the no-UI-scripting rule. Phase 13's settled design is **D29**;
+real facts in `PLAN.md` *Verified facts* "Phase 13a spike" and "Phase 13c real runs". Earlier
+splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into 11a/11b/11c, 12
+into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b, I-2 into I-2a/I-2b.
 
 ## Acceptance
 
@@ -75,30 +74,23 @@ into 13a/13b/13c.
   hermetic; 13c real runs all PASS: `e2e-local` 16/16, `e2e-remote saturno-m4` 17/17,
   `e2e-bury` 13/13 on both hosts, self-tests 8/8 and 7/7, `e2e-profile --local` 14/14) —
   `docs/progress-archive/13{a,b,c}.md`.
-- Phase 14: all criteria met, 2026-10-24 — opaque popover, bounded host sections, per-row
-  attach state (here / elsewhere / location unknown / detached / stale), badge >= 4.5:1
-  (`PopoverStyleTests`, light and dark, selected and not), `.unreachable` muted, footer 16 pt
-  vs 4 pt; screenshots regenerated and inspected; app shell check under an empty
-  `CFFIXED_USER_HOME` exit 0. Real popover by eye owed (`docs/MANUAL-CHECKLIST.md` item 15).
-  `docs/progress-archive/14.md`.
-- Phase I-1a: all criteria met, 2026-10-24 — placement tests (five specification cases, 9
-  tests), diagnostic exit 4 "not openable in process" on the current scene (SwiftUI's status
-  button has no action), private home empty, no process left; cause recorded as an inference
-  with the pre-fix popover frame unmeasured (PLAN.md *Verified facts* "Phase I-1a placement
-  diagnostic", `docs/TESTING.md` *Phase I-1a*) — `docs/progress-archive/i-1a.md`.
-- Phase I-1b: all criteria met, 2026-10-24 — controller and placement tests over fakes (220 UI
-  tests); after-fix `--report-popover-placement` exit 0 three times (locked twice: middle on
-  the button's, top on the menu bar's bottom, offsets 0; the final tree unlocked with screen 1
-  main: button at its right edge, panel clamped 8 pt inside, top on the menu bar's bottom);
-  `--report-menu-bar-item` exit 0, no child, no `hosts.json`; bundle and `codesign` exit 0.
-  Keys, focus and real clicks owed to a person (`docs/MANUAL-CHECKLIST.md` item 16) —
-  `docs/progress-archive/i-1b.md`.
+- Phases 14, I-1a, I-1b: all criteria met, 2026-10-24. 14: the popover's look, with screenshots
+  inspected and the real popover owed (checklist 15). I-1a: the placement diagnostic exits 4
+  "not openable in process" on the old scene; the cause is inferred. I-1b: after the fix,
+  `--report-popover-placement` exit 0 three times; keys and real clicks owed (checklist 16).
+  Evidence in `docs/progress-archive/{14,i-1a,i-1b}.md`.
 - Phase I-2a: all criteria met, 2026-10-24 — store, recording and parser-record tests (793
   core + 229 UI tests); real `discover --local` and `discover --ssh saturno-m4` (a
   `muxfinder-test-*` session made for it, killed after) parsed every folder, none dropped
   (counts only in `docs/TESTING.md`); `--selftest new-session-local` 7/7 twice with no
   `directories.json` created; bundle and `codesign` exit 0; no UI change —
   `docs/progress-archive/i-2a.md`.
+- Phase I-2b: all criteria met, 2026-10-24. Picker, picking, key and Settings tests pass (795
+  core + 263 UI tests; 34 new UI, 2 new core; no existing test changed). Attach and Settings
+  galleries regenerated light and dark and inspected. Install-script check 35/35 after the
+  step 26 harness fix. `--selftest new-session-local` 7/7 with no `directories.json` created.
+  Bundle and `codesign` exit 0. The real keys and creating from each source are owed
+  (checklist 17) — `docs/progress-archive/i-2b.md`.
 
 ## Decisions
 
@@ -149,6 +141,11 @@ into 13a/13b/13c.
   recording on `onCreated` only; the self-tests' in-memory store). The lock and backup helpers
   moved into `PrivateStorage`, shared with `hosts.json` and `profiles.lock` —
   `docs/progress-archive/i-2a.md`.
+- Phase I-2b: **D31** extended. The list is drawn inside the popover, not a `Menu`/`NSMenu`,
+  so its keys go through `PopoverKey.openList` and `AppModel.handle(_:)` and the galleries can
+  render it. Settings' Save is a three-way `mergeSaved` run by the store under its lock, and
+  list rows compare byte for byte. `--preview-snapshot` fits the window to its content first.
+  Step 26 of the install-script check matches the readers' pids — `docs/progress-archive/i-2b.md`.
 
 ## Open risks / deviations
 
@@ -193,6 +190,12 @@ into 13a/13b/13c.
   changed after the store's first look meets only the write-time checks; the uninstall
   dry-run text does not name `directories.json` (it removes the whole folder) —
   `docs/progress-archive/i-2a.md`.
+- I-2b: the list highlight drops on a field edit, not on a click back into the field.
+  `NewSessionDraft.directory`'s observer still compares with `String ==`. Real keys in the
+  non-activating panel and creating from each source are unverified (checklist 17). The full
+  `swift test` fails in private-tmux-server suites under extreme machine load (~500, another
+  project's simulator run). Install-script step 35 can fail while the user's installed app
+  writes its `launch/` folder — `docs/progress-archive/i-2b.md`.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -223,39 +226,36 @@ into 13a/13b/13c.
   (13a 1 should-fix, 13b 1 blocker + 2 should-fix, 13c 2 should-fix); all fixed by review-fix
   workers with regressions failing on the old code, re-verified (13c with real reruns) —
   `docs/reviews/phase-13{a,b,c}.md`, summaries in `docs/progress-archive/13{a,b,c}.md`.
-- Phase 14: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
-  blockers, 1 should-fix: a failed iTerm2 attachment check made every live row with clients
-  read "attached elsewhere". Fixed by a review-fix worker (new "attached, location unknown"
-  state; regression fails with the old mapping); re-verified by the orchestrator —
-  `docs/reviews/phase-14.md`.
-- Phase I-1a: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 1
-  blocker (the only opening mechanism is a no-op: resolved by the reviewer's "if unavailable,
-  defer" branch — exit 4 without clicking, records say the before-frame is unmeasured, I-1b
-  must measure) + 2 should-fix (replica windows as the popover; blocked stdout), fixed by a
-  review-fix worker with regressions failing on the old code — `docs/reviews/phase-I-1a.md`.
-- Phase I-1b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
-  blockers, 2 should-fix (distinct clicks taken for one press; a clamped panel clipping
-  unreachable content), fixed by a review-fix worker (hardware press count;
-  `PopoverHeightLimit`) with regressions failing on the old code, re-verified by the
-  orchestrator — `docs/reviews/phase-I-1b.md`.
+- Phases 14, I-1a, I-1b: Codex wrote each file (`autoclaude-review.sh`), all
+  `ship-with-fixes`. 14: 1 should-fix ("attached, location unknown"). I-1a: 1 blocker
+  (resolved by deferring the before-frame) + 2 should-fix. I-1b: 2 should-fix (hardware press
+  count; `PopoverHeightLimit`). Review-fix workers fixed all of them, with regressions that
+  fail on the old code — `docs/reviews/phase-{14,I-1a,I-1b}.md`.
 - Phase I-2a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
   blockers, 3 should-fix (recording replaced an unusable file; concurrent writers lost
   updates; path records could overflow the 1 MiB discovery cap), fixed by a review-fix worker
   (refusal, `directories.lock`, producer bound and cap) with regressions failing on the old
   code, re-verified by the orchestrator with real reruns — `docs/reviews/phase-I-2a.md`.
+- Phase I-2b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
+  blocker (Settings Save overwrote picker additions made meanwhile) + 2 should-fix (Return on
+  a stale highlight after a field edit; Unicode spellings collapsed in list identity). A
+  review-fix worker fixed all three (`mergeSaved` under the store's lock; the highlight
+  dropped on edit; byte identity), each with regressions failing with the fix reverted;
+  re-verified by the orchestrator — `docs/reviews/phase-I-2b.md`.
 
 ## Next action
 
-1. **Start I-2b** (routine; scope and acceptance in `PLAN.md` "### Phase I-2", the I-2b
-   bullet; binding specification `autoclaude/processed/20-new-session-directory-picker.md`
-   Design 4–6, 8, 9): poll the inbox first, mark I-2b `in_progress`, spawn one worker. It builds
-   on I-2a's `DirectoryStore` (`Sources/MuxFinderCore/Config/`; mutations throw
-   `fileNotUsable` on an unusable file, so the UI must show the store's notice rather than
-   offer edits that cannot land) and the sessions' `startDirectory`; extend **D31** with the
-   picker, keys and the Settings section; the preview galleries use synthetic data and no store
-   file; the hermetic install-script check (`scripts/dev/test-install-scripts.sh`, about 60 s)
-   is part of its acceptance; no real iTerm2 run is needed unless the self-test path changes
-   again. Then I-3 (global hotkey session switcher, I-3a / I-3b; add it to `PLAN.md` first).
+1. **Start I-3** (global hotkey: session switcher; binding specification
+   `autoclaude/processed/30-global-hotkey-session-switcher.md`). Poll the inbox first. Then add
+   "### Phase I-3" to `PLAN.md` after "### Phase I-2", with the split already in
+   `PROGRESS.json`: I-3a is the shortcut, its storage, the Carbon registrar and the Settings
+   recorder; I-3b is the switcher panel; both routine. Before the first worker, decide whether
+   the optional `--report-hotkey-registration` flag is allowed. It may only register and report
+   in process, with no synthesized key events (the no-UI-scripting rule); record the call in
+   `PLAN.md`. Then mark I-3a `in_progress` and spawn one worker. The I-2b patterns carry over:
+   keys through `PopoverKey`/`AppModel.handle(_:)`, Settings Save/Revert (D23), injected
+   stores for self-tests and previews, galleries through `--preview-snapshot`, and the
+   install-script check (about 60 s).
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -266,7 +266,7 @@ into 13a/13b/13c.
    runs only at **38 threads or lower**, and leftover checks after each (launch directory,
    `DynamicProfiles/`, `/private/tmp` `mfx.*`, `muxfinder-test-*` sessions on Neptuno and
    Saturno; since 13a also no run session left in tabs or `buried_sessions` of
-   `iterm2 list-sessions`). iTerm2 was at 17 threads after 13c's last run (2026-10-24 ~13:40).
+   `iterm2 list-sessions`). iTerm2 was at 19 threads after I-2b's self-test (2026-10-24 ~18:45).
 
 ## Key paths
 
@@ -283,7 +283,10 @@ into 13a/13b/13c.
   DirectoryStore}.swift`, path record in `Tmux/{ProbeScript,ProbeReport}.swift`, recording in
   `Sources/MuxFinderUI/Model/AppModelSessions.swift`; tests
   `Tests/MuxFinderCoreTests/{DirectoryStore,ProbeSessionPath}Tests.swift`,
-  `Tests/MuxFinderUITests/DirectoryRecordingTests.swift`.
+  `Tests/MuxFinderUITests/DirectoryRecordingTests.swift`. Picker and Settings tab (I-2b):
+  `Sources/MuxFinderUI/Model/{DirectoryPicker,AppModelDirectories,SettingsModelDirectories}.swift`,
+  `Views/{DirectoryPickerViews,Settings/DirectoriesSettingsView}.swift`; tests
+  `Tests/MuxFinderUITests/{DirectoryPicker,SettingsDirectories}Tests.swift`.
 - Session creation: `Sources/MuxFinderCore/Tmux/TmuxCommands.swift`, `Tmux/CreatedSession.swift`
   (D18); `createAndAttach` in `Attach/AttachCoordinator.swift`; probe
   `Sources/muxfinder-probe/NewSessionCommand.swift`.
@@ -360,14 +363,14 @@ into 13a/13b/13c.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-2a (final tree, orchestrator, 2026-10-24): `swift build` exit 0, no warnings;
-  `swift test` 793 core tests in 79 suites + 229 UI tests in 22 suites passed; `swift format
+- Phase I-2b (final tree, orchestrator, 2026-10-24): `swift build` exit 0, no warnings;
+  `swift test` 795 core tests in 79 suites + 263 UI tests in 25 suites passed; `swift format
   lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep
-  --strict build/muxFinder.app` exit 0; real `discover --local` (1/1 with a folder, 0
-  dropped) and `discover --ssh saturno-m4` (test session, 1/1, 0 dropped; killed, no server
-  left); `--selftest new-session-local` 7/7 (iTerm2 17 → 20 threads), no `directories.json`,
-  no `muxfinder-test-*` session left — `docs/progress-archive/i-2a.md`.
-- Phases 1–I-1b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+  --strict build/muxFinder.app` exit 0; `scripts/dev/test-install-scripts.sh` 35/35 exit 0
+  (step 26 still fails with the uninstall identity check removed); `--selftest
+  new-session-local` 7/7 (iTerm2 17 → 19 threads), no `directories.json`, no
+  `muxfinder-test-*` session, empty `launch/` — `docs/progress-archive/i-2b.md`.
+- Phases 1–I-2a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -390,6 +393,7 @@ into 13a/13b/13c.
 - Phase 14: `6750a1b`, pushed.
 - Phase I-1a: `72e635a`, pushed.
 - Phase I-1b: `adf79ec`, pushed (`origin/main` at `adf79ec` before Phase I-2a).
-- Phase I-2a: the commit after `adf79ec` (D31, store, path record, recording, tests, records,
-  review, archive and checkpoint); its SHA and push result are in the run's final status
-  line.
+- Phase I-2a: `3feab0e`, pushed (`origin/main` at `3feab0e` before Phase I-2b).
+- Phase I-2b: the commit after `3feab0e` (picker, Settings tab, review fixes, harness fix,
+  galleries, docs, review, archive and checkpoint); its SHA and push result are in the run's
+  final status line.

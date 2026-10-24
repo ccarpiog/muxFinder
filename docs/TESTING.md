@@ -44,7 +44,7 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-2a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-2b* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
 Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
 
@@ -52,6 +52,7 @@ Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 1
 |---|---|---|
 | An attach (Open, New session, Move here) shows only the session's windows: the launch tab is buried once its first tmux tab is active, leaves by itself after every detach, and comes back after a failure. | Tested for real, locally and on Saturno, with iTerm2's "Automatically bury the tmux client session after connecting" off (its default); with it on, only by the Phase 13a spike. Through the real popover, with that setting on and off, where the focus goes after a detach, and Return after an abnormal end: owed to a person (checklist 14). | Phase 13c, 2026-10-24 (*Phase 13c* below): `e2e-local` 16 of 16 and `e2e-remote saturno-m4` 17 of 17 PASS, every confirmed attach (attach, reattach, concurrent attaches, new session, move here) `burial` `buried` with the tab in `buried_sessions` and in no tab, and after every detach the tab gone by itself, no restore or `Close` of the coordinator's recorded. `e2e-bury --local` and `--ssh saturno-m4` 13 of 13 PASS each: detaches within 10 s and after 10 s; the bury released together with a detach, sent and answered `OK` (`restoredAfterEnd` locally, `buried` on Saturno), the tab gone by itself; a dead buried tab removed by the coordinator's recovery; the attach child killed: the helper's result `childSignaled(9)`, the tab back with an answered status report and in a tab, its helper alive, past the helper's minimum lifetime, and the session alive. Both self-tests PASS with "launch tab buried" and "launch tab left". Hermetic: `LaunchTabBurialTests`, `ShowLaunchTabTests`, `LaunchTabRestoreTests`, `RecordingITerm2IntegrationTests`, `LaunchTabChecksTests`, `SelfTestDriverTests`. |
 | The popover reads at a glance: an opaque background, a bounded section per host, each row's attach state at a glance, a readable "Open in iTerm2 here" badge, an unreachable host muted rather than red, even footer spacing. | Tested hermetically and in the preview renders (both appearances). The real popover in muxFinder's panel, by a person (checklist 15). | Phase 14, 2026-10-24 (*Phase 14* below): `PopoverStyleTests` (the badge at least 4.5:1 against what is behind it, light and dark, unselected, selected and hovered rows; a neutral selection; opaque fills; no red host status, a hollow dot only for the muted tone; distinct indicators; the footer's spacing); `PopoverContentTests` (every status's tone, `.unreachable` alone muted, the row-state mapping, the fixtures covering a selected row with the badge and an unreachable host next to an attention one). `docs/screenshots/popover-states-*.png` and `attach-states-*.png` regenerated and inspected. |
+| New session: the Directory field offers, per host, its recent directories, the shared saved ones and its sessions' start folders; picking fills the field; "Save this directory", "Clear recent directories on <host>"; the keys (⌥↓, ↑/↓, Return, Esc); Settings › Directories edits the saved list (PLAN.md Phase I-2, D31). | Tested hermetically and in the preview renders (both appearances); the store and the start folders by I-2a. Creating from a recent, a saved and a session folder on This Mac and Saturno, the keys and the Settings tab in the real app: by a person (checklist 17). | Phase I-2b, 2026-10-24 (*Phase I-2b* below): `DirectoryPickerTests` (content, rules, picking, keys, store changes and failures) and `SettingsDirectoriesTests` (add, remove, reorder, Save, Revert, unusable file); `docs/screenshots/attach-states-*.png` and `settings-states-*.png` regenerated and inspected. |
 | Clicking the menu bar icon opens the popover directly below it (its middle on the icon's, its top at the menu bar's bottom, clamped inside the display), on the display clicked; the toggle, Esc, a click outside and an app switch closing it, the keys, the search field's focus, Spaces and full-screen apps as before (PLAN.md Phase I-1, D30). | Tested for real through the button's own action (`performClick(_:)` in process) on the main display; the controller's rules hermetically. A click on each display's icon, after a ⌘-drag, the closing paths, the keys and a full-screen Space: by a person (checklist 16). | Phase I-1b, 2026-10-24 (*Phase I-1b* below): `--report-popover-placement` exit 0, twice: the panel at {{1250, 1530}, {360, 168}}, its middle x 1430 on the button's 1430 and its top 1698 on the menu bar's bottom 1698 (offsets 0 and 0; the next tree's run the same 1 pt further right), with the screen locked;
 then once after the review fixes, unlocked, with screen 1 main: the button at screen 1's right
 edge and the panel clamped 8 pt inside it, top on the menu bar's bottom, "after-fix check:
@@ -661,11 +662,15 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   exact bytes (`~/x` and `/Users/…/x`, composed and decomposed accents stay distinct); round
   trip, schema shape, 0700 and 0600 without ACL under an inheritable ACL; recents newest
   first, moved to the front, capped, per host, cleared; add, existing add (no write), remove,
-  move, replace and the cap; refused changes writing nothing; a change that changes nothing
-  writing nothing; removed hosts pruned at the next write; what another program wrote kept;
+  move, replace and the cap; Settings' merge (`mergeSaved`: the edits' removals, order and
+  additions hold, what was removed since the base stays removed and what was added since
+  follows, by bytes, the cap and the rules refusing it with the recents unchanged); lists
+  equal only byte for byte (saved, recent, as set members); refused changes writing nothing;
+  a change that changes nothing writing nothing; removed hosts pruned at the next write; what
+  another program wrote kept;
   a file with entries left out kept as `directories.backup-<stamp>.json` (once); six
   unusable files (unsafe permissions on valid lists, schema 2, not JSON, malformed, an ACL, a
-  link) refusing all nine kinds of change with `fileNotUsable(problem)`, the file's bytes,
+  link) refusing all ten kinds of change with `fileNotUsable(problem)`, the file's bytes,
   mode, inode and modification time and the folder (its 0750 mode, no backup, temporary or
   lock file) unchanged; a link or a folder at the name refused (`fileNotUsable`), and one that
   takes the name after the read refused by the write (`existingFileNotRegular`); a file put at
@@ -987,6 +992,51 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   prunes nothing; the app's environment uses the real `directories.json`, the self-tests an
   in-memory store (and `new-session-local` passes with it empty), the placement diagnostic
   and every preview fixture none.
+- **New session's directory list** (`Tests/MuxFinderUITests/DirectoryPickerTests.swift`,
+  PLAN.md D31). The content as a pure value: per host, "Recent" (that host's), "Saved" (the
+  shared list) and "Sessions on <host>" in that order; session folders distinct by exact
+  string (two spellings of an accented name stay two), sorted as Finder sorts names, at most
+  10, a folder that breaks the entry rules or is missing skipped; empty sections hidden;
+  nothing to pick (still "Save this directory" for a typed value); "Save this directory" off
+  for an empty field, a line break, a value saved already (byte for byte), a full list, an
+  unusable file, an unreadable folder or no store; "Clear recent directories on <host>" only
+  with recents and a usable store; the keyboard's items and moves. Over fixtures and the
+  attach harness: picking fills the field, which the draft checks and carries unchanged into
+  the request, and closes the list (a row not listed, or a busy sheet, picks nothing; a pick
+  after a collision returns to editing); a host change keeps the field and updates the list;
+  ⌥↓ opens on the first row, ↑/↓ move and stop at the ends without moving the session
+  selection, Return picks, Esc closes the list and then the panel, ⌘F, ⌘N, ⌘R and ⌘, as
+  before; ⌥↓ in the host list and in Move here is `ignored` (left to the focused view); the
+  key mapping (⌥↓ only, with the arrows' own flags); Return with the list open and nothing
+  highlighted, or closed, creates; editing the field drops the highlight, so Return then
+  creates from the field, and a row highlighted with ↓ after the edit is what Return picks;
+  two spellings of one accented name (composed and decomposed) are two rows that hash apart,
+  the keys pass from one to the other and on to the next entry and Return fills the field
+  with that row's bytes, and lists that differ only in a spelling reach the view (the model
+  notifies). Through an in-memory store: the lists load when New
+  session opens, "Save this directory" and "Clear recent directories" change only what they
+  name (hosts no longer listed pruned); a failing store's refusal shows in the list and is
+  logged as `directory list: addSaved not done: <code>` with no directory; a real store over
+  an unusable file (mode 0644, private folder) shows its notice, offers neither action and
+  leaves the file's bytes and mode; a Settings save reaches the list and a save from the list
+  reaches Settings. The gallery fixtures cover the open list, nothing to pick, a saved value
+  and an unusable file, with synthetic paths.
+- **Settings' Directories tab** (`Tests/MuxFinderUITests/SettingsDirectoriesTests.swift`,
+  PLAN.md D31, D23): the window's opening loads the saved list; "Add" is checked inline (a
+  line break, a duplicate by exact string, the 50-entry cap) and appends the value as typed;
+  move up and down never past an end, remove, all on the working copy only (the store
+  unchanged); Save writes the edits in one change with the recents untouched, says
+  "Saved.", tells the app and logs the count only; Revert brings back the list as saved;
+  Save merges (`mergeSaved`): with an entry removed in the tab and not saved, a "Save this
+  directory", a clear and a recording from New session are kept (the store, the tab and New
+  session's list then show the merged list and the new recent), and over two real stores on
+  one private file another muxFinder's addition stays and its removal stays removed; a
+  failing store keeps the edits, says why and logs the code only; a real store over an
+  unusable file shows its notice with "Try again", offers no edit and leaves the file as it is,
+  and loads it once fixed; a file with an entry left out is editable, its notice counts the
+  entry, and the save keeps it as a backup; changes from New session follow while there are
+  no unsaved edits; the app gives the tab and New session's list one store instance; the
+  fixtures load and save nothing.
 - **Self-test drivers** (`Tests/MuxFinderUITests/SelfTestDriverTests.swift`, PLAN.md D25).
   `SelfTestDriver` over the real model, engine and coordinator with `SimulatedITerm2`, a
   `SimulatedTmux` (sessions in memory: the driver's tmux, discovery and New session's creator)
@@ -2504,3 +2554,24 @@ on a private tmux 3.8 server, `discoversAReportAtTheParsersLimits`,
 | Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
 | Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
 | Uninstall | `scripts/uninstall.sh` read (not run) | it removes the whole support folder, so `directories.lock` goes with it; no change |
+
+### Phase I-2b — New session's directory list and Settings › Directories (2026-10-24)
+
+New session's Directory field gained its list (Recent, Saved, "Sessions on <host>", "Save this
+directory", "Clear recent directories on <host>") drawn inside the popover, its keys, and
+Settings gained the Directories tab (PLAN.md D31). The only real run was `--selftest
+new-session-local` (its create path is unchanged, but opening its panel now also reads its
+in-memory store); no `e2e-*` run was made. The real `hosts.json` and `directories.json` were
+neither read nor written; the galleries use synthetic paths only. Figures are for the final tree,
+after the review's fixes (Settings Save merged onto the list as it is, the highlight dropped on
+a field edit, byte identity for list rows).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` | exit 0: 795 core tests in 79 suites (2 new in `DirectoryStoreTests`: byte-for-byte equality, the Save merge) and 263 UI tests in 25 suites (34 new in 3 suites: `DirectoryPickerContentTests`, `DirectoryPickerModelTests`, `SettingsDirectoriesTests`). No existing test changed. An earlier full run, while another project's simulator run held the load average near 500, failed only in the private-tmux-server suites (timing); with the load back near 25 every test passed |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery attach\|settings --appearance light\|dark --preview-snapshot <png>`, each image looked at | `attach-states-*.png` 3136 × 5374 px (the four New session list states: three sections with a highlighted recent row and a path shortened in the middle, nothing to pick, saved already, an unusable file), `settings-states-*.png` 4528 × 8740 px (Directories with unsaved changes and an inline issue, and with an unusable file); readable in both appearances. `--preview-snapshot` now sizes the window to the content's natural size first: on this display the taller attach gallery had been shrunk to the screen's height, squeezing its host lists |
+| Install scripts | `scripts/dev/test-install-scripts.sh` (after `scripts/build-app.sh`) | exit 0, 35 of 35 PASS. Before that, step 26 ("uninstall: never signalled, and no muxFinder warning for a reader of another copy") failed on every run only because its `log_lacks "also running from"` also matched the warning about the user's own muxFinder running from `/Applications`; the step now checks that no warning names either reader's pid (the warning prints `(pid N)`). With the uninstall script's executable-identity check removed for a moment, step 26 failed again (1 of 35), so the step still catches what it guards. Step 35 (the real folders untouched) can still fail when the user's installed app writes its own `launch/` folder during the run |
+| Self-test | `build/muxFinder.app/Contents/MacOS/muxFinder --selftest new-session-local` (`TMUX_TMPDIR` unset; gate: `iterm2 status` connected, iTerm2 17 threads) | exit 0, 7 of 7 PASS; iTerm2 17 → 19 threads; afterwards no `muxfinder-test-*` session, an empty `launch/` folder and no `directories.json` |

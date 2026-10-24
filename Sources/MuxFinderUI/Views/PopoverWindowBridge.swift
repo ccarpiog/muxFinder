@@ -91,6 +91,8 @@ final class PopoverWindowTrackingView: NSView {
     case .closePopover:
       window.close()
       return true
+    case .ignored:
+      return false
     }
   } // End of func handle(_:)
 }

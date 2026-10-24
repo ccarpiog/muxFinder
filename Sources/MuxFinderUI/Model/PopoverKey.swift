@@ -1,11 +1,12 @@
 import AppKit
 
-/// The popover's keyboard commands (PLAN.md Phase 8): ↑/↓ move, Return opens, ⌘F search,
-/// ⌘R refresh, ⌘N new session, ⌘, settings, Esc closes.
+/// The popover's keyboard commands (PLAN.md Phase 8, D31): ↑/↓ move, Return opens, ⌘F search,
+/// ⌘R refresh, ⌘N new session, ⌘, settings, Esc closes, and ⌥↓ opens New session's directory
+/// list.
 public enum PopoverKey: Sendable, Hashable, CaseIterable {
-  /// ↑: the previous session row.
+  /// ↑: the previous session row (or, in New session's open directory list, the previous row).
   case up
-  /// ↓: the next session row.
+  /// ↓: the next session row (or, in New session's open directory list, the next row).
   case down
   /// Return (or the keypad's Enter): open the selected session.
   case open
@@ -19,6 +20,9 @@ public enum PopoverKey: Sendable, Hashable, CaseIterable {
   case newSession
   /// ⌘,: settings.
   case settings
+  /// ⌥↓: open New session's directory list (PLAN.md D31); elsewhere the key goes on to the
+  /// focused view, as before.
+  case openList
 
   /// The virtual key codes used (Carbon's `kVK_…` values).
   enum KeyCode {
@@ -36,7 +40,8 @@ public enum PopoverKey: Sendable, Hashable, CaseIterable {
 
   /// The command for a key press, or `nil` when the popover leaves it to the focused view.
   /// Arrows, Return and Esc count only without modifiers (the arrows' own `numericPad` and
-  /// `function` flags aside); the letters and the comma only with ⌘ alone.
+  /// `function` flags aside), ↓ also with ⌥ alone (`openList`); the letters and the comma only
+  /// with ⌘ alone.
   public init?(
     keyCode: UInt16,
     modifierFlags: NSEvent.ModifierFlags,
@@ -51,6 +56,11 @@ public enum PopoverKey: Sendable, Hashable, CaseIterable {
       case ",": self = .settings
       default: return nil
       }
+      return
+    }
+    if modifiers == .option {
+      guard keyCode == KeyCode.downArrow else { return nil }
+      self = .openList
       return
     }
     guard modifiers.isEmpty else { return nil }
@@ -70,4 +80,6 @@ public enum PopoverKeyResult: Sendable, Hashable {
   case handled
   /// The popover should close (Esc).
   case closePopover
+  /// The model did not use the key (⌥↓ outside New session); it goes on to the focused view.
+  case ignored
 }
