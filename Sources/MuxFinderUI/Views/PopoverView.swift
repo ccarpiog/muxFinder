@@ -1,13 +1,15 @@
 import MuxFinderCore
 import SwiftUI
 
-/// The menu bar popover (PLAN.md Phase 8, D22): a search field, notices, the hosts with their
-/// sessions (or a placeholder), and the footer, on its own opaque window background, so the
-/// real popover (over the menu bar extra's material) and the preview galleries look the same.
+/// The menu bar popover (PLAN.md Phase 8, D22, D30): a search field, notices, the hosts with
+/// their sessions (or a placeholder), and the footer, on its own opaque window background, so
+/// the real popover (in muxFinder's panel, `MenuBarPopover`) and the preview galleries look the
+/// same.
 ///
-/// With `isLive` the view also tracks its window, so the model learns when the popover opens
-/// and closes, and handles the popover's keys (`PopoverWindowBridge`). The preview window and
-/// SwiftUI previews pass `false`: a fixture never tells an engine anything.
+/// With `isLive` the view also tracks its window for the popover's keys
+/// (`PopoverWindowBridge`); the panel's controller tells the model when the popover opens and
+/// closes. The preview window and SwiftUI previews pass `false`: a fixture never tells an
+/// engine anything.
 public struct PopoverView: View {
   /// The popover's width, in points.
   public static let width: CGFloat = 360
@@ -25,7 +27,7 @@ public struct PopoverView: View {
   /// Light or dark, for the palette.
   @Environment(\.colorScheme) private var colorScheme
 
-  /// A popover for `model`; `isLive` only in the menu bar extra.
+  /// A popover for `model`; `isLive` only in muxFinder's popover panel.
   public init(model: AppModel, isLive: Bool) {
     self.model = model
     self.isLive = isLive
@@ -98,9 +100,12 @@ public struct PopoverView: View {
   } // End of var searchField
 
   /// The host groups, one bounded box each, scrolling once taller than `maximumListHeight`,
-  /// keeping the keyboard selection in view.
+  /// keeping the keyboard selection in view. At its natural height when offered no height or
+  /// enough; offered less (the panel's height limit, PLAN.md D30), it is the part that shrinks,
+  /// down to nothing, and scrolls, so the search field, notices and footer keep their heights.
   private func hostList(_ sections: [HostSection]) -> some View {
-    ScrollViewReader { proxy in
+    let height = min(max(listHeight, 1), Self.maximumListHeight)
+    return ScrollViewReader { proxy in
       ScrollView {
         VStack(alignment: .leading, spacing: 10) {
           ForEach(sections) { section in
@@ -115,11 +120,12 @@ public struct PopoverView: View {
           listHeight = height
         }
       } // End of ScrollView
-      .frame(height: min(max(listHeight, 1), Self.maximumListHeight))
+      .frame(minHeight: 0, idealHeight: height, maxHeight: height)
       .onChange(of: model.selection) { _, key in
         guard let key else { return }
         withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(key) }
       }
     } // End of ScrollViewReader
+    .layoutPriority(-1)
   } // End of func hostList(_:)
 }

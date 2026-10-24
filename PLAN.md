@@ -36,11 +36,13 @@ Sources/
     Diagnostics/              operation log (ring buffer + os.Logger), no terminal content
   muxfinder-launch/           helper executable that iTerm2 runs inside the launch tab
   muxfinder-probe/            developer/diagnostic CLI that drives the core without the GUI
-  MuxFinderUI/                library: AppModel, popover content and views, the Settings
-                              window (SettingsModel, views, window controller), the
-                              onboarding window (OnboardingModel, view, window controller),
-                              preview fixtures (D22, D23, D24); tests import it
-  MuxFinderApp/               SwiftUI menu bar app (MenuBarExtra .window style): entry
+  MuxFinderUI/                library: AppModel, popover content and views, the menu bar
+                              item and popover panel (MenuBarPopover, PopoverController,
+                              D30), the Settings window (SettingsModel, views, window
+                              controller), the onboarding window (OnboardingModel, view,
+                              window controller), preview fixtures (D22, D23, D24); tests
+                              import it
+  MuxFinderApp/               SwiftUI app shell (main menu, an empty Settings scene): entry
                               point, scene and app delegates only
 Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, never the
                               user's tmux server (one test uses real tmux on a private
@@ -1021,9 +1023,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Sources/MuxFinderApp/`).
   - **Layers:** the `MuxFinderUI` library holds the model, the popover's content and views,
     and the preview fixtures; `Tests/MuxFinderUITests/` imports it. The `MuxFinderApp`
-    executable keeps only the entry point, the `MenuBarExtra(.window)` scene (muxFinder's
-    template icon, D28; the SF Symbol `terminal` when unbundled) and the app delegates (the menu bar app's, the preview window's and the
-    self-tests', D25). `PopoverContent` is a pure value computed from the
+    executable keeps only the entry point, the SwiftUI app (for its standard main menu; its one
+    scene is an empty `Settings` nothing opens) and the app delegates (the menu bar app's, the
+    preview window's and the self-tests', D25); the menu bar item and the popover panel are
+    `MenuBarPopover` in `MuxFinderUI` (D30; muxFinder's template icon, D28; the SF Symbol
+    `terminal` when unbundled). `PopoverContent` is a pure value computed from the
     engine's `RefreshState`, the search text, per-session activities, the selection and
     `now`; every displayed rule lives there and is tested without SwiftUI.
   - **Model and engine:** `AppModel` (`@Observable @MainActor`) runs on an `AppEnvironment`
@@ -1057,10 +1061,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     state set by D25's attach state machine; `SessionActivity.init(_:movingHere:)` maps
     `AttachState`.
   - **Look** (`Views/PopoverStyle.swift`): the popover paints its own opaque background, the
-    gray `windowBackgroundColor` draws in a window (0.925 light, 0.196 dark), so no vibrancy
-    or blur from the menu bar extra's material reaches the content and the real popover looks
-    like the preview galleries; the `MenuBarExtra(.window)` still sizes to the view (360 pt
-    wide, the host list up to 440 pt before it scrolls) and closes as before. Every fill is
+    gray `windowBackgroundColor` draws in a window (0.925 light, 0.196 dark), so nothing
+    behind the transparent panel shows through and the real popover looks like the preview
+    galleries; the panel (D30) sizes to the view (360 pt wide, the host list up to 440 pt
+    before it scrolls, and shorter when the display has less room below the menu bar), clips
+    it to rounded corners and has no arrow. Every fill is
     opaque and fixed per color scheme (`PopoverPalette`). Each host is a bounded box, flat
     like a grouped form: a hairline border, a header band (name, "Last checked …", status),
     then its problem line, empty state and session rows, the rows separated by hairlines.
@@ -1096,13 +1101,16 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     running. Tested
     through the real `ITerm2APIClient` with counting and gated cookie providers, a fake
     running check and fake connectors.
-  - **Popover visibility and keys:** `PopoverWindowBridge` follows the menu bar extra's
-    window: open while it is visible and not occluded, rechecked on becoming or resigning key,
-    occlusion changes and closing (repeats ignored). A local key-down monitor for that window
-    turns ↑/↓, Return, Esc, ⌘F, ⌘R, ⌘N and ⌘, (`PopoverKey`) into `AppModel.handle(_:)`
-    before the search field sees them (not while an input method composes); Esc closes the
-    window. The arrows move through the listed rows only. No unattended run can open the real
-    popover (no UI scripting), so this glue is checked by the model's tests and by hand only.
+  - **Popover visibility and keys:** `PopoverController` (D30) tells the model the popover is
+    visible while its panel is open and not fully occluded, on changes only (opening, closing,
+    occlusion). A local key-down monitor of `PopoverWindowBridge` for the panel turns ↑/↓,
+    Return, Esc, ⌘F, ⌘R, ⌘N and ⌘, (`PopoverKey`) into `AppModel.handle(_:)` before the search
+    field sees them (not while an input method composes); Esc closes the panel through the
+    controller. The arrows move through the listed rows only. The search field is asked for
+    the focus each time the popover opens. The controller's rules are tested over fakes
+    (`PopoverControllerTests`); the panel itself opens unattended only through the placement
+    diagnostic's `performClick(_:)`, and the keys and clicks on the real icon are checked by
+    hand (`docs/MANUAL-CHECKLIST.md`).
   - **Actions:** a click or Return opens a session, the row's context menu offers "Move
     here…" and "Detach from this Mac", and "New session" and ⌘N show the New session sheet,
     all through D25's attach state machine. "Settings" and ⌘, open the Settings window (D23).
@@ -1133,8 +1141,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     cannot drain the main queue while one of its blocks runs, and the shutdown task needs it.
     Quitting detaches nothing, kills no session and closes no tab; an attach still in progress
     is cancelled (it withdraws its request, D15).
-  - **Preview fixtures:** `--preview-fixtures` runs a plain `NSApplication` (no SwiftUI scene,
-    so no status item, and nothing recorded for one; no engine, host list or iTerm2) with one
+  - **Preview fixtures:** `--preview-fixtures` runs a plain `NSApplication` (no SwiftUI app
+    and no `MenuBarPopover`, so no status item, and nothing recorded for one; no engine, host
+    list or iTerm2) with one
     normal window of every state in `PreviewFixtures.all` (with `--preview-gallery settings`,
     `SettingsFixtures.all` instead, D23; with `--preview-gallery onboarding`,
     `OnboardingFixtures.all`, D24; with `--preview-gallery attach`, `AttachFixtures.all`,
@@ -1918,7 +1927,7 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     run as root.
 - **D28 — App icon, menu bar icon and release signing** (decided 2026-10-23, after Phase 12;
   sources in `scripts/dev/icon/`, generated files in `Resources/`, code in
-  `Sources/MuxFinderUI/Views/MenuBarIconLabel.swift`, `scripts/build-app.sh`,
+  `Sources/MuxFinderUI/Views/MenuBarIcon.swift`, `scripts/build-app.sh`,
   `scripts/release.sh`; test `Tests/MuxFinderUITests/MenuBarIconTests.swift`).
   - **The mark** (decided: "split window", chosen by the user from three directions on one
     contact sheet): a rounded window frame split into three panes the way tmux splits them,
@@ -1938,9 +1947,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Menu bar icon** (decided: template PNGs in the bundle): `MenuBarIcon.png`, `@2x`, `@3x`
     (18, 36, 54 px; the mark drawn on a canvas 24/18 the slot and centre-cropped, so it fills
     about 15 of the 18 pt like system symbols) in `Contents/Resources`, read with
-    `Bundle.main.image(forResource:)` and marked as a template; the scene's label is a `Label`
-    titled "muxFinder" (the menu bar shows only the icon; accessibility reads the title). An
-    unbundled run (`swift run`) has no such file and shows the SF Symbol `terminal`.
+    `Bundle.main.image(forResource:)` and marked as a template; muxFinder's status item button
+    (D30) shows it alone (`MenuBarIcon.statusItemImage(in:)`), with "muxFinder" as its
+    accessibility label and the image's description. An unbundled run (`swift run`) has no
+    such file and shows the SF Symbol `terminal`, a template too.
     Considered: drawing the mark in Swift inside the app (duplicates the renderer's geometry)
     and an asset catalog (needs Xcode's `actool`; this repo is SwiftPM only).
   - **App icon:** `Contents/Resources/AppIcon.icns` with `CFBundleIconFile` `AppIcon`. The app
@@ -2086,6 +2096,98 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     The step counts are unchanged. `muxfinder-probe attach`'s JSON carries `burial` and
     `timingsMs.buried`. Phase 13c ran them for real, with `e2e-bury` through the coordinator
     (*Verified facts*, Phase 13c real runs).
+- **D30 — muxFinder's own menu bar item and popover panel** (decided in Phase I-1b,
+  2026-10-24, from the Phase I-1a diagnosis, *Verified facts*; the AppKit wiring in
+  `Sources/MuxFinderUI/Views/MenuBarPopover.swift`, the decisions in
+  `Model/PopoverController.swift` and `Model/PopoverAnchoring.swift` over I-1a's
+  `Model/PopoverPlacement.swift`; tests `Tests/MuxFinderUITests/PopoverControllerTests.swift`
+  over fakes and `PopoverAnchoringTests.swift`).
+  - **The choice** (decided: replace SwiftUI's `MenuBarExtra(.window)` with an `NSStatusItem`
+    and a borderless `NSPanel` muxFinder owns). `MenuBarExtra` gives no hook for its window's
+    position, and its status item button takes no action (no action, target, menu or gesture
+    recognizer; it takes the click outside them), so muxFinder could neither correct where the
+    window opens nor open it in process without private API. The SwiftUI app stays for its
+    standard main menu (the Edit commands the text fields use, Quit, Close); its only scene is
+    an empty `Settings` whose menu item is removed (`CommandGroup(replacing: .appSettings)`),
+    so nothing opens it; reopening the running app opens nothing.
+  - **Status item** (`StatusItemButton`): variable length, D28's template image
+    (`MenuBarIcon.statusItemImage(in:)`), "muxFinder" as its accessibility label, behavior
+    `removalAllowed` and `terminationOnRemoval` (6, as the `MenuBarExtra` item's: ⌘-dragging
+    it out quits the app), AppKit's default autosave name; its action is sent on the left or
+    right mouse press and is `PopoverController.buttonPressed()`; highlighted while open.
+  - **Panel** (`PopoverPanelWindow`): borderless and non-activating, so it becomes key without
+    activating the app (the frontmost app and its Space stay; the keys go to the search
+    field); level `.popUpMenu`; collection behavior `canJoinAllSpaces`, `fullScreenAuxiliary`,
+    `transient`, `ignoresCycle` (it opens on the active Space and over full-screen apps); not
+    movable, never released, not hidden when the app deactivates (the controller decides), no
+    animation; transparent with a shadow, its content clipped to 12 pt continuous corners with
+    a one-pixel border in the separator color. It hosts `PopoverPanelRoot` (the live
+    `PopoverView` at its natural size whatever the panel's frame, as under `fixedSize()`, but
+    no taller than its height limit, `PopoverHeightLimit`; see *Size*) in an `NSHostingView`
+    whose `sizingOptions` are `intrinsicContentSize` only, so the view never resizes the
+    window itself. One panel, made at launch and reused. Phase 14's look, width and sizing are
+    unchanged when the content fits; no arrow.
+  - **The anchor rule** (`PopoverAnchoring.decide`): when the action comes from a mouse event
+    (the current event is a mouse press or release at most 1 s old), the press's location is
+    `NSEvent.mouseLocation`; if it is on the button (within the button's column, in the menu
+    bar of the button's display), the anchor is the button's rectangle in screen coordinates
+    (`convertToScreen` of its bounds in its window), else the press itself. With no mouse
+    event (`performClick(_:)`, VoiceOver) the anchor is the button's rectangle. The rectangle
+    counts only when usable: its middle on a display (no nearest-display fallback) at or above
+    that display's menu bar bottom (1 pt tolerance), else the pointer is the anchor. The
+    replica status-bar windows' frames are never read, and their placeholders (at {0, −30} and
+    at the second display's right edge) would fail the usability test anyway. The display is
+    the anchor's (`PopoverPlacement.screenIndex(for:in:)`), the frame
+    `PopoverPlacement.frame(contentSize:anchor:screen:)`: top at that display's menu bar
+    bottom, middle on the anchor, clamped 8 pt inside its visible frame.
+  - **Toggle, move and close** (`PopoverPressRules`, `PopoverController`): a press while open
+    closes it, or moves it to the press's display when that is another one (only one panel);
+    Esc (the panel's `close()`, routed to the controller), a mouse press another process
+    received (a global mouse-down monitor, only while open; mouse monitors need no
+    permission), another app becoming active, the panel resigning key, and a display change
+    close it. The classic toggle bug (one press seen both as the button's action and as an
+    outside close) is handled in either order: an outside close made while a mouse button is
+    held is remembered with the press's count, the pointer and the time, and the button's
+    action for the same press leaves the popover closed, or opens it on the press's display if
+    it was on another one; an outside close for the press the action just handled is ignored.
+    The same press means the same count, and within 0.5 s and 40 pt: the count is the window
+    server's number of hardware mouse-button presses (`CGEventSource.counterForEventType` on
+    the HID system state, left, right and other mouse-down summed; a public, read-only query,
+    which a shell on this Mac reads without any permission; the app's own reading is exercised
+    by checklist 16's real clicks). A press raises it before any of its effects reach the app and its release
+    does not, so both effects of one press read the same count, while a separate press, however
+    quick and close (a neighboring menu bar item, then muxFinder's icon within 0.5 s and
+    40 pt), reads a higher one and acts on its own. Posted events are not counted, so a relayed
+    copy of a press is never a second press. The interval and distance still bound a match,
+    so a count that never changed would leave the rules matching by them alone.
+  - **Size:** before it reads the content's size (opening, moving), the controller limits
+    the content to the anchor's display's room below the menu bar
+    (`PopoverPlacement.availableHeight(on:)`: the menu bar's bottom down to 8 pt above the
+    visible frame's bottom) through `PopoverPanelSurface.maximumContentHeight`, which sets
+    `PopoverPanelRoot.maximumHeight`. Content that fits is laid out at its natural size, as
+    before; taller content is offered the limit (`PopoverHeightLimit`), and the host list,
+    the only part that gives up height (down to nothing, with a lower layout priority), shrinks
+    and scrolls while the search field, banners, notices and footer keep theirs, so the panel
+    never cuts the footer off (`PopoverPlacement`'s own height clamp only guards). The root
+    view's geometry and the hosting view's intrinsic size each report a change of that size
+    (coalesced to one per turn of the main loop); while open the controller places the panel
+    again from the same anchor and display, so its top stays at the menu bar's bottom.
+  - **Visibility:** `popoverVisibilityChanged` comes from the controller only: visible while
+    open and not fully occluded (a locked screen, a sleeping display), on changes only, so
+    attachment checks run only while the popover shows and are cancelled when it closes (D20,
+    D22). The search field is asked for the focus at each opening.
+  - **Diagnostic:** `--report-popover-placement` clicks muxFinder's own button with
+    `performClick(_:)`, so the action is the controller's and the anchor the button's
+    rectangle; it prints the controller's placement and the after-fix check
+    (`PopoverPlacementCheck`: middle within 2 pt of the anchor's unless clamped, top within
+    1 pt of the menu bar's bottom). Phase I-1b's two runs measured it: exit 0, both offsets 0
+    (`docs/TESTING.md`, *Phase I-1b*).
+  - **Considered:** moving the `MenuBarExtra` window after it opens (no public hook; finding
+    SwiftUI's window by class and fighting its own placement on every opening); `NSPopover`
+    shown from the button (it positions from the button's window, so a press on the other
+    display's icon would open on the main one, and it draws an arrow); activating the app on
+    opening (the frontmost app would lose its menu bar, and closing would have to hand the
+    activation back).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -3522,7 +3624,17 @@ Split (recorded before the first worker):
   the after-fix diagnostic opens the popover through muxFinder's own button action
   (`performClick(_:)` in process) and measures it: exit 0. If the screen is locked then, the
   record says what could and could not be measured, and a by-eye check stays in
-  `docs/MANUAL-CHECKLIST.md`.
+  `docs/MANUAL-CHECKLIST.md`. Outcome: **D30** (muxFinder's own `NSStatusItem` and
+  non-activating `NSPanel`, the anchor rule, the toggle rules); the after-fix diagnostic
+  opened the panel through the button's own action and measured it (exit 0, twice: panel
+  middle x 1430 on the button's 1430, and 1431 on 1431 on the next tree, top 1698 on the menu
+  bar's bottom 1698, both offsets 0 each time), with the screen locked and both displays
+  asleep, so the panel did not become key and its keys,
+  focus and the other display's icon stay checks by hand (`docs/TESTING.md`, *Phase I-1b*;
+  `docs/MANUAL-CHECKLIST.md`). The review (Codex, `ship-with-fixes`, 2 should-fix) led to the
+  press identity by the hardware press count and `PopoverHeightLimit`; the final tree's run
+  (unlocked, screen 1 main) found the real button at screen 1's right edge {4118, 2139} and
+  the panel clamped 8 pt inside it, top on the menu bar's bottom, exit 0.
 
 ## Deferred (explicitly out of scope for v1)
 

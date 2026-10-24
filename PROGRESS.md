@@ -36,24 +36,22 @@ file.
 | 13c | Real runs and documents: `e2e-bury` through the coordinator, self-tests assert the buried tab, all `e2e-*` and self-tests real, docs | high | opus (code, real-run, documents and review-fix workers) | Codex, ship-with-fixes, `docs/reviews/phase-13c.md` | `docs/progress-archive/13c.md` |
 | 14 | Popover readability: opaque popover, bounded host sections, per-row attach state, readable badge, muted unreachable host, footer spacing | routine | opus (impl + review-fix worker); one inline orchestrator edit | Codex, ship-with-fixes, `docs/reviews/phase-14.md` | `docs/progress-archive/14.md` |
 | I-1a | Diagnose: `--report-popover-placement`, `PopoverPlacement` with tests, cause inferred (pre-fix frame unmeasured) | high | opus (impl + review-fix worker); orchestrator record edits | Codex, ship-with-fixes, `docs/reviews/phase-I-1a.md` | `docs/progress-archive/i-1a.md` |
+| I-1b | Own `NSStatusItem` + non-activating `NSPanel` placed by `PopoverPlacement` (D30), anchor and toggle rules, press identity, height limit | high | opus (impl + review-fix worker); orchestrator record edits | Codex, ship-with-fixes, `docs/reviews/phase-I-1b.md` | `docs/progress-archive/i-1b.md` |
 
 Queued from the inbox (specification in `autoclaude/processed/`; position after Phase 14, in
 this order):
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-1b | Place the popover under the icon (I-1a done; plan in `PLAN.md` Phase I-1; high) | `autoclaude/processed/10-popover-under-menu-bar-icon.md` | after I-1a |
 | I-2 | New session: pick the directory (split I-2a core, high; I-2b UI, routine) | `autoclaude/processed/20-new-session-directory-picker.md` | after I-1b |
 | I-3 | Global hotkey: session switcher (split I-3a shortcut and Settings; I-3b switcher panel; both routine) | `autoclaude/processed/30-global-hotkey-session-switcher.md` | after I-2 |
 
 ## Current phase
 
-Phases 1–14 and I-1a are complete and reviewed. I-1 (popover under the menu bar icon) is in
-`PLAN.md` as Phase I-1, split into I-1a and I-1b. **Phase I-1a — Diagnose (high): complete**
-2026-10-24 (`docs/progress-archive/i-1a.md`). **Next: I-1b** (place the popover under the
-icon), then I-2 and I-3 — inbox phases not yet in `PLAN.md` (add each when it is selected).
-I-1's in-process `performClick(_:)` was decided allowed (bounds in `PLAN.md` Phase I-1);
-I-3's optional `--report-hotkey-registration` flag still needs the orchestrator's call against
+Phases 1–14, I-1a and I-1b are complete and reviewed. **Phase I-1b — Place the popover under
+the icon (high): complete** 2026-10-24 (`docs/progress-archive/i-1b.md`; D30). **Next: I-2**
+(New session directory picker), then I-3 — inbox phases not yet in `PLAN.md` (add each when
+it is selected). I-3's optional `--report-hotkey-registration` flag still needs the orchestrator's call against
 the no-UI-scripting rule. Phase 13's settled design is **D29**; real facts in
 `PLAN.md` *Verified facts* "Phase 13a spike" and "Phase 13c real runs". Earlier splits: 6 into
 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13
@@ -86,6 +84,13 @@ into 13a/13b/13c.
   button has no action), private home empty, no process left; cause recorded as an inference
   with the pre-fix popover frame unmeasured (PLAN.md *Verified facts* "Phase I-1a placement
   diagnostic", `docs/TESTING.md` *Phase I-1a*) — `docs/progress-archive/i-1a.md`.
+- Phase I-1b: all criteria met, 2026-10-24 — controller and placement tests over fakes (220 UI
+  tests); after-fix `--report-popover-placement` exit 0 three times (locked twice: middle on
+  the button's, top on the menu bar's bottom, offsets 0; the final tree unlocked with screen 1
+  main: button at its right edge, panel clamped 8 pt inside, top on the menu bar's bottom);
+  `--report-menu-bar-item` exit 0, no child, no `hosts.json`; bundle and `codesign` exit 0.
+  Keys, focus and real clicks owed to a person (`docs/MANUAL-CHECKLIST.md` item 16) —
+  `docs/progress-archive/i-1b.md`.
 
 ## Decisions
 
@@ -123,6 +128,11 @@ into 13a/13b/13c.
   deferred for good, and I-1b must measure the after-frame through its own button action
   (exit 0). Recommended for I-1b (*Verified facts*): own `NSStatusItem` + `NSPanel`, anchored
   at the click point, snapping to the button's rect — `docs/progress-archive/i-1a.md`.
+- Phase I-1b: new **D30** (own `NSStatusItem` + borderless non-activating `NSPanel`, because
+  `MenuBarExtra` gives no position hook and its button takes no action; the anchor rule; the
+  toggle rules with press identity by the hardware press count; `PopoverHeightLimit`; D22 and
+  D28 edited). The SwiftUI `App` keeps only the main menu (empty `Settings` scene, its menu item
+  removed) — `docs/progress-archive/i-1b.md`.
 
 ## Open risks / deviations
 
@@ -154,6 +164,11 @@ into 13a/13b/13c.
   system draws the icon vs window 0's x 1413 was not checked; the lock state disagreed between
   the worker's runs (unlocked) and the orchestrator's (locked); the watchdog has no unit test —
   `docs/progress-archive/i-1a.md`.
+- I-1b: keys, focus, Edit-menu equivalents, the real closing paths, the other display's icon,
+  ⌘-drag, a full-screen Space and content resizing are unverified for real (checklist 16);
+  whether the system draws the icon at AppKit's button rect (screen 1's right edge when screen
+  1 is main) is unchecked; the hardware press count inside the app is unverified (falls back to
+  the old time/distance rule) — `docs/progress-archive/i-1b.md`.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -194,20 +209,25 @@ into 13a/13b/13c.
   defer" branch — exit 4 without clicking, records say the before-frame is unmeasured, I-1b
   must measure) + 2 should-fix (replica windows as the popover; blocked stdout), fixed by a
   review-fix worker with regressions failing on the old code — `docs/reviews/phase-I-1a.md`.
+- Phase I-1b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
+  blockers, 2 should-fix (distinct clicks taken for one press; a clamped panel clipping
+  unreachable content), fixed by a review-fix worker (hardware press count;
+  `PopoverHeightLimit`) with regressions failing on the old code, re-verified by the
+  orchestrator — `docs/reviews/phase-I-1b.md`.
 
 ## Next action
 
-1. **Start I-1b** (place the popover under the icon; high): poll the inbox first, mark I-1b
-   `in_progress`, then spawn one worker with `PLAN.md` Phase I-1 (I-1b deliverables and
-   acceptance), the specification `autoclaude/processed/10-popover-under-menu-bar-icon.md`,
-   *Verified facts* "Phase I-1a placement diagnostic" (the recommendation: own `NSStatusItem` +
-   borderless `NSPanel` hosting `PopoverView`, anchored at the click point snapping to the
-   button's rect) and `docs/progress-archive/i-1a.md`. It uses `PopoverPlacement`, records
-   **D30** (D22, D28 edited), keeps Phase 14's opaque look and every unchanged behavior of the
-   specification, and re-runs `--report-popover-placement` (its `performClick(_:)` then reaches
-   muxFinder's own action: exit 0 with the frames, or the record says what a locked screen
-   prevented). Then I-2 (New session directory picker, split I-2a core high / I-2b UI routine),
-   then I-3 (global hotkey session switcher, I-3a / I-3b).
+1. **Start I-2a** (New session directory picker, core; high, hermetic): poll the inbox first,
+   add Phase I-2 to `PLAN.md` (after Phase I-1, before *Deferred*) with its split recorded
+   before the first worker — I-2a core: `directories.json` store (D19-style `PrivateStorage`,
+   caps, validation, notice), `#{session_path}` probe record + parser + snapshot start folder
+   (golden fixtures), the recording rules on the `onCreated` path in the model, store injection
+   so self-tests and previews never touch the real file, the real read-only `discover --local`
+   / `--ssh saturno-m4` check (counts only), **D31**; I-2b UI: picker, keys, Settings
+   "Directories", preview galleries and screenshots, README / ARCHITECTURE / checklist, the
+   install-script check — then mark I-2a `in_progress` and spawn one worker with
+   `autoclaude/processed/20-new-session-directory-picker.md`. Then I-2b, then I-3 (global
+   hotkey session switcher, I-3a / I-3b).
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -288,6 +308,10 @@ into 13a/13b/13c.
   `Sources/MuxFinderApp/PopoverPlacement{Report,Inspection}.swift`; tests
   `Tests/MuxFinderUITests/{PopoverPlacement,PopoverWindowIdentification,
   NonblockingLineWriter}Tests.swift`.
+- Menu bar item and popover panel (D30, I-1b): `Sources/MuxFinderUI/Model/{PopoverAnchoring,
+  PopoverController}.swift`, `Views/{MenuBarPopover,MenuBarIcon}.swift` (`PopoverHeightLimit`
+  in `MenuBarPopover.swift`); tests `Tests/MuxFinderUITests/{PopoverAnchoring,
+  PopoverController,PopoverHeightLimit}Tests.swift`.
 - Popover look (D22 *Look*, 14): palette, contrast helpers and state marks
   `Sources/MuxFinderUI/Views/PopoverStyle.swift`; row-state mapping in
   `Model/PopoverContent.swift`; tests `Tests/MuxFinderUITests/{PopoverStyleTests,
@@ -303,13 +327,14 @@ into 13a/13b/13c.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-1a (final tree, orchestrator, 2026-10-24): `swift build` exit 0; `swift test` 745
-  core tests in 74 suites + 194 UI tests in 18 suites passed; `swift format lint -r Sources
+- Phase I-1b (final tree, orchestrator, 2026-10-24): `swift build` exit 0; `swift test` 745
+  core tests in 74 suites + 220 UI tests in 21 suites passed; `swift format lint -r Sources
   Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0; `--report-popover-placement` under a private
-  `CFFIXED_USER_HOME` exit 4 (not openable in process), home empty, no process left. No iTerm2
-  contact — `docs/progress-archive/i-1a.md`.
-- Phases 1–14: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+  build/muxFinder.app` exit 0; `--report-menu-bar-item` under a private `CFFIXED_USER_HOME`:
+  7 windows, SIGTERM exit 0, no child, home empty; `--report-popover-placement` likewise exit
+  0, "after-fix check: passed" (clamped on screen 1), no child, home empty. No iTerm2 contact —
+  `docs/progress-archive/i-1b.md`.
+- Phases 1–I-1a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -330,6 +355,7 @@ into 13a/13b/13c.
 - Phase 13b: `c3e2948`, pushed. Inbox triage (I-1, I-2): `bd9aed6`.
 - Phase 13c: `d5955ff`, pushed. Inbox triage (I-3): `2fdfc87`; phase summary `a9532fa`.
 - Phase 14: `6750a1b`, pushed.
-- Phase I-1a: the commit after `6750a1b` (plan split, diagnostic, placement function, tests,
-  records, review, archive and checkpoint); its SHA and push result are in the run's final
-  status line.
+- Phase I-1a: `72e635a`, pushed.
+- Phase I-1b: the commit after `72e635a` (D30, own status item and panel, tests, records,
+  review, archive and checkpoint); its SHA and push result are in the run's final status
+  line.

@@ -8,10 +8,10 @@ import SwiftUI
 /// 2; `--remove-persistent-profiles` removes muxFinder's dynamic profile file (only when it is
 /// muxFinder's generated file) and exits; `--report-login-item-status` prints the login item
 /// status and exits; `--preview-fixtures` runs the fixture window on a plain `NSApplication`
-/// (no SwiftUI scene, so no menu bar item is ever created and nothing is recorded for one);
+/// (no `MenuBarPopover`, so no menu bar item is ever created and nothing is recorded for one);
 /// `--selftest` runs a self-test on a plain `NSApplication` too; every other launch runs the
 /// menu bar app (with `--report-popover-placement`, over a model that is never started, to
-/// measure where the popover opens and exit).
+/// open and measure the popover and exit).
 @main
 enum MuxFinderMain {
   /// Picks the mode from the command line and runs it; never returns.
@@ -65,20 +65,24 @@ enum MuxFinderMain {
   }
 }
 
-/// The muxFinder menu bar app: a menu bar extra whose window is the popover. Lifecycle and
-/// quitting live in `AppDelegate`; model and views in MuxFinderUI.
+/// The muxFinder menu bar app (PLAN.md D22, D30). Its menu bar item and popover are
+/// muxFinder's own (`MenuBarPopover`, an `NSStatusItem` and a panel, created by `AppDelegate`),
+/// not a SwiftUI scene: SwiftUI's `MenuBarExtra` gives no hook for its window's position. The
+/// SwiftUI app stays for its standard main menu (Edit commands for the text fields, Quit,
+/// Close), which an accessory app's windows still use; its one scene is an empty `Settings`
+/// whose menu item is removed, so nothing ever opens it (muxFinder's Settings window is its
+/// own, D23). Lifecycle and quitting live in `AppDelegate`; model and views in MuxFinderUI.
 struct MuxFinderMenuBarApp: App {
-  /// Owns the model and the app's lifecycle.
+  /// Owns the model, the menu bar item and the app's lifecycle.
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-  /// The menu bar extra: muxFinder's template icon from the bundle (the SF Symbol `terminal`
-  /// when unbundled, PLAN.md D28) opening the popover window.
+  /// An empty `Settings` scene that nothing opens (no window at launch, no menu item).
   var body: some Scene {
-    MenuBarExtra {
-      PopoverView(model: appDelegate.model, isLive: true)
-    } label: {
-      MenuBarIconLabel()
+    Settings {
+      EmptyView()
     }
-    .menuBarExtraStyle(.window)
+    .commands {
+      CommandGroup(replacing: .appSettings) {}
+    }
   }
 }

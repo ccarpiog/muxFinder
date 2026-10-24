@@ -167,7 +167,24 @@ struct PopoverPlacementTests {
       screen: Self.main)
     #expect(tall == CGRect(x: 837, y: 8, width: 360, height: 1072))
     #expect(tall.maxY == 1080)
+    #expect(Placement.availableHeight(on: Self.main) == tall.height)
   } // End of func contentLargerThanTheDisplay()
+
+  /// The room the content is limited to (PLAN.md D30): from the menu bar's bottom to 8 pt
+  /// above the visible frame's bottom (a Dock at the bottom raises it), below an auto-hiding
+  /// menu bar too, and never negative.
+  @Test func availableHeightBelowTheMenuBar() {
+    #expect(Placement.availableHeight(on: Self.main) == 1072)
+    var dockBelow = Self.main
+    dockBelow.visibleFrame = CGRect(x: 0, y: 70, width: 1728, height: 1010)
+    #expect(Placement.availableHeight(on: dockBelow) == 1002)
+    var hiding = Self.main
+    hiding.visibleFrame = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+    #expect(Placement.availableHeight(on: hiding) == 1085)
+    var none = Self.main
+    none.visibleFrame = CGRect(x: 0, y: 1078, width: 1728, height: 2)
+    #expect(Placement.availableHeight(on: none) == 0)
+  } // End of func availableHeightBelowTheMenuBar()
 
   /// A click point and the icon's rectangle with the same middle give the same frame.
   @Test func anchorPointMatchesRect() {

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T13:55:57Z",
+  "updated": "2026-10-24T14:55:48Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -433,12 +433,12 @@
     {
       "id": "I-1",
       "title": "Popover under the menu bar icon",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Opens the popover directly below the menu bar icon instead of at the far right; split into I-1a (diagnose, done) and I-1b (fix).",
+      "summary": "Popover opens under the menu bar icon: diagnosed in I-1a, fixed in I-1b with muxFinder's own status item and panel.",
       "added": "2026-10-24T12:24:40Z",
       "started": "2026-10-24T13:04:30Z",
-      "status_since": "2026-10-24T13:04:30Z"
+      "status_since": "2026-10-24T14:55:48Z"
     },
     {
       "id": "I-1a",
@@ -456,12 +456,15 @@
     {
       "id": "I-1b",
       "title": "Place the popover under the icon",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "I-1",
-      "summary": "Opens the popover centered below the clicked menu bar icon, clamped to that display, with the after-fix measurement.",
+      "summary": "muxFinder's own status item and panel open the popover under the icon, placed by PopoverPlacement (D30).",
+      "review": "Codex ship-with-fixes, docs/reviews/phase-I-1b.md",
+      "narrative": "docs/progress-archive/i-1b.md",
       "added": "2026-10-24T13:04:30Z",
-      "status_since": "2026-10-24T13:04:30Z"
+      "started": "2026-10-24T13:57:04Z",
+      "status_since": "2026-10-24T14:55:48Z"
     },
     {
       "id": "I-2",

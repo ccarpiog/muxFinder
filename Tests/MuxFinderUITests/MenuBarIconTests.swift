@@ -101,4 +101,21 @@ struct MenuBarIconTests {
     #expect(
       NSImage(systemSymbolName: MenuBarIcon.fallbackSymbol, accessibilityDescription: nil) != nil)
   }
+
+  /// The status item's image (PLAN.md D30): the bundle's template PNGs when present, else the
+  /// SF Symbol fallback, a template image titled for accessibility either way.
+  @Test("the status item image is the bundle's template or the symbol fallback")
+  func statusItemImage() throws {
+    let (bundle, folder) = try Self.bundle(with: Self.files.map(\.name))
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let bundled = MenuBarIcon.statusItemImage(in: bundle)
+    #expect(bundled.isTemplate)
+    #expect(bundled.representations.map(\.pixelsWide).sorted() == [18, 36, 54])
+    let (empty, emptyFolder) = try Self.bundle(with: [])
+    defer { try? FileManager.default.removeItem(at: emptyFolder) }
+    let fallback = MenuBarIcon.statusItemImage(in: empty)
+    #expect(fallback.isTemplate)
+    #expect(fallback.accessibilityDescription == MenuBarIcon.accessibilityName)
+    #expect(fallback.size.width > 0 && fallback.size.height > 0)
+  } // End of func statusItemImage()
 }

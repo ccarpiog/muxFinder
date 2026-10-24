@@ -253,7 +253,7 @@ looked at the screen or pressed a key; they ran only with iTerm2's auto-hide set
 ## 15. The popover's look
 
 Owed by Phase 14 (its new look was seen only in the preview galleries; nobody opened the real
-popover, which draws over the menu bar extra's material).
+popover, which since Phase I-1b is muxFinder's own panel, PLAN.md D30).
 
 - **Do:** from the installed app with This Mac, Saturno and Sirio turned on, open the popover
   while Sirio is offline (asleep or away), in light and in dark appearance (System Settings
@@ -270,6 +270,37 @@ popover, which draws over the menu bar extra's material).
   working, and the footer's icons clearly closer to their own titles than to the next
   button, "Quit" at the right. The popover is as wide as before and closes with Esc.
 - **Undo:** nothing.
+
+## 16. The popover under the menu bar icon
+
+Owed by Phase I-1b (PLAN.md Phase I-1, D30): the placement diagnostic opened the panel through
+the button's own action and measured it under the icon on the main display, but with the
+screen locked and both displays asleep, and no unattended run may click the real icon, use
+another display's copy of it, or press keys.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
+  both displays on and This Mac turned on:
+  1. Click muxFinder's icon in the main display's menu bar, then in the other display's menu
+     bar. Click it again on the same display.
+  2. ⌘-drag the icon to another place in the menu bar (it must stay in the bar; dragging it
+     out quits the app), then click it.
+  3. With the popover open: press Esc; open it, click the desktop or another app's window;
+     open it, switch apps with ⌘Tab; open it, click another menu bar item.
+  4. Open it and type at once (the search field must have the focus); then ↑/↓, Return on a
+     session, ⌘F, ⌘R, ⌘N (then Esc), ⌘, (Settings opens and the popover closes).
+  5. Put an app in full screen (its own Space), move the pointer to the top to show the menu
+     bar, click muxFinder's icon; then try another Space.
+  6. Turn a few hosts on and off in Settings, or search, so the popover grows and shrinks
+     while open.
+- **Expect:** 1: each time the popover opens directly below the icon you clicked, on that
+  display, its middle on the icon's and its top edge touching the menu bar, never at the far
+  right; the second click on the same display closes it, and a click on the other display's
+  icon while it is open moves it there. 2: it opens below the icon's new place. 3: each closes
+  it, and the icon's highlight goes with it; the app you were in keeps its menu bar
+  throughout. 4: the text goes into the search field; every shortcut works as in item 3. 5: it
+  opens over the full-screen app without switching Spaces, and on whichever Space is active.
+  6: its top edge stays under the menu bar while its height changes. The look is item 15's.
+- **Undo:** ⌘-drag the icon back where you want it.
 
 ## Results
 
@@ -290,3 +321,4 @@ popover, which draws over the menu bar extra's material).
 | 13 | | | |
 | 14 | | | |
 | 15 | | | |
+| 16 | | | |

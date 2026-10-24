@@ -44,14 +44,18 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-1a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-1b* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
 Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
 
 | Requirement | Status | Evidence |
 |---|---|---|
 | An attach (Open, New session, Move here) shows only the session's windows: the launch tab is buried once its first tmux tab is active, leaves by itself after every detach, and comes back after a failure. | Tested for real, locally and on Saturno, with iTerm2's "Automatically bury the tmux client session after connecting" off (its default); with it on, only by the Phase 13a spike. Through the real popover, with that setting on and off, where the focus goes after a detach, and Return after an abnormal end: owed to a person (checklist 14). | Phase 13c, 2026-10-24 (*Phase 13c* below): `e2e-local` 16 of 16 and `e2e-remote saturno-m4` 17 of 17 PASS, every confirmed attach (attach, reattach, concurrent attaches, new session, move here) `burial` `buried` with the tab in `buried_sessions` and in no tab, and after every detach the tab gone by itself, no restore or `Close` of the coordinator's recorded. `e2e-bury --local` and `--ssh saturno-m4` 13 of 13 PASS each: detaches within 10 s and after 10 s; the bury released together with a detach, sent and answered `OK` (`restoredAfterEnd` locally, `buried` on Saturno), the tab gone by itself; a dead buried tab removed by the coordinator's recovery; the attach child killed: the helper's result `childSignaled(9)`, the tab back with an answered status report and in a tab, its helper alive, past the helper's minimum lifetime, and the session alive. Both self-tests PASS with "launch tab buried" and "launch tab left". Hermetic: `LaunchTabBurialTests`, `ShowLaunchTabTests`, `LaunchTabRestoreTests`, `RecordingITerm2IntegrationTests`, `LaunchTabChecksTests`, `SelfTestDriverTests`. |
-| The popover reads at a glance: an opaque background, a bounded section per host, each row's attach state at a glance, a readable "Open in iTerm2 here" badge, an unreachable host muted rather than red, even footer spacing. | Tested hermetically and in the preview renders (both appearances). The real popover over the menu bar extra's material, by a person (checklist 15). | Phase 14, 2026-10-24 (*Phase 14* below): `PopoverStyleTests` (the badge at least 4.5:1 against what is behind it, light and dark, unselected, selected and hovered rows; a neutral selection; opaque fills; no red host status, a hollow dot only for the muted tone; distinct indicators; the footer's spacing); `PopoverContentTests` (every status's tone, `.unreachable` alone muted, the row-state mapping, the fixtures covering a selected row with the badge and an unreachable host next to an attention one). `docs/screenshots/popover-states-*.png` and `attach-states-*.png` regenerated and inspected. |
+| The popover reads at a glance: an opaque background, a bounded section per host, each row's attach state at a glance, a readable "Open in iTerm2 here" badge, an unreachable host muted rather than red, even footer spacing. | Tested hermetically and in the preview renders (both appearances). The real popover in muxFinder's panel, by a person (checklist 15). | Phase 14, 2026-10-24 (*Phase 14* below): `PopoverStyleTests` (the badge at least 4.5:1 against what is behind it, light and dark, unselected, selected and hovered rows; a neutral selection; opaque fills; no red host status, a hollow dot only for the muted tone; distinct indicators; the footer's spacing); `PopoverContentTests` (every status's tone, `.unreachable` alone muted, the row-state mapping, the fixtures covering a selected row with the badge and an unreachable host next to an attention one). `docs/screenshots/popover-states-*.png` and `attach-states-*.png` regenerated and inspected. |
+| Clicking the menu bar icon opens the popover directly below it (its middle on the icon's, its top at the menu bar's bottom, clamped inside the display), on the display clicked; the toggle, Esc, a click outside and an app switch closing it, the keys, the search field's focus, Spaces and full-screen apps as before (PLAN.md Phase I-1, D30). | Tested for real through the button's own action (`performClick(_:)` in process) on the main display; the controller's rules hermetically. A click on each display's icon, after a ⌘-drag, the closing paths, the keys and a full-screen Space: by a person (checklist 16). | Phase I-1b, 2026-10-24 (*Phase I-1b* below): `--report-popover-placement` exit 0, twice: the panel at {{1250, 1530}, {360, 168}}, its middle x 1430 on the button's 1430 and its top 1698 on the menu bar's bottom 1698 (offsets 0 and 0; the next tree's run the same 1 pt further right), with the screen locked;
+then once after the review fixes, unlocked, with screen 1 main: the button at screen 1's right
+edge and the panel clamped 8 pt inside it, top on the menu bar's bottom, "after-fix check:
+passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the toggle bug, occlusion, size) and `PopoverAnchoringTests` (the anchor rule over this Mac's displays, the replica frames never anchors, the after-fix check). |
 
 ## Unit tests (`swift test`)
 
@@ -750,6 +754,8 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   housing safe area; a menu bar that reserves room is measured, never guessed); a 2x and a
   1x display (the same size in points, the left edge on half points at 2x and whole points
   at 1x); content wider or taller than the display (narrowed, or shortened keeping its top);
+  the room the content is limited to (`availableHeight(on:)`: to 8 pt above the visible
+  frame's bottom, a Dock at the bottom, an auto-hiding menu bar, never negative);
   a click point and the icon's rectangle with the same middle; `screenIndex(for:in:)` for an
   anchor on each display, a pointer on the main display's top row (`y == frame.maxY`, also
   the bottom of a display above), points on no display (the nearest) and no displays. The
@@ -771,6 +777,40 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   now, not before the click, no button) the replica, fallback-level and live-popover tests
   fail; with the old synchronous write the stalled-pipe test fails ("write(_:) blocked the
   caller").
+- **Popover panel** (PLAN.md D30). `Tests/MuxFinderUITests/PopoverAnchoringTests`, pure
+  values over this Mac's two displays as Phase I-1a recorded them: a mouse press on the button
+  (anywhere in its column of the menu bar, top row and bottom edge included) anchors at the
+  button's rectangle, one beside it or on the other display at the press, one in the button's
+  column on a display stacked above is not on the button; with no mouse event the button's
+  rectangle, else the pointer; the replica windows' placeholder frames (and an empty or
+  off-menu-bar rectangle) are never usable, so never anchors; `screenIndex(holding:in:)` has no
+  nearest-display fallback; the toggle rules (a press while open closes, or moves on another
+  display; the classic toggle bug in both orders, the same press count within 0.5 s and 40 pt
+  only, matched once, a close with no mouse button held never matched; a separate press
+  0.15 s and 20 pt after a neighboring item's, in either order, never matched); the after-fix
+  check (centered passes, a
+  middle 3 pt off or a top 1.5 pt off fails, a clamped popover passes). `PopoverControllerTests`
+  over a fake panel, button and system: a press opens below the icon (frame, highlight,
+  visible, the search field's focus asked) and a second closes; `performClick(_:)` anchors at
+  the button, a placeholder button rectangle at the pointer; a press on the other display opens
+  there, and while open moves there with no visibility change; Esc, a press outside, an app
+  switch, resigning key and a display change each close once and a press reopens; the press
+  that closed it from outside does not reopen it (and opens it on the other display); the
+  outside close for the action's own press is ignored after opening and after moving; with
+  the popover open, a press on a neighboring menu bar item and then on the icon 0.2 s later
+  and 20 pt away opens it again, and a press on the icon and then on a neighboring item 0.2 s
+  later closes it; occlusion hides and shows it, never while closed; a content size change
+  places it again while open only; the content is limited to the anchor's display's room
+  before its size is read (on opening, moving and a size change), so taller content fills the
+  room exactly. `PopoverHeightLimitTests`, in hosting views never put in a window, over the
+  overview fixture (501 pt natural): offered 120 pt less, `PopoverView` lays itself out at the
+  offer (its host list shrinks; the search field, dividers and footer keep their 82 pt), and
+  at its natural height when offered more; the panel's root is the natural height with no
+  limit or a roomy one and exactly the limit otherwise, also when the limit is set on the
+  existing root view. With the press count left out of the match the four rapid-press tests
+  fail; with the old fixed list height, the root's `fixedSize()` and no limit from the
+  controller the shrink, root and limit tests fail. `MenuBarIconTests.statusItemImage`: the bundle's template PNGs, else the
+  SF Symbol, a template either way.
 - **Settings window** (`Tests/MuxFinderUITests/`: `HostDraftValidationTests`,
   `SettingsHostsTests`, `SettingsGeneralTests`; PLAN.md D23). Over fakes for the store,
   discovery, profile list, login item, pasteboard and URL opening, plus a real `HostStore` in a
@@ -2288,3 +2328,74 @@ real item's frame would put it under the icon (x 1250–1610 on the main display
 | Usage | `muxFinder --report-popover-placement --report-menu-bar-item` | exit 2 with the usage lines, before any window |
 | Nothing written | `ls -laR` of the private folder after each run; `defaults export cc.carpio.muxfinder -` digested before and after | the folder still empty (no `hosts.json`, no `Library`); the digest unchanged, also for the runs after the review fixes |
 | Shell check | `CFFIXED_USER_HOME=<another private folder> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`; `pgrep -P <pid>`; `kill -TERM <pid>` | the same 7 windows and frames; no child process; exit 0 after SIGTERM; the folder still empty (no `hosts.json`); the same again after the review fixes |
+
+### Phase I-1b — popover under the icon (2026-10-24)
+
+The popover is now muxFinder's own: an `NSStatusItem` and a borderless, non-activating
+`NSPanel` placed by `PopoverPlacement` (PLAN.md D30). `--report-popover-placement` ran twice
+from the shell on the bundle binary, in the background, each time with `CFFIXED_USER_HOME` set
+to a new empty private folder, never through `open`: once on the first complete tree, and once
+on the final tree (rebuilt after the panel's root view gained its own size report). **In both
+runs the screen was locked and both displays asleep** (`CGSSessionScreenIsLocked` yes, on
+console yes, `CGDisplayIsAsleep` true on both). The user's
+installed copy ran throughout and was not touched; no iTerm2 window was opened and no `e2e-*`
+run or self-test was needed (the attach path is unchanged).
+
+**After the fix.** The button now has muxFinder's action (`pressed:`, target
+`StatusItemButton`), so `performClick(_:)` reached `PopoverController.buttonPressed()`; with no
+mouse event behind it the controller anchored at the button's rectangle {{1413, 1702},
+{34, 22}} on screen 0, as D30's rule says. The panel (`PopoverPanelWindow`, level 101) was
+visible 101 ms after the click at {{1250, 1530}, {360, 168}} on screen 0, the same frame once
+settled: **its middle x 1430 is the button's 1430 (offset 0, not clamped) and its top 1698 is
+the menu bar's bottom 1698 (offset 0)**, within the 2 pt and 1 pt tolerances; the frame equals
+`PopoverPlacement`'s and the controller's own, and the content was 360 × 168 (the
+never-started model's "Loading hosts…"). The second `performClick(_:)` closed it. The final
+tree's run gave the same with the item 1 pt further right (window 0 at {1414, 1698}, the
+button {{1414, 1702}, {34, 22}}): the panel at {{1251, 1530}, {360, 168}} after 102 ms, middle
+x 1431 on the button's 1431, top 1698 on 1698, both offsets 0, "after-fix check: passed",
+exit 0. AppKit still
+keeps the six replica windows with placeholder frames (four at {0, −30}, two at {4152, 2139});
+nothing read them as an anchor.
+
+**After the review fixes** (the orchestrator, the final tree, one more run the same way, then
+the shell check once): this time **the screen was unlocked and both displays awake**, and
+screen 1 (the portrait display) was the main one. The real button's window had moved to screen
+1's right edge, {4118, 2139} (the button {{4118, 2143}, {34, 22}}, middle x 4135), and the six
+replicas stayed where they were (two at {4152, 2139}, four at {0, −30}). The controller anchored
+at that button on screen 1 and placed the panel at {{3784, 1971}, {360, 168}}, its right edge
+8 pt inside the display's: "panel middle x 3964 minus anchor middle x 4135 = −171 (tolerance
+2 pt unless clamped; clamped yes): pass", "panel top 2139 minus menu bar bottom 2139 = 0
+(tolerance 1 pt): pass", "after-fix check: passed", exit 0, no child, the private home empty.
+So in-process AppKit puts muxFinder's one real button on the main display's menu bar, and on
+the portrait display at its right edge; whether the system draws the icon there is still
+unchecked (hypothesis (c) of the specification), which is why a real press anchors at the press
+when it falls outside that rectangle (D30) and why a click on each display stays checklist 16.
+The shell check on the same tree: 7 windows (window 0 at {4118, 2139}), exit 0 after SIGTERM,
+no child, its home empty.
+
+**Not measured** (the screen was locked, and no run may click the real icon): the panel never
+became key ("key no", occlusion not visible, so the model was told it was hidden right away),
+so the search field's focus and the keys are unchecked; a press on the other display's copy of
+the icon (anchored at the press by D30's rule), a click after a ⌘-drag, the closing paths
+(Esc, a click outside, an app switch) on the real panel and a full-screen Space are owed to a
+person (`docs/MANUAL-CHECKLIST.md`, item 16); where the system draws the icon still could not
+be compared with window 0 (no other process's status-bar window was listed).
+
+| Item | Measured |
+|---|---|
+| Displays | as in Phase I-1a: screen 0 frame {{0, 0}, {3072, 1728}}, visible {{62, 0}, {3010, 1698}}, menu bar bottom 1698; screen 1 frame {{3072, 249}, {1080, 1920}}, visible {{3072, 249}, {1080, 1890}}, bottom 2139; both 2x; separate Spaces on |
+| The status item | muxFinder's own `NSStatusItem`, reachable from the status-bar windows; length −1, visible, behavior 6 (as the `MenuBarExtra` item's), no menu; its button `NSStatusBarButton` 34 × 22 pt in window 0 at {1413, 1698}, in screen {{1413, 1702}, {34, 22}}; action `pressed:`, target `MuxFinderUI.StatusItemButton`, cell `NSStatusBarButtonCell` |
+| Status-bar windows | the same seven as in Phase I-1a, before and with the panel open |
+| The panel | `PopoverPanelWindow` (made at launch, so "window existed before the click: yes"), identified by the live popover view, level 101, visible, not key, occlusion not visible, screen 0, frame {{1250, 1530}, {360, 168}} at appearance and settled |
+| Controller placement | anchor rect {{1413, 1702}, {34, 22}} from the button, screen 0, frame {{1250, 1530}, {360, 168}} (the panel's: the same) |
+| After-fix check | "panel middle x 1430 minus anchor middle x 1430 = 0 (tolerance 2 pt unless clamped; clamped no): pass"; "panel top 1698 minus menu bar bottom 1698 = 0 (tolerance 1 pt): pass"; "after-fix check: passed" |
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` | exit 0: 745 tests in 74 suites (core), 211 in 20 suites (UI; 17 new: 8 in `PopoverAnchoringTests`, 8 in `PopoverControllerTests`, `MenuBarIconTests.statusItemImage`; no existing test changed); after the review fixes (orchestrator, final tree) 745 in 74 suites and 220 in 21 suites (`PopoverHeightLimitTests` and the rapid-press cases) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Placement diagnostic | `CFFIXED_USER_HOME=<private folder from mktemp -d> build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement &`, `pgrep -P <pid>` every 0.1 s while it ran, `wait`; twice (the second on the final tree, after `scripts/build-app.sh` and `codesign --verify --deep --strict`, exit 0 both) | the lines above, "popover closed by the second click", exit 0 about 3 s after launch, both runs; no child process in 24 and 22 samples; no copy left |
+| Shell check | `CFFIXED_USER_HOME=<another private folder> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`; `pgrep -P <pid>` every 0.1 s for 3.5 s; `kill -TERM <pid>`; once, on the first complete tree (the final tree changed only the panel's hosted root view) | 7 status-bar-level windows, all visible, 34 × 30 pt, the same frames; no child process; exit 0 after SIGTERM; no copy left |
+| Nothing written | `ls -laR` of the three private folders after each run and once more later | all still empty (no `hosts.json`, no `Library`) |

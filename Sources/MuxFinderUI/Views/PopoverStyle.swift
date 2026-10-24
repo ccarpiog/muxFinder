@@ -3,13 +3,13 @@ import SwiftUI
 
 /// The popover's colors (PLAN.md D22): its own opaque window background, a bounded box per
 /// host with a header band, neutral row fills, and the "Open in iTerm2 here" badge's solid
-/// fill. Every fill is opaque and fixed per color scheme, so the real popover (whatever the
-/// menu bar extra's window draws under it) looks like the preview galleries, and what is
+/// fill. Every fill is opaque and fixed per color scheme, so the real popover (in muxFinder's
+/// transparent popover panel, PLAN.md D30) looks like the preview galleries, and what is
 /// drawn is what the contrast tests resolve (`PopoverStyleTests`). The keyboard selection is
 /// a neutral fill with an accent outline, so the accent color never sits under the badge.
 struct PopoverPalette {
   /// Behind everything: the gray `windowBackgroundColor` draws in a window (0.925 light,
-  /// 0.196 dark), opaque, with no vibrancy or blur from the menu bar extra's material.
+  /// 0.196 dark), opaque, with no vibrancy or blur from anything behind the panel.
   let background: Color
   /// A host section's box, behind its rows.
   let sectionFill: Color

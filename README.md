@@ -134,7 +134,11 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
 
 ## Usage
 
-- **The popover** lists each turned-on host with its status ("This Mac", "Reachable", "No
+- **The popover** opens directly below muxFinder's icon when you click it, on the display
+  whose menu bar you clicked (on the active Space, also over a full-screen app); clicking the
+  icon again, Esc, clicking elsewhere or switching apps closes it. You can ⌘-drag the icon to
+  another place in the menu bar (dragging it out of the bar quits muxFinder). The popover
+  lists each turned-on host with its status ("This Mac", "Reachable", "No
   sessions", "Unreachable", "Sign-in needed", "Host key problem", "tmux not found") and "Last
   checked …", and its sessions with windows and clients ("4 windows · 1 client", "2 windows ·
   Detached"). Each host gets a box of its own, and each session starts with a mark for where

@@ -17,16 +17,17 @@ import Foundation
 /// - `--report-menu-bar-item` (normal mode): a read-only diagnostic; two seconds after launch
 ///   the app prints its own status-bar-level windows (the menu bar item), since on macOS 26 and
 ///   later `CGWindowListCopyWindowInfo` does not list them under the app's process.
-/// - `--report-popover-placement` (PLAN.md Phase I-1): a read-only diagnostic of where the
-///   popover opens. The menu bar scene runs over an inert model (never started: no host list
-///   read, no engine, no iTerm2, no onboarding; `AppEnvironment.placementDiagnostic()`); the
-///   app prints the displays, its status-bar windows and status item button; when that button
-///   has an action or a menu it opens its own popover with the button's `performClick(_:)` for
-///   at most 3 s, prints the popover window's frame and the one `PopoverPlacement` would give,
+/// - `--report-popover-placement` (PLAN.md Phase I-1, D30): a read-only diagnostic of where the
+///   popover opens. muxFinder's menu bar item and popover panel run over an inert model (never
+///   started: no host list read, no engine, no iTerm2, no onboarding;
+///   `AppEnvironment.placementDiagnostic()`); the app prints the displays, its status-bar
+///   windows and status item button; when that button has an action or a menu (muxFinder's own
+///   has its action) it opens the popover with the button's `performClick(_:)` for at most 3 s,
+///   prints the panel's frame, the one `PopoverPlacement` would give and the after-fix check,
 ///   closes it and exits (0 measured, 1 clicked but the popover never appeared, 3 interrupted
 ///   by a signal, the open limit, the 10 s deadline or its watchdog, 4 not openable in process:
-///   no button, or one with no action and no menu, as SwiftUI's `MenuBarExtra` button). Combined
-///   with another mode it is a usage error.
+///   no button, or one with no action and no menu). Combined with another mode it is a usage
+///   error.
 /// - `--report-login-item-status`: a read-only diagnostic; the app prints
 ///   `SMAppService.mainApp.status` and exits at once, before any window, menu bar item, host
 ///   list or iTerm2 contact. Nothing is registered or unregistered.

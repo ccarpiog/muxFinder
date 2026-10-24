@@ -106,13 +106,13 @@ public enum PopoverPlacement {
   ///   grid, then moved as little as needed to keep `screenInset` from the visible frame's left
   ///   and right edges.
   /// - Content wider than the visible frame minus both insets is narrowed to fit; content
-  ///   taller than the room between the menu bar and the visible frame's bottom inset is
-  ///   shortened, keeping its top edge (the caller scrolls or resizes the content).
+  ///   taller than `availableHeight(on:)` is shortened, keeping its top edge (the caller lays
+  ///   its content out no taller than that, PLAN.md D30, so this only guards).
   public static func frame(contentSize: CGSize, anchor: Anchor, screen: Screen) -> CGRect {
     let visible = screen.visibleFrame
-    let top = min(screen.menuBarBottom, visible.maxY)
+    let top = Self.top(on: screen)
     let width = max(0, min(contentSize.width, visible.width - 2 * screenInset))
-    let height = max(0, min(contentSize.height, top - (visible.minY + screenInset)))
+    let height = max(0, min(contentSize.height, availableHeight(on: screen)))
     let scale = max(1, screen.backingScaleFactor)
     let centered = ((anchor.midX - width / 2) * scale).rounded() / scale
     let lowest = visible.minX + screenInset
@@ -121,6 +121,19 @@ public enum PopoverPlacement {
     return CGRect(x: x, y: top - height, width: width, height: height)
   } // End of static func frame(contentSize:anchor:screen:)
 
+  /// The tallest the popover may be on `screen`, in points: the room from the menu bar's
+  /// bottom (no higher than the visible frame's top) down to `screenInset` above the visible
+  /// frame's bottom (the Dock's top when it is at the bottom); 0 when there is none.
+  public static func availableHeight(on screen: Screen) -> CGFloat {
+    max(0, top(on: screen) - (screen.visibleFrame.minY + screenInset))
+  }
+
+  /// The y of the popover's top edge on `screen`: the menu bar's bottom, no higher than the
+  /// visible frame's top.
+  static func top(on screen: Screen) -> CGFloat {
+    min(screen.menuBarBottom, screen.visibleFrame.maxY)
+  }
+
   /// The index in `screens` of the display `anchor` is on: the first whose frame holds its
   /// reference point counting the top edge and not the bottom one (AppKit's pointer location
   /// on a display's top row, where its menu bar is, is exactly `frame.maxY`, which is also the
@@ -128,6 +141,18 @@ public enum PopoverPlacement {
   /// usual way; else the nearest. `nil` only for no displays.
   public static func screenIndex(for anchor: Anchor, in screens: [Screen]) -> Int? {
     let point = anchor.referencePoint
+    if let holding = screenIndex(holding: point, in: screens) { return holding }
+    return screens.indices.min { first, second in
+      distance(from: point, to: screens[first].frame)
+        < distance(from: point, to: screens[second].frame)
+    }
+  }
+
+  /// The index in `screens` of the display whose frame holds `point`, by `screenIndex(for:in:)`'s
+  /// rule (top edge counted first, then the usual containment), with no nearest-display
+  /// fallback: `nil` when `point` is on no display, as a placeholder frame below or beside every
+  /// display is (PLAN.md *Verified facts*, Phase I-1a).
+  public static func screenIndex(holding point: CGPoint, in screens: [Screen]) -> Int? {
     if let topInclusive = screens.firstIndex(where: { screen in
       let frame = screen.frame
       return point.x >= frame.minX && point.x < frame.maxX && point.y > frame.minY
@@ -135,14 +160,8 @@ public enum PopoverPlacement {
     }) {
       return topInclusive
     }
-    if let inside = screens.firstIndex(where: { $0.frame.contains(point) }) {
-      return inside
-    }
-    return screens.indices.min { first, second in
-      distance(from: point, to: screens[first].frame)
-        < distance(from: point, to: screens[second].frame)
-    }
-  } // End of static func screenIndex(for:in:)
+    return screens.firstIndex { $0.frame.contains(point) }
+  }
 
   /// The distance from `point` to the nearest point of `rect` (0 inside).
   static func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {

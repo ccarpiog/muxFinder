@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D29); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D30); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -23,8 +23,8 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | ├ `Profiles/` | Persistent profile generator, installer and remover, the hash snapshot of iTerm2's other profiles, the `e2e-profile` run. |
 | ├ `Diagnostics/` | Operation log (ring buffer plus `os.Logger`); outcomes and timings, never terminal content. |
 | └ `Concurrency/` | Small helpers for awaited, cancellable tasks. |
-| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
-| `MuxFinderApp` (executable) | Entry point, menu bar scene and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
+| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
+| `MuxFinderApp` (executable) | Entry point, the SwiftUI app shell (its standard main menu and an empty `Settings` scene nothing opens) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
 | `muxfinder-launch` (executable) | The helper iTerm2 runs in a launch tab: `attach <id>`, `ssh-setup <id>`, `profile <host id>`. Bundled next to the app. |
 | `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, iTerm2 queries, single attaches and detaches, the `e2e-*` real runs, host list and profile checks. Not bundled. |
 
@@ -47,6 +47,32 @@ for processes, clocks and iTerm2, no ssh, tmux only on private sockets (PLAN.md 
    Mac" from evidence rather than from a client count.
 5. `HostSnapshot`s (live or stale) reach `AppModel` through one update stream; `PopoverContent`
    is a pure value computed from them, the search text and the per-session activity (D22).
+
+## The menu bar item and the popover (D22, D30)
+
+muxFinder owns both: an `NSStatusItem` with its template icon (D28) and a borderless,
+non-activating `NSPanel` hosting `PopoverView`, at the pop-up menu level, on every Space and
+over full-screen apps (`MenuBarPopover`, only AppKit wiring). Every decision is
+`PopoverController`'s, over small protocols so tests drive it with fakes:
+
+- **Where it opens:** a mouse press on the button anchors at the button's rectangle; a press
+  elsewhere (the other display's copy of the icon, whose in-process frame is a placeholder) at
+  the press; no mouse event (`performClick(_:)`, VoiceOver) at the button
+  (`PopoverAnchoring`). `PopoverPlacement` then puts the top edge at that display's menu bar
+  bottom, the middle on the anchor, clamped inside its visible frame.
+- **Toggle and close:** a press toggles it, or moves it to the press's display; Esc, a click
+  outside, an app switch, losing the key focus and a display change close it; one press is
+  never both a close and a reopen, and two separate presses are never taken for one, however
+  quick and close (`PopoverPressRules`, matching by the system's count of mouse presses).
+- **Size:** the content is limited to the display's room below the menu bar; taller content
+  shrinks its host list, which scrolls, so the search field and footer stay in view
+  (`PopoverHeightLimit`).
+- **Model glue:** `popoverVisibilityChanged` follows the panel (open and not occluded), so
+  attachment checks run only while it shows; a key monitor hands the popover's shortcuts to
+  `AppModel.handle(_:)` first.
+
+The placement diagnostic `--report-popover-placement` opens it through the button's own action
+and checks the frame against the anchor and the menu bar.
 
 ## Attach flow and the launch protocol
 
@@ -173,3 +199,4 @@ All in `PLAN.md` *Decisions*:
 | D13 | iTerm2 transport model | D27 | Install and uninstall scripts |
 | D14 | Launch protocol | D28 | App icon, menu bar icon and release signing |
 | | | D29 | Hiding the launch tab once attached |
+| | | D30 | muxFinder's own menu bar item and popover panel |
