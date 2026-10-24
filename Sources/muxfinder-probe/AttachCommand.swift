@@ -204,6 +204,9 @@ enum AttachCommand {
     let activation: String?
     /// The activated tab.
     let activatedTabID: String?
+    /// What became of the launch tab (PLAN.md D29): `buried`, `skipped`, `failed`, `uncertain`
+    /// or `restoredAfterEnd`, with its detail; absent unless confirmed.
+    let burial: String?
     /// What the existing-attachment check found, by kind; absent when it did not run.
     let existingAttachments: AttachmentSnapshot.Counts?
     /// Milliseconds from the start of the attach to each step.
@@ -218,6 +221,9 @@ enum AttachCommand {
       gatewaySessionID = result.gatewaySessionID
       connectionID = result.connectionID
       existingAttachments = result.existingAttachments
+      burial = result.burial.map { burial in
+        burial.kind + (burial.detail.map { " (\($0))" } ?? "")
+      }
       switch result.activation {
       case .activated(let tabID)?:
         activation = "activated"
@@ -241,7 +247,8 @@ enum AttachCommand {
         ("revalidated", timings.revalidated), ("checked", timings.checked),
         ("launched", timings.launched),
         ("connected", timings.connected), ("confirmed", timings.confirmed),
-        ("activated", timings.activated), ("finished", timings.finished),
+        ("activated", timings.activated), ("buried", timings.buried),
+        ("finished", timings.finished),
       ]
       var output: [String: Int] = [:]
       for (name, duration) in steps {

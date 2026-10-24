@@ -58,7 +58,7 @@ struct CreateAndAttachTests {
     AttachCoordinator(
       iTerm2: iTerm2, discovery: discovery, store: store, helperPath: Support.helper,
       clock: ManualAttachClock(), existingAttachments: .index(Support.patientIndex(iTerm2)),
-      sessionCreator: creator, onUpdate: { log.record($0) })
+      sessionCreator: creator, buriedTabTimer: .off, onUpdate: { log.record($0) })
   } // End of func coordinator(iTerm2:discovery:store:creator:log:)
 
   /// Creation, then the usual launch and confirmation; the existing-attachment check is

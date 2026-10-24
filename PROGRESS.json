@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T09:35:12Z",
+  "updated": "2026-10-24T10:42:39Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -374,7 +374,7 @@
       "title": "Hide the launch tab once attached",
       "status": "in_progress",
       "risk": "high",
-      "summary": "Split into 13a (done), 13b and 13c: muxFinder buries its own launch tab after an attach and brings it back when tmux ends.",
+      "summary": "Split into 13a and 13b (done) and 13c: muxFinder buries its own launch tab after an attach and brings it back when tmux ends.",
       "added": "2026-10-24T07:22:53Z",
       "started": "2026-10-24T09:35:12Z",
       "status_since": "2026-10-24T09:35:12Z"
@@ -395,12 +395,15 @@
     {
       "id": "13b",
       "title": "Coordinator, race and recovery",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "13",
-      "summary": "Buries confirmed launch tabs, undoes a bury that lands after the helper ended, and recovers tabs while the app runs.",
+      "summary": "Buries confirmed launch tabs, undoes a bury that lands after the helper ended, and recovers buried tabs while the app runs (hermetic).",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-13b.md",
+      "narrative": "docs/progress-archive/13b.md",
       "added": "2026-10-24T07:22:53Z",
-      "status_since": "2026-10-24T07:22:53Z"
+      "started": "2026-10-24T09:36:29Z",
+      "status_since": "2026-10-24T10:42:39Z"
     },
     {
       "id": "13c",

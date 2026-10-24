@@ -261,6 +261,8 @@ final class FakeLaunchStore: LaunchRequestStore {
     var sweeps = 0
     /// `takeResult(_:)` calls.
     var takes = 0
+    /// `peekResult(_:)` calls.
+    var peeks = 0
     /// Results waiting to be taken, by id.
     var results: [LaunchToken: LaunchResult] = [:]
     /// Makes the helper's result for a written request.
@@ -316,6 +318,26 @@ final class FakeLaunchStore: LaunchRequestStore {
     }
   } // End of func takeResult(_:)
 
+  /// Returns a stored result without taking it (a result `makeResult` would make is not one
+  /// yet), and counts the peek.
+  func peekResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? {
+    state.withLock { state -> LaunchResult? in
+      state.peeks += 1
+      return state.results[id]
+    }
+  }
+
+  /// Stores the helper's result for the latest written request (the helper ended), with
+  /// `failure`; returns its launch id.
+  @discardableResult
+  func finishLatestLaunch(failure: LaunchFailure? = nil) -> LaunchToken? {
+    state.withLock { state -> LaunchToken? in
+      guard let request = state.written.last else { return nil }
+      state.results[request.id] = AttachTestSupport.result(for: request, failure: failure)
+      return request.id
+    }
+  }
+
   /// Counts the sweep.
   func sweep() throws(LaunchStoreError) -> Int {
     state.withLock { $0.sweeps += 1 }
@@ -343,8 +365,9 @@ final class UpdateLog: Sendable {
 /// Wraps a `FakeITerm2Integration` for attach tests: records the virtual time of every tmux
 /// command that reached "iTerm2" (did not fail as not sent), can hold the answer of the first
 /// `createTab` call until `releaseCreateTab()`, can make the bound commands of some
-/// connections hang (sent, never answered) until their task is cancelled, and can make every
-/// plain connection listing take a while on the clock.
+/// connections hang (sent, never answered) until their task is cancelled, can make every
+/// plain connection listing take a while on the clock or hold the answers of the next ones,
+/// and can hold a bound bury's answer.
 final class InstrumentedITerm2: ITerm2Integration {
   /// A tmux command that was sent, and the virtual time it was sent at.
   struct SentCommand: Sendable, Hashable {
@@ -377,6 +400,18 @@ final class InstrumentedITerm2: ITerm2Integration {
     var answers: [String: [Result<String, ITerm2Error>]] = [:]
     /// How long every `listTmuxConnections()` call takes on the clock.
     var listingDelay: Duration = .zero
+    /// Whether the answer of every bound bury iTerm2 handled waits for `releaseBuries()`.
+    var holdsBuries = false
+    /// The bury answers being held.
+    var heldBuries: [CheckedContinuation<Void, Never>] = []
+    /// Runs once iTerm2 handled a bound bury, before its answer arrives (the moment a test
+    /// can let the helper end "meanwhile").
+    var onBuryHandled: (@Sendable () -> Void)?
+    /// How many of the next plain connection listings get their answer held (the fake has
+    /// produced it already) until `releaseListings()`.
+    var listingsToHold = 0
+    /// The listing answers being held.
+    var heldListings: [CheckedContinuation<Void, Never>] = []
   }
 
   /// The fake every call goes to.
@@ -491,12 +526,47 @@ final class InstrumentedITerm2: ITerm2Integration {
     return try result.get()
   } // End of func createTab(_:)
 
-  /// Waits for the listing delay, if any, then forwards to the fake.
+  /// Waits for the listing delay, if any, then forwards to the fake; while listings are held
+  /// (`holdListings(_:)`), the fake's answer, taken now, arrives only at `releaseListings()`.
   func listTmuxConnections() async throws -> [ITerm2API.TmuxConnection] {
     let delay = state.withLock { $0.listingDelay }
     if delay > .zero { try await clock.sleep(for: delay) }
-    return try await fake.listTmuxConnections()
+    let answer: Result<[ITerm2API.TmuxConnection], any Error>
+    do {
+      answer = .success(try await fake.listTmuxConnections())
+    } catch {
+      answer = .failure(error)
+    }
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      let resumeNow = state.withLock { state -> Bool in
+        guard state.listingsToHold > 0 else { return true }
+        state.listingsToHold -= 1
+        state.heldListings.append(continuation)
+        return false
+      }
+      if resumeNow { continuation.resume() }
+    }
+    return try answer.get()
+  } // End of func listTmuxConnections()
+
+  /// Holds the answers of the next `count` plain connection listings until `releaseListings()`
+  /// (each is taken from the fake when asked for, so it shows iTerm2 as it was then).
+  func holdListings(_ count: Int) {
+    state.withLock { $0.listingsToHold = count }
   }
+
+  /// Lets every held listing answer, and holds no later one.
+  func releaseListings() {
+    let held = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+      state.listingsToHold = 0
+      defer { state.heldListings.removeAll() }
+      return state.heldListings
+    }
+    for continuation in held { continuation.resume() }
+  }
+
+  /// How many listing answers are held now.
+  var heldListingCount: Int { state.withLock { $0.heldListings.count } }
 
   /// Forwards to the fake and records the command unless it certainly was not sent.
   func sendTmuxCommand(_ command: String, connectionID: String) async throws -> String {
@@ -559,9 +629,54 @@ final class InstrumentedITerm2: ITerm2Integration {
     try await fake.setBuried(buried, sessionID: sessionID)
   }
 
-  /// Forwards to the fake.
+  /// Forwards to the fake (which buries the session when its check passes); a handled bury
+  /// then runs `onBuryHandled` and, while buries are held, waits for `releaseBuries()` before
+  /// its answer (or error) arrives.
   func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws {
-    try await fake.buryLaunchTab(sessionID: sessionID, ifOwnsTmuxConnection: connectionID)
+    let outcome: Result<Void, any Error>
+    do {
+      try await fake.buryLaunchTab(sessionID: sessionID, ifOwnsTmuxConnection: connectionID)
+      outcome = .success(())
+    } catch {
+      outcome = .failure(error)
+    }
+    if case .failure(let error as ITerm2Error) = outcome, error.isNotSent {
+      throw error
+    }
+    let hook = state.withLock { $0.onBuryHandled }
+    hook?()
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      let resumeNow = state.withLock { state -> Bool in
+        guard state.holdsBuries else { return true }
+        state.heldBuries.append(continuation)
+        return false
+      }
+      if resumeNow { continuation.resume() }
+    }
+    try outcome.get()
+  } // End of func buryLaunchTab(sessionID:ifOwnsTmuxConnection:)
+
+  /// Holds the answer of every bury iTerm2 handles from now on, until `releaseBuries()`.
+  func holdBuries() {
+    state.withLock { $0.holdsBuries = true }
+  }
+
+  /// Lets every held bury answer (and every later one).
+  func releaseBuries() {
+    let held = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+      state.holdsBuries = false
+      defer { state.heldBuries.removeAll() }
+      return state.heldBuries
+    }
+    for continuation in held { continuation.resume() }
+  }
+
+  /// How many bury answers are held now.
+  var heldBuryCount: Int { state.withLock { $0.heldBuries.count } }
+
+  /// Runs `hook` once each time iTerm2 handled a bound bury, before its answer arrives.
+  func setOnBuryHandled(_ hook: (@Sendable () -> Void)?) {
+    state.withLock { $0.onBuryHandled = hook }
   }
 
   /// Forwards to the fake.
@@ -692,12 +807,14 @@ enum AttachTestSupport {
     store: FakeLaunchStore,
     clock: any AttachClock = ManualAttachClock(),
     existingAttachments: AttachCoordinator.ExistingAttachmentCheck = .off,
+    buriedTabTimer: BuriedTabTimer = .off,
     log: UpdateLog = UpdateLog()
   ) -> AttachCoordinator {
     AttachCoordinator(
       iTerm2: iTerm2, discovery: discovery, store: store, helperPath: helper, clock: clock,
-      existingAttachments: existingAttachments, onUpdate: { log.record($0) })
-  } // End of func coordinator(iTerm2:discovery:store:clock:existingAttachments:log:)
+      existingAttachments: existingAttachments, buriedTabTimer: buriedTabTimer,
+      onUpdate: { log.record($0) })
+  } // End of func coordinator(iTerm2:discovery:store:clock:existingAttachments:…)
 
   /// An attachment index over `iTerm2` whose timeouts never fire (its clock is never
   /// advanced), so answers decide every outcome.

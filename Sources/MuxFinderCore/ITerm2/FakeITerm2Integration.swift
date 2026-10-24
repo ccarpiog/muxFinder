@@ -8,7 +8,26 @@ import Foundation
 /// throws `notRunning`, and while `script.socketPresent` is `false`, `apiDisabled`, before any
 /// scripted result is used. A successful `ensureRunning()` makes iTerm2 "run" with its socket
 /// present.
+///
+/// It keeps buried state the way iTerm2 3.7.6 does (PLAN.md Phase 13, S2, S3, S8) on top of the
+/// scripted listings: a successful bury (`setBuried(true, …)`, or `buryLaunchTab` once its
+/// check passed) moves the session out of its tab (a tab or window left empty goes too) into
+/// `buried_sessions`; a successful restore of a buried session brings it back in a new window
+/// of its own; both are idempotent (a second bury, or a restore of a session that is not
+/// buried, changes nothing); and a session a `close(_:)` answered `OK` for is listed no more.
+/// Only sessions a scripted listing names are placed this way, so a script that leaves the
+/// launch tab out still leaves it out.
 public actor FakeITerm2Integration: ITerm2Integration {
+  /// Where the fake's buries, restores and closes put one session, over the scripted listings.
+  public enum Placement: Sendable, Hashable {
+    /// In `buried_sessions`, in no tab.
+    case buried
+    /// Restored after a bury, alone in the window `windowID` (S8).
+    case restored(windowID: String)
+    /// Closed: listed nowhere.
+    case closed
+  }
+
   /// One recorded call, with its arguments.
   public enum Call: Sendable, Hashable {
     /// `isRunning()`.
@@ -107,6 +126,10 @@ public actor FakeITerm2Integration: ITerm2Integration {
   public private(set) var script: Script
   /// Every call so far, oldest first.
   public private(set) var calls: [Call] = []
+  /// The sessions the fake's buries, restores and closes moved, by session id.
+  public private(set) var placements: [String: Placement] = [:]
+  /// Numbers the windows restores open.
+  private var restoredWindows = 0
 
   /// Creates a fake answering from `script`.
   public init(script: Script = Script()) {
@@ -153,12 +176,99 @@ public actor FakeITerm2Integration: ITerm2Integration {
     script.socketPresent = true
   }
 
-  /// Logs `listSessions()` and returns the next scripted result.
+  /// Logs `listSessions()` and returns the next scripted result, with the buried state applied.
   public func listSessions() async throws -> ITerm2API.ListSessionsResponse {
     calls.append(.listSessions)
     try checkReachable()
-    return try script.listSessions.next().get()
+    return placed(try script.listSessions.next().get())
   }
+
+  /// Whether the fake buried `sessionID` (and has not restored or closed it since).
+  public func isBuried(_ sessionID: String) -> Bool {
+    placements[sessionID] == .buried
+  }
+
+  /// What the helper's `Disinter` does (PLAN.md Phase 13, S7): restores `sessionID` if it is
+  /// buried, as a successful restore would, without a request or a log entry.
+  public func restoreAsTheHelperWould(_ sessionID: String) {
+    restore(sessionID)
+  }
+
+  /// Applies a successful bury of `sessionID` (S2, S3): idempotent, and never for a closed one.
+  private func bury(_ sessionID: String) {
+    guard placements[sessionID] != .closed else { return }
+    placements[sessionID] = .buried
+  }
+
+  /// Applies a successful restore of `sessionID`: a buried one comes back in a new window
+  /// (S8); any other is left as it is (S2).
+  private func restore(_ sessionID: String) {
+    guard placements[sessionID] == .buried else { return }
+    restoredWindows += 1
+    placements[sessionID] = .restored(windowID: "fake-restored-window-\(restoredWindows)")
+  }
+
+  /// `listing` with every session the fake moved placed where it is now: out of its tab (a
+  /// tab or window left without sessions is dropped), then into `buried_sessions`, a window of
+  /// its own, or nowhere. A session the listing does not name stays unnamed.
+  private func placed(_ listing: ITerm2API.ListSessionsResponse) -> ITerm2API.ListSessionsResponse {
+    let moved = Set(placements.keys).intersection(listing.allSessionIDs)
+    guard !moved.isEmpty else { return listing }
+    var result = listing
+    result.windows = listing.windows.compactMap { window in
+      var kept = window
+      kept.tabs = window.tabs.compactMap { tab in
+        guard tab.sessions.contains(where: { moved.contains($0.uniqueIdentifier ?? "") }) else {
+          return tab
+        }
+        var keptTab = tab
+        keptTab.root = tab.root.flatMap { Self.node($0, without: moved) }
+        keptTab.minimizedSessions = tab.minimizedSessions.filter {
+          !moved.contains($0.uniqueIdentifier ?? "")
+        }
+        return keptTab.sessions.isEmpty ? nil : keptTab
+      }
+      return kept.tabs.isEmpty && !window.tabs.isEmpty ? nil : kept
+    } // End of map over the listed windows
+    result.buriedSessions = listing.buriedSessions.filter {
+      !moved.contains($0.uniqueIdentifier ?? "")
+    }
+    for sessionID in moved.sorted() {
+      switch placements[sessionID] {
+      case .buried:
+        result.buriedSessions.append(.init(uniqueIdentifier: sessionID))
+      case .restored(let windowID):
+        result.windows.append(
+          .init(
+            windowID: windowID,
+            tabs: [
+              .init(
+                tabID: "\(windowID)-tab",
+                root: .init(links: [.session(.init(uniqueIdentifier: sessionID))]))
+            ]))
+      case .closed, nil:
+        continue
+      }
+    } // End of loop over the moved sessions
+    return result
+  } // End of func placed(_:)
+
+  /// `node` without the sessions in `removed` (at any depth); `nil` when nothing is left.
+  private static func node(
+    _ node: ITerm2API.SplitTreeNode,
+    without removed: Set<String>
+  ) -> ITerm2API.SplitTreeNode? {
+    var kept = node
+    kept.links = node.links.compactMap { link -> ITerm2API.SplitTreeNode.Link? in
+      switch link {
+      case .session(let summary):
+        return removed.contains(summary.uniqueIdentifier ?? "") ? nil : link
+      case .node(let nested):
+        return Self.node(nested, without: removed).map(ITerm2API.SplitTreeNode.Link.node)
+      }
+    }
+    return kept.links.isEmpty ? nil : kept
+  } // End of static func node(_:without:)
 
   /// Logs `createTab(_:)` and returns the next scripted result.
   public func createTab(
@@ -223,7 +333,7 @@ public actor FakeITerm2Integration: ITerm2Integration {
     try requireTmuxConnection(connectionID, ownedBy: owningSessionID)
     let sessions: ITerm2API.ListSessionsResponse
     switch script.listSessions.next() {
-    case .success(let listed): sessions = listed
+    case .success(let listed): sessions = placed(listed)
     case .failure(let error): throw error.isNotSent ? error : ITerm2Error.notSent(error)
     }
     guard
@@ -237,18 +347,20 @@ public actor FakeITerm2Integration: ITerm2Integration {
     return tabID
   } // End of func activateFirstTab(ofTmuxConnection:ownedBy:options:)
 
-  /// Logs `setBuried(_:sessionID:)` and returns the next scripted result.
+  /// Logs `setBuried(_:sessionID:)` and returns the next scripted result; a success buries or
+  /// restores the session (see the type's documentation).
   public func setBuried(_ buried: Bool, sessionID: String) async throws {
     calls.append(.setBuried(buried: buried, sessionID: sessionID))
     try checkReachable()
     try script.setBuried.next().get()
+    if buried { bury(sessionID) } else { restore(sessionID) }
   }
 
   /// Logs `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)` and checks as the real client does:
   /// it takes the next `listTmuxConnections` result (a failure becomes `notSent`), throws
   /// `tmuxConnectionNotOwned` unless a listed connection has that id and is owned by
   /// `sessionID`, then logs the bury as `setBuried(true, sessionID:)` and takes the next
-  /// `setBuried` result.
+  /// `setBuried` result; a success buries the session.
   public func buryLaunchTab(
     sessionID: String,
     ifOwnsTmuxConnection connectionID: String
@@ -258,6 +370,7 @@ public actor FakeITerm2Integration: ITerm2Integration {
     try requireTmuxConnection(connectionID, ownedBy: sessionID)
     calls.append(.setBuried(buried: true, sessionID: sessionID))
     try script.setBuried.next().get()
+    bury(sessionID)
   } // End of func buryLaunchTab(sessionID:ifOwnsTmuxConnection:)
 
   /// Takes the next `listTmuxConnections` result as a bound request's listing: a failure
@@ -288,12 +401,19 @@ public actor FakeITerm2Integration: ITerm2Integration {
     return try script.listProfiles.next().get()
   }
 
-  /// Logs `close(_:)` and returns the next scripted result.
+  /// Logs `close(_:)` and returns the next scripted result; every session it answers `OK` for
+  /// is listed no more.
   public func close(_ request: ITerm2API.CloseRequest) async throws -> ITerm2API.CloseResponse {
     calls.append(.close(request))
     try checkReachable()
-    return try script.close.next().get()
-  }
+    let response = try script.close.next().get()
+    if case .sessions(let ids) = request.target {
+      for (id, status) in zip(ids, response.statuses) where status == .ok {
+        placements[id] = .closed
+      }
+    }
+    return response
+  } // End of func close(_:)
 
   /// Logs `disconnect()`.
   public func disconnect() async {

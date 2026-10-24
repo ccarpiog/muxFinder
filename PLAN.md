@@ -199,7 +199,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `createTestModeMarker`) creates it. The helper takes its request by opening it with
     `O_NOFOLLOW` and unlinking it at once (the first unlink wins, so a request is used once),
     then requires a regular file owned by the user, no group or other bits, no extended ACL and
-    at most 16 KiB. Each helper mode takes only requests of its own kind (D24): an attach
+    at most 16 KiB. Results are taken the same way; `peekResult` reads one under the same
+    checks without unlinking anything (the coordinator's look at a buried launch tab's helper,
+    D29), so a result nobody takes is left to the sweep. Each helper mode takes only requests of
+    its own kind (D24): an attach
     request has no `kind` field (so every file written before ssh setup existed reads exactly
     as before), an ssh setup request has `"kind":"sshSetup"`, and a well-formed request of the
     other kind is refused (72), gone like every refused request. TTL: 120 s after `createdAt`
@@ -359,12 +362,14 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     session id (the result reports it on every failure after the tab opened). Both the request
     and that task are `LaunchTab` (`Attach/LaunchTab.swift`), which "Set up SSH in iTerm2…"
     uses too (D24), so muxFinder opens tabs in iTerm2 one way only. Once an attach is confirmed
-    and its first tmux tab activated, the coordinator buries its launch tab, and the helper (or
-    the coordinator's recovery) restores it when tmux ends (D29, built in Phase 13b). A buried
-    launch tab still owns its connection, so *Connection binding* below holds unchanged.
+    and its first tmux tab activated, the coordinator buries its launch tab (step 10,
+    `Attach/AttachCoordinatorBurial.swift`), and the helper (or the coordinator's recovery)
+    restores it when tmux ends (D29). A buried launch tab still owns its connection, so
+    *Connection binding* below holds unchanged.
   - **Seams:** iTerm2 (`ITerm2Integration`), discovery (`HostDiscovering`), the launch files
-    (`LaunchRequestStore`) and the clock (`AttachClock`) are protocols, so the coordinator is
-    tested hermetically with fakes and a manual clock.
+    (`LaunchRequestStore`) and the clock (`AttachClock`) are protocols, and the buried-tab
+    timer (`BuriedTabTimer`, D29) is chosen at creation, so the coordinator is tested
+    hermetically with fakes and manual clocks.
   - **Single flight** by `SessionKey`: concurrent callers of the same kind (attach, or move
     here, D21) share one launch and one result; a caller of the other kind waits until that
     launch ended and is settled (D21), then starts its own. When
@@ -1414,9 +1419,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Show tab:** `AttachCoordinator.showLaunchTab(_:)` activates the session id with
     `select_session`, `select_tab`, `order_window_front` and the app options (the Python
     module's `Session.async_activate`), once, only for a launch tab the coordinator opened and
-    still remembers; any other id is `notOpenedHere` and nothing is sent. From Phase 13b it
-    first restores the tab (`setBuried(false)`, idempotent), never while a bury of that same tab
-    is pending (D29). iTerm2 never hands out
+    still remembers; any other id is `notOpenedHere` and nothing is sent. It first restores the
+    tab (`setBuried(false)`, idempotent; a refused restore ends it, `failed`, with nothing
+    activated), never while a bury of that same tab is pending (D29). iTerm2 never hands out
     a session id again, so no binding check is needed. The model passes only ids from its own
     activities. Not yet seen against iTerm2 3.7.6 (local attaches never wait, so the self-tests
     do not reach it).
@@ -1930,27 +1935,42 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
 - **D29 — Hiding the launch tab once attached** (decided in Phase 13a, 2026-10-24, from the
   spike's facts, *Verified facts*, Phase 13a; client in `ITerm2/ITerm2Property.swift`, helper
   in `Launch/LaunchHelper.swift` and `Launch/TerminalStatusRequest.swift`, spike harness in
-  `Sources/muxfinder-probe/E2EBury*.swift`; the coordinator's part is built in Phase 13b).
-  - **The bury:** the coordinator buries a launch tab it opened with
-    `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)` (bound like every command, D15), once
-    per launch (coalesced callers share it), for `attach`, `createAndAttach` and `moveHere`,
-    only after the attach is confirmed and step 9 returned `.activated(tabID:)` (S6: a tmux
-    window shows). Never after `.noTab` or a failed activation, for a failed or unconfirmed
-    attach, a focus, or a tab it did not open. A failed bury is not fatal and never retried
-    (D13). The outcome goes on `AttachResult` and into diagnostics: `buried`,
-    `skipped(reason)`, `failed(error)`, `uncertain` (sent, no answer) or `restoredAfterEnd`. A
-    buried tab still owns its connection, so the bound identity check and `detach-client` work
-    as before. muxFinder never reads iTerm2's preferences: with "Automatically bury the tmux
-    client session after connecting" on, iTerm2 has buried the tab already (the bury answers
-    `OK`, S2) and restores it itself when tmux ends (S5). Decisions read `ListSessions`'
-    `buried_sessions`, never `GetProperty` `buried` (it answers `1`/`0`).
+  `Sources/muxfinder-probe/E2EBury*.swift`; the coordinator's part, built in Phase 13b, in
+  `Attach/AttachCoordinatorBurial.swift`, with `LaunchTabBurial` in `Attach/AttachModels.swift`
+  and `BuriedTabTimer` in `Attach/AttachSeams.swift`).
+  - **The bury** (the coordinator's step 10): the coordinator buries a launch tab it opened
+    with `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)` (bound like every command, D15),
+    once per launch (coalesced callers share it), for `attach`, `createAndAttach` and
+    `moveHere`, only after the attach is confirmed and step 9 returned `.activated(tabID:)`
+    (S6: a tmux window shows). Never after `.noTab` or a failed activation, for a failed or
+    unconfirmed attach, a focus, or a tab it did not open. A failed bury is not fatal and never
+    retried (D13). The outcome is `AttachResult.burial` (`LaunchTabBurial`; `nil` unless
+    confirmed) and part of the attach's diagnostics record (no ids): `buried`, `skipped(noTab
+    | activationFailed | turnedOff)`, `failed(error)` (not sent, `tmuxConnectionNotOwned`
+    included, or answered with an error), `uncertain` (sent, no answer: a timeout, a lost
+    connection) or `restoredAfterEnd`; `timings.buried` says when the bury and its check
+    ended. The bury and its check run in a task of their own, so cancelling the attach cannot
+    cut them short. `Configuration.buriesLaunchTabs` (on by default) is off only in `e2e-bury`,
+    whose spike buries by itself (`turnedOff`). A buried tab still owns its connection, so the
+    bound identity check and `detach-client` work as before. muxFinder never reads iTerm2's
+    preferences: with "Automatically bury the tmux client session after connecting" on, iTerm2
+    has buried the tab already (the bury answers `OK`, S2) and restores it itself when tmux
+    ends (S5). Decisions read `ListSessions`' `buried_sessions`, never `GetProperty` `buried`
+    (it answers `1`/`0`).
   - **The race, closed by order:** the helper writes its result before its first restore.
-    After the bury's answer (or its timeout), the coordinator peeks at the result (without
-    taking it, so `detach` still does) and checks the connection's owner; when the result
-    exists or the tab no longer owns the connection it sends `setBuried(false)` (idempotent;
-    `restoredAfterEnd`). A bury iTerm2 handled after the helper's first restore was answered
-    after the result existed, so it is undone; one handled before is undone by that restore;
-    one during the hold by the helper's last restore (seen in the spike, (c)).
+    After the bury's answer (or its timeout), the coordinator peeks at the result
+    (`LaunchRequestStore.peekResult`, without taking it, so `detach` still does) and, with no
+    result, lists the connections for the owner. A detach can take the result while the bury
+    or this check still awaits iTerm2; no peek can see it then, so the detach hands it to the
+    check (`buriesInFlight`), and it counts like a peeked one. When a result exists or the tab
+    no longer owns the connection, the coordinator sends `setBuried(false)` (idempotent;
+    `restoredAfterEnd`, the tab not watched). A bury iTerm2 handled after the helper's first
+    restore was answered after the result existed, so it is undone; one handled before is
+    undone by that restore; one during the hold by the helper's last restore (seen in the
+    spike, (c)). A `buried` or `uncertain` tab is watched (below), and so is one whose
+    restore here failed, with what the check saw: the result (peeked or handed over), or that
+    the tab no longer owns its connection. So the watch acts on it as soon as it is due and
+    never waits, buried, for a result a detach already took.
   - **The helper's restore** (D14 *Launch tab restore*): after the attach child ends, for every
     outcome unless the tab was closed: the result, then a line feed, `Disinter` and a status
     report request, the exchange bounded to 2 s writes included (non-blocking I/O under one
@@ -1969,14 +1989,34 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     buried session answers too, so without `Disinter` before it an answer says nothing about
     where the tab is. A missing answer is logged, and the helper goes on.
   - **Recovery while the app runs** (design item 5): the coordinator remembers the launch tabs
-    it buried (launch id and gateway session id, the latest 64, like its launches). While that
-    list is not empty, a file-only peek at their results runs every 2 s and on every attach,
-    detach and attachment check; iTerm2 is contacted only once a result has appeared. Then it
-    sends `setBuried(false)`; when the result is clean and the session is still listed (a dead
-    tab, S4: the helper's restores never reached iTerm2), a forced `Close` by its session id,
-    statuses and absence checked (it works on a buried session directly, (d)); a tab whose
-    helper reported a failure stays visible for its explanation. A result the sweep removed
-    (older than D14's 120 s) leaves a tab that owns no connection: restored and left visible.
+    it buried (launch id, gateway session id and connection id, the latest 64, like its
+    launches; memory only). While that list is not empty, a file-only peek at their results
+    runs every 2 s (`BuriedTabTimer`: `.system`, real time, in the app, the probe and the
+    self-tests; `.clock` for tests that tick it by hand; `.off`) and at the start of every
+    attach (also a move here or the attach of a new session) and detach; a result a detach
+    took is handed over, since no peek can see it any more. iTerm2 is contacted only once a
+    result has appeared or a listing showed the tab no longer owning its connection (below),
+    one recovery at a time, one attempt per tab (D13), each recorded in diagnostics without
+    ids. After a helper failure: `ListSessions`, `setBuried(false)` if
+    the tab is in `buried_sessions`, and the tab stays visible for its explanation. After a
+    clean end: nothing until `Configuration.buriedTabCloseDelay` (15 s) after the result was
+    first seen, then `ListSessions`; a tab no longer listed closed by itself; one still listed
+    (a dead tab, S4: the helper's restores never reached iTerm2) gets `setBuried(false)` if
+    buried, then a forced `Close` by its own session id (it works on a buried session too,
+    (d)), its status checked and its absence awaited for 5 s. Deviation from the design, which
+    restored and checked "still listed" as soon as the result appeared: the helper lives up to
+    about 12 s after a clean result (its 2 s restore exchange, the rest of its 10 s minimum
+    lifetime, its last 2 s exchange), so a check right away would close a live tab in the
+    middle of its own restore; the delay waits that out, and a clean tab's restore waits with
+    it (its helper restores it meanwhile). A result the sweep removed (older than D14's
+    120 s) leaves a tab that owns no connection: an attachment check (the existing-attachment
+    check of an attach or move here, or `detach(session:on:)`'s index) whose listing left no
+    connection out shows it, and the tab is restored if buried and left visible. Such a check
+    judges only the tabs watched before it started: a snapshot lists the connections before
+    it awaits their identity answers, so a tab an attach running alongside buried meanwhile
+    cannot be in its listing and is left as it is. A tab whose check right after the bury saw
+    the connection gone, but whose restore there failed, is handled the same way. "Show tab"
+    restoring a tab ends its watch.
   - **Persistence (item 5's decision): memory only.** The helper alone brought the tab back
     after every abnormal end the spike tried (the attach child killed locally, the local ssh
     killed for Saturno), with iTerm2's default setting emulated, before its explanation, so a
@@ -1985,17 +2025,31 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     under Session > Buried Sessions; README, Phase 13c): a helper that died without its
     restores, iTerm2's "Tolerate unrecognized commands from server" advanced setting on, or a
     tmux command still pending at the abnormal end (both keep iTerm2 in tmux mode).
-  - **Show tab** (D25): restores the tab before activating it, never alongside a pending bury
-    of that same tab.
-  - **What 13b builds** (hermetic): the bury call site and its outcome on `AttachResult`; the
-    peek (a non-consuming read on `LaunchRequestStore`) and the post-bury check; the
-    remembered list with its timer and triggers; `showLaunchTab`'s restore; buried state in
-    `SimulatedITerm2`, `InstrumentedITerm2`, `SimulatedProfileITerm2` and
-    `FakeITerm2Integration` (a bury moves the tab to `buried_sessions`, a restore brings it
-    back in a new window, S8); and design item 7's harness assertions in `e2e-local` and
-    `e2e-remote` (buried after confirmation; after each detach the tab gone from tabs and
-    `buried_sessions` by itself, before any cleanup). 13c runs them for real, with
-    `e2e-bury` through the coordinator.
+  - **Show tab** (D25): restores the tab before activating it (a refused restore ends it with
+    nothing activated), never alongside a bury of that same tab: a show and a bury of one tab
+    run one after the other, each in a task of its own, in the order they were asked for.
+  - **Fakes and harness (Phase 13b, hermetic):** `FakeITerm2Integration`, `SimulatedITerm2`
+    and `SimulatedProfileITerm2` keep buried state (a successful bury moves the session out of
+    its tab, a window left without tabs going too, into `buried_sessions`; a restore brings a
+    buried one back in a new window, S8; both idempotent, S2; the scripted fake places only
+    sessions its listing names, and drops a session a `Close` answered `OK` for);
+    `InstrumentedITerm2` can hold a bury's answer and run a hook once iTerm2 handled it, and
+    hold the answers of connection listings it already took, so the tests drive every
+    interleaving (`Tests/MuxFinderCoreTests/LaunchTabBurialTests.swift`).
+    `e2e-local` and `e2e-remote` require, after every confirmed attach (attach, reattach,
+    concurrent attaches, new session, move here), `burial` `buried` and the launch tab in
+    `buried_sessions` and in no tab within 5 s; after every detach, the tab gone from both
+    tabs and `buried_sessions` by itself within 10 s, before any cleanup; and cleanup closes
+    each leftover launch tab, forced, checking the answer and its absence, restoring a
+    still-listed buried one and closing it again. A stranded tab fails the step, and so does
+    one that left only through the coordinator: the 10 s wait and the coordinator's recovery
+    of a dead tab (15 s after its result was first seen, possibly by the timer while the
+    detach still ran) can overlap, so "by itself" is checked, not timed. The run's
+    coordinators talk to iTerm2 through `RecordingITerm2Integration` (in `MuxFinderCore`,
+    unit-tested), which records each bury, restore and `Close` before sending it; once the
+    tab is seen gone, any recorded restore or `Close` that may have touched it fails the step.
+    The step counts are unchanged. `muxfinder-probe attach`'s JSON carries `burial` and
+    `timingsMs.buried`. 13c runs them for real, with `e2e-bury` through the coordinator.
 
 ## Verified facts (planning session, 2026-10-21)
 

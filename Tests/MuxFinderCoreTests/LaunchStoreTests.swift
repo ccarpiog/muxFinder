@@ -256,6 +256,54 @@ struct LaunchStoreTests {
     #expect(try store.takeResult(id) == nil)
   } // End of func takesResults()
 
+  /// A peek reads a result without taking it (PLAN.md D29): it stays for the take, and a peek
+  /// after the take finds nothing. A result refused as unsafe or malformed is reported and
+  /// left in place (the take or the sweep removes it); the sweep still removes an old one.
+  @Test func peeksResultsWithoutTakingThem() throws {
+    let (store, root) = try LaunchTestSupport.makeStore()
+    defer { try? FileManager.default.removeItem(at: root) }
+    /// A result for `id`.
+    func result(_ id: LaunchToken) -> LaunchResult {
+      LaunchResult(
+        id: id, helperPID: 5, startedAt: LaunchTestSupport.requestTime, childStartedAt: nil,
+        endedAt: LaunchTestSupport.requestTime, childTermination: .exited(0), failure: nil)
+    }
+    let id = LaunchToken()
+    #expect(try store.peekResult(id) == nil)
+    try store.writeResult(result(id))
+    #expect(try store.peekResult(id) == result(id))
+    #expect(try store.peekResult(id) == result(id))
+    #expect(try store.takeResult(id) == result(id))
+    #expect(try store.peekResult(id) == nil)
+
+    let open = LaunchToken()
+    try store.writeResult(result(open))
+    let openFile = store.directory.appending(path: LaunchStore.resultFileName(for: open))
+    #expect(chmod(openFile.path(percentEncoded: false), 0o644) == 0)
+    #expect(throws: LaunchStoreError.fileUnsafe(.permissionsTooOpen)) {
+      try store.peekResult(open)
+    }
+    #expect(LaunchTestSupport.exists(openFile))
+
+    let other = LaunchToken()
+    try store.writeResult(result(LaunchToken()))
+    let written = try #require(
+      try LaunchTestSupport.names(in: store.directory).first {
+        $0 != LaunchStore.resultFileName(for: open)
+      })
+    let otherFile = store.directory.appending(path: LaunchStore.resultFileName(for: other))
+    let writtenPath = store.directory.appending(path: written).path(percentEncoded: false)
+    #expect(rename(writtenPath, otherFile.path(percentEncoded: false)) == 0)
+    #expect(throws: LaunchStoreError.fileMalformed) { try store.peekResult(other) }
+    #expect(LaunchTestSupport.exists(otherFile))
+
+    let later = LaunchStore(
+      directory: store.directory, now: { LaunchTestSupport.requestTime.addingTimeInterval(1e9) })
+    try store.writeResult(result(id))
+    #expect(try later.sweep() == 3)
+    #expect(try store.peekResult(id) == nil)
+  } // End of func peeksResultsWithoutTakingThem()
+
   /// `discardRequest` removes a pending request once.
   @Test func discardsRequests() throws {
     let (store, root) = try LaunchTestSupport.makeStore()

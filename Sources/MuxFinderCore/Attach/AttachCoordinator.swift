@@ -31,9 +31,20 @@ import Foundation
 /// 8. The state becomes `confirmed(connectionID)`.
 /// 9. `Activate` the first tab carrying that `tmux_connection_id`, while the launch tab still
 ///    owns the connection.
+/// 10. Once that activated a tab, bury the launch tab (PLAN.md D29), bound to its connection,
+///    then close the race with the helper's restore by order: when the helper's result exists
+///    right after the bury's answer (a peek, never a take, or the result a detach took
+///    meanwhile) or the tab no longer owns its connection, restore the tab at once. A tab that
+///    may be buried (that restore failing included) is remembered with what was seen: a
+///    file-only peek at its helper's result every `Configuration.buriedTabCheckInterval`
+///    (`BuriedTabTimer`) and on every attach, detach and attachment check finds when its helper
+///    ended; then the coordinator restores it, leaves it visible after a helper failure, and
+///    closes it (forced, by its own session id) when it ended cleanly but is still listed later
+///    (a dead tab, S4).
 ///
 /// Concurrent attaches for the same `SessionKey` coalesce into one launch and share its
-/// result. No request is retried automatically (D13): a failed `CreateTab`, identity check or
+/// result (and its one bury). No request is retried automatically (D13): a failed
+/// `CreateTab`, identity check or
 /// activation ends that step. Every failure before a connection was found withdraws the request
 /// file, so a launch tab that starts late cannot attach; once the tab exists its session id is
 /// in the result, so the caller can find it. Detaching sends `detach-client` on the connection
@@ -118,6 +129,21 @@ public actor AttachCoordinator {
     /// Whether activation also activates iTerm2 itself (the app is in the background when the
     /// user clicks the menu bar).
     public var activatesApp: Bool
+    /// Whether a confirmed attach buries its launch tab once its first tmux tab is activated
+    /// (PLAN.md D29). Off only for the Phase 13a spike harness (`e2e-bury`), which buries by
+    /// itself; `AttachResult.burial` is then `skipped(turnedOff)`.
+    public var buriesLaunchTabs: Bool
+    /// How often the timer looks (file only) at the helpers' results of the launch tabs the
+    /// coordinator buried, while it remembers any (`BuriedTabTimer`).
+    public var buriedTabCheckInterval: Duration
+    /// How long after a buried tab's clean helper result was first seen the coordinator waits
+    /// before it decides whether the tab is dead (still listed) and closes it. Longer than the
+    /// helper's life after its result on a clean end (its 2 s restore exchange, the rest of its
+    /// 10 s minimum lifetime, its last 2 s restore exchange), so a tab whose helper is still
+    /// finishing is never closed under it (PLAN.md D14, D29).
+    public var buriedTabCloseDelay: Duration
+    /// How long a dead buried tab may take to leave iTerm2's listing after its forced `Close`.
+    public var buriedTabCloseBudget: Duration
 
     /// Creates a configuration.
     public init(
@@ -131,7 +157,11 @@ public actor AttachCoordinator {
       resultBudget: Duration = .seconds(5),
       closedTabResultBudget: Duration = .seconds(10),
       minimumLaunchTabAge: Duration = .seconds(10),
-      activatesApp: Bool = true
+      activatesApp: Bool = true,
+      buriesLaunchTabs: Bool = true,
+      buriedTabCheckInterval: Duration = .seconds(2),
+      buriedTabCloseDelay: Duration = .seconds(15),
+      buriedTabCloseBudget: Duration = .seconds(5)
     ) {
       self.confirmationBudget = confirmationBudget
       self.remoteConfirmationBudget = remoteConfirmationBudget
@@ -144,6 +174,10 @@ public actor AttachCoordinator {
       self.closedTabResultBudget = closedTabResultBudget
       self.minimumLaunchTabAge = minimumLaunchTabAge
       self.activatesApp = activatesApp
+      self.buriesLaunchTabs = buriesLaunchTabs
+      self.buriedTabCheckInterval = buriedTabCheckInterval
+      self.buriedTabCloseDelay = buriedTabCloseDelay
+      self.buriedTabCloseBudget = buriedTabCloseBudget
     } // End of init(confirmationBudget:remoteConfirmationBudget:stillWaitingPollInterval:…)
   }
 
@@ -157,7 +191,7 @@ public actor AttachCoordinator {
   static let rememberedLaunches = 64
 
   /// A launch tab this coordinator opened.
-  private struct Launch {
+  struct Launch {
     /// When iTerm2 reported it open.
     let openedAt: ContinuousClock.Instant
     /// The launch running in it, whose helper result a detach can wait for.
@@ -202,19 +236,19 @@ public actor AttachCoordinator {
   }
 
   /// The iTerm2 backend.
-  private let iTerm2: any ITerm2Integration
+  let iTerm2: any ITerm2Integration
   /// Revalidation.
   private let discovery: any HostDiscovering
   /// Request and result files.
-  private let store: any LaunchRequestStore
+  let store: any LaunchRequestStore
   /// Budgets, polling and timestamps.
-  private let clock: any AttachClock
+  let clock: any AttachClock
   /// The helper iTerm2 runs in the launch tab.
   private let helperPath: LaunchHelperPath
   /// Budgets and options.
-  private let configuration: Configuration
+  let configuration: Configuration
   /// Where outcomes are recorded, if anywhere.
-  private let diagnostics: DiagnosticsLog?
+  let diagnostics: DiagnosticsLog?
   /// The state observer.
   private let onUpdate: UpdateHandler?
   /// The index an attach checks before launching; `nil` when the check is off.
@@ -235,9 +269,30 @@ public actor AttachCoordinator {
   /// The latest state of every session attached so far.
   private var states: [SessionKey: AttachState] = [:]
   /// The launch tabs this coordinator opened, by their session id.
-  private var launches: [String: Launch] = [:]
+  var launches: [String: Launch] = [:]
+  /// The launch tabs this coordinator buried (or may have buried) and watches until their
+  /// helper ends, oldest first, at most `rememberedBuriedTabs` (PLAN.md D29). Memory only.
+  var buriedTabs: [BuriedTab] = []
+  /// The buries (and the checks after them) still awaiting iTerm2, by launch, with the
+  /// helper's result a detach handed over meanwhile, so the check and the watch still know the
+  /// helper ended (PLAN.md D29).
+  var buriesInFlight: [LaunchToken: HandedOverResult] = [:]
+  /// The clock the buried-tab timer sleeps on; `nil` when the timer is off.
+  let buriedTabTimerClock: (any AttachClock)?
+  /// The buried-tab timer, while it runs (only while `buriedTabs` is not empty).
+  var buriedTabTimerTask: Task<Void, Never>?
+  /// The recovery of buried tabs whose helper ended, while it runs (one at a time).
+  var buriedTabRecovery: Task<Void, Never>?
+  /// How many file-only looks at the buried tabs ran. For tests.
+  var buriedTabChecks = 0
+  /// The bury or "Show tab" running for each launch tab (its session id), so the two never
+  /// overlap on one tab (PLAN.md D29).
+  var tabOperations: [String: TabOperation] = [:]
+  /// Numbers the tab operations.
+  var lastTabOperationID: UInt64 = 0
 
-  /// Creates a coordinator from its parts. Tests pass fakes for every seam.
+  /// Creates a coordinator from its parts. Tests pass fakes for every seam; `buriedTabTimer`
+  /// paces the look at the launch tabs it buried (`.off` in tests of other paths).
   public init(
     iTerm2: any ITerm2Integration,
     discovery: any HostDiscovering,
@@ -247,6 +302,7 @@ public actor AttachCoordinator {
     configuration: Configuration = Configuration(),
     existingAttachments: ExistingAttachmentCheck = .standard,
     sessionCreator: any SessionCreating = TmuxCommands(),
+    buriedTabTimer: BuriedTabTimer = .system,
     diagnostics: DiagnosticsLog? = nil,
     onUpdate: UpdateHandler? = nil
   ) {
@@ -259,6 +315,11 @@ public actor AttachCoordinator {
     self.configuration = configuration
     self.diagnostics = diagnostics
     self.onUpdate = onUpdate
+    switch buriedTabTimer {
+    case .system: buriedTabTimerClock = SystemAttachClock()
+    case .clock(let timerClock): buriedTabTimerClock = timerClock
+    case .off: buriedTabTimerClock = nil
+    }
     let standard = AttachmentIndex(iTerm2: iTerm2, clock: clock)
     switch existingAttachments {
     case .standard:
@@ -272,6 +333,11 @@ public actor AttachCoordinator {
       detachIndex = standard
     }
   } // End of init(iTerm2:discovery:store:helperPath:clock:configuration:existingAttachments:…)
+
+  /// Stops the buried-tab timer.
+  deinit {
+    buriedTabTimerTask?.cancel()
+  }
 
   /// The latest state of `key`'s most recent attach, or `nil` if it was never attached.
   public func state(of key: SessionKey) -> AttachState? {
@@ -426,6 +492,8 @@ public actor AttachCoordinator {
     detachesOtherClients: Bool
   ) async -> AttachResult {
     let key = target.key
+    // Every attach looks (file only) at the launch tabs this coordinator buried (PLAN.md D29).
+    checkBuriedTabs()
     // Never join a launch of the other kind (an attach must not end up detaching other
     // clients, a move here must not end up not doing so), and never start while a conflicting
     // launch may still attach the session: its `-d`, or this one's, would detach the other's
@@ -644,6 +712,8 @@ public actor AttachCoordinator {
     var connectionID: String?
     /// The activation outcome, once confirmed or focused.
     var activation: ActivationOutcome?
+    /// What became of the launch tab, once confirmed (PLAN.md D29).
+    var burial: LaunchTabBurial?
     /// What the existing-attachment check found, once it ran.
     var existingAttachments: AttachmentSnapshot.Counts?
     /// Step timings.
@@ -685,8 +755,8 @@ public actor AttachCoordinator {
     let result = AttachResult(
       key: target.key, launchID: launchID, state: finalState,
       gatewaySessionID: progress.gatewaySessionID, connectionID: progress.connectionID,
-      activation: progress.activation, existingAttachments: progress.existingAttachments,
-      timings: progress.timings)
+      activation: progress.activation, burial: progress.burial,
+      existingAttachments: progress.existingAttachments, timings: progress.timings)
     await record(result, hostID: target.host.id, detachesOtherClients: detachesOtherClients)
     return result
   } // End of func run(_:launchID:flightID:checksExistingAttachments:detachesOtherClients:)
@@ -794,8 +864,16 @@ public actor AttachCoordinator {
     progress.timings.confirmed = clock.now() - progress.start
     publish(.confirmed(connectionID: connectionID), for: progress)
     // 9. Bring it forward, only while the launch tab still owns the connection.
-    progress.activation = await activateFirstTab(of: connectionID, ownedBy: gatewaySessionID)
+    let activation = await activateFirstTab(of: connectionID, ownedBy: gatewaySessionID)
+    progress.activation = activation
     progress.timings.activated = clock.now() - progress.start
+    // 10. Hide the launch tab (PLAN.md D29), once, only after `.activated` (a tmux window
+    // shows), whatever the callers do meanwhile; a failed bury leaves the attach confirmed.
+    let burial = await buryLaunchTab(
+      after: activation, gatewaySessionID: gatewaySessionID, connectionID: connectionID,
+      launchID: progress.launchID)
+    progress.burial = burial
+    if case .skipped = burial {} else { progress.timings.buried = clock.now() - progress.start }
     return .confirmed(connectionID: connectionID)
   } // End of func perform(_:)
 
@@ -867,7 +945,10 @@ public actor AttachCoordinator {
     // A `.ok` discovery result always carries its report; without one nothing could match.
     guard let host else { return .failure(.discoveryFailed("noReport")) }
     do {
+      // Only the tabs watched before the listing can be judged by it (PLAN.md D29).
+      let watched = watchedLaunchIDs()
       let snapshot = try await index.snapshot(of: [host])
+      noteConnectionOwners(in: snapshot, watchedBefore: watched)
       return .success(
         ExistingCheck(
           counts: snapshot.counts, attachments: snapshot.attachments(of: key),
@@ -1064,25 +1145,20 @@ public actor AttachCoordinator {
   /// Brings forward the launch tab `sessionID` ("Show tab" next to "Still connecting — check
   /// the iTerm2 tab", PLAN.md D25), only when it is a launch tab this coordinator opened and
   /// still remembers: any other id (a tab of the user's, or one this coordinator forgot) is
-  /// `notOpenedHere` and nothing is sent. The tab is activated by its iTerm2 session id with
+  /// `notOpenedHere` and nothing is sent. The tab is first restored (`setBuried(false)`: a no-op
+  /// for a tab that is not buried, S2) and then activated by its iTerm2 session id with
   /// `select_session`, `select_tab` and `order_window_front` (the Python module's
-  /// `Session.async_activate`) and the app options, once (D13). Session ids are UUIDs iTerm2
-  /// never hands out again, unlike tmux connection ids, so no binding check is needed. A tab
-  /// that closed meanwhile makes iTerm2 refuse (`failed`). Nothing is closed or typed.
+  /// `Session.async_activate`) and the app options, each once (D13); a refused restore ends
+  /// it (`failed`) with nothing activated. It never runs alongside a bury of the same tab
+  /// (PLAN.md D29): it starts once a pending one ended, and a bury waits for it the same way.
+  /// A restored tab is no longer watched as buried. Session ids are UUIDs iTerm2 never hands
+  /// out again, unlike tmux connection ids, so no binding check is needed. A tab that closed
+  /// meanwhile makes iTerm2 refuse (`failed`). Nothing is closed or typed.
   public func showLaunchTab(_ sessionID: String) async -> LaunchTabShowResult {
     guard !sessionID.isEmpty, launches[sessionID] != nil else { return .notOpenedHere }
-    let request = ITerm2API.ActivateRequest(
-      target: .session(sessionID), orderWindowFront: true, selectTab: true, selectSession: true,
-      activateApp: configuration.activatesApp ? .init(ignoringOtherApps: true) : nil)
     let start = clock.now()
-    let result: LaunchTabShowResult
-    do {
-      try await iTerm2.activate(request)
-      result = .shown
-    } catch let error as ITerm2Error {
-      result = .failed(error)
-    } catch {
-      result = .failed(.disconnected)
+    let result = await onLaunchTab(sessionID) { coordinator in
+      await coordinator.restoreAndActivate(sessionID)
     }
     var detail = "show launch tab: \(result.kind)"
     if case .failed(let error) = result { detail += " (\(error.kind))" }
@@ -1091,6 +1167,29 @@ public actor AttachCoordinator {
       durationMs: Self.milliseconds(clock.now() - start), detail: detail)
     return result
   } // End of func showLaunchTab(_:)
+
+  /// "Show tab"'s requests: the restore, then (when it was answered `OK`) the activation.
+  private func restoreAndActivate(_ sessionID: String) async -> LaunchTabShowResult {
+    do {
+      try await iTerm2.setBuried(false, sessionID: sessionID)
+    } catch let error as ITerm2Error {
+      return .failed(error)
+    } catch {
+      return .failed(.disconnected)
+    }
+    forgetBuriedTab(gatewaySessionID: sessionID)
+    let request = ITerm2API.ActivateRequest(
+      target: .session(sessionID), orderWindowFront: true, selectTab: true, selectSession: true,
+      activateApp: configuration.activatesApp ? .init(ignoringOtherApps: true) : nil)
+    do {
+      try await iTerm2.activate(request)
+      return .shown
+    } catch let error as ITerm2Error {
+      return .failed(error)
+    } catch {
+      return .failed(.disconnected)
+    }
+  } // End of func restoreAndActivate(_:)
 
   // MARK: - Detach
 
@@ -1113,6 +1212,7 @@ public actor AttachCoordinator {
   ) async -> DetachResult {
     var result = DetachResult(connectionID: connectionID, gatewaySessionID: gatewaySessionID)
     let start = clock.now()
+    checkBuriedTabs()
     let remaining = remainingAge(of: gatewaySessionID, unknownSince: start)
     if remaining > .zero {
       do {
@@ -1147,6 +1247,7 @@ public actor AttachCoordinator {
   /// sent. An SSH host whose destination is not valid is `checkFailed` (`invalidDestination`).
   public func detach(session key: SessionKey, on host: HostConfig) async -> SessionDetachResult {
     let start = clock.now()
+    checkBuriedTabs()
     let outcome = await detachAttachments(of: key, on: host)
     var detail = "detach session: \(outcome.outcome.rawValue)"
     if !outcome.detaches.isEmpty { detail += ", \(outcome.detaches.count) attachment(s)" }
@@ -1177,8 +1278,11 @@ public actor AttachCoordinator {
       return SessionDetachResult(key: key, outcome: .checkFailed, checkFailure: failure)
     }
     let snapshot: AttachmentSnapshot
+    // Only the tabs watched before the listing can be judged by it (PLAN.md D29).
+    let watched = watchedLaunchIDs()
     do {
       snapshot = try await detachIndex.snapshot(of: [indexHost])
+      noteConnectionOwners(in: snapshot, watchedBefore: watched)
     } catch ITerm2Error.notRunning {
       return SessionDetachResult(key: key, outcome: .nothingAttached)
     } catch let error as ITerm2Error {
@@ -1329,6 +1433,9 @@ public actor AttachCoordinator {
       if let launchID {
         result.helperResult = await waitForResult(launchID, within: configuration.resultBudget)
       }
+      // A buried launch tab's helper ended: the result this detach took is the one the
+      // buried-tab look would have peeked at (PLAN.md D29).
+      if let helperResult = result.helperResult { noteHelperResult(helperResult) }
     }
   } // End of func sendDetach(_:launchID:)
 
@@ -1461,10 +1568,14 @@ public actor AttachCoordinator {
         hostID: hostID.uuidString, durationMs: duration,
         detail: "\(operation) failed: \(failure.kind)\(detail)")
     } else {
+      var detail =
+        result.isFocused ? "\(operation) focused an existing attachment" : "\(operation) confirmed"
+      if let burial = result.burial {
+        detail += "; launch tab \(burial.kind)" + (burial.detail.map { " (\($0))" } ?? "")
+      }
       await diagnostics.record(
         .attach, outcome: .success, hostID: hostID.uuidString, durationMs: duration,
-        detail: result.isFocused
-          ? "\(operation) focused an existing attachment" : "\(operation) confirmed")
+        detail: detail)
     }
   } // End of func record(_:hostID:detachesOtherClients:)
 

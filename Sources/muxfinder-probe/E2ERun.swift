@@ -30,7 +30,12 @@ struct StepFailure: Error {
 /// gets a command, not even the read-only identity `display-message`. It detaches only
 /// connections iTerm2 lists as owned by launch tabs it opened (checked by the coordinator right
 /// before `detach-client`), closes only those launch tabs (by the session ids iTerm2 reported
-/// when it opened them), and never touches another window, tab, session or tmux session. Every
+/// when it opened them), and never touches another window, tab, session or tmux session. The
+/// coordinator buries each launch tab once attached (PLAN.md D29): the attach steps require it
+/// in `buried_sessions` and in no tab, and every detach requires it gone from both by itself
+/// before any cleanup (no restore or `Close` of the coordinator's recorded for it), so a
+/// stranded launch tab fails its step instead of being cleaned up or closed by the coordinator's
+/// recovery. Every
 /// wait is bounded, and cleanup (the last step) runs after a failure, a signal (SIGINT, SIGTERM,
 /// SIGHUP) or the overall time limit. Remotely it runs tmux only through ssh with a static
 /// script and quoted arguments (D3), and writes no file on the remote host.
@@ -56,6 +61,16 @@ actor E2ERun {
   /// coordinator keeps the same age before every detach, and the helper never exits younger
   /// while its tab is visible; this is the coordinator's default.
   static let launchTabMinimumAge = AttachCoordinator.Configuration().minimumLaunchTabAge
+  /// How long a confirmed attach's launch tab may take to show only in `buried_sessions` after
+  /// the attach returned (PLAN.md D29; the coordinator buried it before returning).
+  static let buryListing: Duration = .seconds(5)
+  /// How long a detached launch tab may take to leave both iTerm2's tabs and `buried_sessions`
+  /// by itself, before any cleanup: the helper restores it (one bounded 2 s exchange), exits,
+  /// and the tab closes. The coordinator's recovery of a dead buried tab (a restore and a
+  /// forced `Close`, `buriedTabCloseDelay` after its helper's result was first seen) may fall
+  /// inside this wait, so the step also requires that the run's coordinators sent no restore
+  /// or `Close` for the tab before it was seen gone (`coordinatorITerm2`).
+  static let strandedGatewayWait: Duration = .seconds(10)
 
   /// Which proof this is.
   let kind: Kind
@@ -69,6 +84,10 @@ actor E2ERun {
   let helperPath: LaunchHelperPath
   /// The iTerm2 client every step shares.
   let client = ITerm2APIClient()
+  /// What every coordinator of the run talks to: `client`, with each bury, restore and `Close`
+  /// recorded before it is sent, so a detach step can prove that its launch tab left by itself
+  /// (`checkGatewayLeft(_:)`). The run's own requests go to `client` directly.
+  let coordinatorITerm2: RecordingITerm2Integration
   /// The real launch directory.
   let store = LaunchStore()
   /// Real discovery.
@@ -146,8 +165,9 @@ actor E2ERun {
         guard let owner = connection.owningSessionID else { return false }
         return recorder.isLaunchTab(owner)
       }))
+    coordinatorITerm2 = RecordingITerm2Integration(base: client)
     coordinator = AttachCoordinator(
-      iTerm2: client, discovery: discovery, store: store, helperPath: helperPath,
+      iTerm2: coordinatorITerm2, discovery: discovery, store: store, helperPath: helperPath,
       existingAttachments: .index(index), onUpdate: { recorder.record($0) })
   } // End of init(kind:tmux:helperPath:)
 
@@ -415,14 +435,16 @@ actor E2ERun {
       for: result.launchID,
       expectedChild: expectedAttachChild(for: target.session, detachesOtherClients: false))
     if step == 3 { notes.append(argv) }
+    notes.append(try await checkBuried(result))
     let timings = result.timings
     notes.append(
       "timings from the click: revalidated \(ms(timings.revalidated)) ms, existing attachments "
         + "checked \(ms(timings.checked)) ms (none; \(counts.excluded) connection(s) of others "
         + "not asked), launched \(ms(timings.launched)) ms, connection \(ms(timings.connected)) "
-        + "ms, confirmed \(ms(timings.confirmed)) ms, activated \(ms(timings.activated)) ms")
+        + "ms, confirmed \(ms(timings.confirmed)) ms, activated \(ms(timings.activated)) ms, "
+        + "buried \(ms(timings.buried)) ms")
     return "confirmed on connection \(connectionID) (requested → launched → confirmed), activated "
-      + "tab \(tabID)"
+      + "tab \(tabID), launch tab buried"
   } // End of func attachAndCheck(_:step:)
 
   /// The focus step: a second attach of the attached session must focus it: state `focused` on the
@@ -508,6 +530,63 @@ actor E2ERun {
   private func ms(_ duration: Duration?) -> Int {
     duration.map(milliseconds) ?? -1
   }
+
+  /// After a confirmed attach (PLAN.md D29, design item 7): the coordinator buried the launch
+  /// tab (`burial` is `buried`), and iTerm2 lists it in `buried_sessions` and in no tab within
+  /// `buryListing`. Returns a note for the step.
+  private func checkBuried(_ result: AttachResult) async throws -> String {
+    guard let gateway = result.gatewaySessionID else { throw StepFailure("no launch tab") }
+    guard result.burial == .buried else {
+      throw StepFailure(
+        "the launch tab was not buried: \(result.burial?.kind ?? "no outcome") "
+          + "(\(result.burial?.detail ?? "-"))")
+    }
+    let buried = try await poll(timeout: Self.buryListing) { () -> Bool? in
+      GatewayPlace(of: gateway, in: try await self.client.listSessions()) == .buried ? true : nil
+    }
+    guard buried == true else {
+      let place = GatewayPlace(of: gateway, in: try await client.listSessions())
+      throw StepFailure(
+        "\(Self.buryListing) after the bury the launch tab is \(place.rawValue), not only in "
+          + "buried_sessions")
+    }
+    return "the launch tab is in buried_sessions and in no tab (bury and check done "
+      + "\(ms(result.timings.buried)) ms after the call)"
+  } // End of func checkBuried(_:)
+
+  /// After a detach, before any cleanup (PLAN.md D29, design item 7): the launch tab `gateway`
+  /// must leave both iTerm2's tabs and `buried_sessions` by itself within
+  /// `strandedGatewayWait`. A stranded one fails the step, which says where it stayed. "By
+  /// itself" is checked, not assumed: once the listing shows the tab gone, the requests the
+  /// run's coordinators sent (`coordinatorITerm2`, each recorded before it was sent, so any that
+  /// could have removed the tab is there by then) must hold no restore or `Close` that may
+  /// have touched it; one that does (the coordinator's recovery of a dead buried tab) fails
+  /// the step. Returns how long it took.
+  private func checkGatewayLeft(_ gateway: String) async throws -> Duration {
+    let start = ContinuousClock.now
+    let gone = try await poll(timeout: Self.strandedGatewayWait) { () -> Bool? in
+      try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
+    }
+    let elapsed = ContinuousClock.now - start
+    let touched = await coordinatorITerm2.restoresAndCloses(of: gateway)
+    let restores = touched.filter { if case .setBuried = $0 { true } else { false } }.count
+    let sent =
+      "the coordinator sent \(restores) restore(s) and \(touched.count - restores) Close(s) "
+      + "that may have touched it"
+    guard gone == true else {
+      let place = GatewayPlace(of: gateway, in: try await client.listSessions())
+      throw StepFailure(
+        "the launch tab was stranded "
+          + (place == .buried ? "in buried_sessions" : place.rawValue)
+          + " \(Self.strandedGatewayWait) after the detach" + (touched.isEmpty ? "" : "; \(sent)"))
+    }
+    guard touched.isEmpty else {
+      throw StepFailure(
+        "the launch tab left \(milliseconds(elapsed)) ms after the detach, but not by itself: "
+          + sent)
+    }
+    return elapsed
+  } // End of func checkGatewayLeft(_:)
 
   /// Takes the argv digests and checks the one of `launchID`: three arguments, `attach` and the
   /// launch id; reports whether argv[0] is the helper's path. Its attach child, when the helper
@@ -650,7 +729,7 @@ actor E2ERun {
           + "\(tab.tmuxWindowID ?? "absent"), tmux_connection_id \(tab.tmuxConnectionID ?? "absent")"
       )
     } else if sessions.buriedSessions.contains(where: { $0.uniqueIdentifier == gateway }) {
-      notes.append("launch tab: buried by iTerm2 after the connection opened")
+      notes.append("launch tab: in buried_sessions (buried once its first tmux tab was activated)")
     } else {
       notes.append("launch tab: not listed")
     }
@@ -658,8 +737,11 @@ actor E2ERun {
   } // End of func placementNotes(_:connectionID:gateway:)
 
   /// The detach steps, by session, and by connection (also inside `e2e-local`'s reattach and
-  /// concurrent steps): detaches the current attachment and checks that it was clean and the
-  /// session survived. The coordinator waits
+  /// concurrent steps): detaches the current attachment and checks that it was clean, that the
+  /// buried launch tab left both iTerm2's tabs and `buried_sessions` by itself before any
+  /// cleanup (`checkGatewayLeft(_:)`: a stranded one, or one the coordinator restored or
+  /// closed, fails the step), and that the session
+  /// survived. The coordinator waits
   /// until the launch tab is old enough and sends `detach-client` only if the connection is
   /// still the launch tab's. By session, the coordinator finds the attachment itself (through
   /// the run's attachment index), and must find exactly this one.
@@ -704,15 +786,12 @@ actor E2ERun {
       try await self.client.listSessions().tabs(ofTmuxConnection: connectionID).isEmpty ? true : nil
     }
     guard tabsGone == true else { throw StepFailure("tmux tabs still open after the detach") }
-    let gatewayClosed = try await poll(timeout: .seconds(5)) { () -> Bool? in
-      try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
-    }
+    let left = try await checkGatewayLeft(gateway)
     notes.append(
       "detach-client was answered \(detach.commandError == nil ? "with OK" : "with an error"); "
-        + "the helper exited 0; the launch tab "
-        + (gatewayClosed == true ? "closed by itself when the helper exited" : "stayed open")
-        + "; it was \(ageAtDetach) s old when the connection had closed and the helper's result "
-        + "had arrived")
+        + "the helper exited 0; the launch tab left its tab and buried_sessions by itself "
+        + "\(milliseconds(left)) ms after the helper's result; it was \(ageAtDetach) s old when "
+        + "the connection had closed and the helper's result had arrived")
     let survival = try await checkSurvives()
     current = nil
     return "connection \(connectionID) closed cleanly, its tabs closed; \(survival)"
@@ -779,7 +858,8 @@ actor E2ERun {
   } // End of func reattach(thenDetach:)
 
   /// The concurrent step (`e2e-local`): two concurrent attaches share one launch: one launch
-  /// tab, one connection, and the connection's two tmux tabs; then detaches.
+  /// tab (buried, the one new entry of `buried_sessions`), one connection, and the
+  /// connection's two tmux tabs as the only new tabs; then detaches.
   private func concurrentAttaches() async throws -> String {
     let (session, _) = try await discover()
     let target = AttachTarget(host: host, session: session)
@@ -799,6 +879,7 @@ actor E2ERun {
     guard launches == 1 else { throw StepFailure("\(launches) launches") }
     _ = try checkArgvDigest(for: results[0].launchID)
     let tabs = try await checkTabs(connectionID: connectionID, gateway: gateway, observe: false)
+    let buried = try await checkBuried(results[0])
     let after = try await client.listSessions()
     let connectionsAfter = try await client.listTmuxConnections()
     let newConnections = connectionsAfter.filter { connection in
@@ -809,17 +890,21 @@ actor E2ERun {
       guard let tabID = tab.tabID else { return false }
       return !oldTabs.contains(tabID)
     }
-    let newLaunchTabs = newTabs.filter { $0.tmuxConnectionID != connectionID }
+    // The one launch tab is buried, so every new tab is one of the connection's.
+    let newOtherTabs = newTabs.filter { $0.tmuxConnectionID != connectionID }
+    let newBuried = after.buriedSessions.filter { summary in
+      !before.buriedSessions.contains { $0.uniqueIdentifier == summary.uniqueIdentifier }
+    }
     guard newConnections.count == 1, newConnections.first?.owningSessionID == gateway,
-      newLaunchTabs.count == 1,
-      newLaunchTabs.first?.sessions.contains(where: { $0.uniqueIdentifier == gateway }) == true
+      newOtherTabs.isEmpty, newBuried.map(\.uniqueIdentifier) == [gateway]
     else {
       throw StepFailure(
-        "\(newConnections.count) new connection(s), \(newLaunchTabs.count) new launch tab(s)")
+        "\(newConnections.count) new connection(s), \(newOtherTabs.count) new tab(s) of no "
+          + "connection, \(newBuried.count) newly buried session(s)")
     }
     let detached = try await detachAndCheck()
-    return "both callers got the same confirmed launch: 1 launch tab, 1 new connection, "
-      + "\(newTabs.count - 1) tmux tabs; \(tabs); \(detached)"
+    return "both callers got the same confirmed launch: 1 launch tab (buried), 1 new connection, "
+      + "\(newTabs.count) tmux tabs; \(tabs); \(buried); \(detached)"
   } // End of func concurrentAttaches()
 
   /// The stale guard step: a stale launch. Revalidation refuses a stale target before any tab
@@ -839,7 +924,7 @@ actor E2ERun {
     }
     let recorder = self.recorder
     let staleCoordinator = AttachCoordinator(
-      iTerm2: client,
+      iTerm2: coordinatorITerm2,
       discovery: StaleCreationDiscovery(base: discovery, sessionID: id, offset: 1),
       store: store, helperPath: helperPath, existingAttachments: .index(index),
       onUpdate: { recorder.record($0) })
@@ -902,7 +987,7 @@ actor E2ERun {
     let (session, _) = try await discover()
     let recorder = self.recorder
     let waitingCoordinator = AttachCoordinator(
-      iTerm2: client, discovery: discovery,
+      iTerm2: coordinatorITerm2, discovery: discovery,
       store: TestLaunchDelayStore(base: store, seconds: Self.stillWaitingLaunchDelaySeconds),
       helperPath: helperPath, existingAttachments: .index(index),
       onUpdate: { recorder.record($0) })
@@ -1117,7 +1202,7 @@ actor E2ERun {
     let runner = CountingProcessRunner()
     let recorder = self.recorder
     let checker = AttachCoordinator(
-      iTerm2: client, discovery: discovery, store: store, helperPath: helperPath,
+      iTerm2: coordinatorITerm2, discovery: discovery, store: store, helperPath: helperPath,
       existingAttachments: .index(index), sessionCreator: TmuxCommands(runner: runner),
       onUpdate: { recorder.record($0) })
     let names = [
@@ -1182,9 +1267,11 @@ actor E2ERun {
   /// directory, also with a `#` and a trailing `;`, inside the run's private directory;
   /// `e2e-remote`: `~/Library/Application Support`, which exists there), then attaches it:
   /// confirmed (`requested` → `launched` → `confirmed`), the existing-attachment check skipped
-  /// (no connection asked), activated, the argv digest as usual. tmux stored the exact name, the
-  /// pane runs in the directory (`#{pane_current_path}`), discovery lists it with one window
-  /// and one control client; then it is detached by connection (clean) and killed.
+  /// (no connection asked), activated, the launch tab buried (`checkBuried(_:)`), the argv
+  /// digest as usual. tmux stored the exact name, the pane runs in the directory
+  /// (`#{pane_current_path}`), discovery lists it with one window and one control client; then
+  /// it is detached by connection (clean; the launch tab must leave by itself,
+  /// `checkGatewayLeft(_:)`) and killed.
   private func newSession() async throws -> String {
     let name = sessionName + "-new #ü 日本;"
     let directory: String
@@ -1231,6 +1318,7 @@ actor E2ERun {
       )
     }
     _ = try checkArgvDigest(for: attach.launchID)
+    notes.append(try await checkBuried(attach))
     let path = try await tmux.run([
       "display-message", "-p", "-t", created.sessionID.rawValue, "#{pane_current_path}",
     ])
@@ -1255,17 +1343,14 @@ actor E2ERun {
         "detach: closed \(detach.connectionClosed), helper "
           + "\(detach.helperResult.map { "exit \($0.exitStatus)" } ?? "no result")")
     }
-    let gatewayClosed = try await poll(timeout: .seconds(5)) { () -> Bool? in
-      try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
-    }
-    guard gatewayClosed == true else { throw StepFailure("the launch tab stayed open") }
+    _ = try await checkGatewayLeft(gateway)
     guard try await killExtra(created) else { throw StepFailure("kill-session failed") }
     let place =
       tmux.isLocal ? "a private directory with spaces, Unicode, # and a trailing ;" : directory
     return "\(created.sessionID) created with its exact name (a trailing ; kept) and attached "
       + "(requested → launched "
-      + "→ confirmed, no existing-attachment check); the pane runs in \(place); detached "
-      + "cleanly, then killed"
+      + "→ confirmed, no existing-attachment check, launch tab buried); the pane runs in "
+      + "\(place); detached cleanly (the launch tab left by itself), then killed"
   } // End of func newSession()
 
   /// Creates the extra session `name` with the harness's tmux (`sleep 600`, detached) and
@@ -1346,7 +1431,8 @@ actor E2ERun {
   /// connection sharing) and checks through `list-clients` that it is the session's one client.
   /// A move here whose confirmation names another key must fail `moveHereNotConfirmed` with
   /// nothing run. The confirmed move here must then be confirmed (`requested` → `launched` →
-  /// `confirmed`, activated, the existing-attachment check finding nothing of this run's), its
+  /// `confirmed`, activated, the existing-attachment check finding nothing of this run's, the
+  /// launch tab buried), its
   /// helper's attach child must have used `attach-session -d` (the argv digest, the exact
   /// argv), the plain client must exit by itself within `controlClientExitBudget` after
   /// printing `%exit`, the session's only client must then be a control client other than the
@@ -1427,6 +1513,7 @@ actor E2ERun {
         + "(\(ended)), \(milliseconds(ContinuousClock.now - exitWait)) ms after the move here "
         + "returned; the move here was confirmed \(ms(moved.timings.confirmed)) ms after the "
         + "call (launched \(ms(moved.timings.launched)) ms)")
+    notes.append(try await checkBuried(moved))
     let remaining = try await poll(timeout: .seconds(3)) { () -> [String]? in
       let clients = try await self.clientLines(of: id)
       return clients.count == 1 ? clients : nil
@@ -1535,9 +1622,10 @@ actor E2ERun {
   /// id, only if its server, id, creation time and name are the recorded ones, checked in the
   /// same tmux command as the kill; when a signal cut `new-session` short, it is first found by
   /// its exact generated name),
-  /// closes this run's launch tabs that are still open (by their recorded session ids), turns
-  /// test mode off, and checks nothing is left. Runs after any failure or signal too, and never
-  /// cancels itself.
+  /// closes this run's launch tabs that are still listed, in a tab or buried (by their recorded
+  /// session ids, `closeLeftover(_:)`: every answer and the tab's absence checked, one still
+  /// listed restored, then closed again), turns test mode off, and checks nothing is left. Runs
+  /// after any failure or signal too, and never cancels itself.
   func cleanUp() async {
     let start = ContinuousClock.now
     var problems: [String] = []
@@ -1610,13 +1698,14 @@ actor E2ERun {
         problems.append("could not remove the private directory")
       }
     }
-    // Close this run's launch tabs that are still open.
+    // Close this run's launch tabs that are still listed (in a tab or buried), each answer and
+    // the tab's absence afterwards checked; one still listed is restored, then closed again.
     let leftovers = await openGateways(gateways)
-    if !leftovers.isEmpty {
-      let closed = try? await client.close(.init(target: .sessions(leftovers), force: true))
-      actions.append("closed \(leftovers.count) leftover launch tab(s)")
-      if closed == nil { problems.append("closing leftover launch tabs failed") }
-    }
+    for gateway in leftovers {
+      let closed = await closeLeftover(gateway)
+      actions.append("closed a leftover launch tab (\(closed.details.joined(separator: ", ")))")
+      if !closed.gone { problems.append("a launch tab of this run is still listed after Close") }
+    } // End of loop over the leftover launch tabs
     // Turn test mode off.
     if markerCreated {
       do throws(LaunchStoreError) {
@@ -1640,6 +1729,49 @@ actor E2ERun {
       output("FAIL \(stepCount) cleanup (\(elapsed) ms): \(summary); \(reason)")
     }
   } // End of func cleanUp()
+
+  /// Closes this run's launch tab `gateway` (forced, by the session id iTerm2 reported when it
+  /// opened it), checking the answer and the tab's absence within 5 s; when it is still
+  /// listed, restores it if it is buried (`setBuried(false)`), then closes it again the same
+  /// way. Returns whether it is gone and what each request answered (no ids).
+  private func closeLeftover(_ gateway: String) async -> (gone: Bool, details: [String]) {
+    var details: [String] = []
+    if await closeAndCheck(gateway, details: &details) { return (true, details) }
+    if let sessions = try? await client.listSessions(),
+      GatewayPlace(of: gateway, in: sessions) == .buried
+    {
+      do {
+        try await client.setBuried(false, sessionID: gateway)
+        details.append("the restore answered OK")
+      } catch let error as ITerm2Error {
+        details.append("the restore failed (\(error.kind))")
+      } catch {
+        details.append("the restore failed")
+      }
+      _ = try? await poll(timeout: .seconds(5)) { () -> Bool? in
+        GatewayPlace(of: gateway, in: try await self.client.listSessions()) == .buried ? nil : true
+      }
+    }
+    return (await closeAndCheck(gateway, details: &details), details)
+  } // End of func closeLeftover(_:)
+
+  /// One forced `Close` of `gateway`: appends its answer to `details` and returns whether the
+  /// tab is gone (neither in a tab nor buried) within 5 s.
+  private func closeAndCheck(_ gateway: String, details: inout [String]) async -> Bool {
+    do {
+      let response = try await client.close(.init(target: .sessions([gateway]), force: true))
+      details.append("Close answered \(E2EBuryRun.names(response.statuses))")
+    } catch let error as ITerm2Error {
+      details.append("Close failed (\(error.kind))")
+    } catch {
+      details.append("Close failed")
+    }
+    let gone = try? await poll(timeout: .seconds(5)) { () -> Bool? in
+      try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
+    }
+    if gone != true { details.append("still listed afterwards") }
+    return gone == true
+  } // End of func closeAndCheck(_:details:)
 
   /// The recorded launch tab sessions that iTerm2 still lists (polled briefly, since a tab
   /// closes a moment after its helper exits).

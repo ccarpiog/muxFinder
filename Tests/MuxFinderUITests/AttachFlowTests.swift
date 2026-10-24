@@ -228,6 +228,30 @@ struct AttachFlowTests {
     await model.shutdown()
   } // End of func detachOnlyForThisMacsAttachments()
 
+  /// An Open hides its launch tab once attached (PLAN.md D29): the result says `buried`, and
+  /// iTerm2 lists the launch tab in `buried_sessions` and in no window, while the session's
+  /// tab stays. A Detach then ends it (the helper restores its tab and the tab closes), so
+  /// nothing of it is listed afterwards.
+  @Test func anOpenBuriesItsLaunchTab() async throws {
+    let harness = await AttachHarness.make()
+    let model = harness.model
+    let key = harness.key(on: harness.hosts[0])
+    model.open(key)
+    #expect(await harness.waitForActions(1))
+    #expect(model.finishedActions[0].outcome.attachResult?.burial == .buried)
+    #expect(await harness.iTerm2.buried == ["gateway-1"])
+    let listed = try await harness.iTerm2.listSessions()
+    #expect(listed.buriedSessions.map(\.uniqueIdentifier) == ["gateway-1"])
+    #expect(listed.placement(ofSession: "gateway-1") == nil)
+    #expect(!listed.tabs(ofTmuxConnection: "conn-1").isEmpty)
+    model.detach(key)
+    #expect(await harness.waitForActions(2))
+    #expect(await harness.iTerm2.buried.isEmpty)
+    #expect(!(try await harness.iTerm2.listSessions().allSessionIDs.contains("gateway-1")))
+    #expect(await harness.iTerm2.closeCount == 0)
+    await model.shutdown()
+  } // End of func anOpenBuriesItsLaunchTab()
+
   /// A session the attachment index shows open here offers Detach without an attach by
   /// muxFinder.
   @Test func detachIsOfferedForTheIndexBadge() async {

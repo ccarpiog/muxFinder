@@ -75,7 +75,10 @@ struct FakeProfileDiscovery: HostDiscovering {
 /// (by GUID), opens a tab for a listed profile name and plays the helper (an argv digest in the
 /// launch store, then a tmux connection owned by the tab when `connects`), answers the identity
 /// command for the session the tab attached, and closes the connection and the tab on
-/// `detach-client`. Everything it was asked is recorded.
+/// `detach-client`. Buried state is iTerm2 3.7.6's (PLAN.md Phase 13, S2, S3, S8): a bury moves
+/// a tab out of its window into `buried_sessions`, a restore brings a buried one back in a new
+/// window, both idempotent (the profile harness never buries: `buryRequests` stays empty).
+/// Everything it was asked is recorded.
 actor SimulatedProfileITerm2: ITerm2Integration {
   /// The `DynamicProfiles` folder it reads.
   let folder: URL
@@ -97,6 +100,12 @@ actor SimulatedProfileITerm2: ITerm2Integration {
   private(set) var createdTabs: [ITerm2API.CreateTabRequest] = []
   /// Every forced close.
   private(set) var closed: [ITerm2API.CloseRequest] = []
+  /// Every bury and restore asked for (`setBuried`, and `buryLaunchTab` once its check passed).
+  private(set) var buryRequests: [(buried: Bool, sessionID: String)] = []
+  /// The tabs buried now (still in `tabs`: buried, not closed).
+  private(set) var buried: Set<String> = []
+  /// The window a restore moved each tab to (S8), by session id.
+  private var restoredWindows: [String: String] = [:]
   /// The GUID filters `ListProfiles` got.
   private(set) var profileFilters: [[String]] = []
   /// Whether a bound `detach-client` goes unanswered (`timedOut`) and detaches nothing.
@@ -168,12 +177,13 @@ actor SimulatedProfileITerm2: ITerm2Integration {
   /// Nothing to do.
   func ensureRunning() async throws {}
 
-  /// The open tabs, each its own window.
+  /// The open tabs that are not buried, each its own window; the buried ones in
+  /// `buried_sessions`.
   func listSessions() async throws -> ITerm2API.ListSessionsResponse {
     ITerm2API.ListSessionsResponse(
-      windows: tabs.map { id in
+      windows: tabs.filter { !buried.contains($0) }.map { id in
         ITerm2API.Window(
-          windowID: "w-\(id)",
+          windowID: restoredWindows[id] ?? "w-\(id)",
           tabs: [
             ITerm2API.Tab(
               tabID: "t-\(id)",
@@ -181,6 +191,9 @@ actor SimulatedProfileITerm2: ITerm2Integration {
                 links: [.session(ITerm2API.SessionSummary(uniqueIdentifier: id))]),
               tmuxWindowID: ITerm2API.Tab.noTmuxWindowID)
           ])
+      },
+      buriedSessions: tabs.filter { buried.contains($0) }.map {
+        ITerm2API.SessionSummary(uniqueIdentifier: $0)
       })
   } // End of func listSessions()
 
@@ -256,14 +269,33 @@ actor SimulatedProfileITerm2: ITerm2Integration {
     return nil
   }
 
-  /// Never used by the harness.
-  func setBuried(_ buried: Bool, sessionID: String) async throws {
-    Issue.record("setBuried was called")
+  /// Records the bury or restore and applies it to an open tab (any other id is
+  /// `INVALID_TARGET`). Never used by the harness.
+  func setBuried(_ bury: Bool, sessionID: String) async throws {
+    buryRequests.append((bury, sessionID))
+    guard tabs.contains(sessionID) else { throw ITerm2Error.setPropertyFailed(.invalidTarget) }
+    apply(buried: bury, to: sessionID)
   }
 
-  /// Never used by the harness.
+  /// Records and applies the bury while the connection is owned by `sessionID`. Never used by
+  /// the harness.
   func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws {
-    Issue.record("buryLaunchTab was called")
+    guard
+      connections.contains(where: {
+        $0.connectionID == connectionID && $0.owningSessionID == sessionID
+      })
+    else { throw ITerm2Error.tmuxConnectionNotOwned }
+    buryRequests.append((true, sessionID))
+    apply(buried: true, to: sessionID)
+  }
+
+  /// A bury (idempotent, S2) or a restore of a buried tab into a new window (S8).
+  private func apply(buried bury: Bool, to sessionID: String) {
+    if bury {
+      buried.insert(sessionID)
+    } else if buried.remove(sessionID) != nil {
+      restoredWindows[sessionID] = "w-restored-\(restoredWindows.count + 1)"
+    }
   }
 
   /// The installed profiles with the requested GUIDs; the first listing after the file went
@@ -290,6 +322,7 @@ actor SimulatedProfileITerm2: ITerm2Integration {
     closed.append(request)
     if case .sessions(let ids) = request.target {
       tabs.removeAll { ids.contains($0) }
+      buried.subtract(ids)
       connections.removeAll { ids.contains($0.owningSessionID ?? "") }
     }
     return ITerm2API.CloseResponse()
@@ -621,6 +654,7 @@ struct PersistentProfileRunTests {
     #expect(commands.map(\.command) == [ConnectionIdentity.command, "detach-client"])
     #expect(Set(commands.map(\.owner)) == ["session-1"])
     #expect(await fixture.iTerm2.closed.isEmpty)
+    #expect(await fixture.iTerm2.buryRequests.isEmpty)
     #expect(await fixture.iTerm2.profileFilters.allSatisfy { $0 == [fixture.run.guid] })
     #expect(fixture.clock.elapsed >= .seconds(10))
     #expect(try await Self.leftovers(fixture).isEmpty)

@@ -32,16 +32,17 @@ file.
 | 12a | Install and uninstall scripts, hermetic check, README, ARCHITECTURE, testing matrix, manual checklist | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-12a.md` | `docs/progress-archive/12a.md` |
 | 12b | Acceptance run: every unit test, all `e2e-*` locally and on Saturno, both self-tests, clean-`build/` reproduction, recorded | routine | opus (docs worker); real runs by the orchestrator | Codex, ship, `docs/reviews/phase-12b.md` | `docs/progress-archive/12b.md` |
 | 13a | Client, helper and spike: SetProperty/GetProperty, `buryLaunchTab`, helper restore (result → `Disinter` → DSR, bounded), `e2e-bury` spike local and Saturno, D29 | high | opus (impl, spike and review-fix workers) | Codex, ship-with-fixes, `docs/reviews/phase-13a.md` | `docs/progress-archive/13a.md` |
+| 13b | Coordinator bury (step 10, `AttachResult.burial`), race by order (`peekResult`), in-memory recovery, Show tab restore, buried fakes, e2e assertions (hermetic) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-13b.md` | `docs/progress-archive/13b.md` |
 
 ## Current phase
 
-**Phase 13 — Hide the launch tab once attached (high), added 2026-10-24; 13a complete, 13b
-next.** Phases 1–13a are complete and reviewed. Phase 13 comes from a user report: every
-attach shows the launch tab (the tmux gateway) in a window of its own next to the session's
-windows. It is split into 13a (client, helper and real spike, done), 13b (coordinator, race and
-recovery) and 13c (real runs and documents) in `PLAN.md` *Phase 13*. That section carries the
-iTerm2 3.7.6 source facts S1–S8 and the design; the spike's facts are in *Verified facts*
-"Phase 13a spike" and the settled design is **D29**.
+**Phase 13 — Hide the launch tab once attached (high), added 2026-10-24; 13a and 13b
+complete, 13c next.** Phases 1–13b are complete and reviewed. Phase 13 comes from a user
+report: every attach shows the launch tab (the tmux gateway) in a window of its own next to the
+session's windows. It is split into 13a (client, helper and real spike, done), 13b (coordinator,
+race and recovery, done, hermetic) and 13c (real runs and documents) in `PLAN.md` *Phase 13*.
+That section carries the iTerm2 3.7.6 source facts S1–S8 and the design; the spike's facts are
+in *Verified facts* "Phase 13a spike" and the settled design is **D29**.
 **Phase 14 — Popover readability (routine), added 2026-10-24, queued after 13.** It comes
 from the user's review of the real popover: a bounded section per host, attach state at a
 glance, a readable "Open in iTerm2 here", a muted unreachable host, footer spacing, and an
@@ -66,108 +67,41 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   left behind); D29 written. One deviation: this Mac's iTerm2 has its auto-hide setting on, so
   the default-preference branch was emulated by the harness (*Open risks*).
   `docs/progress-archive/13a.md`.
+- Phase 13b: all criteria met hermetically, 2026-10-24 (bury call site and outcome, race by
+  order, recovery, Show tab, buried fakes, e2e assertions as code; every 13b-bullet unit test
+  plus the review's three regressions). The e2e assertions have not run yet (13c).
+  `docs/progress-archive/13b.md`.
 
 ## Decisions
 
-- Phases 1–5b: splits (3 → 3a/3b, 4 → 4a/4b/4c, 5 → 5a/5b) and decisions **D12** (`tmux -u`
-  everywhere), **D13** (no automatic request retries; `notSent` vs unknown outcome), **D14**
-  (launch protocol, exit codes, 10 s helper hold), **D15** (attach coordinator), **D16**
-  (attachment index) and **D17** (remote attach over ssh, `stillWaiting`, test launch delay),
-  with edits to D3–D5 and D11 — each phase's details in `docs/progress-archive/<phase>.md`.
-- Phase 6: split into 6a (new session, vanished sessions) and 6b (Move here), recorded in
-  `PLAN.md` before the first worker. On Saturno the directory check uses an existing directory
-  with a space and a missing Unicode one (no remote file writes).
-- Phase 6a: new **D18** (session creation: static script, `has-session` then `new-session -d
-  -P -F`, `#`/`;` escaping, ssh 255 classes, `createAndAttach` skipping the existing-attachment
-  check, `if-shell -F` check-and-kill in the harness) — `docs/progress-archive/6a.md`.
-- Phase 7: split into 7a (host configuration) and 7b (refresh engine), recorded in `PLAN.md`
-  before the first worker; both run while 6a's remote check waits on iTerm2.
-- Phase 7a: new **D19** (`hosts.json` schema v1; load never writes; publication by
-  `RENAME_SWAP`/`RENAME_EXCL` with the *displaced* file kept as a backup unless it is valid and
-  identical to what the store last loaded or wrote; This Mac switch demotes the previous one to
-  SSH, disabled; suggestion rules). The launch layer's ACL/safe-write code moved to
-  `Config/PrivateStorage.swift` and `Config/ExtendedACL.swift`, shared by both stores —
-  `docs/progress-archive/7a.md`.
-- Phase 7b: new **D20** (refresh engine: actor with `HostDiscovering`/`AttachClock`/
-  `AttachmentIndexing` seams and an `updates()` stream; limit 3 with retired probes keeping
-  their slot and blocking only their own host; one follow-up per busy host rather than joining;
-  generation + revision + work-epoch discard; cadence and background-only backoff; attachment
-  checks only while the popover is visible; probe `refresh --once` with opt-in
-  `--attachments`) — `docs/progress-archive/7b.md`.
-- Phase 6b: new **D21** (Move here: `MoveHereConfirmation.detachOtherClients(of:)`, request
-  field `detachOtherClients`, static `moveHereScript` remotely, `alreadyAttachedHere` /
-  `possiblyAttachedHere` refusals, proof-based tracking of launches that may still attach,
-  `earlierLaunchPending` after the confirmation budget); D14–D17 edited —
-  `docs/progress-archive/6b.md`.
-- Phase 8: new **D22** (menu bar app: `MuxFinderUI` library + thin executable, `AppModel` over
-  `AppEnvironment`, iTerm2/cookie only on popover open or attach, popover close cancels the
-  attachment check, placeholder intents for Phases 9/10, quit via `AppTermination.request()`,
-  preview fixtures with no menu bar item, helper bundled in `Contents/MacOS/`); D11, D13, D20
-  edited — `docs/progress-archive/8.md`.
-- Phase 9: split into 9a (Settings window) and 9b (onboarding and SSH setup), recorded in
-  `PLAN.md` before the first worker.
-- Phase 9a: new **D23** (Settings window: one reusable AppKit window, `SettingsEnvironment`
-  seams, explicit Save/Revert drafts, This Mac demotion on save, changed-file and
-  unusable-file banners with Reload/Replace, diagnostics by display name and id only, profiles
-  never launch iTerm2, `--report-login-item-status`); D19 gained `save(_:expecting:)` (a save
-  refuses a file changed since it was loaded); D22 edited — `docs/progress-archive/9a.md`.
-- Phase 9b: new **D24** (onboarding only for `notSavedYet`, saved through
-  `save(_:expecting:)`; `sshSetup` request kind, attach files unchanged; helper mode
-  `ssh-setup` running `/usr/bin/ssh -- <dest>`, any exit but 255 a success; `LaunchTab`
-  factored out of `AttachCoordinator`; `SSHSetupLauncher`); D14, D15, D22, D23 edited —
-  `docs/progress-archive/9b.md`.
-- Phase 10: split into 10a (attach UX, hermetic) and 10b (real self-tests), recorded in
-  `PLAN.md` before the first worker.
-- Phase 10a: new **D25** (attach UX: per-session state machine over the coordinator seam, row
-  actions and in-popover panels, `showLaunchTab(_:)`, self-test design and safety, keep mode);
-  D22 edited (placeholders gone; concurrent shutdown, session actions awaited at most 12 s,
-  quit deadline 15 s, was 5 s); D18 edited (created-session hook on `createAndAttach`,
-  `currentSession(named:on:)`) — `docs/progress-archive/10a.md`.
-- Phase 10b: the orchestrator ran the real checks itself (no code changed); the 9b "Set up SSH
-  in iTerm2…" real round trip is owed to the user, since an interactive ssh login on Saturno
-  is outside the remote-host run rules — `docs/progress-archive/10b.md`.
-- Phase 11: split into 11a (hermetic core, helper mode, probe), 11b (real profile runs) and
-  11c (Settings section, launch-time rewrite), recorded in `PLAN.md` before the first worker;
-  real runs come before the UI so the profile format meets iTerm2 first.
-- Phase 11a: new **D26** (host fields `persistentProfileEnabled` / default session `main` /
-  per-host parent, schema still 1; pure generator, `Command` refused for unsafe helper paths;
-  installer with `flock` on `muxFinder/profiles.lock` and identity-checked rollback; helper
-  `profile <host id>` with nesting guard, login-shell fallback, `MUXFINDER_LAUNCHED=1` set by
-  every helper mode; test host list only in test mode for its own id; `e2e-profile` design);
-  D8, D11, D14, D19 edited; session-name and ssh-destination checks now on Unicode scalars —
-  `docs/progress-archive/11a.md`.
-- Phase 11b: iTerm2 3.7.6 mirrors each loaded dynamic profile into its saved `New Bookmarks`
-  and drops it ~0.25 s after the file goes (*Verified facts*, D26). The snapshot leaves out
-  only a provable muxFinder mirror (generated GUID, exactly the owned `muxFinder.json` path,
-  in the harness the run's GUID with every written key unchanged), counted in
-  `excludedMuxFinderEntries`; step 1 waits 5 s for a stale mirror or fails; step 13 waits by
-  an absolute 30 s deadline from the removal — `docs/progress-archive/11b.md`.
-- Phase 11c: D26 gained the 11c rules — own Settings tab; "installed" is sticky (the app writes
-  `muxFinder.json` only on "Install profiles" or over its own generated file, never creating
-  it by itself); install from the saved list; a save while installed updates at once; launch
-  rewrite only in normal mode with a saved list; `isGenerated(_:)` ownership check with
-  `replaceGenerated` (button) and `updateExistingGenerated` (automatic) policies;
-  operations capture their host list at the start — `docs/progress-archive/11c.md`.
-- Phase 12: split into 12a (scripts and documents, hermetic) and 12b (acceptance run), recorded
-  in `PLAN.md` before the first worker.
-- Phase 12a: new **D27** (install/uninstall: `ditto` + verify + bound-identity rename swap;
-  only a copy's own `muxFinder` is stopped, by SIGTERM, matched by the kernel's executable
-  path, helpers left; profile file removed only through the bundled binary's
-  `--remove-persistent-profiles`, run only on a copy declaring `MuxFinderScriptInterface 1`
-  with a valid signature; preferences domain `cc.carpio.muxfinder` deleted only for real;
-  test overrides confined to physical private folders) — `docs/progress-archive/12a.md`.
-- Phase 12b: the orchestrator ran every real check, gated between runs; a docs worker recorded
-  the results. Row 12's keep-mode quit check ran fresh although not in 12b's list. The thread
-  gate held after `e2e-local` (33 → 49 for ~2 h 40 min, then 16 in one step); the other runs
-  stayed at 16–19 — `docs/progress-archive/12b.md`.
+- Phases 1–12b, one line each (details in `docs/progress-archive/<phase>.md` and `PLAN.md`
+  *Decisions*): splits 3 → 3a/3b, 4 → 4a/4b/4c, 5 → 5a/5b, 6 → 6a/6b, 7 → 7a/7b, 9 → 9a/9b,
+  10 → 10a/10b, 11 → 11a/11b/11c, 12 → 12a/12b, each recorded in `PLAN.md` before its first
+  worker. New decisions: **D12** `tmux -u` everywhere; **D13** no automatic request retries;
+  **D14** launch protocol, exit codes, 10 s hold; **D15** attach coordinator; **D16**
+  attachment index; **D17** remote attach over ssh (5b); **D18** session creation (6a);
+  **D19** `hosts.json` schema and safe publication (7a); **D20** refresh engine (7b); **D21**
+  Move here (6b); **D22** menu bar app (8); **D23** Settings window (9a); **D24** onboarding and
+  `ssh-setup` (9b); **D25** attach UX and self-tests (10a); **D26** persistent profiles
+  (11a–11c, incl. iTerm2's `New Bookmarks` mirror handling); **D27** install / uninstall
+  (12a). 10b and 12b changed no code: the orchestrator ran the real checks; the 9b "Set up SSH
+  in iTerm2…" real round trip is owed to the user (interactive login outside the run rules).
 - Phase 13 planning: the user's uncommitted `PLAN.md`/`PROGRESS.md`/`PROGRESS.json` edits
   (listed in the runner's preflight file) were the plan for Phases 13 and 14; committed verbatim
-  as `d03e146` before any phase work so the run could checkpoint.
+  as `d03e146` before any phase work so the run could checkpoint. The preflight file still
+  names those three paths; they are committed, and the tree was clean when 13b started.
 - Phase 13a: new **D29**: bury after confirmation and `.activated`; the race closed by order
   (peek at the result, then `setBuried(false)`); the helper's restore with a line feed, a
   second restore when unanswered and the DSR acknowledgment; the coordinator's list of buried
   tabs kept **in memory only**, because the helper alone recovered every abnormal end tried.
   D14 gains *Launch tab restore*; D15 and D25 were edited — `docs/progress-archive/13a.md`.
+- Phase 13b: D29 now states what exists: the bury is step 10 with `AttachResult.burial`;
+  recovery waits 15 s (`buriedTabCloseDelay`) after a clean result before closing a still-listed
+  tab (the helper lives up to ~12 s after it); swept results are seen only through the
+  coordinator's own connection listings, each counting only against tabs watched before it
+  started; `Configuration.buriesLaunchTabs` (default on) is off in `e2e-bury`; e2e coordinators
+  run through `RecordingITerm2Integration` so "left by itself" is proven —
+  `docs/progress-archive/13b.md`.
 
 ## Open risks / deviations
 
@@ -181,6 +115,13 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   or SIGKILL of the helper in the middle of its exchange cannot restore raw mode (the tab ends
   with it). iTerm2 sources (`v3.7.6`) were downloaded to `/tmp/mfx-iterm2-src` for reading
   only.
+- 13b: the new `e2e-local` / `e2e-remote` assertions and `RecordingITerm2Integration` use in
+  the probe have never run (the probe has no test target; 13c runs them first). The coordinator
+  bury is **off in `e2e-bury`** (`Configuration.buriesLaunchTabs`); 13c must turn it on to run
+  `e2e-bury` through the coordinator. The refresh engine's attachment checks do not feed
+  recovery (only the coordinator's own listings do). The self-tests do not yet assert the
+  buried tab (13c). With auto-hide on (above), a real attach's bury answers `OK` on a tab
+  iTerm2 already buried.
 
 - Process-runner tests use an armed-timeout helper to survive very high machine load; if they
   flake, look there first.
@@ -328,21 +269,28 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   non-blocking descriptors of its own, `TerminalReturnReader` joined before the final exchange),
   with two regressions that fail on the old code; re-verified, then `e2e-bury --local` 12/12;
   `docs/reviews/phase-13a.md`.
+- Phase 13b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
+  blocker (a result taken by `detach` during an in-flight bury was dropped, so a failed
+  post-bury restore stranded the tab), 2 should-fix (a stale attachment snapshot applied to a
+  tab buried meanwhile; the e2e "left by itself" wait could be met by the 15 s recovery
+  `Close`). One review-fix worker fixed all three, each regression failing with its fix
+  reverted; re-verified — `docs/reviews/phase-13b.md`, summary in
+  `docs/progress-archive/13b.md`.
 
 ## Next action
 
-1. **Start Phase 13b** (`PLAN.md` *Phase 13*, the 13b bullet, built as **D29** settled it,
-   hermetic): design items 2, 3, 5, 6 and 7. The coordinator buries a confirmed, `.activated`
-   launch tab once per launch through `buryLaunchTab`. It closes the race by peeking at the
-   result and sending `setBuried(false)`, and puts the outcome on `AttachResult` and into
-   diagnostics. In-memory recovery of buried tabs runs on a timer and on
-   attach/detach/attachment check. `showLaunchTab` restores before it activates. The `e2e-local`
-   and `e2e-remote` assertions come in (buried after confirmation; gone by itself after each
-   detach). `SimulatedITerm2` gains buried state. Write the unit tests the 13b bullet lists.
-   The client, the helper and the `e2e-bury` harness exist (13a; key paths below). Then 13c
-   (gated real runs and documents; mind the auto-hide deviation under *Open risks*), then
-   Phase 14 (`PLAN.md` *Phase 14*, hermetic UI work, no real run). Phase 14 does not depend on
-   13, so it may run first if 13b or 13c ends `BLOCKED`.
+1. **Start Phase 13c** (`PLAN.md` *Phase 13*, the 13c bullet; real runs, gated by item 3
+   below). First turn the coordinator's bury back on in `e2e-bury`
+   (`Configuration.buriesLaunchTabs`, off since 13b) so it runs through the coordinator, and add
+   the buried-tab assertion to both self-tests. Then the gated real runs, one at a time with the
+   thread gate between them: `e2e-local`, `e2e-remote saturno-m4`, `e2e-bury --local` and
+   `--ssh saturno-m4`, `--selftest attach-local` and `new-session-local` (after
+   `scripts/build-app.sh`), `e2e-profile --local` unchanged; the new 13b e2e assertions run
+   for the first time here, so fixes they call for are 13c's. Then the documents the 13c bullet
+   lists (README, ARCHITECTURE, TESTING matrix and results, INTEGRATION-PROOF, MANUAL-CHECKLIST,
+   `CLAUDE.md` command notes). Mind the auto-hide deviation under *Open risks*. Then Phase 14
+   (`PLAN.md` *Phase 14*, hermetic UI work, no real run). Phase 14 does not depend on 13, so it
+   may run first if 13c ends `BLOCKED`.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -409,6 +357,12 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   TerminalReturnReader}.swift` and `LaunchHelper.swift`; spike harness
   `Sources/muxfinder-probe/E2EBury{Command,Run,Support}.swift` (`e2e-bury --local | --ssh
   saturno-m4`); tests `Tests/MuxFinderCoreTests/LaunchTabRestoreTests.swift`.
+- Coordinator bury and recovery (D29, 13b): `Sources/MuxFinderCore/Attach/
+  AttachCoordinatorBurial.swift` (step 10, race check, buried-tab watch, `BuriedTabTimer`),
+  `AttachResult.burial` / `LaunchTabBurial` in `Attach/AttachModels.swift`,
+  `LaunchRequestStore.peekResult` in `Launch/LaunchStore.swift`, e2e recorder
+  `Sources/MuxFinderCore/ITerm2/RecordingITerm2Integration.swift`; tests
+  `Tests/MuxFinderCoreTests/{LaunchTabBurialTests,RecordingITerm2IntegrationTests}.swift`.
 - Integration proof (local and over SSH, final): `docs/INTEGRATION-PROOF.md`.
 - Packaging (D27): `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/lib/app-copies.sh`,
   hermetic check `scripts/dev/test-install-scripts.sh`; app flag `--remove-persistent-profiles`
@@ -420,12 +374,11 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 13a (final tree, orchestrator, 2026-10-24): `swift build` exit 0, no warnings; `swift
-  test` exit 0, 711 core tests in 71 suites + 162 UI tests in 14 suites; `swift format lint -r
-  Sources Tests` exit 0. Real: `e2e-bury --local` 12/12 (5 runs in all, the last after the
-  review fix), `e2e-bury --ssh saturno-m4` 12/12 (2 runs); nothing left behind; iTerm2 threads
-  15–17 — `docs/progress-archive/13a.md`.
-- Phases 1–12b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase 13b (final tree, orchestrator, 2026-10-24): `swift build` exit 0; a clean build with
+  `-Xswiftc -warnings-as-errors` in a private scratch folder exit 0; `swift test` exit 0, 736
+  core tests in 73 suites + 163 UI tests in 14 suites; `swift format lint -r Sources Tests`
+  exit 0. No real run (hermetic phase) — `docs/progress-archive/13b.md`.
+- Phases 1–13a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -442,5 +395,6 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
 - Phase 12b: `6f56399`, pushed; then `92e354a` (app icon, menu bar icon, notarized release
   flow), pushed.
 - Phase 13 planning (the user's edits, verbatim): `d03e146`, pushed.
-- Phase 13a: the commit after `d03e146` (code, tests, fixtures, D29, docs, review, archive and
-  checkpoint); its SHA and push result are in the run's final status line.
+- Phase 13a: `0284b84`, pushed (`origin/main` at `0284b84` before Phase 13b).
+- Phase 13b: the commit after `0284b84` (code, tests, D29, review, archive and checkpoint); its
+  SHA and push result are in the run's final status line.

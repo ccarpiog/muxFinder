@@ -23,6 +23,11 @@ public protocol LaunchRequestStore: Sendable {
   /// `LaunchStore.takeResult(_:)`.
   func takeResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult?
 
+  /// Reads the helper's result for `id` without taking it, or `nil` while there is none; see
+  /// `LaunchStore.peekResult(_:)` (PLAN.md D29: the coordinator's look at a buried launch tab's
+  /// helper, after which `detach` still takes the result).
+  func peekResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult?
+
   /// Removes stale launch files; see `LaunchStore.sweep()`.
   @discardableResult
   func sweep() throws(LaunchStoreError) -> Int
@@ -42,6 +47,22 @@ public protocol AttachClock: Sendable {
 
   /// The current wall-clock time (a request's `createdAt`).
   func date() -> Date
+}
+
+/// What paces the attach coordinator's look at the launch tabs it buried, besides the
+/// attaches, detaches and attachment checks that look too (PLAN.md D29, *Recovery while the app
+/// runs*). The timer runs only while the coordinator remembers a buried tab, and each tick is a
+/// file-only peek at their helpers' results.
+public enum BuriedTabTimer: Sendable {
+  /// Every `AttachCoordinator.Configuration.buriedTabCheckInterval` of real time
+  /// (`SystemAttachClock`): the app, the probe and the self-tests.
+  case system
+  /// The same interval on `clock`. Tests pass one whose sleeps end only when the test moves it
+  /// on, so each tick happens exactly when the test says.
+  case clock(any AttachClock)
+  /// No timer: only attaches, detaches and attachment checks look. For tests of other paths,
+  /// whose virtual clocks would otherwise turn a timer into a busy loop.
+  case off
 }
 
 /// The real clocks: `ContinuousClock` and `Date()`.

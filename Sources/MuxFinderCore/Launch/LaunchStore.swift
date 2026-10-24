@@ -363,6 +363,27 @@ public struct LaunchStore: Sendable {
     return result
   } // End of func takeResult(_:)
 
+  /// Reads the result for `id` without taking it (the file stays, so `takeResult(_:)` still
+  /// gets it later), or returns `nil` if there is none yet: the attach coordinator's peek at a
+  /// buried launch tab's helper (PLAN.md D29). The same checks as a take apply (regular file
+  /// owned by the user, no group or other bits, no extended ACL, size, a result for `id`), but
+  /// nothing is deleted, not even a file refused as unsafe or malformed: the next take or the
+  /// sweep removes it. The sweep still deletes a result older than `timeToLive` that nobody took.
+  public func peekResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? {
+    let data: Data
+    do throws(LaunchStoreError) {
+      data = try withDirectory(create: false) { (directory) throws(LaunchStoreError) in
+        try Self.readFile(named: Self.resultFileName(for: id), in: directory, owner: owner)
+      }
+    } catch .fileMissing, .directoryMissing {
+      return nil
+    }
+    guard let result = try? LaunchCoding.decoder().decode(LaunchResult.self, from: data),
+      result.id == id
+    else { throw .fileMalformed }
+    return result
+  } // End of func peekResult(_:)
+
   // MARK: - Test mode
 
   /// Writes `digest` as `argv-<helper pid>.json` (0600). Never creates the directory.
@@ -596,6 +617,32 @@ public struct LaunchStore: Sendable {
       }
       throw .systemCallFailed(name: "unlinkat", errno: code)
     }
+    return try checkedContents(of: descriptor, owner: owner)
+  } // End of func takeFile(named:in:owner:)
+
+  /// Opens `name` in `directory` without following links and without deleting it, checks it as
+  /// `takeFile(named:in:owner:)` does and returns its bytes. A file that is missing is
+  /// `fileMissing`; one refused as unsafe stays where it is.
+  static func readFile(
+    named name: String,
+    in directory: Int32,
+    owner: uid_t
+  ) throws(LaunchStoreError) -> Data {
+    // O_NONBLOCK keeps a FIFO from blocking the open; it does not affect regular files.
+    let descriptor = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+    guard descriptor >= 0 else {
+      let code = errno
+      if code == ENOENT { throw .fileMissing }
+      if code == ELOOP { throw .fileUnsafe(.symbolicLink) }
+      throw .systemCallFailed(name: "openat", errno: code)
+    }
+    defer { Darwin.close(descriptor) }
+    return try checkedContents(of: descriptor, owner: owner)
+  } // End of func readFile(named:in:owner:)
+
+  /// The checks every read file passes (regular file, owned by `owner`, no group or other
+  /// permissions, no extended ACL, at most `maximumFileSize` bytes), then its bytes.
+  static func checkedContents(of descriptor: Int32, owner: uid_t) throws(LaunchStoreError) -> Data {
     var info = stat()
     guard fstat(descriptor, &info) == 0 else {
       throw .systemCallFailed(name: "fstat", errno: errno)
@@ -611,7 +658,7 @@ public struct LaunchStore: Sendable {
     return try bridged { () throws(PrivateStorageError) -> Data in
       try PrivateStorage.readAll(from: descriptor, limit: maximumFileSize)
     }
-  } // End of func takeFile(named:in:owner:)
+  } // End of func checkedContents(of:owner:)
 }
 
 extension LaunchStoreError {

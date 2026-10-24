@@ -5,10 +5,10 @@ import MuxFinderCore
 
 /// `muxfinder-probe e2e-bury --local | --ssh <destination>`: the spike of PLAN.md Phase 13a.
 /// It learns how iTerm2 3.7.6 treats a launch tab buried through its API, with the 13a
-/// helper's restore (`Disinter`, then a status report request) and without it. It changes no
-/// coordinator code: the attaches go through an unchanged `AttachCoordinator` (over a request
-/// store that can set the helper's test switch), and the bury, the detach and every close
-/// through the iTerm2 client directly.
+/// helper's restore (`Disinter`, then a status report request) and without it. The attaches go
+/// through an `AttachCoordinator` whose own bury (PLAN.md D29) is turned off
+/// (`Configuration.buriesLaunchTabs`), over a request store that can set the helper's test
+/// switch, and the bury, the detach and every close through the iTerm2 client directly.
 ///
 /// iTerm2's "Automatically bury the tmux client session after connecting" setting
 /// (`AutoHideTmuxClientSession`, off by default) changes what happens: with it on, iTerm2
@@ -181,9 +181,12 @@ actor E2EBuryRun {
     }
     requests = BuryRequestStore(base: store)
     let recorder = self.recorder
+    // The spike buries its launch tabs itself, so the coordinator's own bury (PLAN.md D29) is
+    // off: its attaches stay as Phase 13a ran them.
     coordinator = AttachCoordinator(
       iTerm2: client, discovery: discovery, store: requests, helperPath: helperPath,
-      existingAttachments: .off, onUpdate: { recorder.record($0) })
+      configuration: .init(buriesLaunchTabs: false), existingAttachments: .off,
+      onUpdate: { recorder.record($0) })
   } // End of init(kind:tmux:helperPath:)
 
   /// The command's name for the output.

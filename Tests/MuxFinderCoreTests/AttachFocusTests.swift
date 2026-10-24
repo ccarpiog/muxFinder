@@ -314,7 +314,7 @@ struct AttachFocusTests {
     let fake = FakeITerm2Integration(script: script)
     let coordinator = AttachCoordinator(
       iTerm2: fake, discovery: FakeDiscovery(.ok([session])), store: FakeLaunchStore(),
-      helperPath: Support.helper, clock: ManualAttachClock())
+      helperPath: Support.helper, clock: ManualAttachClock(), buriedTabTimer: .off)
     let result = await coordinator.attach(AttachTarget(host: Support.host, session: session))
     #expect(result.isConfirmed)
     #expect(result.existingAttachments == .init())

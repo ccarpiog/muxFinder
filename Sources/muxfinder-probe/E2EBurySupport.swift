@@ -42,6 +42,11 @@ final class BuryRequestStore: LaunchRequestStore {
     try base.takeResult(id)
   }
 
+  /// The real store's `peekResult(_:)`.
+  func peekResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? {
+    try base.peekResult(id)
+  }
+
   /// The real store's `sweep()`.
   @discardableResult
   func sweep() throws(LaunchStoreError) -> Int {

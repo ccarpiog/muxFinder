@@ -132,6 +132,7 @@ struct AttachCoordinatorTests {
     #expect(result.gatewaySessionID == Support.gateway)
     #expect(result.connectionID == Support.connection)
     #expect(result.activation == .activated(tabID: "t3"))
+    #expect(result.burial == .buried)
     #expect(await harness.coordinator.state(of: harness.target.key) == result.state)
 
     let store = harness.store.snapshot
@@ -250,8 +251,10 @@ struct AttachCoordinatorTests {
     let result = await harness.coordinator.attach(harness.target)
     #expect(result.state == .confirmed(connectionID: Support.connection))
     #expect(result.activation == .failed(.tmuxConnectionNotOwned))
+    #expect(result.burial == .skipped(.activationFailed))
     let calls = await harness.iTerm2.calls
     #expect(Self.activations(calls).isEmpty)
+    #expect(!calls.contains { if case .buryLaunchTab = $0 { true } else { false } })
     #expect(
       calls.contains(
         .activateOwnedTmuxTab(connectionID: Support.connection, owningSessionID: Support.gateway)))

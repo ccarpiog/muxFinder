@@ -10,8 +10,12 @@ import os
 /// `conn-<n>` (when `attaches`) shows the session of the launch request just written; the
 /// identity question answers that session's server and session with its host's node name;
 /// `detach-client` closes the connection and its tab (when `closesOnDetach`); `close(_:)` is
-/// counted (nothing in the app may call it). Every command, activation and tab is recorded.
-/// `createTab` and identity questions can be held, and activations can fail or find no tab.
+/// counted (the app closes only a dead buried launch tab, PLAN.md D29). Every command,
+/// activation and tab is recorded. `createTab` and identity questions can be held, and
+/// activations can fail or find no tab. Buried state is iTerm2 3.7.6's (PLAN.md Phase 13, S2,
+/// S3, S8): a bury moves a launch tab out of its window (the window closes with it) into
+/// `buried_sessions`, a restore brings a buried one back in a new window, and both are
+/// idempotent.
 actor SimulatedITerm2: ITerm2Integration {
   /// One tmux connection.
   struct Connection: Sendable {
@@ -78,11 +82,16 @@ actor SimulatedITerm2: ITerm2Integration {
   /// `close(_:)` calls.
   private(set) var closeCount = 0
   /// Every bury or restore that reached "iTerm2" (`setBuried`, and the bury of
-  /// `buryLaunchTab` once its ownership check passed), in order. Phase 13b gives the fake real
-  /// buried state; for now it only records.
+  /// `buryLaunchTab` once its ownership check passed), in order.
   private(set) var buriedRequests: [(buried: Bool, sessionID: String)] = []
+  /// The launch tabs buried now (they stay in `launchTabs`: buried, not closed).
+  private(set) var buried: Set<String> = []
+  /// The window each launch tab is in when a restore moved it (S8), by session id.
+  private var windows: [String: String] = [:]
   /// Numbers the tabs.
   private var nextNumber = 0
+  /// Numbers the windows restores open.
+  private var restores = 0
 
   /// A fake over `store` whose launch tabs attach (`attaches`) the requested session.
   init(
@@ -148,11 +157,12 @@ actor SimulatedITerm2: ITerm2Integration {
   /// Always succeeds.
   func ensureRunning() async throws {}
 
-  /// One window per launch tab and per connection's tab.
+  /// One window per launch tab that is not buried and per connection's tab; the buried launch
+  /// tabs in `buried_sessions`.
   func listSessions() async throws -> ITerm2API.ListSessionsResponse {
-    let launchWindows = launchTabs.map { gateway in
+    let launchWindows = launchTabs.filter { !buried.contains($0) }.map { gateway in
       ITerm2API.Window(
-        windowID: "w-\(gateway)",
+        windowID: windows[gateway] ?? "w-\(gateway)",
         tabs: [
           .init(
             tabID: "t-\(gateway)",
@@ -169,7 +179,11 @@ actor SimulatedITerm2: ITerm2Integration {
             tmuxWindowID: "0", tmuxConnectionID: connection.id)
         ])
     }
-    return ITerm2API.ListSessionsResponse(windows: launchWindows + tmuxWindows)
+    return ITerm2API.ListSessionsResponse(
+      windows: launchWindows + tmuxWindows,
+      buriedSessions: launchTabs.filter { buried.contains($0) }.map {
+        ITerm2API.SessionSummary(uniqueIdentifier: $0)
+      })
   } // End of func listSessions()
 
   /// Opens a launch tab; its connection shows the session of the latest request.
@@ -232,8 +246,10 @@ actor SimulatedITerm2: ITerm2Integration {
     sent.append(Sent(command: command, connectionID: connection.id))
     if command == ConnectionIdentity.detachCommand {
       if closesOnDetach {
+        // The helper restores its tab, then exits, and the tab closes (PLAN.md D29).
         connections.removeAll { $0.id == connection.id }
         launchTabs.removeAll { $0 == connection.owner }
+        buried.remove(connection.owner)
       }
       return ""
     }
@@ -271,17 +287,34 @@ actor SimulatedITerm2: ITerm2Integration {
     return "tab-\(connectionID)"
   } // End of func activateFirstTab(ofTmuxConnection:ownedBy:options:)
 
-  /// Records the bury or restore.
+  /// Records the bury or restore and applies it to a launch tab (any other id is
+  /// `INVALID_TARGET`, as iTerm2 answers for a session it does not know).
   func setBuried(_ buried: Bool, sessionID: String) async throws {
     buriedRequests.append((buried, sessionID))
+    guard launchTabs.contains(sessionID) else {
+      throw ITerm2Error.setPropertyFailed(.invalidTarget)
+    }
+    apply(buried: buried, to: sessionID)
   }
 
-  /// Records the bury while the connection is owned by `sessionID`, like `activateFirstTab`.
+  /// Records and applies the bury while the connection is owned by `sessionID`, like
+  /// `activateFirstTab`.
   func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws {
     guard connections.contains(where: { $0.id == connectionID && $0.owner == sessionID }) else {
       throw ITerm2Error.tmuxConnectionNotOwned
     }
     buriedRequests.append((true, sessionID))
+    apply(buried: true, to: sessionID)
+  }
+
+  /// A bury (idempotent, S2) or a restore of a buried tab into a new window (S8).
+  private func apply(buried bury: Bool, to sessionID: String) {
+    if bury {
+      buried.insert(sessionID)
+    } else if buried.remove(sessionID) != nil {
+      restores += 1
+      windows[sessionID] = "w-restored-\(restores)"
+    }
   }
 
   /// No profiles.
@@ -289,11 +322,19 @@ actor SimulatedITerm2: ITerm2Integration {
     []
   }
 
-  /// Counted; the app never closes anything.
+  /// Counted; closes the launch tabs named (and their connections).
   func close(_ request: ITerm2API.CloseRequest) async throws -> ITerm2API.CloseResponse {
     closeCount += 1
-    return ITerm2API.CloseResponse()
-  }
+    guard case .sessions(let ids) = request.target else { return ITerm2API.CloseResponse() }
+    let statuses = ids.map { id -> ITerm2API.CloseResponse.Status in
+      guard launchTabs.contains(id) else { return .notFound }
+      launchTabs.removeAll { $0 == id }
+      buried.remove(id)
+      connections.removeAll { $0.owner == id }
+      return .ok
+    }
+    return ITerm2API.CloseResponse(statuses: statuses)
+  } // End of func close(_:)
 
   /// Nothing to disconnect.
   func disconnect() async {}
@@ -339,6 +380,9 @@ final class MemoryLaunchStore: LaunchRequestStore {
 
   /// No helper result ever.
   func takeResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? { nil }
+
+  /// No helper result ever.
+  func peekResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? { nil }
 
   /// Nothing to sweep.
   func sweep() throws(LaunchStoreError) -> Int { 0 }
@@ -520,7 +564,7 @@ struct AttachHarness {
           iTerm2: iTerm2, discovery: coordinatorDiscovery, store: store, helperPath: helper,
           clock: clock,
           existingAttachments: .index(AttachmentIndex(iTerm2: iTerm2, clock: PatientClock())),
-          sessionCreator: creator, onUpdate: onUpdate)
+          sessionCreator: creator, buriedTabTimer: .off, onUpdate: onUpdate)
       },
       sessionActionShutdownBudget: shutdownBudget)
     let model = AppModel(environment: environment)

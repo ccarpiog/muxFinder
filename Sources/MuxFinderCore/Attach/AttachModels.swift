@@ -300,6 +300,68 @@ public enum ActivationOutcome: Sendable, Hashable {
   case failed(ITerm2Error)
 }
 
+/// What became of a confirmed attach's launch tab (the tmux gateway) once its first tmux tab
+/// was activated (PLAN.md D29): the coordinator buries it, so only the session's windows show,
+/// and the helper restores it when tmux ends. A failed bury is not fatal and is never retried
+/// (D13); the attach stays confirmed whatever this says.
+public enum LaunchTabBurial: Sendable, Hashable {
+  /// Why the coordinator sent no bury.
+  public enum SkipReason: String, Sendable, Hashable, CaseIterable {
+    /// No tab of the connection appeared within the tab budget (`ActivationOutcome.noTab`):
+    /// no tmux window shows yet, so hiding the launch tab would leave nothing on screen (S6).
+    case noTab
+    /// The activation failed (`ActivationOutcome.failed`), including a connection no longer
+    /// owned by the launch tab.
+    case activationFailed
+    /// The coordinator's configuration turns burying off
+    /// (`AttachCoordinator.Configuration.buriesLaunchTabs`, the Phase 13a spike harness only).
+    case turnedOff
+  }
+
+  /// iTerm2 answered `OK`: the launch tab is in `buried_sessions` (or was already, when
+  /// iTerm2's own "Automatically bury the tmux client session" setting buried it, S2), and
+  /// the coordinator remembers it until its helper ends.
+  case buried
+  /// Nothing was sent.
+  case skipped(SkipReason)
+  /// Nothing was buried: the bury was not sent (`tmuxConnectionNotOwned` when the launch tab
+  /// no longer owned its connection, `notSent`, …) or iTerm2 refused it (`setPropertyFailed`).
+  case failed(ITerm2Error)
+  /// The bury was sent, but no answer came (a timeout or a lost connection): the tab may be
+  /// buried, so the coordinator remembers it like a buried one.
+  case uncertain
+  /// The bury went out, but right after its answer (or timeout) the helper's result existed or
+  /// the launch tab no longer owned its connection: tmux had ended, so the coordinator restored
+  /// the tab at once (`setBuried(false)`, answered `OK`) and does not remember it (PLAN.md D29,
+  /// *The race, closed by order*).
+  case restoredAfterEnd
+
+  /// A short machine-readable name: `buried`, `skipped`, `failed`, `uncertain` or
+  /// `restoredAfterEnd`.
+  public var kind: String {
+    switch self {
+    case .buried: return "buried"
+    case .skipped: return "skipped"
+    case .failed: return "failed"
+    case .uncertain: return "uncertain"
+    case .restoredAfterEnd: return "restoredAfterEnd"
+    }
+  }
+
+  /// A detail for diagnostics and the probe's JSON: the skip reason or the error's kind.
+  public var detail: String? {
+    switch self {
+    case .skipped(let reason): return reason.rawValue
+    case .failed(let error): return error.kind
+    default: return nil
+    }
+  }
+
+  /// Whether the launch tab may be buried now (`buried` or `uncertain`): the coordinator then
+  /// remembers it until its helper ends.
+  public var mayBeBuried: Bool { self == .buried || self == .uncertain }
+}
+
 /// How long each step of an attach took, measured from the start of the attach.
 public struct AttachTimings: Sendable, Hashable {
   /// Discovery confirmed the session.
@@ -317,6 +379,9 @@ public struct AttachTimings: Sendable, Hashable {
   public var confirmed: Duration?
   /// The connection's first tab was activated (or the attempt ended).
   public var activated: Duration?
+  /// The launch tab's bury and the check right after it ended (`AttachResult.burial`); `nil`
+  /// when no bury was sent.
+  public var buried: Duration?
   /// The attach ended.
   public var finished: Duration?
 
@@ -343,6 +408,9 @@ public struct AttachResult: Sendable, Hashable {
   public var connectionID: String?
   /// How activation went; `nil` unless confirmed or focused.
   public var activation: ActivationOutcome?
+  /// What became of the launch tab after a confirmed attach (PLAN.md D29); `nil` unless
+  /// confirmed: a focus opened no launch tab, and a failed attach is never buried.
+  public var burial: LaunchTabBurial?
   /// What the existing-attachment check found; `nil` when it did not run (turned off, or the
   /// attach ended before it) and empty when iTerm2 was not running.
   public var existingAttachments: AttachmentSnapshot.Counts?
@@ -357,6 +425,7 @@ public struct AttachResult: Sendable, Hashable {
     gatewaySessionID: String? = nil,
     connectionID: String? = nil,
     activation: ActivationOutcome? = nil,
+    burial: LaunchTabBurial? = nil,
     existingAttachments: AttachmentSnapshot.Counts? = nil,
     timings: AttachTimings = AttachTimings()
   ) {
@@ -366,9 +435,10 @@ public struct AttachResult: Sendable, Hashable {
     self.gatewaySessionID = gatewaySessionID
     self.connectionID = connectionID
     self.activation = activation
+    self.burial = burial
     self.existingAttachments = existingAttachments
     self.timings = timings
-  } // End of init(key:launchID:state:gatewaySessionID:connectionID:activation:…)
+  } // End of init(key:launchID:state:gatewaySessionID:connectionID:activation:burial:…)
 
   /// Whether the attach was confirmed (a new launch tab attached the session).
   public var isConfirmed: Bool {
@@ -430,12 +500,12 @@ public struct CreateAndAttachResult: Sendable, Hashable {
 
 /// How `AttachCoordinator.showLaunchTab(_:)` ended ("Show tab", PLAN.md D25).
 public enum LaunchTabShowResult: Sendable, Hashable {
-  /// iTerm2 brought the launch tab and its window forward.
+  /// iTerm2 restored the launch tab (if it was buried) and brought it and its window forward.
   case shown
   /// The id is not a launch tab this coordinator opened (or one it no longer remembers), so
   /// nothing was sent to iTerm2.
   case notOpenedHere
-  /// iTerm2 refused or did not answer; the tab may have closed.
+  /// iTerm2 refused or did not answer the restore or the activation; the tab may have closed.
   case failed(ITerm2Error)
 
   /// A short machine-readable name: `shown`, `notOpenedHere` or `failed`.
