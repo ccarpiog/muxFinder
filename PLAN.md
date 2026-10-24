@@ -19,6 +19,7 @@ Package.swift                 swift-tools-version 6.0, macOS 14, Swift 6 languag
 Sources/
   MuxFinderCore/              library: all logic, no SwiftUI, fully unit-testable
     Config/                   HostConfig, HostList, HostStore (JSON), SSHConfigSuggestions,
+                              DirectoryLists + DirectoryStore (directories.json, D31),
                               AppPaths, PrivateStorage + ExtendedACL (private files)
     Process/                  ProcessRunner protocol + posix_spawn implementation
     Shell/                    POSIX quoting, remote-command builder, input validation
@@ -136,8 +137,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   notarization for a build that did not go through it. Target arm64 only, since all three
   Macs are Apple Silicon (M4, M4, M5).
 - **D8 — Storage.** Configuration lives in `~/Library/Application Support/muxFinder/`
-  (`hosts.json`, `launch/`, diagnostics), with directories 0700 and files 0600, and no
-  extended ACL (D14 for `launch/`, D19 for the folder itself and `hosts.json`). The app owns
+  (`hosts.json`, `directories.json`, `launch/`, diagnostics), with directories 0700 and files
+  0600, and no extended ACL (D14 for `launch/`, D19 for the folder itself and `hosts.json`,
+  D31 for `directories.json`). The app owns
   exactly one iTerm2 file, `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json`,
   written and removed only by `PersistentProfileInstaller`, which never touches another entry of
   that folder (D26). Never write iTerm2 preferences, other profiles, or shell startup files.
@@ -1501,7 +1503,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     item, popover, onboarding or Settings. Unusable arguments exit 2 before anything starts; a
     set `TMUX_TMPDIR` (the launch tab's tmux would use another server) or a missing helper exit
     2 before iTerm2 is contacted. `SelfTestDriver` drives the real `AppModel` over an in-memory
-    This Mac (`HostStoreLoadResult.inMemory`: no `hosts.json` is read or written), an engine
+    This Mac (`HostStoreLoadResult.inMemory`: no `hosts.json` is read or written) and an
+    in-memory directory list (`InMemoryDirectoryStore`: no `directories.json`, D31), an engine
     over `DiscoveryProbe` with no attachment checks, and a coordinator whose index asks only
     connections owned by launch tabs recorded from its own updates (`LaunchTabRecorder`, as in
     `e2e-local`), so the user's connections never get a command. Setup reads iTerm2's status
@@ -2189,6 +2192,122 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     opening (the frontmost app would lose its menu bar, and closing would have to hand the
     activation back).
 
+- **D31 — New session directories and session start folders** (decided in Phase I-2a,
+  2026-10-24, from `autoclaude/processed/20-new-session-directory-picker.md`; code in
+  `Sources/MuxFinderCore/Config/DirectoryLists.swift` and `DirectoryStore.swift`,
+  `Tmux/ProbeScript.swift`, `ProbeReport.swift`, `TmuxModels.swift`,
+  `Sources/MuxFinderUI/Model/AppModelSessions.swift` (`recordRecentDirectory(_:for:)`) and
+  `AppEnvironment.swift`; tests `Tests/MuxFinderCoreTests/DirectoryStoreTests.swift`,
+  `ProbeSessionPathTests.swift`, `Tests/MuxFinderUITests/DirectoryRecordingTests.swift`; Phase
+  I-2b extends it with the picker, its keys and the Settings section).
+  - **File:** `directories.json` in muxFinder's folder (`DirectoryStore`; the path is
+    injectable), schema 1: `{"schemaVersion": 1, "saved": [ … ], "recent": {"<host id>":
+    [ … ]}}`, pretty-printed with sorted keys and a final newline, at most 1 MiB, unknown keys
+    ignored. `saved` is one list shared by every host (a `~/…` entry resolves on each host,
+    D18), `recent` each host's, newest first. It is kept apart from `hosts.json`: recents
+    change at every creation, and usage state must never race with, refuse or create backups
+    of the host list (D19 `save(_:expecting:)`). The store never reads or writes `hosts.json`
+    or its backups.
+  - **Entries (`DirectoryLists`):** not empty (the home folder is never kept), through
+    `Validation.workingDirectory`, at most 4,096 bytes of UTF-8 (`maximumEntryLength`, also the
+    start folder limit below). At most 50 saved (adding more is refused, `tooManySaved`) and 8
+    recent per host (a ninth drops the oldest; recording one again moves it to the front).
+    Duplicates collapse by exact string, compared byte for byte (no Unicode normalization),
+    keeping the first place; `~/x` and `/Users/…/x` stay two entries (the app cannot know a
+    remote home folder). Changes (`DirectoryListChange`): add, remove, move and replace saved,
+    record a host's recent, clear a host's recents; a refused one (`DirectoryListError`)
+    changes nothing.
+  - **Loading** never writes, not even the folder (`PrivateStorage` `inspect`), and trusts the
+    file under D14's rules for files read (`O_NOFOLLOW|O_NONBLOCK`, a regular file of the
+    user's, no group or other bits, no ACL, at most 1 MiB): `saved`, `notSavedYet` (empty) or
+    `invalid(problem)` (`unsafe(reason)`, `notJSON`, `malformed`, `newerSchemaVersion`,
+    `unsupportedSchemaVersion`; empty lists, the file left as it is). In a usable file, an
+    entry that is not a string or breaks a rule, a host key that is not a UUID (with its
+    entries), a host value that is not an array and entries past the caps are left out and
+    counted (`droppedEntryCount`); a duplicate loses nothing and is not counted. `notice` is
+    `fileNotUsed(problem)` or `entriesDropped(n)`: kinds and counts, never a directory.
+  - **Changing** (`apply(_:knownHosts:)`): read the file as a load does, apply the change to
+    what it holds, forget the recents of hosts not in `knownHosts` (`nil` forgets none), then
+    write unless the result is what the file holds already (or there is no file and the lists
+    are empty). **A file that cannot be used refuses every change** (record, clear, saved add,
+    remove, move and replace, prune) with `fileNotUsable(problem)`: its contents and metadata
+    stay as they are and nothing is written, so a file with unsafe permissions, one a newer
+    muxFinder wrote (after a downgrade) or one that is not JSON is never replaced; the user
+    fixes it or moves it away (Phase I-2a review). A file with entries left out is usable and
+    is replaced (and kept as a backup, below).
+  - **Serialization across processes** (Phase I-2a review): the first read, without the lock,
+    ends a refused or unusable-file change and one that writes nothing, so those never create
+    the folder or the lock file. Any other change takes an exclusive `flock` on
+    `directories.lock` in the store's folder (`PrivateStorage.acquireLock(named:in:owner:wait:)`,
+    the helper `PersistentProfileInstaller` now forwards to for `profiles.lock`, D26; created
+    0600, never removed), waited for at most 2 s (`busy`; a lock file that is a link, not a
+    regular file or another user's is `lockUnavailable`), and holding it reads the file again,
+    refuses it if it became unusable, applies the change and publishes. So two store instances
+    or two muxFinder processes (an installed app and a development build) never lose each
+    other's changes; the actor keeps one store's own changes in order. Writing follows D19:
+    the folder created (0700) or tightened and stripped of ACLs; a symbolic link or other
+    non-regular file that took the name since the read, or one over 16 MiB, refuses the write;
+    a temporary file (no ACL, 0600, flushed) published with one `renameatx_np` (`RENAME_SWAP`
+    over a file, `RENAME_EXCL` where none is, at most 8 renames). The displaced file is deleted
+    only when it holds exactly the bytes this store last read (under the lock) as fully usable
+    (nothing left out) or wrote; anything else (one with entries left out, one a program
+    outside muxFinder put there during the write) is kept as `directories.backup-<UTC
+    yyyyMMddTHHmmssZ>[-n].json`. The publication and backup code is the store's own; the
+    stateless helpers it shares with `HostStore` (`makePrivate`, `backupName`,
+    `backupTimestamp`) moved to `PrivateStorage`, `HostStore` forwarding to them unchanged.
+  - **Session start folders in discovery:** the probe's `list-sessions` format writes, right
+    after each session line, `path <nonce> <session id> <#{session_path}> <nonce>` (the format
+    holds a line break, so sessions and folders come from one listing). tmux stores a `-c`
+    folder as given and prints it raw through `tmux -u`, with line breaks, tabs, escape
+    sequences, C1 controls and invalid UTF-8 (*Verified facts*, Phase I-2a), so a path cannot be
+    framed by its line, and no tmux 3.x format modifier escapes control characters (`q:` only
+    escapes shell characters; `n:` gives the byte length, which would frame it but tie the
+    parser to that modifier). The record ends at the first tab, run nonce and line feed: a path
+    cannot predict the nonce, so it can neither end its record early nor forge a session,
+    client, status, end or path line, and everything before the end mark is the path. tmux
+    bounds the path itself (Phase I-2a review): the format prints
+    `#{?#{e|>|:#{n:session_path},4096},,#{session_path}}`, so a path over 4,096 bytes (`n:`
+    counts bytes, control characters and invalid UTF-8 included) comes out as nothing, which
+    the parser drops and counts like an empty one, and is never cut to a length the parser
+    would keep; the path is the false branch, so a tmux that cannot evaluate the comparison
+    prints it whole, as before (only tmux 3.8 is tested). Discovery keeps stdout up to the
+    largest report the parser accepts (`ProbeReportParser.maximumReportSize`, about 11.8 MiB:
+    every line at the 4,096-byte cap, 1,000 sessions and 1,000 clients, and a path record of
+    at most `maximumPathRecordLength`, 4,156 bytes, after each session), so 1,000 sessions in
+    4,096-byte folders still report; more is "too large"; stderr keeps the runner's 1 MiB cap
+    (`ProcessRequest.errorOutputLimit`). The parser requires the record to follow its own
+    session's line (same id, at most one, else `malformed`; no end mark, `incomplete`), applies
+    no line-length cap inside it, and keeps the path only when it is not empty, at most 4,096
+    bytes, valid UTF-8, free of control characters (C0, DEL, C1) and through
+    `Validation.workingDirectory`; otherwise it drops and counts it
+    (`ProbeReport.droppedStartDirectoryCount`) and keeps the session. A report without `path`
+    records (every earlier capture, a fake) parses as before; the format version stays 1, since
+    the app always sends the script with its parser. `DiscoveredSession.startDirectory`
+    carries the folder through `HostSnapshot` (a stale snapshot keeps its last success's
+    sessions, folders included); it is display data only and never reaches a command by
+    itself. `discover` prints it per session with `startDirectoriesDropped`, `refresh --once`
+    per session.
+  - **Recording (`AppModel.recordRecentDirectory(_:for:)`):** called from `sessionCreated`,
+    New session's `createAndAttach` `onCreated` path, so only a creation that made the session
+    records, before its attach, and an attach that fails afterwards changes nothing; the
+    directory is the request's `workingDirectory` as checked; an empty field (`nil`) records
+    nothing; a collision, a failed creation and every `mayHaveCreated` failure never reach it.
+    The write runs in the background, one recording after another; a failure (or a displaced
+    file not kept) is logged in `os.Logger` and the operation log by code only (`recent
+    directory not recorded: <code>`, for example `fileNotUsable.unsafe.permissionsTooOpen` or
+    `busy`), never the directory, and never blocks or fails the creation. The same write forgets the recents of hosts no longer in the host list
+    (`knownHostIDs`: the list's ids when it loaded as `saved` at launch or was saved since; an
+    unsaved list, onboarding defaults or an unusable file, forgets nothing). Quitting waits for
+    a recording in progress for at most the session-action budget (D22).
+  - **Injection:** `AppEnvironment.directories` is `DirectoryStore()` (the real file) in
+    `production`, an `InMemoryDirectoryStore` in the self-tests (`SelfTestDriver
+    .makeEnvironment()`, so `--selftest new-session-local` never reads or writes
+    `directories.json`), and `nil` in `placementDiagnostic()` and the tests of other parts;
+    preview fixtures (`AppModel(fixture:)`) have no environment, so no preview mode reaches a
+    store (pinned by `DirectoryRecordingTests.eachModeGetsItsOwnStore`).
+  - **Uninstall:** `scripts/uninstall.sh` removes the whole support folder, `directories.json`,
+    its backups and `directories.lock` included (no change).
+
 ## Verified facts (planning session, 2026-10-21)
 
 - This Mac is **Neptuno** (`neptuno-m4`), macOS 27.2 arm64, Xcode 27.1, Swift 6.4, tmux 3.8
@@ -2275,6 +2394,35 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   drop (D26).
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
+
+Verified in Phase I-2a (2026-10-24, tmux 3.8 on a private server on Neptuno, `TMUX_TMPDIR`
+from `mktemp -d`, `-f /dev/null`, only `muxfinder-test-*` sessions with synthetic `-c` values;
+the capture is `Tests/MuxFinderCoreTests/Fixtures/discovery/local-session-paths.txt`):
+
+- **`#{session_path}` is the `-c` value as given:** `new-session -c` expands formats in it
+  (`##1` is stored as `#1`, as for names) but nothing else: `~/x` and a relative path stay as
+  typed, an empty `-c ""` gives an empty path, and a folder that does not exist is stored all
+  the same (tmux starts the pane elsewhere, D18). A session made without `-c` has the client's
+  working directory.
+- **Through `tmux -u` it is printed raw:** line feeds, tabs, escape sequences, C1 controls
+  (`U+0085`) and invalid UTF-8 bytes (`0xFF`) all reach `list-sessions -F` output unchanged,
+  unlike session names, which `new-session` refuses with control characters. So a path can
+  break any line framing; the `path` record ends at the run's nonce instead (D31).
+- **Format details:** a line break inside a `-F` format prints one line per part for each
+  session (two lines per session for the probe's format), and `#{n:session_path}` is the
+  path's length in bytes (`#{w:…}` its display width, control characters counting zero).
+- **The bound (Phase I-2a review, the same kind of private server):**
+  `#{e|>|:#{n:session_path},4096}` is `1` or `0`, and
+  `#{?#{e|>|:#{n:session_path},4096},,#{session_path}}` printed `-c` values of 4,096 bytes
+  whole and of 4,097 and 9,000 ASCII bytes, 4,097 bytes of two-byte characters (2,049
+  columns) and 8,001 bytes of them as nothing; `n:` counted a 12-byte path with a line feed,
+  an escape sequence, a C1 control and an invalid byte as 12. Commas and braces in the value
+  (`/x,y}z…`) do not break the conditional, since tmux splits the format before it expands
+  the value.
+- **The probe on that server:** seven sessions, two folders kept exactly (a synthetic absolute
+  one and `~/dir with spaces ünïcödé 日本 #1 a;b`), five dropped (a line break followed by a
+  forged session line, a status line and a forged `end` line; a tab and escape sequence; an
+  empty one; a C1 control; invalid UTF-8), and no forged session listed.
 
 Verified in the Phase I-1a placement diagnostic (2026-10-24, macOS 27.2, the bundle binary's
 `--report-popover-placement` run from the shell with an empty private `CFFIXED_USER_HOME`;
@@ -3635,6 +3783,66 @@ Split (recorded before the first worker):
   press identity by the hardware press count and `PopoverHeightLimit`; the final tree's run
   (unlocked, screen 1 main) found the real button at screen 1's right edge {4118, 2139} and
   the panel clamped 8 pt inside it, top on the menu bar's bottom, exit 0.
+
+### Phase I-2 — New session: pick the directory (high)
+
+From the inbox (2026-10-24). The full specification, with the user's request verbatim, the
+user's decisions (one saved list shared by all computers, recents per host, the start folders
+of the host's sessions suggested too; no Finder "Choose…" panel, no browsing over SSH), the
+findings, the design (store, recording rules, session folders in discovery, the picker,
+Settings, keys, self-tests, privacy) and the acceptance, is
+`autoclaude/processed/20-new-session-directory-picker.md`. It binds both sub-phases; its
+design is recorded as **D31**.
+
+Split (recorded before the first worker):
+
+- **I-2a — Directory store, session folders in discovery, recording (high).** Deliverables:
+  the `directories.json` store in `MuxFinderCore` (schema 1, loaded and written as D19 treats
+  `hosts.json`: `PrivateStorage`, 0600, safe publication, size cap, unknown keys ignored,
+  loading never writes, an invalid or unsafe file gives empty lists and a notice and is left
+  as it is; every entry through `Validation.workingDirectory`, failures dropped and counted;
+  at most 50 saved and 8 recent per host, newest first, duplicates by exact string; the
+  operations I-2b needs: add, remove and reorder saved, record and clear recents, prune
+  removed hosts' recents at the next write); the probe's session-folder record
+  (`#{session_path}`, framed so a path with tabs, newlines or control characters can neither
+  break nor forge a line, dropped by the parser when it holds control characters), probe and
+  parser changed together, golden fixtures and parser tests; the session's optional start
+  folder through `HostSnapshot` (a stale snapshot keeps its last folders), printed by
+  `discover` and `refresh --once`; the recording rules on the model's `onCreated` path
+  (created → recorded, also when the attach fails afterwards; collision, failure,
+  `mayHaveCreated` or an empty field → nothing; a failed write logged by kind only, never
+  failing the creation); store injection so the self-tests and preview fixtures never read or
+  write the real file; **D31**; `docs/ARCHITECTURE.md` (the new file, the probe record);
+  `CLAUDE.md` where a command's output or a test rule changes; `scripts/uninstall.sh`
+  confirmed to remove the support folder (no change expected). Acceptance: the store,
+  parser and recording unit tests of the specification pass; existing tests pass unchanged
+  or with recorded additions; real read-only `discover --local` and `discover --ssh
+  saturno-m4` report session folders that parse (counts only recorded, in `docs/TESTING.md`);
+  `--selftest new-session-local` passes with the thread-count gate (its path now injects the
+  store); shared verification and `scripts/build-app.sh` + `codesign --verify --deep
+  --strict` pass. The app's UI does not change in I-2a. Outcome: **D31** (the store with its
+  `directories.lock`, an unusable file refused by every mutation and left untouched; the
+  nonce-framed `path` record, a path over 4,096 bytes printed empty and dropped; recording on
+  `onCreated`; the in-memory store for the self-tests); real `discover --local` and `--ssh
+  saturno-m4` (with a test session made for it) parsed every folder, none dropped, and
+  `--selftest new-session-local` passed 7/7 with no `directories.json` created. The review
+  (Codex, `ship-with-fixes`, 3 should-fix) led to the refusal, the lock and the output budget
+  (`docs/progress-archive/i-2a.md`).
+- **I-2b — Picker, keys, Settings "Directories", galleries and documents (routine).**
+  Deliverables: the picker content per host (Recent, Saved, "Sessions on <host>" with at most
+  10 distinct sorted folders; empty sections hidden; the nothing-to-pick state; "Save this
+  directory", "Clear recent directories on <host>"), the pull-down button at the Directory
+  field's trailing edge, middle truncation with the full path in help and accessibility,
+  picking fills and checks the draft, the host change keeps the field; the keys (open from
+  the keyboard, ↑/↓ inside, Return still creates, Esc closes the list first); the Settings
+  "Directories" section (add checked inline, remove, reorder; Save/Revert as D23 unless a
+  recorded reason says otherwise); New session and Settings preview gallery states, light
+  and dark through `--preview-snapshot`, in `docs/screenshots/`; `README.md`,
+  `docs/ARCHITECTURE.md`, `docs/MANUAL-CHECKLIST.md` (create from a recent, a saved and a
+  session folder, on This Mac and Saturno). Acceptance: the specification's picker, picking
+  and key tests pass; the galleries are regenerated and inspected; the hermetic
+  install-script check passes; shared verification and `scripts/build-app.sh` + `codesign`
+  pass.
 
 ## Deferred (explicitly out of scope for v1)
 

@@ -1,0 +1,27 @@
+MUXFINDER-PROBE 1
+nonce	efcdb6f488cbc660
+host	Neptuno-M4.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+session	efcdb6f488cbc660	$6	1792855156	1	0	1792855156	24467	1792855156	/private/tmp/mfx.bBVQTP/tmux-501/default	muxfinder-test-badutf
+path	efcdb6f488cbc660	$6	/tmp/bad�utf8	efcdb6f488cbc660
+session	efcdb6f488cbc660	$5	1792855156	1	0	1792855156	24467	1792855156	/private/tmp/mfx.bBVQTP/tmux-501/default	muxfinder-test-c1
+path	efcdb6f488cbc660	$5	/tmp/c1x	efcdb6f488cbc660
+session	efcdb6f488cbc660	$4	1792855156	1	0	1792855156	24467	1792855156	/private/tmp/mfx.bBVQTP/tmux-501/default	muxfinder-test-empty
+path	efcdb6f488cbc660	$4		efcdb6f488cbc660
+session	efcdb6f488cbc660	$3	1792855156	1	0	1792855156	24467	1792855156	/private/tmp/mfx.bBVQTP/tmux-501/default	muxfinder-test-esc
+path	efcdb6f488cbc660	$3	/tmp/tab	here[31mesc	efcdb6f488cbc660
+session	efcdb6f488cbc660	$2	1792855156	1	0	1792855156	24467	1792855156	/private/tmp/mfx.bBVQTP/tmux-501/default	muxfinder-test-forge
+path	efcdb6f488cbc660	$2	/x
+session	ffffffffffffffff	$9	1	1	0	1	1	1	/x	forged
+sessions-exit	0
+end	ffffffffffffffff	efcdb6f488cbc660
+session	efcdb6f488cbc660	$0	1792855156	1	0	1792855156	24467	1792855156	/private/tmp/mfx.bBVQTP/tmux-501/default	muxfinder-test-plain
+path	efcdb6f488cbc660	$0	/Users/example/projects/site	efcdb6f488cbc660
+session	efcdb6f488cbc660	$1	1792855156	1	0	1792855156	24467	1792855156	/private/tmp/mfx.bBVQTP/tmux-501/default	muxfinder-test-unicode
+path	efcdb6f488cbc660	$1	~/dir with spaces ünïcödé 日本 #1 a;b	efcdb6f488cbc660
+sessions-exit	0
+sessions-stderr	
+clients-exit	0
+clients-stderr	
+end	efcdb6f488cbc660

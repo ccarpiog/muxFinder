@@ -597,23 +597,11 @@ public actor HostStore {
     return try keepBackup(temporary, in: directory)
   } // End of func settleDisplaced(_:expecting:in:)
 
-  /// Makes the displaced entry `name` a private backup before it gets its backup name, when it
-  /// is a regular file of `owner`'s: no extended ACL, mode 0600, flushed to stable storage.
-  /// Best effort: a link is not followed, another kind of entry or another user's file is left
-  /// as it is, and failures leave the bytes as they are.
+  /// Makes the displaced entry `name` a private backup before it gets its backup name
+  /// (`PrivateStorage.makePrivate(named:in:owner:)`, shared with `DirectoryStore`).
   static func makePrivate(named name: String, in directory: Int32, owner: uid_t) {
-    let descriptor = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-    guard descriptor >= 0 else { return }
-    defer { Darwin.close(descriptor) }
-    var info = stat()
-    guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == owner
-    else { return }
-    _ = PrivateStorage.removeExtendedACL(of: descriptor, owner: owner)
-    if info.st_mode & 0o7777 != PrivateStorage.filePermissions {
-      _ = fchmod(descriptor, PrivateStorage.filePermissions)
-    }
-    try? PrivateStorage.flush(descriptor)
-  } // End of func makePrivate(named:in:owner:)
+    PrivateStorage.makePrivate(named: name, in: directory, owner: owner)
+  }
 
   /// Renames the displaced entry at `temporary` to a new backup name next to the file and
   /// returns that name. An existing backup is never replaced (`RENAME_EXCL`): the next free
@@ -634,30 +622,16 @@ public actor HostStore {
   } // End of func keepBackup(_:in:)
 
   /// The backup name for `fileName`: `hosts.json` becomes `hosts.backup-<timestamp>.json`, and
-  /// `hosts.backup-<timestamp>-<attempt>.json` from the second attempt on.
+  /// `hosts.backup-<timestamp>-<attempt>.json` from the second attempt on
+  /// (`PrivateStorage.backupName(for:timestamp:attempt:)`).
   static func backupName(for fileName: String, timestamp: String, attempt: Int) -> String {
-    let tag = ".backup-\(timestamp)" + (attempt > 1 ? "-\(attempt)" : "")
-    guard let dot = fileName.lastIndex(of: "."), dot != fileName.startIndex else {
-      return fileName + tag
-    }
-    return String(fileName[..<dot]) + tag + String(fileName[dot...])
+    PrivateStorage.backupName(for: fileName, timestamp: timestamp, attempt: attempt)
   }
 
-  /// `date` in UTC as `yyyyMMddTHHmmssZ`.
+  /// `date` in UTC as `yyyyMMddTHHmmssZ` (`PrivateStorage.backupTimestamp(_:)`).
   static func timestamp(_ date: Date) -> String {
-    var seconds = time_t(date.timeIntervalSince1970.rounded(.down))
-    var parts = tm()
-    gmtime_r(&seconds, &parts)
-    return String(
-      format: "%04d%02d%02dT%02d%02d%02dZ",
-      parts.tm_year + 1900,
-      parts.tm_mon + 1,
-      parts.tm_mday,
-      parts.tm_hour,
-      parts.tm_min,
-      parts.tm_sec
-    )
-  } // End of func timestamp(_:)
+    PrivateStorage.backupTimestamp(date)
+  }
 
   // MARK: - File contents
 

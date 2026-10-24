@@ -127,6 +127,13 @@ public struct DiscoveredSession: Sendable, Hashable, Codable, Identifiable {
   public var lastActivityAt: Int64
   /// The clients `list-clients` reported for this session.
   public var clients: [ClientSummary]
+  /// The session's start folder (`#{session_path}`, as tmux stores it: normally absolute, or a
+  /// `-c` value as given), when discovery reported a usable one (PLAN.md D31); `nil` when it
+  /// did not, or dropped it (a control character, invalid UTF-8, empty, too long). Display data
+  /// only, like the name: it never reaches a command by itself. New session's picker (Phase
+  /// I-2b) puts it into the Directory field, where it is checked like typed text. It is user
+  /// data: never logged.
+  public var startDirectory: String?
 
   /// Creates a discovered session.
   public init(
@@ -136,7 +143,8 @@ public struct DiscoveredSession: Sendable, Hashable, Codable, Identifiable {
     windowCount: Int,
     attachedClientCount: Int,
     lastActivityAt: Int64,
-    clients: [ClientSummary]
+    clients: [ClientSummary],
+    startDirectory: String? = nil
   ) {
     self.key = key
     self.name = name
@@ -145,7 +153,8 @@ public struct DiscoveredSession: Sendable, Hashable, Codable, Identifiable {
     self.attachedClientCount = attachedClientCount
     self.lastActivityAt = lastActivityAt
     self.clients = clients
-  } // End of init(key:name:createdAt:windowCount:attachedClientCount:lastActivityAt:clients:)
+    self.startDirectory = startDirectory
+  } // End of init(key:name:createdAt:windowCount:attachedClientCount:lastActivityAt:clients:…)
 
   /// `Identifiable` conformance: the session key.
   public var id: SessionKey { key }

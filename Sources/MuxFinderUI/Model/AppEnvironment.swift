@@ -5,8 +5,9 @@ import MuxFinderCore
 /// What `AppModel` runs on (PLAN.md D22, D23, D24, D25): the host list, the refresh engine, the
 /// system events adapter, the attach coordinator, the clock, quitting, opening URLs, the
 /// Settings and onboarding windows and their seams. `production()` wires the real core; tests
-/// pass fakes (the attach coordinator over a fake iTerm2 integration), so `swift test` never
-/// reads or saves `hosts.json`, runs a probe, contacts iTerm2, opens a window, a tab or System
+/// pass fakes (the attach coordinator over a fake iTerm2 integration, directories in memory), so
+/// `swift test` never reads or saves `hosts.json` or `directories.json`, runs a probe, contacts
+/// iTerm2, opens a window, a tab or System
 /// Settings, changes a login item, or writes in iTerm2's `DynamicProfiles`.
 ///
 /// Building an environment does no work: nothing is read, started or contacted until
@@ -46,6 +47,11 @@ public struct AppEnvironment: Sendable {
   /// The first pane's command of a session made with New session, as argv; empty (the app's
   /// value) runs the user's shell. The self-tests run `sleep` instead, so no login shell starts.
   public var newSessionCommand: [String]
+  /// Where New session records the directories it created sessions in (PLAN.md D31):
+  /// `DirectoryStore` on the real `directories.json` in the app, an `InMemoryDirectoryStore` in
+  /// the self-tests, `nil` (nothing recorded) in the tests of other parts and the placement
+  /// diagnostic. Preview fixtures have no environment, so they never reach a store.
+  public var directories: (any DirectoryStoring)?
   /// How long `AppModel.shutdown()` waits for the session actions it cancelled before it
   /// reports the ones still running and returns (`AppModel.sessionActionShutdownBudget` by
   /// default; tests shorten it).
@@ -72,6 +78,7 @@ public struct AppEnvironment: Sendable {
       @Sendable (@escaping AttachCoordinator.UpdateHandler) throws -> AttachCoordinator
     )? = nil,
     newSessionCommand: [String] = [],
+    directories: (any DirectoryStoring)? = nil,
     sessionActionShutdownBudget: Duration = AppModel.sessionActionShutdownBudget,
     rewritesProfilesAtLaunch: Bool = false
   ) {
@@ -87,6 +94,7 @@ public struct AppEnvironment: Sendable {
     self.diagnostics = diagnostics
     self.makeAttachCoordinator = makeAttachCoordinator
     self.newSessionCommand = newSessionCommand
+    self.directories = directories
     self.sessionActionShutdownBudget = sessionActionShutdownBudget
     self.rewritesProfilesAtLaunch = rewritesProfilesAtLaunch
   } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
@@ -102,8 +110,10 @@ public struct AppEnvironment: Sendable {
   /// file (`PersistentProfileFiles` over iTerm2's `DynamicProfiles` folder, PLAN.md D26). The
   /// session actions run on one `AttachCoordinator` over the same client, `DiscoveryProbe`, the
   /// launch store and the bundled `muxfinder-launch` (`LaunchHelperPath.locate()`), with the
-  /// standard existing-attachment check (PLAN.md D16, D25). `rewritesProfilesAtLaunch` is the
-  /// caller's: only the menu bar app in normal mode passes `true`.
+  /// standard existing-attachment check (PLAN.md D16, D25). New session records its
+  /// directories in `directories.json` through one `DirectoryStore` (PLAN.md D31; nothing is
+  /// read or written until a session is created). `rewritesProfilesAtLaunch` is the caller's:
+  /// only the menu bar app in normal mode passes `true`.
   ///
   /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
@@ -157,6 +167,7 @@ public struct AppEnvironment: Sendable {
           iTerm2: iTerm2, discovery: DiscoveryProbe(), store: LaunchStore(),
           helperPath: try LaunchHelperPath.locate(), diagnostics: diagnostics, onUpdate: onUpdate)
       },
+      directories: DirectoryStore(),
       rewritesProfilesAtLaunch: rewritesProfilesAtLaunch)
   } // End of static func production(rewritesProfilesAtLaunch:)
 
@@ -165,8 +176,9 @@ public struct AppEnvironment: Sendable {
   /// one, as the self-tests' (`HostStoreLoadResult.inMemory(_:)`: no `hosts.json` read or
   /// written, no onboarding); an engine built for it would have no host to discover and no
   /// attachment index, so it could not run a probe or contact iTerm2; no system events, no
-  /// Settings seams (inert Settings and onboarding models), no attach coordinator, and no
-  /// persistent profile rewrite. Quitting goes through `AppTermination` as usual.
+  /// Settings seams (inert Settings and onboarding models), no attach coordinator, no directory
+  /// store (no `directories.json` read or written), and no persistent profile rewrite. Quitting
+  /// goes through `AppTermination` as usual.
   public static func placementDiagnostic() -> AppEnvironment {
     AppEnvironment(
       loadHosts: { .inMemory(HostList()) },

@@ -116,9 +116,10 @@ public final class AppModel {
     case update(AttachUpdate)
     /// An open, move here or detach ended.
     case finished(SessionKey, SessionActionRecord.Outcome)
-    /// New session number `id` created its session on `host`; its attach starts now (before
-    /// the coordinator publishes any state of it).
-    case sessionCreated(id: Int, CreatedSession, host: HostConfig)
+    /// New session number `id` created its session on `host` in `directory` (as checked; `nil`
+    /// for the home folder); its attach starts now (before the coordinator publishes any state
+    /// of it).
+    case sessionCreated(id: Int, CreatedSession, host: HostConfig, directory: String?)
     /// New session number `id` on `host` ended (creation, then the attach of the new session).
     case created(id: Int, CreateAndAttachResult, host: HostConfig)
     /// "Open existing" number `id` listed `host` afresh for the session named `name`.
@@ -239,6 +240,14 @@ public final class AppModel {
   @ObservationIgnored var actionReader: Task<Void, Never>?
   /// The next banner's id.
   @ObservationIgnored var nextBannerID = 0
+  /// The ids of every host in the host list, as loaded as `saved` at launch or saved since
+  /// (Settings, onboarding): a recording of a recent directory forgets the recents of other
+  /// hosts in the same write (PLAN.md D31). `nil` while the list is not known to be saved, so
+  /// nothing is forgotten on the strength of onboarding defaults or an unusable file.
+  @ObservationIgnored var knownHostIDs: Set<UUID>?
+  /// The latest recording of a recent directory; the next one waits for it, so they keep their
+  /// order (`recordRecentDirectory(_:for:)`).
+  @ObservationIgnored var directoryRecording: Task<Void, Never>?
   /// Records what the session actions did (kinds only: no names or other user data).
   @ObservationIgnored let logger = Logger(subsystem: "cc.carpio.muxfinder", category: "app")
 
@@ -373,6 +382,7 @@ public final class AppModel {
       list = HostList()
     }
     hostListStatus = status
+    knownHostIDs = status == .saved ? Set(list.hosts.map(\.id)) : nil
     await environment.diagnostics?.record(
       .settings, outcome: status == .saved || status == .notSavedYet ? .info : .failure,
       detail: "host list at launch: \(SettingsModel.statusCode(status)), "
@@ -407,10 +417,12 @@ public final class AppModel {
     if let environment { now = environment.now() }
   }
 
-  /// Settings saved `list`: the popover's load status is `saved`, and the engine runs with the
-  /// new list (queued like every engine request).
+  /// Settings saved `list`: the popover's load status is `saved`, the engine runs with the new
+  /// list (queued like every engine request), and the next recording of a recent directory
+  /// forgets the recents of hosts the list no longer has (PLAN.md D31).
   func hostListSaved(_ list: HostList) {
     hostListStatus = .saved
+    knownHostIDs = Set(list.hosts.map(\.id))
     send(.setHosts(list))
   }
 
@@ -431,6 +443,8 @@ public final class AppModel {
   ///   awaited), and, in this order, the request queue (requests still queued are dropped), the
   ///   system events adapter and the engine, whose `stop()` cancels any attachment check and
   ///   kills any running probe's process group.
+  /// - Then a recording of a recent directory still being written (PLAN.md D31) is awaited for
+  ///   at most the same budget.
   ///
   /// Quitting muxFinder never detaches a tmux client, ends a session or closes an iTerm2 tab.
   /// Later calls do nothing and report nothing.
@@ -445,6 +459,7 @@ public final class AppModel {
     await subsystemsStopped
     actionSink.finish()
     await actionReader?.value
+    if let recording = directoryRecording { _ = await Self.ends(recording, within: budget) }
     if !report.isComplete { await reportUnfinished(report, budget: budget) }
     return report
   } // End of func shutdown()

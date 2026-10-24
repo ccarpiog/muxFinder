@@ -30,6 +30,17 @@ enum ReportBuilder {
     ].joined(separator: "\t")
   } // End of func session(id:created:…)
 
+  /// A `path` record (PLAN.md D31): tag, nonce, session id, the path, and `end` (the nonce by
+  /// default) as its end mark. A line break in `path` makes it span lines, as tmux prints it.
+  static func path(
+    _ path: String,
+    id: String = "$0",
+    nonce: String = ReportBuilder.nonce,
+    end: String? = nil
+  ) -> String {
+    ["path", nonce, id, path, end ?? nonce].joined(separator: "\t")
+  }
+
   /// A `client` line; every field can be replaced.
   static func client(
     session: String = "$0",
@@ -154,10 +165,17 @@ func sessionID(_ raw: String) -> TmuxSessionID {
 /// - `hang-pids`: `list-sessions` starts `sleep 30` in the background, writes its own pid and
 ///   that child's pid (`<pid> <child pid>` and a newline) to the file named by
 ///   `MUXFINDER_FAKE_PIDFILE`, and waits for the child.
+/// - `many-paths`: a report at the parser's limits (PLAN.md D31): 1,000 sessions `$0`…`$999`,
+///   each line exactly 4,096 bytes (a long name of `n`), each followed by its path record with
+///   the longest folder kept (`/` and 4,095 `x`), except `$999`, whose record is empty, as tmux
+///   prints a folder over 4,096 bytes; and 1,000 clients, one per session.
 ///
 /// It fails with exit 98 if `TMUX` or `TMUX_PANE` reached it, and 99 if `-u` is missing. Records
 /// are printed after the literal prefix of the `-F` format (tag and nonce), the way real tmux
-/// expands it.
+/// expands it. When the `list-sessions` format holds a line break (the probe's `path` record,
+/// PLAN.md D31), each session line is followed by its path record, framed by the literal prefix
+/// and suffix the format gives it: `$0` starts in `/Users/example/projects/site`, and `$7`'s
+/// path holds a line break and a forged `sessions-exit` line (the parser drops it).
 let fakeTmuxScript = #"""
   #!/bin/sh
   mode=${MUXFINDER_FAKE_MODE:-sessions}
@@ -172,6 +190,13 @@ let fakeTmuxScript = #"""
   if [ -n "${TMUX-}" ] || [ -n "${TMUX_PANE-}" ]; then echo "TMUX leaked" >&2; exit 98; fi
   if [ "$1" != -u ]; then echo "missing -u" >&2; exit 99; fi
   prefix=${4%%#\{*}
+  nl='
+  '
+  pprefix=
+  psuffix=
+  case ${4-} in
+    *"$nl"*) rest=${4#*"$nl"}; pprefix=${rest%%#\{*}; psuffix=${rest##*\}} ;;
+  esac
   case "$mode:$2" in
     hang:list-sessions) sleep 30 ;;
     hang-pids:list-sessions)
@@ -194,9 +219,37 @@ let fakeTmuxScript = #"""
       dd if=/dev/zero bs=1048576 count=8 2>/dev/null | LC_ALL=C tr '\0' x >&2
       printf '\nsecond line\n' >&2
       exit 3 ;;
+    many-paths:list-sessions)
+      tab=$(printf '\t')
+      fixed="${tab}1700000000${tab}1${tab}1${tab}1700000100${tab}4242${tab}1699999999"
+      fixed="$fixed${tab}/private/tmp/tmux-501/default${tab}"
+      room=$((4096 - ${#prefix} - ${#fixed}))
+      name=$(printf "%${room}s" '' | tr ' ' n)
+      folder=/$(printf '%4095s' '' | tr ' ' x)
+      i=0
+      while [ $i -lt 1000 ]; do
+        case $i in
+          ?) cut=${name#??} ;;
+          ??) cut=${name#???} ;;
+          *) cut=${name#????} ;;
+        esac
+        [ $i -lt 999 ] || folder=
+        printf '%s$%s%s%s\n' "$prefix" "$i" "$fixed" "$cut"
+        printf '%s$%s\t%s%s\n' "$pprefix" "$i" "$folder" "$psuffix"
+        i=$((i + 1))
+      done # End of loop over the sessions
+      ;;
+    many-paths:list-clients)
+      i=0
+      while [ $i -lt 1000 ]; do
+        printf '%s$%s\t1\t%s\n' "$prefix" "$i" "$((5000 + i))"
+        i=$((i + 1))
+      done ;;
     *:list-sessions)
       printf '%s$0\t1700000000\t2\t1\t1700000100\t4242\t1699999999\t/private/tmp/tmux-501/default\tplain\n' "$prefix"
-      printf '%s$7\t1700000001\t1\t0\t1700000101\t4242\t1699999999\t/private/tmp/tmux-501/default\ta;rm -rf ~ $(touch x) "q" \047q\047\tend\n' "$prefix" ;;
+      if [ -n "$pprefix" ]; then printf '%s$0\t/Users/example/projects/site%s\n' "$pprefix" "$psuffix"; fi
+      printf '%s$7\t1700000001\t1\t0\t1700000101\t4242\t1699999999\t/private/tmp/tmux-501/default\ta;rm -rf ~ $(touch x) "q" \047q\047\tend\n' "$prefix"
+      if [ -n "$pprefix" ]; then printf '%s$7\t/x\nsessions-exit\t0%s\n' "$pprefix" "$psuffix"; fi ;;
     clients-fail:list-clients) echo "lost server" >&2; exit 1 ;;
     *:list-clients) printf '%s$0\t1\t5151\n' "$prefix" ;;
     *) echo "unexpected call" >&2; exit 97 ;;

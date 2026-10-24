@@ -246,9 +246,10 @@ extension AppModel {
     let id = nextPanelActionID
     let sink = actionSink
     let host = request.host
+    let directory = request.workingDirectory
     let task = Task {
       let result = await coordinator.createAndAttach(request) { created in
-        sink.yield(.sessionCreated(id: id, created, host: host))
+        sink.yield(.sessionCreated(id: id, created, host: host, directory: directory))
       }
       sink.yield(.created(id: id, result, host: host))
     }
@@ -256,13 +257,18 @@ extension AppModel {
     logger.info("Session action started: new session")
   } // End of func createSession()
 
-  /// New session `id` created its session on `host`, and its attach starts now (this comes
-  /// before any of the attach's states). From here on the attach is the new session's action,
-  /// like an Open: its row follows the coordinator's states ("Opening…", "Waiting for iTerm2…",
-  /// "Still connecting — check the iTerm2 tab" with "Show tab") and then the result, clicks on
-  /// it are ignored while it is pending, and quitting cancels it. The sheet closes, so the row
-  /// shows, and the host is refreshed, so it is listed; another New session can start.
-  func sessionCreated(_ id: Int, _ created: CreatedSession, on host: HostConfig) {
+  /// New session `id` created its session on `host` in `directory`, and its attach starts now
+  /// (this comes before any of the attach's states). The directory is recorded as one of the
+  /// host's recent directories (`recordRecentDirectory(_:for:)`), whatever the attach does
+  /// next. From here on the attach is the new session's action, like an Open: its row follows
+  /// the coordinator's states ("Opening…", "Waiting for iTerm2…", "Still connecting — check the
+  /// iTerm2 tab" with "Show tab") and then the result, clicks on it are ignored while it is
+  /// pending, and quitting cancels it. The sheet closes, so the row shows, and the host is
+  /// refreshed, so it is listed; another New session can start.
+  func sessionCreated(
+    _ id: Int, _ created: CreatedSession, on host: HostConfig, directory: String?
+  ) {
+    recordRecentDirectory(directory, for: host.id)
     guard let pending = creation, pending.id == id else { return }
     creation = nil
     let target = created.attachTarget(on: host)
@@ -274,7 +280,49 @@ extension AppModel {
     if newSessionDraft.state == .creating { newSessionDraft.state = .editing }
     if case .newSession = panel { panel = nil }
     refreshHost(host.id)
-  } // End of func sessionCreated(_:_:on:)
+  } // End of func sessionCreated(_:_:on:directory:)
+
+  // MARK: - Recent directories
+
+  /// Records `directory` (as New session checked it) as `hostID`'s newest recent directory
+  /// (PLAN.md D31), once a creation made a session there: before the session's attach, so an
+  /// attach that fails afterwards changes nothing. An empty field (`nil`, the home folder)
+  /// records nothing, and neither does a collision, a failed creation or `mayHaveCreated`,
+  /// which never report a created session. The recents of hosts no longer in the host list
+  /// (`knownHostIDs`) are forgotten in the same write. The store is written in the background,
+  /// one recording after another; a failure is logged by its kind only, never the directory,
+  /// and never blocks or fails the creation or its attach.
+  func recordRecentDirectory(_ directory: String?, for hostID: UUID) {
+    guard let directory, !directory.isEmpty, let store = environment?.directories else { return }
+    let previous = directoryRecording
+    let knownHosts = knownHostIDs
+    let diagnostics = environment?.diagnostics
+    let logger = self.logger
+    directoryRecording = Task {
+      await previous?.value
+      let failure: String?
+      do throws(DirectoryStoreError) {
+        let result = try await store.apply(
+          .recordRecent(directory, hostID: hostID), knownHosts: knownHosts)
+        failure = result.displacedFileError.map { "displaced file not kept: \($0.code)" }
+      } catch {
+        failure = "not recorded: \(error.code)"
+      }
+      guard let failure else {
+        logger.info("Recent directory recorded")
+        return
+      }
+      logger.error("Recent directory \(failure, privacy: .public)")
+      await diagnostics?.record(
+        .settings, outcome: .failure, hostID: hostID.uuidString,
+        detail: "recent directory \(failure)")
+    }
+  } // End of func recordRecentDirectory(_:for:)
+
+  /// Returns once every recording of a recent directory started so far has ended.
+  func directoryRecordingsHandled() async {
+    await directoryRecording?.value
+  }
 
   /// "Open existing" after a collision: lists the draft's host afresh through the attach
   /// coordinator (`currentSession(named:on:)`), never trusting the popover's list, since the
@@ -380,13 +428,14 @@ extension AppModel {
     switch event {
     case .update(let update): apply(update)
     case .finished(let key, let outcome): finish(key, outcome)
-    case .sessionCreated(let id, let created, let host): sessionCreated(id, created, on: host)
+    case .sessionCreated(let id, let created, let host, let directory):
+      sessionCreated(id, created, on: host, directory: directory)
     case .created(let id, let result, let host): finishCreation(id, result, on: host)
     case .existingFound(let id, let found, let name, let host):
       existingFound(id, found, name: name, on: host)
     case .barrier(let continuation): continuation.resume()
     }
-  }
+  } // End of func handle(_:)
 
   /// A launch's state: the row of a session whose open, move here or New session attach is
   /// pending follows it, except for a failure, which the result shows with its recoveries, and

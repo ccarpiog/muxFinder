@@ -44,7 +44,7 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-1b* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-2a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
 Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
 
@@ -90,6 +90,27 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   each tmux command has a timeout, and it ends before the directory is removed; a second test
   cancels its task while a session exists and checks the session is gone. `TMUX` and
   `TMUX_PANE` are set to a bogus server to prove they are ignored. Skips when tmux is absent.
+- **Session start folders** (`ProbeSessionPathTests`, `StartFolderSnapshotTests`,
+  `SessionPathEndToEndTests`; PLAN.md D31): the real capture from a private tmux 3.8 server
+  (`local-session-paths.txt`: 7 sessions, 2 folders kept, 5 dropped, no forged session) and a
+  synthetic corpus (`synthetic-session-paths.txt`, 17 sessions: spaces, Unicode, `#`, `;`, `%`
+  and a leading `-` kept; forged session, client, status, end and path lines after a line
+  break, a tab, an escape sequence, DEL, a C1 control, a carriage return, invalid UTF-8 and an
+  empty path dropped; one session without a record); 12 kept and 15 dropped paths one by one
+  (NUL, overlong encodings, 4,096 bytes kept and 4,097 dropped, 9,000 bytes past the line cap
+  dropped without failing the report); seven forgeries with a guessed nonce that stay inside
+  their record; misplaced records (before any session, another id, a second one, another
+  nonce, no end mark) failing the report; line numbers across a multi-line record; every
+  report without records still parsing; every truncation and single-byte corruption of the
+  corpus; the real script through the fake `tmux` locally and through the D3 string with sh,
+  zsh and bash; the script's bounded format; a report at the parser's limits through the real
+  runner and discovery's request (1,000 sessions on 4,096-byte lines in 4,096-byte folders
+  and 1,000 clients, about 8 MiB: nothing cut, every folder kept, the empty record dropped and
+  counted) and the largest accepted report (18-digit ids, header lines at the cap) within the
+  budget while one byte over it is "too large"; a stale snapshot keeping its folders; and real
+  tmux on a private server with plain, `~/…`, Unicode and `##`, forged, escape-sequence and
+  empty `-c` values, and with 4,096-byte (kept whole), 4,097-byte and 8,001-byte `-c` values
+  (printed as an empty record, no part of them in the raw report, dropped and counted).
 - **iTerm2 protobuf codec** (`ProtoWireTests`): varint edge cases (0, 127, 128, `UInt32.max`,
   2^63, `UInt64.max`, negative `int32`/`int64` as 10-byte varints), every scalar and
   length-delimited encoding, unknown fields of all four wire types skipped, known fields with
@@ -630,6 +651,30 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   done neither keeps a backup). With all 100 backup names taken, the save throws
   `displacedFileNotKept` naming the hidden temporary file, which still holds the displaced
   bytes, and the new list is in place.
+- **Directory store** (`DirectoryStoreTests`, `DirectoryListsTests`, private temporary folders
+  only; PLAN.md D31): a missing folder or file gives empty lists with nothing created; ten
+  unusable files (not JSON, an array, no or a string version, `saved` or `recent` of the wrong
+  type, schema 2 and 0, open permissions, over 1 MiB) and a link, a folder and an ACL at the
+  name give empty lists and a notice, the folder unchanged; unknown keys ignored; invalid
+  entries (not a string, empty, NUL, a line break, too long, a non-UUID host, a non-array
+  value) dropped and counted while a duplicate is not; the 50 and 8 caps on load; duplicates by
+  exact bytes (`~/x` and `/Users/…/x`, composed and decomposed accents stay distinct); round
+  trip, schema shape, 0700 and 0600 without ACL under an inheritable ACL; recents newest
+  first, moved to the front, capped, per host, cleared; add, existing add (no write), remove,
+  move, replace and the cap; refused changes writing nothing; a change that changes nothing
+  writing nothing; removed hosts pruned at the next write; what another program wrote kept;
+  a file with entries left out kept as `directories.backup-<stamp>.json` (once); six
+  unusable files (unsafe permissions on valid lists, schema 2, not JSON, malformed, an ACL, a
+  link) refusing all nine kinds of change with `fileNotUsable(problem)`, the file's bytes,
+  mode, inode and modification time and the folder (its 0750 mode, no backup, temporary or
+  lock file) unchanged; a link or a folder at the name refused (`fileNotUsable`), and one that
+  takes the name after the read refused by the write (`existingFileNotRegular`); a file put at
+  the name during the write kept as a backup (`beforePublishing`); two stores on one file,
+  the second's change started while the first holds the lock before publishing, ending with
+  both changes and no backup; a held `directories.lock` making a change give up (`busy`, the
+  file unchanged) and a linked one refused (`lockUnavailable`), the lock file 0600, empty, no
+  ACL; lists over 1 MiB refused; the default path beside `hosts.json`; `hosts.json` and its
+  backups never touched; the in-memory store's rules.
 - **SSH config suggestions** (`SSHConfigSuggestionsTests`, a synthetic home per test, never
   the user's `~/.ssh`): `Host` lines with several patterns; every keyword form (any case,
   `Host=a`, `Host = a`, `Host =a`, `Host= a`, tabs, indentation; `Hostname` and
@@ -929,6 +974,19 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   `CreateAndAttachTests` checks that `onCreated` comes once, before the first state, and never
   for a failed creation, and that `currentSession(named:on:)` matches the exact name in a fresh
   listing (another case, a renamed session or no server is `sessionGone`).
+- **Recent directories** (`Tests/MuxFinderUITests/DirectoryRecordingTests.swift`, PLAN.md
+  D31), over the same harness with an in-memory store: a created session records its directory
+  as checked, newest first, for its host; an attach that fails after the creation still
+  records; an empty field, both collisions, a failed creation and every `mayHaveCreated`
+  failure never call the store; a store whose writes fail leaves the creation confirmed and
+  logs `recent directory not recorded: <code>` with no directory; a real store over an
+  unusable file in a private folder (valid lists, mode 0644) logs `fileNotUsable.unsafe
+  .permissionsTooOpen` and leaves the file's bytes, mode, modification time and inode and the
+  folder as they were, the creation confirmed; hosts removed from the list
+  (in Settings, or never in it) lose their recents at the next write, and an unsaved list
+  prunes nothing; the app's environment uses the real `directories.json`, the self-tests an
+  in-memory store (and `new-session-local` passes with it empty), the placement diagnostic
+  and every preview fixture none.
 - **Self-test drivers** (`Tests/MuxFinderUITests/SelfTestDriverTests.swift`, PLAN.md D25).
   `SelfTestDriver` over the real model, engine and coordinator with `SimulatedITerm2`, a
   `SimulatedTmux` (sessions in memory: the driver's tmux, discovery and New session's creator)
@@ -2399,3 +2457,50 @@ be compared with window 0 (no other process's status-bar window was listed).
 | Placement diagnostic | `CFFIXED_USER_HOME=<private folder from mktemp -d> build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement &`, `pgrep -P <pid>` every 0.1 s while it ran, `wait`; twice (the second on the final tree, after `scripts/build-app.sh` and `codesign --verify --deep --strict`, exit 0 both) | the lines above, "popover closed by the second click", exit 0 about 3 s after launch, both runs; no child process in 24 and 22 samples; no copy left |
 | Shell check | `CFFIXED_USER_HOME=<another private folder> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`; `pgrep -P <pid>` every 0.1 s for 3.5 s; `kill -TERM <pid>`; once, on the first complete tree (the final tree changed only the panel's hosted root view) | 7 status-bar-level windows, all visible, 34 × 30 pt, the same frames; no child process; exit 0 after SIGTERM; no copy left |
 | Nothing written | `ls -laR` of the three private folders after each run and once more later | all still empty (no `hosts.json`, no `Library`) |
+
+### Phase I-2a — directory store and session start folders (2026-10-24)
+
+The probe now reports each session's start folder in a `path` record that ends at the run's
+nonce, and New session records the directories it creates sessions in, in `directories.json`
+(PLAN.md D31). The app's UI did not change. The real checks were read-only discovery only:
+nothing contacted iTerm2, and no `e2e-*` run or self-test was made here (`--selftest
+new-session-local`, whose path now injects an in-memory store, is the orchestrator's). Folders
+are the user's data, so the real runs' JSON went straight through `jq` and only counts were
+seen and recorded; the private server's paths were synthetic. The real `hosts.json` and
+`directories.json` were neither read nor written (stores in tests use private folders).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Private-server capture | tmux 3.8 with `TMUX_TMPDIR` from `mktemp -d`, `-f /dev/null`, seven `muxfinder-test-*` sessions with synthetic `-c` values (plain, Unicode with `##1` and `;`, a line break before a forged session, status and `end` line, a tab and escape sequence, empty, a C1 control, invalid UTF-8); `.build/debug/muxfinder-probe discover --local --raw`, then `discover --local`; the sessions killed by id | `ok`: 7 sessions, 2 folders kept exactly, 5 dropped, no forged session; the raw report is the fixture `local-session-paths.txt`; afterwards "no server running", the folder removed |
+| This Mac | `swift run muxfinder-probe discover --local \| jq -c '{kind, tmux, sessions, withFolder, dropped}'` (counts computed by `jq`) | `ok`, tmux 3.8: 2 sessions, 2 with a folder, 0 dropped, 151 ms |
+| Refresh engine | `swift run muxfinder-probe refresh --once --config <private hosts.json with This Mac only, from mktemp -d> \| jq -c '…'` (counts per host) | `saved`, attachments `notChecked` (iTerm2 not contacted): This Mac `ok`, 2 sessions, 2 with a folder; the private folder still held only its `hosts.json` |
+| Saturno | `swift run muxfinder-probe discover --ssh saturno-m4 \| jq -c '…'` (the same counts) | `noServer` (no tmux server was running there), tmux 3.8: 0 sessions, 0 dropped, 731 ms. No session was created on Saturno, so a real remote `path` record was not seen; the D3 command string carries it through `/bin/sh`, `/bin/zsh -f` and `/bin/bash` in `ProbeSessionPathTests.remoteCommandStringFramesThePathRecord` |
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` | exit 0: 786 tests in 79 suites (core; 41 new in 5 suites: `ProbeSessionPathTests`, `StartFolderSnapshotTests`, `SessionPathEndToEndTests`, `DirectoryStoreTests`, `DirectoryListsTests`) and 228 in 22 suites (UI; 8 new in `DirectoryRecordingTests`). No existing test changed; the shared fake `tmux` now also prints `path` records when the format asks for them, `ReportBuilder` gained `path(…)` and `AttachHarness.make` optional `directories` and `diagnostics` |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized, no warnings; exit 0 |
+| Uninstall | `scripts/uninstall.sh` read (not run) | it removes the whole `~/Library/Application Support/muxFinder` folder, so `directories.json` and its backups go with it; no change |
+
+#### Phase I-2a review fixes (2026-10-24)
+
+Three should-fix findings of `docs/reviews/phase-I-2a.md`, each with regression tests that
+were run with the fix taken out again and failed, then passed with it (PLAN.md D31): an
+unusable `directories.json` now refuses every change and is left as it is
+(`refusesEveryChangeWhileTheFileIsUnusable`, `aRecordingLeavesAnUnusableFileAsItIs`); changes
+hold `directories.lock` (`twoStoresNeverLoseEachOthersChanges`,
+`aHeldLockMakesAChangeWaitThenGiveUp`); tmux prints a folder over 4,096 bytes as nothing and
+discovery's stdout budget is the largest accepted report (`printsNothingForAFolderOverTheLimit`
+on a private tmux 3.8 server, `discoversAReportAtTheParsersLimits`,
+`theOutputBudgetHoldsTheLargestAcceptedReport`). Nothing contacted iTerm2; the real
+`hosts.json` and `directories.json` were neither read nor written.
+
+| Check | Command | Observed result |
+|---|---|---|
+| tmux bound | private tmux 3.8 server (`TMUX_TMPDIR` from `mktemp -d`, `-f /dev/null`, `muxfinder-test-*` sessions with synthetic `-c` values), `list-sessions -F` with the bounded format | 4,096 bytes printed whole; 4,097 and 9,000 ASCII bytes and 4,097 bytes of two-byte characters printed as nothing; *Verified facts*, Phase I-2a |
+| Flake check, before the fixes | `swift test --skip-build --filter boundsAFloodOfTmuxErrors` and `--filter discoversSessionsOnAPrivateServer`, 5 times each; `swift test --skip-build` twice | 5/5 (0.53–0.93 s) and 5/5 (0.25–0.44 s); both full runs exit 0 (228 UI and 786 core tests, about 1 s and 5.2 s) |
+| Flake check, after the fixes | the same filters 5 times each; the full suite | 5/5 (0.60–3.14 s) and 5/5 (0.99–6.33 s, the machine busier); exit 0 |
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` | exit 0: 793 core tests in 79 suites (7 new), 229 UI tests in 22 suites (1 new); about 9.6 s. Changed: the store tests that saw an unusable file replaced (now refused), a link at the name (now `fileNotUsable`), and the folder listings (now with `directories.lock`) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Uninstall | `scripts/uninstall.sh` read (not run) | it removes the whole support folder, so `directories.lock` goes with it; no change |

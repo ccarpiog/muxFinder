@@ -17,6 +17,7 @@ import Foundation
 /// tmux    <path, control characters replaced by "?">
 /// version <tmux -V, printable ASCII>
 /// session <nonce> <id> <created> <windows> <attached> <activity> <pid> <start_time> <socket_path> <name>
+/// path    <nonce> <id> <session_path, empty when over 4,096 bytes> <nonce>   (after its session)
 /// sessions-exit   <list-sessions exit status>
 /// sessions-stderr <its first stderr line, printable ASCII, at most 200 bytes>
 /// client  <nonce> <session_id> <control_mode> <client_pid>   (only when sessions-exit is 0)
@@ -31,13 +32,35 @@ import Foundation
 ///   per-run nonce. A session name cannot predict the nonce, so even a name with a line break
 ///   (impossible in tmux 3.8, which rejects control characters) cannot forge a record; the
 ///   strict parser rejects any line it does not expect.
+/// - Each session's start folder, `#{session_path}`, is a record of its own that the same
+///   `list-sessions` format writes right after the session's line (the format holds a line
+///   break): `path`, the nonce, the session id, the path, and the nonce again as the record's
+///   end mark (PLAN.md D31). tmux stores a `-c` folder as given and prints it raw through
+///   `tmux -u`, tabs, line breaks, escape sequences and invalid UTF-8 included (Phase I-2a
+///   facts), so the path cannot be framed by the line: the parser takes everything up to the
+///   first tab, nonce and line break as the path. A path cannot predict the nonce, so it can
+///   neither end its record early nor forge another one (a session, a client, a status line or
+///   another path); the parser then drops a path that holds a control character, is not valid
+///   UTF-8, is empty or is too long. A report without `path` records (an older probe, a fake)
+///   still parses, every folder unknown. Format 1 gained this record in Phase I-2a; the app
+///   always sends the script with its parser, so the version did not change.
+/// - tmux bounds the path itself: `#{?#{e|>|:#{n:session_path},4096},,#{session_path}}` prints
+///   a path longer than 4,096 bytes (`n:` counts bytes, control characters and invalid UTF-8
+///   included; `ProbeReportParser.maximumStartDirectoryLength`) as nothing, which the parser
+///   drops and counts like any empty path, and never cuts one short, so no truncated path can
+///   pass for a real one. Every record is then at most
+///   `ProbeReportParser.maximumPathRecordLength` bytes, and the runner's output cap for
+///   discovery is the largest report the parser accepts (`ProbeReportParser.maximumReportSize`,
+///   `DiscoveryProbe.outputLimit`). The path is the false
+///   branch, so a tmux that cannot evaluate the comparison (an empty or `0` result) prints it
+///   whole, as before, and the parser's length check still applies; only tmux 3.8 is tested.
 /// - tmux runs as `tmux -u` (PLAN.md D12). Without a UTF-8 client flag tmux replaces every
 ///   non-ASCII byte *and the tab separators* with `_`, and noninteractive SSH from a GUI app
 ///   usually has no UTF-8 locale.
 /// - `TMUX` and `TMUX_PANE` are unset so the default server is always the one listed (D9).
 /// - The shell never holds unbounded tmux output, and nothing goes through a file (remote file
 ///   writes are forbidden). `muxfinder_tmux` runs one listing: its stdout goes straight to the
-///   report through file descriptor 3 (bounded by the runner's 1 MiB cap and the parser's
+///   report through file descriptor 3 (bounded by the runner's output cap and the parser's
 ///   limits), never into a variable. Its stderr passes through `head -c 200` into `r`, and
 ///   `cat >/dev/null` drains the rest, so a noisy tmux costs no shell memory and never dies of
 ///   SIGPIPE. The exit status travels on its own pipe (descriptor 5) to a `read` that exits
@@ -85,6 +108,8 @@ public enum ProbeScript {
       f="session$tab$n$tab#{session_id}$tab#{session_created}$tab#{session_windows}"
       f="$f$tab#{session_attached}$tab#{session_activity}$tab#{pid}$tab#{start_time}"
       f="$f$tab#{socket_path}$tab#{session_name}"
+      f="$f${nl}path$tab$n$tab#{session_id}$tab"
+      f="$f#{?#{e|>|:#{n:session_path},4096},,#{session_path}}$tab$n"
       muxfinder_tmux list-sessions -F "$f"
       printf 'sessions-exit\t%s\n' "$s"
       printf 'sessions-stderr\t%s\n' "$(muxfinder_ascii "${r%%"$nl"*}")"

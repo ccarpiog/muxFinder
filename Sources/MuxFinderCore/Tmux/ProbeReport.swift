@@ -21,6 +21,9 @@ public struct ProbeReport: Sendable, Hashable {
     public var server: ServerIdentity
     /// `#{session_name}`: everything after the fixed fields, tabs included. Display text only.
     public var name: String
+    /// `#{session_path}` from the session's `path` record, when it had one the parser kept
+    /// (`ProbeReportParser.startDirectory(_:)`). Display data only.
+    public var startDirectory: String?
 
     /// Creates a session record.
     public init(
@@ -30,7 +33,8 @@ public struct ProbeReport: Sendable, Hashable {
       attachedClientCount: Int,
       lastActivityAt: Int64,
       server: ServerIdentity,
-      name: String
+      name: String,
+      startDirectory: String? = nil
     ) {
       self.id = id
       self.createdAt = createdAt
@@ -39,7 +43,8 @@ public struct ProbeReport: Sendable, Hashable {
       self.lastActivityAt = lastActivityAt
       self.server = server
       self.name = name
-    } // End of init(id:createdAt:windowCount:attachedClientCount:lastActivityAt:server:name:)
+      self.startDirectory = startDirectory
+    } // End of init(id:createdAt:windowCount:attachedClientCount:lastActivityAt:server:name:…)
   }
 
   /// One `client` line.
@@ -87,6 +92,10 @@ public struct ProbeReport: Sendable, Hashable {
   /// The `list-clients` outcome; `nil` when it did not run (tmux not found, or `list-sessions`
   /// failed).
   public var clients: Listing<ClientRecord>?
+  /// How many `path` records the parser dropped (a control character, invalid UTF-8, empty or
+  /// too long), so their sessions have no start folder. A count only: the probe CLI prints it,
+  /// never the paths.
+  public var droppedStartDirectoryCount: Int
 
   /// Creates a report.
   public init(
@@ -94,14 +103,16 @@ public struct ProbeReport: Sendable, Hashable {
     tmuxPath: String? = nil,
     tmuxVersion: String? = nil,
     sessions: Listing<SessionRecord>? = nil,
-    clients: Listing<ClientRecord>? = nil
+    clients: Listing<ClientRecord>? = nil,
+    droppedStartDirectoryCount: Int = 0
   ) {
     self.nodeName = nodeName
     self.tmuxPath = tmuxPath
     self.tmuxVersion = tmuxVersion
     self.sessions = sessions
     self.clients = clients
-  } // End of init(nodeName:tmuxPath:tmuxVersion:sessions:clients:)
+    self.droppedStartDirectoryCount = droppedStartDirectoryCount
+  } // End of init(nodeName:tmuxPath:tmuxVersion:sessions:clients:droppedStartDirectoryCount:)
 }
 
 /// Why a discovery report was rejected. `message` is English, sentence case, and safe to show:
@@ -176,15 +187,41 @@ public enum ProbeReportError: Error, Sendable, Hashable, CustomStringConvertible
 /// leading zeros, and the per-run nonce must match on every record. The session name is the
 /// remainder of its line and is never interpreted. Anything unexpected, oversized or
 /// inconsistent throws `ProbeReportError`; nothing traps.
+///
+/// A session line may be followed by its `path` record (PLAN.md D31): `path`, tab, the nonce,
+/// tab, the same session id, tab, then the path up to the first tab, nonce and line break,
+/// whatever it holds (line breaks included, and no line-length cap, so a long path cannot fail
+/// the report). A record whose id is not its session's, a second one, or one with no end mark
+/// fails the report like any malformed line. A path the parser cannot use as display text
+/// (`startDirectory(_:)`) is dropped and counted; the session is kept without a folder.
 public enum ProbeReportParser {
   /// The header line of format 1.
   public static let header = "MUXFINDER-PROBE \(ProbeScript.formatVersion)"
   /// The longest accepted line, in bytes, without its newline.
   public static let maximumLineLength = 4096
+  /// The longest start folder kept, in bytes: the directory store's limit, so a folder picked
+  /// from a session always fits it.
+  public static let maximumStartDirectoryLength = DirectoryLists.maximumEntryLength
   /// The most session lines accepted.
   public static let maximumSessionCount = 1000
   /// The most client lines accepted.
   public static let maximumClientCount = 1000
+  /// The lines of a report besides its session and client lines and its `path` records: the
+  /// header, `nonce`, `host`, `tmux`, `version`, both listings' exit and stderr lines, `end`.
+  static let fixedLineCount = 10
+  /// The longest `path` record of a report the parser accepts whole, in bytes: the tag, the
+  /// nonce twice, the longest session id, three tabs, the longest path the probe prints
+  /// (`ProbeScript` prints a longer one as nothing) and the line feed.
+  public static let maximumPathRecordLength =
+    "path\t".utf8.count + 16 + 1 + 1 + TmuxSessionID.maximumDigits + 1
+    + maximumStartDirectoryLength + 1 + 16 + 1
+  /// The largest report within the parser's limits, in bytes: every line at the line cap
+  /// (with its line feed), as many session and client lines as accepted, and a `path` record
+  /// of the longest kind after every session. Discovery's output cap (`DiscoveryProbe`), so a
+  /// host with that many sessions in folders that long still reports them all.
+  public static let maximumReportSize =
+    (fixedLineCount + maximumSessionCount + maximumClientCount) * (maximumLineLength + 1)
+    + maximumSessionCount * maximumPathRecordLength
   /// Number of tab-separated fields before the name on a session line (tag and nonce
   /// included).
   static let sessionFixedFieldCount = 10
@@ -211,8 +248,9 @@ public enum ProbeReportParser {
       guard path.hasPrefix("/") else { throw .malformed(line: lines.lineNumber) }
       report.tmuxPath = path
       report.tmuxVersion = try text(lines.value(of: "version"))
-      let sessions = try parseSessions(&lines, nonce: nonce)
+      let (sessions, dropped) = try parseSessions(&lines, nonce: nonce)
       report.sessions = sessions
+      report.droppedStartDirectoryCount = dropped
       if sessions.exitStatus == 0 {
         report.clients = try parseClients(&lines, nonce: nonce)
       }
@@ -223,14 +261,33 @@ public enum ProbeReportParser {
     return report
   } // End of func parse(_:)
 
-  /// Parses the session lines and the `sessions-exit` / `sessions-stderr` pair after them.
+  /// Parses the session lines, each with its optional `path` record, and the `sessions-exit` /
+  /// `sessions-stderr` pair after them. Also returns how many paths were dropped.
   static func parseSessions(
     _ lines: inout LineReader,
     nonce: ArraySlice<UInt8>
-  ) throws(ProbeReportError) -> ProbeReport.Listing<ProbeReport.SessionRecord> {
+  ) throws(ProbeReportError) -> (ProbeReport.Listing<ProbeReport.SessionRecord>, dropped: Int) {
+    let pathStart = Array("path\t".utf8) + nonce + [tab]
+    let pathEnd = [tab] + nonce + [newline]
     var records: [ProbeReport.SessionRecord] = []
     var seen = Set<TmuxSessionID>()
-    while let line = try lines.peek(), line.starts(with: "session\t".utf8) {
+    var lastHasPath = false
+    var dropped = 0
+    while true {
+      if let found = try lines.record(startingWith: pathStart, endingWith: pathEnd) {
+        guard let last = records.indices.last, !lastHasPath else {
+          throw .malformed(line: found.line)
+        }
+        let path = try pathRecord(found.body, sessionID: records[last].id, line: found.line)
+        lastHasPath = true
+        if let folder = startDirectory(path) {
+          records[last].startDirectory = folder
+        } else {
+          dropped += 1
+        }
+        continue
+      }
+      guard let line = try lines.peek(), line.starts(with: "session\t".utf8) else { break }
       _ = try lines.next()
       let lineNumber = lines.lineNumber
       guard records.count < maximumSessionCount else { throw .tooManySessions }
@@ -240,11 +297,44 @@ public enum ProbeReportParser {
         throw .inconsistentServer(line: lineNumber)
       }
       records.append(record)
-    } // End of loop over session lines
+      lastHasPath = false
+    } // End of loop over session lines and path records
     let exitStatus = try lines.exitStatus(of: "sessions-exit")
     let errorLine = try text(lines.value(of: "sessions-stderr"))
-    return ProbeReport.Listing(records: records, exitStatus: exitStatus, firstErrorLine: errorLine)
+    let listing = ProbeReport.Listing(
+      records: records, exitStatus: exitStatus, firstErrorLine: errorLine)
+    return (listing, dropped)
   } // End of func parseSessions(_:nonce:)
+
+  /// The path of a `path` record's `body` (what lies between `path<tab><nonce><tab>` and the
+  /// end mark): the session id up to the first tab must be `sessionID`, the session line the
+  /// record follows; the path is the rest, uninterpreted.
+  static func pathRecord(
+    _ body: ArraySlice<UInt8>,
+    sessionID expected: TmuxSessionID,
+    line lineNumber: Int
+  ) throws(ProbeReportError) -> ArraySlice<UInt8> {
+    guard let separator = body.firstIndex(of: tab),
+      let id = sessionID(body[body.startIndex..<separator]), id == expected
+    else { throw .malformed(line: lineNumber) }
+    return body[(separator + 1)...]
+  } // End of func pathRecord(_:sessionID:line:)
+
+  /// The start folder a `path` record's bytes give as display text, or `nil` to drop it: it must
+  /// not be empty, be at most `maximumStartDirectoryLength` bytes, be valid UTF-8, hold no
+  /// control character (C0, DEL or C1; so no tab or line break) and pass
+  /// `Validation.workingDirectory(_:)`.
+  static func startDirectory(_ bytes: ArraySlice<UInt8>) -> String? {
+    guard !bytes.isEmpty, bytes.count <= maximumStartDirectoryLength,
+      !bytes.contains(where: { $0 < 0x20 || $0 == 0x7F })
+    else { return nil }
+    let text = String(decoding: bytes, as: UTF8.self)
+    // Invalid UTF-8 decodes to U+FFFD, so the text would no longer be those bytes.
+    guard text.utf8.elementsEqual(bytes), !Validation.containsControlCharacter(text),
+      (try? Validation.workingDirectory(text)) != nil
+    else { return nil }
+    return text
+  } // End of func startDirectory(_:)
 
   /// Parses the client lines and the `clients-exit` / `clients-stderr` pair after them.
   static func parseClients(
@@ -311,6 +401,8 @@ public enum ProbeReportParser {
 
   /// The tab byte.
   static let tab = UInt8(ascii: "\t")
+  /// The line feed byte.
+  static let newline = UInt8(ascii: "\n")
 
   /// Decodes a free-text field. Invalid UTF-8 becomes U+FFFD; nothing is interpreted.
   static func text(_ bytes: ArraySlice<UInt8>) -> String {
@@ -395,6 +487,42 @@ struct LineReader {
     lineNumber += 1
     return line
   }
+
+  /// A record that may span lines: when the bytes at the reader's position start with `start`,
+  /// consumes everything up to and including the first `end` after it, and returns the bytes
+  /// between the two and the record's first line number (`lineNumber` is then its last line).
+  /// Returns `nil`, consuming nothing, when they do not start with `start`. Throws `incomplete`
+  /// when no `end` follows. The line-length cap does not apply inside the record; the report's
+  /// own size is bounded by the process runner's output cap.
+  mutating func record(
+    startingWith start: [UInt8],
+    endingWith end: [UInt8]
+  ) throws(ProbeReportError) -> (body: ArraySlice<UInt8>, line: Int)? {
+    guard bytes[position...].starts(with: start) else { return nil }
+    let bodyStart = position + start.count
+    guard let bodyEnd = Self.firstIndex(of: end, in: bytes, from: bodyStart) else {
+      throw .incomplete
+    }
+    let body = bytes[bodyStart..<bodyEnd]
+    let firstLine = lineNumber + 1
+    position = bodyEnd + end.count
+    peeked = nil
+    lineNumber = firstLine + body.reduce(0) { $1 == ProbeReportParser.newline ? $0 + 1 : $0 }
+    return (body, firstLine)
+  } // End of func record(startingWith:endingWith:)
+
+  /// Where `pattern` first occurs in `bytes` at or after `start`, if anywhere.
+  static func firstIndex(of pattern: [UInt8], in bytes: [UInt8], from start: Int) -> Int? {
+    guard let first = pattern.first, bytes.count >= pattern.count else { return nil }
+    var index = start
+    while index <= bytes.count - pattern.count {
+      if bytes[index] == first, bytes[index..<(index + pattern.count)].elementsEqual(pattern) {
+        return index
+      }
+      index += 1
+    } // End of loop over candidate positions
+    return nil
+  } // End of static func firstIndex(of:in:from:)
 
   /// Returns and consumes the next line; the report is incomplete if there is none.
   mutating func require() throws(ProbeReportError) -> ArraySlice<UInt8> {

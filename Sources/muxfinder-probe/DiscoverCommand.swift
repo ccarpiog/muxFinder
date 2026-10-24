@@ -8,7 +8,8 @@ enum DiscoverCommand {
   static let usage = """
       discover --local [--tmux-path <path>] [--raw]
       discover --ssh <destination> [--tmux-path <path>] [--strict-known-hosts <file>] [--raw]
-          Run the discovery probe once and print the result as JSON.
+          Run the discovery probe once and print the result as JSON (each session with its
+          start folder, startDirectory, when usable; startDirectoriesDropped counts the rest).
           --tmux-path           Use this tmux executable only (the host's override).
           --strict-known-hosts  Test harness: StrictHostKeyChecking=yes with <file> as the only
                                 known-hosts file, and no connection sharing (ControlPath=none).
@@ -136,6 +137,7 @@ enum DiscoverCommand {
       nodeName: result.report?.nodeName,
       tmuxPath: result.report?.tmuxPath,
       tmuxVersion: result.report?.tmuxVersion,
+      startDirectoriesDropped: result.report?.droppedStartDirectoryCount,
       durationMs: Int(result.duration / .milliseconds(1))
     )
     let encoder = JSONEncoder()
@@ -155,6 +157,10 @@ enum DiscoverCommand {
     let tmuxPath: String?
     /// `tmux -V` of that executable.
     let tmuxVersion: String?
+    /// How many sessions' start folders the parser dropped (a control character, invalid
+    /// UTF-8, empty or too long; PLAN.md D31), when a report was received. Each kept one is the
+    /// session's `startDirectory`.
+    let startDirectoriesDropped: Int?
     /// How long the probe ran, in milliseconds.
     let durationMs: Int
   }

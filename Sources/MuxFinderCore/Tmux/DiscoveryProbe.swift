@@ -55,7 +55,10 @@ public struct DiscoveryResult: Sendable, Hashable {
 ///   the remote command comes only from `ShellQuoting.remoteCommand(script:args:)`.
 ///
 /// Every run is bounded by `timeout` (12 s by default), after which the runner kills the whole
-/// process group.
+/// process group. Its stdout is kept up to `outputLimit`, the largest report the parser accepts
+/// (`ProbeReportParser.maximumReportSize`: 1,000 sessions, each in a folder of up to 4,096
+/// bytes, PLAN.md D31), so a report within the parser's limits is never cut; more is "too
+/// large". Its stderr keeps the runner's default cap.
 public struct DiscoveryProbe: Sendable {
   /// Host-key checking for SSH runs.
   public enum HostKeyPolicy: Sendable, Hashable {
@@ -72,6 +75,10 @@ public struct DiscoveryProbe: Sendable {
 
   /// The hard limit on one probe run (PLAN.md D6).
   public static let defaultTimeout: Duration = .seconds(12)
+  /// The most stdout bytes kept from one run: the largest report the parser accepts.
+  public static let outputLimit = ProbeReportParser.maximumReportSize
+  /// The most stderr bytes kept from one run (only its first line is ever quoted).
+  public static let errorOutputLimit = ProcessRequest.defaultOutputLimit
   /// The local shell that runs the probe.
   public static let shellURL = URL(fileURLWithPath: "/bin/sh")
   /// The ssh client.
@@ -160,7 +167,9 @@ public struct DiscoveryProbe: Sendable {
         executableURL: Self.shellURL,
         arguments: ["-c", ProbeScript.script.source, ShellQuoting.scriptName] + probeArguments,
         environment: environment,
-        timeout: timeout
+        timeout: timeout,
+        outputLimit: Self.outputLimit,
+        errorOutputLimit: Self.errorOutputLimit
       )
     case .ssh:
       let destination: String
@@ -175,7 +184,9 @@ public struct DiscoveryProbe: Sendable {
         arguments: Self.sshOptions + (try hostKeyArguments())
           + ["-n", "-T", "--", destination, command],
         environment: environment,
-        timeout: timeout
+        timeout: timeout,
+        outputLimit: Self.outputLimit,
+        errorOutputLimit: Self.errorOutputLimit
       )
     }
   } // End of func request(for:)

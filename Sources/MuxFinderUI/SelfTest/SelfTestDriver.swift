@@ -602,9 +602,10 @@ public final class SelfTestDriver {
 
   /// The model's environment: This Mac in memory, an engine over the seams' discovery (no
   /// attachment checks), an attach coordinator (over `coordinatorITerm2`) whose index asks only
-  /// this run's launch tabs' connections, and a shutdown that waits for session actions no
-  /// longer than the attach timeout (nor than the app's own budget, so keep mode's quit stays
-  /// within its deadline).
+  /// this run's launch tabs' connections, New session's directories in memory (no
+  /// `directories.json` read or written, PLAN.md D31), and a shutdown that waits for session
+  /// actions no longer than the attach timeout (nor than the app's own budget, so keep mode's
+  /// quit stays within its deadline).
   func makeEnvironment() -> AppEnvironment {
     let seams = self.seams
     let recorder = self.recorder
@@ -636,6 +637,7 @@ public final class SelfTestDriver {
         return coordinator
       },
       newSessionCommand: sleepCommand,
+      directories: InMemoryDirectoryStore(),
       sessionActionShutdownBudget: min(
         seams.timeouts.attach, AppModel.sessionActionShutdownBudget))
   } // End of func makeEnvironment()

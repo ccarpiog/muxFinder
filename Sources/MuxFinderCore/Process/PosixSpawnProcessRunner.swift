@@ -12,7 +12,8 @@ import os
 ///   as soon as no live member is left. A child that exits on its own is not followed by any
 ///   signal.
 /// - stdout and stderr are drained concurrently through one kqueue, so a chatty stream never
-///   blocks the child, and each is capped at `ProcessRequest.outputLimit`.
+///   blocks the child, and each is capped at `ProcessRequest.outputLimit` (stderr at
+///   `errorOutputLimit` when one is set).
 /// - After the child exits, the runner waits at most `outputDrainGracePeriod` for the pipes to
 ///   reach end-of-file, so a background grandchild that inherited them cannot stall it.
 /// - All blocking work (spawn, kqueue wait, `waitpid`) happens on a dedicated thread per run,

@@ -39,9 +39,13 @@ public struct ProcessRequest: Sendable, Equatable {
   /// Hard limit on the run time. When it passes, the process group gets SIGTERM and, after the
   /// runner's grace period, SIGKILL. `nil` means no limit.
   public var timeout: Duration?
-  /// Maximum number of bytes kept from each of stdout and stderr. Output beyond the cap is still
-  /// read (so the child never blocks on a full pipe) but discarded.
+  /// Maximum number of bytes kept from stdout, and from stderr unless `errorOutputLimit` says
+  /// otherwise. Output beyond the cap is still read (so the child never blocks on a full pipe)
+  /// but discarded.
   public var outputLimit: Int
+  /// Maximum number of bytes kept from stderr, or `nil` for `outputLimit` (discovery keeps a
+  /// large stdout for the report but the default stderr cap).
+  public var errorOutputLimit: Int?
 
   /// Creates a request. `environment` is required on purpose: the child's environment is always
   /// explicit.
@@ -51,7 +55,8 @@ public struct ProcessRequest: Sendable, Equatable {
     environment: [String: String],
     standardInput: StandardInput = .nullDevice,
     timeout: Duration? = nil,
-    outputLimit: Int = ProcessRequest.defaultOutputLimit
+    outputLimit: Int = ProcessRequest.defaultOutputLimit,
+    errorOutputLimit: Int? = nil
   ) {
     self.executableURL = executableURL
     self.arguments = arguments
@@ -59,7 +64,8 @@ public struct ProcessRequest: Sendable, Equatable {
     self.standardInput = standardInput
     self.timeout = timeout
     self.outputLimit = outputLimit
-  } // End of init(executableURL:arguments:environment:standardInput:timeout:outputLimit:)
+    self.errorOutputLimit = errorOutputLimit
+  } // End of init(executableURL:arguments:environment:standardInput:timeout:outputLimit:…)
 }
 
 /// The outcome of a process that ran to completion (or was stopped by its timeout).
@@ -78,7 +84,8 @@ public struct ProcessResult: Sendable, Equatable {
   public var termination: Termination
   /// Captured standard output, at most `ProcessRequest.outputLimit` bytes.
   public var standardOutput: Data
-  /// Captured standard error, at most `ProcessRequest.outputLimit` bytes.
+  /// Captured standard error, at most `ProcessRequest.errorOutputLimit` (else `outputLimit`)
+  /// bytes.
   public var standardError: Data
   /// Whether standard output exceeded the cap and was cut.
   public var standardOutputTruncated: Bool

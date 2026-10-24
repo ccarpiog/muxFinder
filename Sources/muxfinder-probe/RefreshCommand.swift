@@ -236,6 +236,9 @@ enum RefreshCommand {
     let windowCount: Int
     /// Attached clients, as tmux counts them.
     let attachedClientCount: Int
+    /// The session's start folder, when discovery reported a usable one (PLAN.md D31; a stale
+    /// host keeps its last success's).
+    let startDirectory: String?
     /// The iTerm2 tmux connections on this Mac showing it (from `--attachments`).
     let iTerm2Connections: [ConnectionOutput]
 
@@ -245,6 +248,7 @@ enum RefreshCommand {
       name = session.discovered.name
       windowCount = session.discovered.windowCount
       attachedClientCount = session.discovered.attachedClientCount
+      startDirectory = session.discovered.startDirectory
       iTerm2Connections = session.attachments.map {
         ConnectionOutput(connectionID: $0.connectionID, owningSessionID: $0.owningSessionID)
       }

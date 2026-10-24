@@ -74,7 +74,8 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   file (D26's rule, under `profiles.lock`), prints one line, exits 0 (removed, none, or would
   remove), 1 (left: not muxFinder's), 3 (failed) or 2 (usage). In checks always pass both
   folders, private ones from `mktemp -d`; without them it works on the real folders.
-- Preview fixtures (no menu bar item, engine, host list, login item or iTerm2; one normal
+- Preview fixtures (no menu bar item, engine, host list, directory list, login item or
+  iTerm2; one normal
   window with every popover state, or with `--preview-gallery settings` every Settings window
   state, with `--preview-gallery onboarding` every onboarding window state, or with
   `--preview-gallery attach` every session-action state, from synthetic data, shown without
@@ -141,8 +142,9 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   tab left": after the Detach it is in neither within 10 s, with no restore or `Close` of the
   coordinator's recorded for it (`RecordingITerm2Integration`; a stranded tab is left as it
   is). Both read only `ListSessions`, for their own session id. They drive the real
-  `AppModel` over an in-memory This Mac (no `hosts.json` read or written; no menu bar item,
-  popover, onboarding or Settings), ask only their own launch tabs' tmux connections, print
+  `AppModel` over an in-memory This Mac and directory list (no `hosts.json` or
+  `directories.json` read or written; no menu bar item, popover, onboarding or Settings), ask
+  only their own launch tabs' tmux connections, print
   one PASS/FAIL line per step, bound every wait, clean up (detach through the core, never
   closing a tab, then kill their own session) on any failure or SIGTERM/SIGINT, and exit 0
   passed, 1 failed, 2 unusable arguments or environment (nothing contacted).
@@ -153,8 +155,11 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   id>` and `/opt/homebrew/bin/tmux kill-session -t '=<name>'`. See `docs/TESTING.md` (Phase
   10a) and PLAN.md D25.
 - Discovery check (read-only, prints JSON; `--raw` prints the probe report):
-  `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Prove "no
-  server" with `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
+  `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Each session
+  carries its start folder (`startDirectory`, PLAN.md D31) when usable, and
+  `startDirectoriesDropped` counts the rest; folders are the user's, so pipe the JSON through
+  `jq` and record counts only, never paths. Prove "no server" with
+  `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
 - Host configuration check (read-only, prints JSON; creates no folder or file, runs no ssh,
   never contacts iTerm2): `swift run muxfinder-probe hosts show [--config <path>]` (the host
   list and its load state: `saved`, `notSavedYet` with the onboarding defaults, or `invalid`
@@ -162,7 +167,9 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   symbolic link, such as one from `mktemp -d`) and `hosts suggestions` (`Host` names from
   `~/.ssh/config` and its includes; they are the user's, so never paste them into docs,
   fixtures or logs). Test a save only through `HostStore` on a private folder, never on
-  `~/Library/Application Support/muxFinder/hosts.json`.
+  `~/Library/Application Support/muxFinder/hosts.json`, and a directory-list change only
+  through `DirectoryStore` (or `InMemoryDirectoryStore`) on a private folder, never on the
+  real `directories.json` there (PLAN.md D31).
 - Persistent profile checks (read-only, print JSON; write no file, never contact iTerm2):
   `swift run muxfinder-probe profiles show [--config <path>] [--helper <path>]` prints the
   `DynamicProfiles/muxFinder.json` document the app would install for the host list (loaded
@@ -180,7 +187,8 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   muxfinder-probe refresh --once [--config <path>] [--attachments]` loads the host list like
   `hosts show` (a private `hosts.json` from `mktemp -d` for checks), refreshes every enabled
   host once through `RefreshCoordinator` (This Mac directly, SSH hosts with discovery's
-  noninteractive ssh; only `saturno-m4` in unattended runs) and prints the snapshots. Without
+  noninteractive ssh; only `saturno-m4` in unattended runs) and prints the snapshots (each
+  session with its `startDirectory`, so the same counts-only rule as `discover`). Without
   `--attachments` it never contacts iTerm2; `--attachments` asks every tmux connection, so
   the same caution as `iterm2 attachments`.
 - iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe

@@ -176,8 +176,6 @@ public struct PersistentProfileInstaller: Sendable {
   static let lockFileName = "profiles.lock"
   /// How long an install or removal waits for the lock unless told otherwise.
   static let defaultLockWait: Duration = .seconds(5)
-  /// The pause between two tries of a busy lock, in microseconds.
-  static let lockRetryInterval: useconds_t = 10_000
 
   /// The folder.
   public let directory: URL
@@ -479,7 +477,8 @@ public struct PersistentProfileInstaller: Sendable {
   /// user's regular file (`lockUnavailable` otherwise). It is never removed: removing a lock
   /// file lets a process lock a new file while another still holds the old one. A busy lock is
   /// tried again every 10 ms for `lockWait`, then `busy`. Returns the descriptor; closing it
-  /// releases the lock.
+  /// releases the lock. The locking itself is `PrivateStorage.acquireLock(named:in:owner:wait:)`,
+  /// which `DirectoryStore` shares for `directories.lock` (PLAN.md D31).
   func acquireLock() throws(PersistentProfileInstallerError) -> Int32 {
     let folder: Int32
     do throws(PrivateStorageError) {
@@ -489,31 +488,14 @@ public struct PersistentProfileInstaller: Sendable {
       throw .lockUnavailable
     }
     defer { Darwin.close(folder) }
-    // O_NONBLOCK keeps a FIFO from blocking the open; it does not affect regular files.
-    let descriptor = openat(
-      folder, Self.lockFileName, O_RDONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC,
-      PrivateStorage.filePermissions)
-    guard descriptor >= 0 else { throw .lockUnavailable }
-    var info = stat()
-    guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == owner
-    else {
-      Darwin.close(descriptor)
+    do throws(PrivateStorageLockError) {
+      return try PrivateStorage.acquireLock(
+        named: Self.lockFileName, in: folder, owner: owner, wait: lockWait)
+    } catch .busy {
+      throw .busy
+    } catch {
       throw .lockUnavailable
     }
-    let deadline = ContinuousClock.now + lockWait
-    while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
-      let code = errno
-      guard code == EWOULDBLOCK || code == EINTR else {
-        Darwin.close(descriptor)
-        throw .lockUnavailable
-      }
-      guard ContinuousClock.now < deadline else {
-        Darwin.close(descriptor)
-        throw .busy
-      }
-      usleep(Self.lockRetryInterval)
-    } // End of loop waiting for the lock
-    return descriptor
   } // End of func acquireLock()
 
   /// Reads `muxFinder.json` in `directory` without following a link or blocking: `nil` when

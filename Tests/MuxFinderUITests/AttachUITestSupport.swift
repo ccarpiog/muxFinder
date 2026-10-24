@@ -538,7 +538,9 @@ struct AttachHarness {
   /// `index` gives the engine attachment checks; `failsToBuild` makes the coordinator's
   /// factory throw; `attachDiscovery` gives the coordinator a discovery of its own (the engine
   /// keeps `discovery`'s answers, like a list not refreshed yet); `settings` gives the model
-  /// Settings seams; `shutdownBudget` is how long `shutdown()` waits for session actions.
+  /// Settings seams; `shutdownBudget` is how long `shutdown()` waits for session actions;
+  /// `directories` is where New session records its directories (none by default) and
+  /// `diagnostics` the operation log.
   static func make(
     hosts: [HostConfig] = [UITestSupport.localHost()],
     attaches: Bool = true,
@@ -547,7 +549,9 @@ struct AttachHarness {
     failsToBuild: LaunchHelperPathError? = nil,
     attachDiscovery: FakeDiscovery? = nil,
     settings: SettingsEnvironment? = nil,
-    shutdownBudget: Duration = AppModel.sessionActionShutdownBudget
+    shutdownBudget: Duration = AppModel.sessionActionShutdownBudget,
+    directories: (any DirectoryStoring)? = nil,
+    diagnostics: DiagnosticsLog? = nil
   ) async -> AttachHarness {
     let store = MemoryLaunchStore()
     let discovery = FakeDiscovery()
@@ -569,6 +573,7 @@ struct AttachHarness {
       now: { UITestSupport.now },
       terminate: {},
       settings: settings,
+      diagnostics: diagnostics,
       makeAttachCoordinator: { onUpdate in
         builds.increment()
         if let failsToBuild { throw failsToBuild }
@@ -578,6 +583,7 @@ struct AttachHarness {
           existingAttachments: .index(AttachmentIndex(iTerm2: iTerm2, clock: PatientClock())),
           sessionCreator: creator, buriedTabTimer: .off, onUpdate: onUpdate)
       },
+      directories: directories,
       sessionActionShutdownBudget: shutdownBudget)
     let model = AppModel(environment: environment)
     await model.start()

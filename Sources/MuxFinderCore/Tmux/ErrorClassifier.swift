@@ -138,7 +138,8 @@ public enum ErrorClassifier {
         windowCount: record.windowCount,
         attachedClientCount: record.attachedClientCount,
         lastActivityAt: record.lastActivityAt,
-        clients: clientsBySession[record.id] ?? []
+        clients: clientsBySession[record.id] ?? [],
+        startDirectory: record.startDirectory
       )
     }
     return .ok(discovered)

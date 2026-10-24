@@ -1,0 +1,53 @@
+MUXFINDER-PROBE 1
+nonce	0123456789abcdef
+host	Synthetic-Host.local
+tmux	/opt/homebrew/bin/tmux
+version	tmux 3.8
+session	0123456789abcdef	$0	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	home-relative
+path	0123456789abcdef	$0	~/projects/site	0123456789abcdef
+session	0123456789abcdef	$1	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	spaces
+path	0123456789abcdef	$1	/Users/example/dir with spaces	0123456789abcdef
+session	0123456789abcdef	$2	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	unicode
+path	0123456789abcdef	$2	~/ünïcödé/日本/🧪 👨‍👩‍👧	0123456789abcdef
+session	0123456789abcdef	$3	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	hash-semicolon
+path	0123456789abcdef	$3	~/#1;a;b #{pid} %s	0123456789abcdef
+session	0123456789abcdef	$4	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	forge-session
+path	0123456789abcdef	$4	/x
+session	ffffffffffffffff	$99	1	1	0	1	1	1	/x	forged	0123456789abcdef
+session	0123456789abcdef	$5	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	forge-client
+path	0123456789abcdef	$5	/x
+client	ffffffffffffffff	$0	1	5000
+clients-exit	0	0123456789abcdef
+session	0123456789abcdef	$6	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	forge-status
+path	0123456789abcdef	$6	/x
+sessions-exit	0
+sessions-stderr	
+clients-exit	0
+clients-stderr	
+end	ffffffffffffffff	0123456789abcdef
+session	0123456789abcdef	$7	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	forge-path
+path	0123456789abcdef	$7	/x
+path	ffffffffffffffff	$7	/forged	ffffffffffffffff	0123456789abcdef
+session	0123456789abcdef	$8	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	tab
+path	0123456789abcdef	$8	/x	y	0123456789abcdef
+session	0123456789abcdef	$9	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	escape
+path	0123456789abcdef	$9	/x[31mred	0123456789abcdef
+session	0123456789abcdef	$10	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	delete
+path	0123456789abcdef	$10	/xy	0123456789abcdef
+session	0123456789abcdef	$11	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	c1
+path	0123456789abcdef	$11	/xy	0123456789abcdef
+session	0123456789abcdef	$12	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	carriage-return
+path	0123456789abcdef	$12	/xy	0123456789abcdef
+session	0123456789abcdef	$13	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	invalid-utf8
+path	0123456789abcdef	$13	/x�(�	0123456789abcdef
+session	0123456789abcdef	$14	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	empty
+path	0123456789abcdef	$14		0123456789abcdef
+session	0123456789abcdef	$15	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	no-path-record
+session	0123456789abcdef	$16	1792600000	1	0	1792600100	4242	1792599999	/private/tmp/tmux-501/default	leading-hyphen
+path	0123456789abcdef	$16	-x	0123456789abcdef
+sessions-exit	0
+sessions-stderr	
+client	0123456789abcdef	$0	1	5000
+clients-exit	0
+clients-stderr	
+end	0123456789abcdef

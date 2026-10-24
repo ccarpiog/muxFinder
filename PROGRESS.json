@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T14:55:48Z",
+  "updated": "2026-10-24T16:26:44Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -469,20 +469,24 @@
     {
       "id": "I-2",
       "title": "New session: pick the directory",
-      "status": "queued",
+      "status": "in_progress",
       "summary": "Pick the New session directory from recent, saved and session folders; split into I-2a and I-2b.",
       "added": "2026-10-24T12:24:40Z",
-      "status_since": "2026-10-24T12:24:40Z"
+      "started": "2026-10-24T16:26:44Z",
+      "status_since": "2026-10-24T16:26:44Z"
     },
     {
       "id": "I-2a",
       "title": "Directory store and session folders in discovery",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "I-2",
-      "summary": "Store saved and recent directories and report each session start folder from discovery.",
+      "summary": "Stores saved and recent directories and reports each session start folder from discovery.",
+      "review": "docs/reviews/phase-I-2a.md",
+      "narrative": "docs/progress-archive/i-2a.md",
       "added": "2026-10-24T12:24:40Z",
-      "status_since": "2026-10-24T12:24:40Z"
+      "started": "2026-10-24T14:58:01Z",
+      "status_since": "2026-10-24T16:26:44Z"
     },
     {
       "id": "I-2b",

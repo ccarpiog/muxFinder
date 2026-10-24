@@ -267,7 +267,8 @@ struct ProcessSupervisor: Sendable {
   ) -> SupervisionReport {
     let processID = child.processID
     var output = OutputCollector(descriptor: child.standardOutput, limit: request.outputLimit)
-    var errors = OutputCollector(descriptor: child.standardError, limit: request.outputLimit)
+    var errors = OutputCollector(
+      descriptor: child.standardError, limit: request.errorOutputLimit ?? request.outputLimit)
     var input = InputFeeder(descriptor: child.standardInput, data: requestInputData)
     var state = LoopState(timeoutDeadline: request.timeout.map { start + $0 })
 

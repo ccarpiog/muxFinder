@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D30); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D31); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -14,7 +14,7 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | `MuxFinderCore` (library) | All logic, no SwiftUI, fully unit-testable. |
 | ├ `Process/` | `ProcessRunner` over `posix_spawn` (argv only, own process group, hard timeouts, bounded output). |
 | ├ `Shell/` | POSIX single-quoting for the one remote command string, input validation. |
-| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
+| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
 | ├ `Tmux/` | tmux locator, the static discovery script and its parser, session identity, error classification, session creation commands. |
 | ├ `Refresh/` | `RefreshCoordinator` actor (concurrency limit, cadence, backoff, stale results dropped), `HostSnapshot`, sleep/wake and network events. |
 | ├ `ITerm2/` | The hand-written iTerm2 API client: WebSocket over iTerm2's Unix socket, a minimal protobuf codec, typed requests, the `ITerm2Integration` protocol and its fake. |
@@ -38,10 +38,15 @@ for processes, clocks and iTerm2, no ssh, tmux only on private sockets (PLAN.md 
    once: This Mac by `posix_spawn` of `/bin/sh -c <static script>`, SSH hosts through
    `/usr/bin/ssh -o BatchMode=yes … <one quoted command string>` (D3, D6). The script finds tmux
    (D5) and runs only `list-sessions`, `list-clients` and `display-message` with explicit `-F`
-   formats through `tmux -u` (D12), framed by a nonce.
+   formats through `tmux -u` (D12), framed by a nonce. Each session line is followed by a
+   `path` record with its start folder (`#{session_path}`), which ends only at the run's
+   nonce, so a folder name holding line breaks cannot break or forge a record; tmux prints a
+   folder over 4,096 bytes as nothing, and the runner keeps stdout up to the largest report
+   the parser accepts (D31).
 3. The parser turns the report into sessions keyed by host, socket, server pid and start time,
-   and session id (D4); failures are classified (unreachable, sign-in needed, host key, tmux
-   not found, no server).
+   and session id (D4), each with its start folder when it is plain text (one holding a control
+   character or invalid UTF-8 is dropped and counted); failures are classified (unreachable,
+   sign-in needed, host key, tmux not found, no server).
 4. While the popover is visible, `AttachmentIndex` (D16) asks iTerm2 which tmux connections
    exist and which server and session each one shows, so a row can say "open in iTerm2 on this
    Mac" from evidence rather than from a client count.
@@ -100,6 +105,24 @@ click → AttachCoordinator: rediscover (still the same session?) → already op
   closes a tab. New session creates with `new-session -d`, then attaches the same way (D18).
 - "Set up SSH in iTerm2…" opens the same kind of tab running plain interactive ssh (D24).
 
+## New session directories (D31)
+
+`directories.json`, beside `hosts.json` in muxFinder's folder and kept apart from it, holds one
+saved list shared by every host and each host's recent directories:
+`{"schemaVersion": 1, "saved": […], "recent": {"<host id>": […]}}`. `DirectoryStore` loads
+and writes it the way `HostStore` treats `hosts.json` (D19): loading never writes; an unusable
+file (unsafe, not JSON, malformed, another schema version) gives empty lists and a notice, is
+left as it is and refuses every change (`fileNotUsable`) until it is fixed or moved away; a
+change holds an exclusive `flock` on `directories.lock` in the same folder while it reads the
+file, applies itself and publishes atomically, so two muxFinder processes never lose each
+other's changes; and a write keeps whatever it displaces unless it is the store's own last
+version (as a `directories.backup-<time>.json`). Every entry passes the working-directory
+check; at most 50 saved and 8 recent per host. When New session creates a session, the model
+records its directory (not an empty field) as that host's newest recent directory, also when
+the attach fails afterwards, in the background; a failed write is logged by kind only. The
+self-tests use an in-memory store; preview fixtures have none. Directories are user data: they
+never appear in logs, diagnostics or fixtures.
+
 ## Hiding the launch tab (D29)
 
 - **The bury** is the coordinator's step 10: once an attach (also a new session or a move
@@ -151,11 +174,13 @@ use a fake.
   `/bin/sh -c '<static script>' muxfinder '<arg1>' '<arg2>' …` with every argument
   single-quoted (D3). tmux words are escaped for tmux's own parser where needed (D18).
 - Host names, session names, paths and directories are validated and treated as data;
-  discovery output is framed and length-checked, so a session name cannot break the parser.
+  discovery output is framed and length-checked, so a session name or start folder cannot
+  break the parser.
 - Discovery is read-only, noninteractive and bounded (12 s, process group killed); host key
   checking is never weakened (D6).
 - Private files: 0700 folders, 0600 files, extended ACLs stripped, atomic writes, symbolic
-  links refused (D8, D14, D19). Logs hold outcomes and timings, never terminal contents.
+  links refused (D8, D14, D19, D31). Logs hold outcomes and timings, never terminal contents
+  or directories.
 
 ## Persistent profiles (D26)
 
@@ -200,3 +225,4 @@ All in `PLAN.md` *Decisions*:
 | D14 | Launch protocol | D28 | App icon, menu bar icon and release signing |
 | | | D29 | Hiding the launch tab once attached |
 | | | D30 | muxFinder's own menu bar item and popover panel |
+| | | D31 | New session directories and session start folders |
