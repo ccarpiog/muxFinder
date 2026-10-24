@@ -13,11 +13,15 @@ import os
 ///   `AppEnvironment.rewritesProfilesAtLaunch` (normal mode only) and a list loaded as `saved`,
 ///   Settings brings an installed, out-of-date persistent profile file up to date in the
 ///   background (`SettingsModel.keepProfilesCurrentAtLaunch(_:)`, PLAN.md D26).
-/// - **Popover:** `popoverDidOpen()` / `popoverDidClose()` tell the engine, which refreshes at
-///   once and every 15 s while the popover is visible and runs attachment checks only then
-///   (D20); those checks are the only reason the popover contacts iTerm2, and requests its
-///   cookie, on its own (a click on "Set up SSH in iTerm2 first" does too, D24). Closing
-///   cancels the check in progress, so no iTerm2 contact starts once the popover has closed.
+/// - **Popover and switcher:** `popoverDidOpen()` / `popoverDidClose()` and the session
+///   switcher's `switcherDidOpen()` / `switcherDidClose()` tell the engine, which refreshes at
+///   once and every 15 s while either one is visible and runs attachment checks only then
+///   (D20, D22). The two visibilities are combined: `.popoverOpened` and `.popoverClosed` are
+///   each sent once whenever "either one is visible" changes, and opening one closes the other
+///   (`closeSwitcher`, `closePopover`). Those checks are the only reason the popover or the
+///   switcher contacts iTerm2, and requests its cookie, on its own (a click on "Set up SSH in
+///   iTerm2 first" does too, D24). Closing the last one cancels the check in progress, so no
+///   iTerm2 contact starts once neither shows.
 /// - **Requests in order:** every engine request goes through one queue read by one task, so
 ///   an open followed by a close is never applied the other way round. Once `shutdown()` has
 ///   begun, requests still queued are dropped.
@@ -50,9 +54,13 @@ import os
 /// - **Session switcher shortcut** (PLAN.md D32): `shortcut` loads `preferences.json` and
 ///   registers the saved hotkey at the start of `start()` (normal mode only: without
 ///   `AppEnvironment.globalShortcut` nothing is read or registered), and `shutdown()`
-///   unregisters it. Its press reaches one entry point, `globalShortcutPressed()`, which until
-///   the session switcher exists (Phase I-3b) toggles the popover through `togglePopover`
-///   (`PopoverController.shortcutPressed()`, set by `MenuBarPopover`).
+///   unregisters it. Its press reaches one entry point, `globalShortcutPressed()`, which
+///   toggles the session switcher through `toggleSwitcher` (`SwitcherController.toggle()`, set
+///   by `SessionSwitcher`).
+/// - **Session switcher** (PLAN.md D32, Phase I-3b; `AppModelSwitcher.swift`): its search text,
+///   selection and content (`switcherContent`), its keys (`handleSwitcherKey(_:)`), the Open and
+///   New session actions it started (it closes when one succeeds, and a failure that arrives
+///   once it closed shows at the top of its next opening and on the popover row).
 /// - **Fixtures:** `init(fixture:)` renders a fixed state for previews and screenshots; it
 ///   never starts an engine, reads the host list or contacts iTerm2.
 @MainActor
@@ -72,9 +80,9 @@ public final class AppModel {
 
   /// One request for the engine.
   enum EngineCommand: Sendable {
-    /// The popover opened.
+    /// The popover or the session switcher became visible while neither was.
     case popoverOpened
-    /// The popover closed.
+    /// The last visible one of the popover and the session switcher closed.
     case popoverClosed
     /// Refresh every host ("Refresh").
     case refreshAll
@@ -147,6 +155,8 @@ public final class AppModel {
   static let finishedActionLimit = 32
   /// How many banners are shown at most (the newest first).
   static let bannerLimit = 3
+  /// How many visibility changes `engineVisibilityChanges` keeps.
+  static let visibilityLogLimit = 32
   /// How long `shutdown()` waits for the session actions it cancelled to end (PLAN.md D22,
   /// D25). A cancelled attach whose `CreateTab` was already sent waits for iTerm2's answer
   /// (`LaunchTab`, D15; the API client's request timeout is 10 s) and then withdraws its
@@ -197,6 +207,35 @@ public final class AppModel {
   public private(set) var now: Date
   /// Whether the popover is open.
   public private(set) var isPopoverVisible = false
+  /// Whether the session switcher is open (PLAN.md D32).
+  public internal(set) var isSwitcherVisible = false
+  /// The session switcher's search text: emptied at each opening; typing selects the first row
+  /// again, as Spotlight does, and remembers it (`rememberSwitcherSelection()`).
+  public var switcherSearchText = "" {
+    didSet {
+      guard switcherSearchText != oldValue else { return }
+      switcherSelection = nil
+      rememberSwitcherSelection()
+    }
+  }
+  /// The session switcher's keyboard selection; `nil`, or an item no longer listed, means the
+  /// first row (`SwitcherContent`). The row selected is remembered here at each opening, each
+  /// change of the filter text and before each engine update while the switcher shows, so a
+  /// refresh keeps it on its session.
+  public var switcherSelection: SwitcherContent.Item?
+  /// Increases whenever the switcher's search field should take the keyboard focus (each
+  /// opening, ⌘F, leaving the New session form).
+  public internal(set) var switcherFocusRequests = 0
+  /// The Open and New session attaches the switcher started, by session: running, or failed
+  /// while it showed (`SwitcherActionState`). Their sessions are pinned at the top while the
+  /// engine does not list them.
+  public internal(set) var switcherActions: [SessionKey: SwitcherActionState] = [:]
+  /// Sessions whose switcher action failed after the switcher closed, newest first: shown at the
+  /// top of its next opening, then forgotten when it closes (the popover row keeps the failure).
+  public internal(set) var switcherCarriedFailures: [SessionKey] = []
+  /// The sessions of the switcher's actions as listed when they started (or as created), for
+  /// the rows of sessions the engine does not list.
+  public internal(set) var switcherTargets: [SessionKey: AttachTarget] = [:]
   /// Increases whenever the search field should take the keyboard focus (⌘F).
   public private(set) var searchFocusRequests = 0
   /// The explaining fix-it whose text the popover shows.
@@ -212,9 +251,28 @@ public final class AppModel {
   /// The session switcher shortcut (PLAN.md D32; inert without
   /// `AppEnvironment.globalShortcut`). Settings › General shows the same model.
   public let shortcut: GlobalShortcutModel
-  /// What the session switcher shortcut does until the switcher exists: toggles the popover
-  /// (`MenuBarPopover` sets it to `PopoverController.shortcutPressed()`); `nil` does nothing.
-  @ObservationIgnored public var togglePopover: (@MainActor () -> Void)?
+  /// What the session switcher shortcut does: toggles the switcher (`SwitcherController.make`
+  /// sets it to `SwitcherController.toggle()`); `nil` does nothing.
+  @ObservationIgnored public var toggleSwitcher: (@MainActor () -> Void)?
+  /// Closes the switcher for a reason (the popover opened, an action it started succeeded);
+  /// set by `SwitcherController.make`.
+  @ObservationIgnored public var closeSwitcher:
+    (@MainActor (SwitcherController.CloseReason) -> Void)?
+  /// Closes the popover when the switcher opens; set by `MenuBarPopover`.
+  @ObservationIgnored public var closePopover: (@MainActor () -> Void)?
+  /// Whether a mouse press on muxFinder's status item button is in progress now; set by
+  /// `MenuBarPopover` (`PopoverController.isButtonPressHeld`). The switcher leaves a close from
+  /// outside made by that press to the popover the press opens, so the handoff keeps one of
+  /// the two visible for the engine (PLAN.md D22, D32). `nil` answers no.
+  @ObservationIgnored public var isStatusItemPressHeld: (@MainActor () -> Bool)?
+  /// The New session the switcher started, while its session is being created.
+  @ObservationIgnored var switcherCreation: SwitcherCreation?
+  /// Whether the switcher's creation failed while a Move here confirmation held the panel: the
+  /// form shows it once that ends or the switcher opens next (`showDeferredCreationFailure()`).
+  @ObservationIgnored var switcherCreationFailureDeferred = false
+  /// The visibility changes handed to the engine's queue, oldest first (the latest
+  /// `visibilityLogLimit`; tests read them).
+  @ObservationIgnored private(set) var engineVisibilityChanges: [Bool] = []
 
   /// The dependencies; `nil` for a fixture.
   @ObservationIgnored let environment: AppEnvironment?
@@ -323,6 +381,9 @@ public final class AppModel {
     directoryPicker = fixture.directoryPicker
     attachedHere = fixture.attachedHere
     shownExplanation = fixture.shownExplanation
+    switcherSearchText = fixture.switcherSearchText
+    switcherSelection = fixture.switcherSelection
+    switcherCarriedFailures = fixture.switcherCarriedFailures
     settings = SettingsModel(fixture: SettingsFixtures.blank)
     onboarding = OnboardingModel(fixture: OnboardingFixtures.blank)
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
@@ -449,8 +510,11 @@ public final class AppModel {
     }
   } // End of func perform(_:on:)
 
-  /// Takes a state the engine published (Settings shows its statuses too).
+  /// Takes a state the engine published (Settings shows its statuses too). While the switcher
+  /// shows, the row it selects is remembered first, so the new state keeps it selected while it
+  /// is listed (PLAN.md D32).
   private func apply(_ state: RefreshState) {
+    if isSwitcherVisible { rememberSwitcherSelection() }
     refreshState = state
     settings.refreshState = state
     if let environment { now = environment.now() }
@@ -542,42 +606,68 @@ public final class AppModel {
     }
   }
 
-  /// Queues an engine request; dropped for a fixture and after `shutdown()`.
-  private func send(_ command: EngineCommand) {
+  /// Queues an engine request; dropped for a fixture and after `shutdown()`. A visibility
+  /// change is also kept in `engineVisibilityChanges`.
+  func send(_ command: EngineCommand) {
     guard environment != nil, lifecycle != .stopped else { return }
+    switch command {
+    case .popoverOpened: logVisibility(true)
+    case .popoverClosed: logVisibility(false)
+    default: break
+    }
     commandSink.yield(command)
   }
 
+  /// Keeps one visibility change handed to the engine (the latest `visibilityLogLimit`).
+  private func logVisibility(_ isVisible: Bool) {
+    engineVisibilityChanges.append(isVisible)
+    if engineVisibilityChanges.count > Self.visibilityLogLimit {
+      engineVisibilityChanges.removeFirst(engineVisibilityChanges.count - Self.visibilityLogLimit)
+    }
+  }
+
   // MARK: - Popover
+
+  /// Whether the popover or the session switcher shows: what the engine is told (PLAN.md D22).
+  public var isSessionListVisible: Bool { isPopoverVisible || isSwitcherVisible }
 
   /// The popover window became visible or hidden.
   public func popoverVisibilityChanged(_ isVisible: Bool) {
     if isVisible { popoverDidOpen() } else { popoverDidClose() }
   }
 
-  /// The popover opened: the engine refreshes every host now and every 15 s, with attachment
-  /// checks. Activities of actions that succeeded ("Confirmed", "Detached…") were for the
-  /// previous opening and are cleared; failures stay until retried. A repeated call while open
-  /// does nothing.
+  /// The popover opened: unless the switcher showed already, the engine refreshes every host
+  /// now and every 15 s, with attachment checks. Activities of actions that succeeded
+  /// ("Confirmed", "Detached…") were for the previous opening and are cleared; failures stay
+  /// until retried. An open switcher is closed (only one of the two shows). A repeated call
+  /// while open does nothing.
   public func popoverDidOpen() {
     guard !isPopoverVisible else { return }
+    let wasListVisible = isSessionListVisible
     isPopoverVisible = true
+    openedSessionList()
+    if isSwitcherVisible { closeSwitcher?(.popoverOpened) }
+    if !wasListVisible { send(.popoverOpened) }
+  }
+
+  /// The popover closed: unless the switcher shows, back to the background cadence, no
+  /// attachment checks. The engine cancels the check in progress: whatever part of it has not
+  /// reached iTerm2 yet (the cookie request, the connection, a connection's identity question)
+  /// never does, and its result is discarded.
+  public func popoverDidClose() {
+    guard isPopoverVisible else { return }
+    isPopoverVisible = false
+    if !isSessionListVisible { send(.popoverClosed) }
+  }
+
+  /// What every opening of the popover or the switcher does: relative times from now, and the
+  /// activities of actions that succeeded cleared (failures stay until retried).
+  func openedSessionList() {
     if let environment { now = environment.now() }
     for (key, activity) in activities where activity.isDone {
       activities[key] = nil
       notes[key] = nil
     }
-    send(.popoverOpened)
-  }
-
-  /// The popover closed: back to the background cadence, no attachment checks. The engine
-  /// cancels the check in progress: whatever part of it has not reached iTerm2 yet (the cookie
-  /// request, the connection, a connection's identity question) never does, and its result is
-  /// discarded.
-  public func popoverDidClose() {
-    guard isPopoverVisible else { return }
-    isPopoverVisible = false
-    send(.popoverClosed)
   }
 
   // MARK: - Intents
@@ -631,11 +721,11 @@ public final class AppModel {
   }
 
   /// The session switcher shortcut was pressed (PLAN.md D32): the one entry point of the
-  /// hotkey's action. Until the session switcher exists (Phase I-3b) it toggles the popover
-  /// through `togglePopover`. Does nothing for a fixture or after `shutdown()`.
+  /// hotkey's action. It toggles the session switcher through `toggleSwitcher` (opening it
+  /// closes the popover). Does nothing for a fixture or after `shutdown()`.
   public func globalShortcutPressed() {
     guard environment != nil, lifecycle != .stopped else { return }
-    togglePopover?()
+    toggleSwitcher?()
   }
 
   /// "Quit": ends the app through `AppEnvironment.terminate`, whose shutdown stops the engine

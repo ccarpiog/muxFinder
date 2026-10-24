@@ -74,20 +74,20 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   file (D26's rule, under `profiles.lock`), prints one line, exits 0 (removed, none, or would
   remove), 1 (left: not muxFinder's), 3 (failed) or 2 (usage). In checks always pass both
   folders, private ones from `mktemp -d`; without them it works on the real folders.
-- Preview fixtures (no menu bar item, engine, host list, directory list, login item or
-  iTerm2; one normal
+- Preview fixtures (no menu bar item, switcher panel, engine, host list, directory list,
+  login item, hotkey or iTerm2; one normal
   window with every popover state, or with `--preview-gallery settings` every Settings window
-  state, with `--preview-gallery onboarding` every onboarding window state, or with
-  `--preview-gallery attach` every session-action state, from synthetic data, shown without
-  taking the focus):
+  state, with `--preview-gallery onboarding` every onboarding window state, with
+  `--preview-gallery attach` every session-action state, or with `--preview-gallery switcher`
+  every session switcher state, from synthetic data, shown without taking the focus):
   `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures [--preview-gallery
-  popover|settings|onboarding|attach] [--appearance light|dark]` prints `muxFinder preview
-  window <n> …`; capture only that window with `screencapture -x -o -l <n> <file.png>`, then
+  popover|settings|onboarding|attach|switcher] [--appearance light|dark]` prints `muxFinder
+  preview window <n> …`; capture only that window with `screencapture -x -o -l <n> <file.png>`, then
   `kill -TERM` it (exit 0). With a locked screen or a sleeping display `screencapture` fails:
   add `--preview-snapshot <file.png>`, which sizes the window to its content and renders it
   into the PNG from inside the app, then quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
-  `settings-states-*.png`, `onboarding-states-*.png`, `attach-states-*.png`); never capture
-  the screen or another app's window.
+  `settings-states-*.png`, `onboarding-states-*.png`, `attach-states-*.png`,
+  `switcher-states-*.png`); never capture the screen or another app's window.
 - Login item check (read-only; registers nothing, opens no window or menu bar item, reads no
   host list, never contacts iTerm2):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-login-item-status` prints
@@ -104,8 +104,8 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   expected), 1 (a check not as expected) or 3 (a signal arrived); 2 when combined with
   another mode. It proves registration, never a press (checklist 18).
 - App shell check (normal mode, except that it never rewrites the persistent profile file
-  as a normal launch may, PLAN.md D26, and never reads `preferences.json` or registers the
-  session switcher shortcut, D32; contacts no iTerm2 while no host is enabled and the
+  as a normal launch may, PLAN.md D26, and never reads `preferences.json`, registers the
+  session switcher shortcut or builds the switcher panel, D32; contacts no iTerm2 while no host is enabled and the
   popover stays closed; never through `open`/LaunchServices):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints the windows
   of muxFinder's own status item (PLAN.md D30; AppKit's replicas included) after 2 s (macOS 27

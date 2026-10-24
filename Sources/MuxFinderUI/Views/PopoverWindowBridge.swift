@@ -22,24 +22,39 @@ struct PopoverWindowBridge: NSViewRepresentable {
   }
 }
 
-/// An invisible view that follows the window it is in (the popover's panel) for its keys.
+/// The popover's window tracking view: its keys go to `AppModel.handle(_:)`. The popover
+/// placement diagnostic finds the live popover by this class (`LivePopoverLookup`).
+final class PopoverWindowTrackingView: PanelKeyTrackingView {
+  /// Creates the view for `model`.
+  init(model: AppModel) {
+    super.init { [weak model] key in model?.handle(key) ?? .ignored }
+  }
+
+  /// Not used: the view is only created in code.
+  required init?(coder: NSCoder) {
+    return nil
+  }
+}
+
+/// An invisible view that follows the window it is in (a muxFinder panel: the popover's, or
+/// the session switcher's, PLAN.md D32) for its keys.
 ///
-/// A local key-down monitor sees the popover window's key events first. A key the model
-/// handles goes no further, so ↑/↓ and Return work while the search field has the focus;
-/// anything else reaches the focused view. While an input method is composing text, every key
+/// A local key-down monitor sees the window's key events first. A key the handler uses goes
+/// no further, so ↑/↓ and Return work while the search field has the focus; anything else
+/// reaches the focused view. While an input method is composing text (marked text), every key
 /// goes to the text field. Esc (`PopoverKeyResult.closePopover`) closes the window, which the
-/// panel turns into the controller's close.
-final class PopoverWindowTrackingView: NSView {
-  /// The model told about keys.
-  private let model: AppModel
+/// panel turns into its controller's close.
+class PanelKeyTrackingView: NSView {
+  /// Carries out a key and says what the window does next.
+  private let route: @MainActor (PopoverKey) -> PopoverKeyResult
   /// The window followed.
   private weak var trackedWindow: NSWindow?
   /// The key-down monitor.
   private var keyMonitor: Any?
 
-  /// Creates the view for `model`.
-  init(model: AppModel) {
-    self.model = model
+  /// Creates the view; its window's keys go to `route`.
+  init(route: @escaping @MainActor (PopoverKey) -> PopoverKeyResult) {
+    self.route = route
     super.init(frame: .zero)
   }
 
@@ -74,7 +89,7 @@ final class PopoverWindowTrackingView: NSView {
     trackedWindow = nil
   }
 
-  /// Hands a key press in the popover window to the model; returns whether it was used.
+  /// Hands a key press in the followed window to the handler; returns whether it was used.
   private func handle(_ press: KeyPress) -> Bool {
     guard let window = trackedWindow, press.windowNumber == window.windowNumber,
       window.isKeyWindow
@@ -85,7 +100,7 @@ final class PopoverWindowTrackingView: NSView {
         keyCode: press.keyCode, modifierFlags: press.modifierFlags,
         charactersIgnoringModifiers: press.characters)
     else { return false }
-    switch model.handle(key) {
+    switch route(key) {
     case .handled:
       return true
     case .closePopover:

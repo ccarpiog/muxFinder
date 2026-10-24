@@ -112,6 +112,14 @@ public struct SessionProblem: Sendable, Hashable {
     SessionProblem(message: message, recoveries: [])
   }
 
+  /// The problem a session switcher row the engine does not list shows when it is opened
+  /// again (Return, "Try again", "Bring forward") after its host was turned off or removed:
+  /// nothing was opened (PLAN.md D32).
+  public static let hostNotTurnedOn = SessionProblem(
+    message: "This session's host is no longer turned on in muxFinder, so nothing was opened. "
+      + "Turn it on in Settings, then try again.",
+    recoveries: [.openSettings, .retry])
+
   // MARK: - Detach
 
   /// The problem a "Detach from this Mac" that ended `result` shows; `nil` when it detached.

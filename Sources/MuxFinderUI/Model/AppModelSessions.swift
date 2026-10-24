@@ -75,27 +75,37 @@ extension AppModel {
 
   /// The confirmation's "Move here": the only call that reaches
   /// `AttachCoordinator.moveHere(_:confirmation:)`, with the confirmation naming that session.
+  /// Then a session switcher creation failure the confirmation held back shows
+  /// (`showDeferredCreationFailure()`).
   public func confirmMoveHere() {
     guard case .moveHere(let request) = panel else { return }
     panel = nil
     startAttach(request.target.key, kind: .moveHere, target: request.target)
+    showDeferredCreationFailure()
   }
 
   /// Closes the panel (Cancel, or Esc): a Move here confirmation runs nothing; a New session
   /// being created goes on (its result shows on its row) and "Open existing" stops looking (its
-  /// lookup is cancelled and opens nothing). New session's directory list closes with it.
+  /// lookup is cancelled and opens nothing). New session's directory list closes with it. A
+  /// session switcher creation failure a Move here confirmation held back shows now
+  /// (`showDeferredCreationFailure()`).
   public func cancelPanel() {
+    var endsMoveHere = false
+    if case .moveHere? = panel { endsMoveHere = true }
     panel = nil
     closeDirectoryList()
     if let id = currentLookupID { lookups[id]?.cancel() }
     currentLookupID = nil
     if newSessionDraft.state == .findingExisting { newSessionDraft.state = .collision }
+    if endsMoveHere { showDeferredCreationFailure() }
   }
 
-  /// Starts an open or a confirmed move here of `key` (`given`, or the listed session).
+  /// Starts an open or a confirmed move here of `key` (`given`, or the listed session, or for
+  /// a session switcher row the engine does not list its retained target on its host as
+  /// enabled now, `pinnedSwitcherTarget(for:)`).
   func startAttach(_ key: SessionKey, kind: ActionKind, target given: AttachTarget?) {
     guard lifecycle != .stopped, runningActions[key] == nil,
-      let target = given ?? target(for: key)
+      let target = given ?? target(for: key) ?? pinnedSwitcherTarget(for: key)
     else { return }
     guard let coordinator = coordinator() else {
       if let attacherProblem { activities[key] = .failed(.unavailable(attacherProblem)) }
@@ -116,6 +126,7 @@ extension AppModel {
       sink.yield(.finished(key, outcome))
     }
     runningActions[key] = RunningAction(kind: kind, target: target, task: task)
+    if kind == .open { switcherActionStarted(key, target: target) }
     logger.info("Session action started: \(kind.name, privacy: .public)")
   } // End of func startAttach(_:kind:target:)
 
@@ -259,6 +270,7 @@ extension AppModel {
       sink.yield(.created(id: id, result, host: host))
     }
     creation = PendingCreation(id: id, task: task)
+    switcherCreationStarted(id)
     logger.info("Session action started: new session")
   } // End of func createSession()
 
@@ -279,6 +291,7 @@ extension AppModel {
     let target = created.attachTarget(on: host)
     let key = target.key
     runningActions[key] = RunningAction(kind: .open, target: target, task: pending.task)
+    switcherSessionCreated(id, key: key, target: target)
     lastActions[key] = .open
     activities[key] = .opening
     notes[key] = nil
@@ -467,6 +480,7 @@ extension AppModel {
     case .requested, .launched, .stillWaiting:
       activities[key] = SessionActivity(result.state)
     }
+    switcherActionEnded(key)
   } // End of func finishAttach(_:target:)
 
   /// The problem of a focus whose activation did not bring the tab forward (no tab appeared, or
@@ -510,9 +524,13 @@ extension AppModel {
         newSessionDraft.state = .failed(failure.message)
       }
       if failure.triggersRefresh { refreshHost(host.id) }
+      switcherCreationFailed(id)
       return
     }
-    guard let created = result.created, let attach = result.attach else { return }
+    guard let created = result.created, let attach = result.attach else {
+      if let createdKey { forgetSwitcherAction(createdKey) }
+      return
+    }
     let running = runningActions.removeValue(forKey: attach.key)
     notes[attach.key] = nil
     lastActions[attach.key] = .open

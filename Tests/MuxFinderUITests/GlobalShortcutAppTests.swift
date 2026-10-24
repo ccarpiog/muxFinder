@@ -7,8 +7,9 @@ import Testing
 
 /// The session switcher shortcut in the app (PLAN.md D32): `AppModel` loads and registers it at
 /// start (normal mode only) and unregisters it at quit, its press reaches the one entry point
-/// (`globalShortcutPressed()`), which toggles the popover through `PopoverController` until the
-/// switcher exists; Settings shares the model and stops recording when its window closes or
+/// (`globalShortcutPressed()`), which toggles the session switcher through
+/// `SwitcherController` (Phase I-3b); Settings shares the model and stops recording when its
+/// window closes or
 /// loses the focus or another tab is chosen; which modes get a shortcut at all; the flag's
 /// options; the gallery's recorder states; the diagnostics line.
 @Suite("Global shortcut in the app")
@@ -31,14 +32,14 @@ struct GlobalShortcutAppTests {
   }
 
   /// A saved shortcut is registered by `start()`; its press reaches `globalShortcutPressed()`,
-  /// which toggles the popover through `togglePopover`; `shutdown()` unregisters it and later
-  /// presses do nothing.
+  /// which toggles the session switcher through `toggleSwitcher`; `shutdown()` unregisters it
+  /// and later presses do nothing.
   @Test func thePressReachesTheEntryPoint() async {
     let registrar = FakeHotkeyRegistrar()
     let store = InMemoryPreferencesStore(Preferences(globalShortcut: Support.controlOptionSpace))
     let model = Self.appModel(registrar: registrar, store: store)
     var toggles = 0
-    model.togglePopover = { toggles += 1 }
+    model.toggleSwitcher = { toggles += 1 }
     #expect(registrar.registered.isEmpty)
     await model.start()
     #expect(registrar.registered == [Support.controlOptionSpace])
@@ -64,7 +65,7 @@ struct GlobalShortcutAppTests {
     await model.shutdown()
     let fixture = AppModel(fixture: PreviewFixtures.all[0])
     var toggles = 0
-    fixture.togglePopover = { toggles += 1 }
+    fixture.toggleSwitcher = { toggles += 1 }
     fixture.globalShortcutPressed()
     #expect(toggles == 0)
   } // End of func noEnvironmentRegistersNothing()
@@ -109,25 +110,24 @@ struct GlobalShortcutAppTests {
     await model.shutdown()
   } // End of func settingsStopsRecordingOnAnotherTab()
 
-  /// The interim action: the shortcut opens the popover under the status item button (anchored
-  /// at its rectangle, as with no mouse event) and closes it when open; visibility is reported
-  /// once per change.
-  @Test func theShortcutTogglesThePopover() {
-    let harness = PopoverControllerTests.Harness()
-    harness.controller.shortcutPressed()
+  /// The shortcut's action (Phase I-3b replaced the interim popover toggle): it opens the
+  /// session switcher centered on the display with the keyboard focus, in its upper part, and
+  /// closes it when open; visibility is reported once per change.
+  @Test func theShortcutTogglesTheSwitcher() {
+    let harness = SwitcherControllerTests.Harness()
+    harness.controller.toggle()
     #expect(harness.controller.isOpen)
-    #expect(harness.controller.placement?.decision.source == .button)
-    #expect(harness.panel.shownFrames == [PopoverControllerTests.belowIcon])
+    #expect(harness.panel.shownFrames == [SwitcherControllerTests.onSecondDisplay])
     #expect(harness.visibility == [true] && harness.opens == 1)
-    harness.controller.shortcutPressed()
+    harness.controller.toggle()
     #expect(!harness.controller.isOpen)
     #expect(harness.controller.lastCloseReason == .shortcut)
     #expect(harness.visibility == [true, false])
-    harness.press(at: PopoverControllerTests.icon)
-    #expect(harness.controller.isOpen)
-    harness.controller.shortcutPressed()
-    #expect(!harness.controller.isOpen && harness.button.highlights == [true, false, true, false])
-  } // End of func theShortcutTogglesThePopover()
+    harness.controller.toggle()
+    #expect(harness.controller.isOpen && harness.visibility == [true, false, true])
+    harness.controller.toggle()
+    #expect(!harness.controller.isOpen && harness.panel.hideCount == 2)
+  } // End of func theShortcutTogglesTheSwitcher()
 
   /// Which modes get the shortcut: only normal mode (`--appearance` alone keeps it); the flag
   /// alone is a mode of its own; combined with another mode it is a usage error.

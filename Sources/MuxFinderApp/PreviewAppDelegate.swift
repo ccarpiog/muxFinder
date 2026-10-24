@@ -3,12 +3,13 @@ import Foundation
 import MuxFinderUI
 import SwiftUI
 
-/// `--preview-fixtures` mode (PLAN.md D22, D23, D24, D25): a plain `NSApplication` with one
-/// normal window showing every popover state, or with `--preview-gallery settings` every
-/// Settings window state, with `--preview-gallery onboarding` every onboarding window state, or
-/// with `--preview-gallery attach` every session-action state, from synthetic fixtures. No SwiftUI scene, menu bar item, refresh engine, host list, login item
-/// or iTerm2 is involved, and nothing is written except the PNG a `--preview-snapshot` asks
-/// for.
+/// `--preview-fixtures` mode (PLAN.md D22, D23, D24, D25, D32): a plain `NSApplication` with
+/// one normal window showing every popover state, or with `--preview-gallery settings` every
+/// Settings window state, with `--preview-gallery onboarding` every onboarding window state,
+/// with `--preview-gallery attach` every session-action state, or with `--preview-gallery
+/// switcher` every session switcher state, from synthetic fixtures. No SwiftUI scene, menu bar
+/// item, switcher panel, refresh engine, host list, login item, hotkey or iTerm2 is involved,
+/// and nothing is written except the PNG a `--preview-snapshot` asks for.
 ///
 /// The window is shown without activating the app (the keyboard focus stays where it was),
 /// its window number is printed on standard output for `screencapture -l`, and closing it,
@@ -52,6 +53,7 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     case .settings: hosting = NSHostingView(rootView: SettingsGallery())
     case .onboarding: hosting = NSHostingView(rootView: OnboardingGallery())
     case .attach: hosting = NSHostingView(rootView: AttachGallery())
+    case .switcher: hosting = NSHostingView(rootView: SwitcherGallery())
     }
     let window = NSWindow(
       contentRect: NSRect(origin: .zero, size: hosting.fittingSize),

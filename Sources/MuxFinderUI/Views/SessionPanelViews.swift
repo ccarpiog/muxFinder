@@ -64,10 +64,16 @@ struct MoveHerePanelView: View {
 
 /// "New session": the host (enabled hosts), the name with its inline issue, the optional
 /// directory with its directory list (`DirectoryFieldView`, PLAN.md D31), the creation's state
-/// (a collision offers "Open existing"), "Cancel" and "Create".
+/// (a collision offers "Open existing"), "Cancel" and "Create". Shown in the popover and in
+/// the session switcher (PLAN.md D32), which asks for the name field to take the focus.
 struct NewSessionPanelView: View {
   /// The model whose draft the fields edit.
   @Bindable var model: AppModel
+  /// Whether the name field takes the keyboard focus when the form appears (the live session
+  /// switcher, which is keyboard-first).
+  var focusesName = false
+  /// Whether the name field has the keyboard focus.
+  @FocusState private var isNameFocused: Bool
 
   /// The sheet.
   var body: some View {
@@ -99,6 +105,9 @@ struct NewSessionPanelView: View {
     } // End of VStack holding the sheet
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)
+    .task {
+      if focusesName { isNameFocused = true }
+    }
   } // End of var body
 
   /// A labelled text field with its issue under it, in red.
@@ -116,6 +125,7 @@ struct NewSessionPanelView: View {
         .textFieldStyle(.roundedBorder)
         .labelsHidden()
         .disabled(model.newSessionDraft.isBusy)
+        .focused($isNameFocused)
         .accessibilityLabel(title)
       if let issue {
         Text(issue)

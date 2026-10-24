@@ -76,17 +76,19 @@ public struct PopoverSystem {
 ///   icon (`PopoverAnchoring` for the anchor, `PopoverPlacement` for the frame, on the anchor's
 ///   display), closes when open, or moves to the press's display when that is another one.
 /// - **Closing:** Esc (the panel's own close), a press outside the panel, another app becoming
-///   active, the panel resigning key, and the displays changing close it; a close from outside
-///   that is the button's own press is ignored, and the button's action for a press that
-///   already closed it from outside does not reopen it.
+///   active, the panel resigning key, the displays changing and the session switcher opening
+///   (only one of the two shows, PLAN.md D32) close it; a close from outside that is the
+///   button's own press is ignored, and the button's action for a press that already closed it
+///   from outside does not reopen it.
 /// - **Size:** the content lays itself out no taller than the anchor's display has room for
 ///   below the menu bar (`PopoverPlacement.availableHeight(on:)`, the host list shrinking and
 ///   scrolling), so the panel never cuts it off; while open, a change of the content's size
 ///   places the panel again (the top edge stays at the menu bar's bottom).
 /// - **Visibility** (`onVisibilityChange`, the model's `popoverVisibilityChanged`): visible
 ///   while open and not fully occluded (a locked screen, a sleeping display); reported on
-///   changes only, so the engine's attachment checks run only while it shows (PLAN.md D20,
-///   D22).
+///   changes only, so the engine's attachment checks run only while it (or the session
+///   switcher) shows (PLAN.md D20, D22). When opening it is reported before the panel shows,
+///   so the model closes an open switcher while the engine still sees one of the two visible.
 @MainActor
 public final class PopoverController {
   /// Why the popover closed.
@@ -103,16 +105,15 @@ public final class PopoverController {
     case resignedKey
     /// The displays changed (arrangement, resolution, one added or removed).
     case displaysChanged
-    /// The session switcher shortcut was pressed while it was open (PLAN.md D32, until the
-    /// switcher exists).
-    case shortcut
+    /// The session switcher opened (only one of the two shows at a time, PLAN.md D32).
+    case switcherOpened
 
     /// Whether this close comes from outside the popover, so it may be the button's own press
     /// (`PopoverPressRules`).
     var isOutside: Bool {
       switch self {
       case .pressOutside, .appSwitch, .resignedKey: true
-      case .button, .escape, .displaysChanged, .shortcut: false
+      case .button, .escape, .displaysChanged, .switcherOpened: false
       }
     }
   }
@@ -186,17 +187,18 @@ public final class PopoverController {
     }
   } // End of func buttonPressed()
 
-  /// The session switcher shortcut (PLAN.md D32; the interim action until the switcher
-  /// exists): closes the open popover, or opens it under the status item button, anchored at
-  /// the button's rectangle as when the action comes from no mouse event (on the button's
-  /// display; the pointer when the button has no usable rectangle).
-  public func shortcutPressed() {
-    if isOpen {
-      close(.shortcut)
-    } else {
-      rules.forgetPresses()
-      open(click: nil, screens: system.screens())
+  /// Whether a mouse button is held now on the status item button: the pointer, while a button
+  /// is held, is in the button's column of the menu bar of its display, and the button's
+  /// rectangle is usable (`PopoverAnchoring`'s rule for a press on the button). That press's
+  /// button action is on its way, or has just come, so the session switcher leaves its own
+  /// close from outside for that press to the popover the action opens (PLAN.md D32).
+  public var isButtonPressHeld: Bool {
+    guard let held = system.heldPointerLocation(), let rect = button.screenRect else {
+      return false
     }
+    let screens = system.screens()
+    return PopoverAnchoring.isUsableButtonRect(rect, screens: screens)
+      && PopoverAnchoring.isPress(held, onButton: rect, screens: screens)
   }
 
   /// Closes the popover for `reason`. A close from outside that is the press the button's
@@ -236,16 +238,17 @@ public final class PopoverController {
     updateVisibility()
   }
 
-  /// Opens the popover below the anchor for `click`.
+  /// Opens the popover below the anchor for `click`. The visibility is reported before the
+  /// panel shows (the model then closes an open session switcher, PLAN.md D32).
   private func open(click: CGPoint?, screens: [PopoverPlacement.Screen]) {
     guard let placement = place(click: click, screens: screens) else { return }
     self.placement = placement
     isOpen = true
     isOccluded = false
     lastCloseReason = nil
+    updateVisibility()
     panel.show(at: placement.frame)
     button.setHighlighted(true)
-    updateVisibility()
     onOpen()
   }
 

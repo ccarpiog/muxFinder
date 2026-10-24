@@ -1045,11 +1045,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `notSavedYet` (D24), builds the `RefreshCoordinator` for it
     (`DiscoveryProbe`; `AttachmentIndex` over one shared `ITerm2APIClient`), subscribes to
     `updates()`, starts `RefreshSystemEvents` on `NSWorkspace`'s notification center, then
-    `start()`s the engine. Popover open/close, "Refresh" and "Retry" go through one queue read
-    by one task, so the engine sees them in order; once `shutdown()` has begun, requests still
-    queued are dropped, so a popover opening queued just before quitting starts nothing in the
-    engine about to stop. Relative times are measured against `now`, updated with every
-    engine state and when the popover opens.
+    `start()`s the engine. Visibility changes (the popover's and the session switcher's,
+    combined below), "Refresh" and "Retry" go through one queue read by one task, so the engine
+    sees them in order; once `shutdown()` has begun, requests still queued are dropped, so a
+    popover opening queued just before quitting starts nothing in the engine about to stop.
+    Relative times are measured against `now`, updated with every engine state and when the
+    popover or the switcher opens.
   - **What the popover shows:** host status "Checking…" until an attempt ends, then "This
     Mac" for the local host after any success, "Reachable" (SSH, sessions) or "No sessions"
     (SSH, no server or none), and for failures "Unreachable", "Sign-in needed", "Host key
@@ -1094,22 +1095,29 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     The footer's buttons are 16 pt apart and each icon 4 pt from its title
     (`FooterLabelStyle`), "Quit" trailing.
   - **iTerm2 and its cookie:** nothing contacts iTerm2 at launch, the onboarding window
-    included (D24). The popover's only iTerm2 requests on their own are the engine's
-    attachment checks, which run only while the popover is visible and are cancelled when it
-    closes (D20); the Settings window adds one, the profile list, asked only when its window
-    opens while iTerm2 runs (D23); "Set up SSH in iTerm2…" (D24) contacts iTerm2, and may
-    launch it, only when the user clicks it. The client checks that iTerm2 runs before it asks
-    for the cookie (D13). So the cookie is requested when the popover or the Settings window
-    opens while iTerm2 runs, when the user chooses "Set up SSH in iTerm2…", and when the user
-    acts on a session (D25); never at launch, once the popover has closed (a cookie request, connection or
+    included (D24). The popover's and the session switcher's only iTerm2 requests on their own
+    are the engine's attachment checks, which run only while one of the two is visible and are
+    cancelled when the last one closes (D20, D32); the Settings window adds one, the profile
+    list, asked only when its window opens while iTerm2 runs (D23); "Set up SSH in iTerm2…"
+    (D24) contacts iTerm2, and may launch it, only when the user clicks it. The client checks
+    that iTerm2 runs before it asks for the cookie (D13). So the cookie is requested when the
+    popover, the session switcher or the Settings window opens while iTerm2 runs, when the user
+    chooses "Set up SSH in iTerm2…", and when the user acts on a session (D25); never at
+    launch, once neither the popover nor the switcher shows (a cookie request, connection or
     identity question the check had not made by then is never made), or while iTerm2 is not
     running. Tested
     through the real `ITerm2APIClient` with counting and gated cookie providers, a fake
     running check and fake connectors.
   - **Popover visibility and keys:** `PopoverController` (D30) tells the model the popover is
     visible while its panel is open and not fully occluded, on changes only (opening, closing,
-    occlusion). A local key-down monitor of `PopoverWindowBridge` for the panel turns ↑/↓,
-    Return, Esc, ⌘F, ⌘R, ⌘N and ⌘, (`PopoverKey`) into `AppModel.handle(_:)` before the search
+    occlusion), and `SwitcherController` does the same for the session switcher (D32). The
+    model combines the two (`AppModel.isSessionListVisible`): the engine gets `.popoverOpened`
+    and `.popoverClosed` once each whenever "either one is visible" changes, opening one closes
+    the other, and each controller reports a new visibility before its panel shows, so the swap
+    never reaches the engine as a close. A press on muxFinder's status item while the switcher
+    shows hands over the same way whichever of its two effects comes first: the switcher leaves
+    a close from outside made by that press to the popover the press opens (D32). A local
+    key-down monitor of `PopoverWindowBridge` for the panel turns ↑/↓, Return, Esc, ⌘F, ⌘R, ⌘N and ⌘, (`PopoverKey`) into `AppModel.handle(_:)` before the search
     field sees them (not while an input method composes); Esc closes the panel through the
     controller. The arrows move through the listed rows only. The search field is asked for
     the focus each time the popover opens. The controller's rules are tested over fakes
@@ -1152,7 +1160,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     normal window of every state in `PreviewFixtures.all` (with `--preview-gallery settings`,
     `SettingsFixtures.all` instead, D23; with `--preview-gallery onboarding`,
     `OnboardingFixtures.all`, D24; with `--preview-gallery attach`, `AttachFixtures.all`,
-    D25): synthetic names, `*.example`
+    D25; with `--preview-gallery switcher`, `SwitcherFixtures.all`, D32): synthetic names,
+    `*.example`
     destinations, a fake socket path, a fixed `now`. It is shown without activating the app
     and its window number is printed for `screencapture -l`. `--appearance light|dark` sets
     `NSApp.appearance` only. `--preview-snapshot <file.png>` also draws the window's content
@@ -2164,8 +2173,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     closes it, or moves it to the press's display when that is another one (only one panel);
     Esc (the panel's `close()`, routed to the controller), a mouse press another process
     received (a global mouse-down monitor, only while open; mouse monitors need no
-    permission), another app becoming active, the panel resigning key, and a display change
-    close it. The classic toggle bug (one press seen both as the button's action and as an
+    permission), another app becoming active, the panel resigning key, a display change and
+    the session switcher opening (`CloseReason.switcherOpened`, D32) close it. The classic toggle bug (one press seen both as the button's action and as an
     outside close) is handled in either order: an outside close made while a mouse button is
     held is remembered with the press's count, the pointer and the time, and the button's
     action for the same press leaves the popover closed, or opens it on the press's display if
@@ -2193,9 +2202,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     (coalesced to one per turn of the main loop); while open the controller places the panel
     again from the same anchor and display, so its top stays at the menu bar's bottom.
   - **Visibility:** `popoverVisibilityChanged` comes from the controller only: visible while
-    open and not fully occluded (a locked screen, a sleeping display), on changes only, so
-    attachment checks run only while the popover shows and are cancelled when it closes (D20,
-    D22). The search field is asked for the focus at each opening.
+    open and not fully occluded (a locked screen, a sleeping display), on changes only, and
+    reported before the panel shows, so attachment checks run only while the popover (or the
+    session switcher, combined in the model, D32) shows and are cancelled when the last one
+    closes (D20, D22). The search field is asked for the focus at each opening.
   - **Diagnostic:** `--report-popover-placement` clicks muxFinder's own button with
     `performClick(_:)`, so the action is the controller's and the anchor the button's
     rectangle; it prints the controller's placement and the after-fix check
@@ -2428,16 +2438,22 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Uninstall:** `scripts/uninstall.sh` removes the whole support folder, `directories.json`,
     its backups and `directories.lock` included (no change).
 
-- **D32 — Session switcher shortcut** (decided in Phase I-3a, 2026-10-24, from
+- **D32 — Session switcher shortcut and panel** (decided in Phase I-3a, 2026-10-24, from
   `autoclaude/processed/30-global-hotkey-session-switcher.md` and the orchestrator's calls in
-  *Phase I-3*; the switcher panel itself is Phase I-3b's and will extend this decision. Code
-  in `Sources/MuxFinderCore/Config/GlobalShortcut.swift` and `PreferencesStore.swift`,
+  *Phase I-3*; extended in Phase I-3b with the switcher panel. Code in
+  `Sources/MuxFinderCore/Config/GlobalShortcut.swift` and `PreferencesStore.swift`,
   `Sources/MuxFinderUI/Model/GlobalShortcutLabel.swift`, `HotkeyRegistrar.swift`,
-  `GlobalShortcutModel.swift`, `AppModel.swift` (`globalShortcutPressed()`),
-  `PopoverController.swift` (`shortcutPressed()`), `AppLaunchOptions.swift`,
-  `Views/Settings/ShortcutRecorderView.swift`, `Sources/MuxFinderApp/HotkeyRegistrationReport.swift`;
-  tests `Tests/MuxFinderCoreTests/GlobalShortcutTests.swift`, `PreferencesStoreTests.swift`,
-  `Tests/MuxFinderUITests/GlobalShortcutModelTests.swift`, `GlobalShortcutAppTests.swift`).
+  `GlobalShortcutModel.swift`, `AppModel.swift` (`globalShortcutPressed()`, the combined
+  visibility), `AppLaunchOptions.swift`, `Views/Settings/ShortcutRecorderView.swift`,
+  `Sources/MuxFinderApp/HotkeyRegistrationReport.swift`; the panel (I-3b) in
+  `Sources/MuxFinderUI/Model/SwitcherContent.swift`, `SwitcherController.swift`,
+  `AppModelSwitcher.swift`, `Views/SwitcherView.swift`, `Views/SessionSwitcher.swift`,
+  `Views/MenuBarPopover.swift` (`PanelHost`, `PanelObservers`), `Views/PopoverWindowBridge.swift`
+  (`PanelKeyTrackingView`), `Preview/SwitcherFixtures.swift`, `Preview/SwitcherGallery.swift`,
+  `Sources/MuxFinderApp/AppDelegate.swift`; tests `Tests/MuxFinderCoreTests/GlobalShortcutTests.swift`,
+  `PreferencesStoreTests.swift`, `Tests/MuxFinderUITests/GlobalShortcutModelTests.swift`,
+  `GlobalShortcutAppTests.swift`, `SwitcherContentTests.swift`, `SwitcherControllerTests.swift`,
+  `SwitcherModelTests.swift`).
   - **The value** (`GlobalShortcut`): a virtual key code (Carbon's `kVK_…` numbering, the
     key's position whatever the layout, as `NSEvent.keyCode` gives it; at most 127) and the
     modifiers ⌃⌥⇧⌘ (`GlobalShortcut.Modifiers`, stored by name). No default: the hotkey is off
@@ -2549,11 +2565,107 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     "Try again". Diagnostics ("Copy diagnostics", `Session switcher shortcut:`) and the log
     record the state by kind (`registered`, `off`, `suspended`, `failed.taken`, `unregistration
     failed (failed(-108))`, the file's problem code), never the combination.
-  - **The press** reaches one entry point, `AppModel.globalShortcutPressed()`. Until the
-    switcher exists (Phase I-3b) it toggles the popover panel through
-    `PopoverController.shortcutPressed()` (wired by `MenuBarPopover` as `AppModel.togglePopover`):
-    open, it closes (`CloseReason.shortcut`); closed, it opens anchored at the status item
-    button's rectangle as with no mouse event (D30). The Settings note says so.
+  - **The press** reaches one entry point, `AppModel.globalShortcutPressed()`, which toggles
+    the session switcher through `AppModel.toggleSwitcher` (`SwitcherController.toggle()`, wired
+    by `SwitcherController.make(for:panel:system:)`): open, it closes (`CloseReason.shortcut`);
+    closed, it opens (below). Phase I-3a's interim popover toggle
+    (`PopoverController.shortcutPressed()`, `AppModel.togglePopover`) is gone. The Settings note
+    says what the shortcut does.
+  - **The switcher panel** (Phase I-3b; `SessionSwitcher`, decisions in `SwitcherController`
+    over the popover's `PopoverPanelSurface` seam): the popover's borderless, non-activating
+    `PopoverPanelWindow` (D30), here at the **floating level**, with the same collection
+    behavior (`canJoinAllSpaces`, `fullScreenAuxiliary`, `transient`, `ignoresCycle`: it shows on
+    the active Space and over full-screen apps), rounded 12 pt, opaque (Phase 14's
+    `PopoverPalette` background), its accessibility title "Session switcher", hosted through the
+    shared `PanelHost` (generic over its root view) and watched by the shared `PanelObservers`.
+    It is **540 pt wide** (`SwitcherPlacement.width`: a session name, its host's name and the
+    detail on one line), centered horizontally on the visible frame of the display with the
+    keyboard focus, its top edge 18 % of that visible frame's height below its top (on the pixel
+    grid), growing downwards, its content limited to the room down to 8 pt above the visible
+    frame's bottom (the list shrinks and scrolls, `PopoverHeightLimit`); a size change keeps the
+    top edge. The display with the keyboard focus is the one sharing the most area with the
+    frontmost app's frontmost layer-0 window (`CGWindowListCopyWindowInfo`: owner, layer and
+    bounds only, never a title, readable without permission, nothing logged), else
+    `NSScreen.main`, else the pointer's, else the first (`SwitcherPlacement.screenIndex`). It
+    closes on Esc (its own close), the shortcut, a mouse press another process received, another
+    app becoming active (iTerm2 coming forward included), the panel resigning key, a display
+    change, the popover opening, and an action it started succeeding (a close from outside made
+    by a press on muxFinder's status item is left to the popover that press opens; *Visibility*
+    below). Being non-activating,
+    closing it leaves the focus with the app that had it. Built only in normal mode with the
+    shortcut (`AppLaunchOptions.registersGlobalShortcut`): no preview, self-test or `--report-*`
+    mode has one.
+  - **Content** (`SwitcherContent`, a pure value): a search field (emptied and focused at each
+    opening), the popover's banners, then one bounded box: pinned rows (failures carried from a
+    closed switcher, then sessions of its actions the engine does not list yet, such as a just
+    created one, made from their target), the **live** sessions in the popover's order (the
+    popover's `SessionRow`s, with Phase 14's indicator, detail, badge and activity; stale ones
+    left out) filtered by the popover's rule over host and session names, a muted "No live
+    sessions." or "No session matches “…”." when none is listed, and "New session…" last, which
+    reads "New session “<name>”…" and fills the name in when the trimmed filter text passes
+    `Validation.sessionName` and no live session has exactly that name. Under the box, a muted
+    line per host still checking or whose last check failed ("Saturno: checking…", "Sirio:
+    unreachable", "Saturno: sign-in needed"), with the status's dot, never red. With no host
+    turned on (or the list loading) the popover's placeholder with "Open Settings" and no New
+    session row. A line of key hints closes it. The selection is the remembered item while it
+    is listed, else the first; each opening and each change of the filter text select the
+    first row (as Spotlight does) and remember it, and while the switcher shows the selected
+    row is remembered again before each engine update is applied
+    (`AppModel.rememberSwitcherSelection()`), so a refresh that inserts or removes sessions
+    never moves the selection, or Return's target, to another session.
+  - **Keys** (`AppModel.handleSwitcherKey(_:)` over `PopoverKey`, through the popover's local
+    key monitor, now `PanelKeyTrackingView`, so an input method's marked text goes to the field):
+    in the list, ↑/↓ move without wrapping, Return activates the selected row, ⌘N shows the
+    form, ⌘F focuses the search field, ⌘R refreshes, ⌘, opens Settings (which activates the app,
+    so the switcher closes), Esc closes, ⌥↓ goes on. A click selects a row, a double-click
+    activates it. The New session form is the popover's `NewSessionPanelView` over the shared
+    `panel` and `NewSessionDraft` (This Mac by default, D31's directory list included; the name
+    field takes the focus), with the popover's panel keys (Return creates, ⌥↓ and the list's
+    keys, Esc closes the list, then goes back to the list). Move here and Detach stay in the
+    popover (a failure's own recoveries are the popover row's).
+  - **Actions and carry-over** (`AppModelSwitcher.swift`): a session row opens through the
+    popover's Open (D25: focused when open here, else attached). An Open, or a New session's
+    creation and its attach, started while the switcher shows is followed
+    (`switcherActions`, `switcherCreation`): its row shows the activity (pinned while the engine
+    does not list it); its success closes the switcher (`CloseReason.actionSucceeded`) only if
+    it stayed open since; a failure while it shows stays on its row with the popover row's text
+    and recoveries (the switcher stays open); a failure that arrives once it closed is carried
+    (`switcherCarriedFailures`) to the top of its next opening, pinned and selected (Return
+    retries), and forgotten when that opening closes, while the popover row keeps it as always;
+    a vanished or changed session has the popover's banner, shown at the top of both. A pinned
+    row the engine does not list (a session just created on a host that stopped answering, say)
+    opens (Return, "Try again", "Bring forward") through its retained target
+    (`switcherTargets`) on its host as the engine has it now, which the coordinator revalidates
+    as always (`AppModel.pinnedSwitcherTarget(for:)`); with that host turned off or removed the
+    row shows "This session's host is no longer turned on in muxFinder, so nothing was opened."
+    with "Open Settings" and "Try again" (`SessionProblem.hostNotTurnedOn`), never nothing. A
+    creation failure (a collision, say) stays in the form; when the user had left the form, it
+    is put back, so the next opening (or the popover) shows it. While the popover shows a Move
+    here confirmation it is held back (`switcherCreationFailureDeferred`) and the form comes
+    back once that confirmation ends (confirmed or cancelled) or at the switcher's next opening,
+    whichever is first (the unconfirmed Move here then closes; it ran nothing). An idle form
+    leaves at each opening and closing; one creating or showing a result stays.
+  - **Visibility** (D22): the model combines the two (`isSessionListVisible`): `.popoverOpened`
+    and `.popoverClosed` are each sent once whenever "either one is visible" changes, and each
+    opening asks the other to close (`AppModel.closePopover`, set by `MenuBarPopover` to
+    `PopoverController.close(.switcherOpened)`; `AppModel.closeSwitcher`). Both controllers
+    report a new visibility before their panel shows, so the swap keeps one of the two visible
+    for the engine and never sends a closed and opened pair. A press on muxFinder's status item
+    while the switcher shows reaches the app twice (D30): as the button's action and as a close
+    from outside (the switcher resigning key, another process seeing the press), in either
+    order. The switcher leaves such a close to the button's action
+    (`SwitcherController.close(_:)` asks `AppModel.isStatusItemPressHeld`, which `MenuBarPopover`
+    sets to `PopoverController.isButtonPressHeld`: a mouse button held on the button's usable
+    rectangle, D30's rule for a press on the button); the action opens the popover, which
+    closes the switcher (`popoverOpened`), so neither order sends a closed and opened pair, and
+    a press elsewhere still closes the switcher at once. A press on another display's copy of
+    the icon is not recognized so (AppKit gives that copy only a placeholder frame): when its
+    close from outside comes first, the engine hears a close and an open. Both openings clear
+    the activities of actions that succeeded. The engine's visibility changes are kept for tests
+    (`engineVisibilityChanges`, the latest 32).
+  - **Gallery:** `--preview-gallery switcher` (`SwitcherFixtures`, synthetic): the list, a
+    filtered list, New session with a name, the form, opening, a failure, a failure since the
+    last opening, no hosts, hosts checking or unreachable; `docs/screenshots/switcher-states-*.png`.
   - **The diagnostic** (`--report-hotkey-registration`; the orchestrator's call: allowed with
     bounds, not UI scripting): in its own process, through `CarbonHotkeyRegistrar`, it
     registers ⌃⌥⇧⌘F19 (expected registered), again (expected taken), unregisters it, registers
@@ -4218,7 +4330,41 @@ Split (recorded before the first worker):
   `docs/MANUAL-CHECKLIST.md` (press over a full-screen app, filter and open, create, Esc
   returns the focus). Acceptance: the specification's content, keys, visibility-rule and
   failure-carry-over tests pass; existing UI tests pass unchanged; the gallery is rendered and
-  inspected; shared verification and `scripts/build-app.sh` + `codesign` pass.
+  inspected; shared verification and `scripts/build-app.sh` + `codesign` pass. Outcome: **D32**
+  extended (the panel: the popover's non-activating `PopoverPanelWindow` at the floating
+  level, **540 pt wide**, centered on the display with the keyboard focus, its top 18 % of the
+  visible height down; `SwitcherContent` with pinned rows and the New session row's name;
+  `handleSwitcherKey(_:)` over `PopoverKey` and the shared `PanelKeyTrackingView`; the popover's
+  Open and New session form; success closes it, a failure stays, a failure once closed is
+  carried to the next opening and the popover row; the combined visibility) and D22 and D30
+  edited. The popover's panel host, observers and key view became shared (`PanelHost`,
+  `PanelObservers`, `PanelKeyTrackingView`) rather than copied; `PopoverController` now reports
+  a new visibility before its panel shows, so a swap never reaches the engine as a close; its
+  interim `shortcutPressed()` and `AppModel.togglePopover` are gone (`CloseReason.shortcut`
+  became `switcherOpened`). 25 new UI tests (`SwitcherContentTests`, `SwitcherControllerTests`,
+  `SwitcherModelTests`); three I-3a tests in `GlobalShortcutAppTests` that asserted the interim
+  popover toggle now assert the switcher (two count `toggleSwitcher`, and
+  `theShortcutTogglesThePopover` became `theShortcutTogglesTheSwitcher`), no other test
+  changed; 815 core + 317 UI tests pass. The switcher gallery rendered light and dark and
+  inspected (9 states), the Settings gallery regenerated for the General tab's new note;
+  `--report-menu-bar-item` as before (exit 0, no child, the private home empty). No `e2e-*`
+  run or self-test (the attach path is unchanged); a press, the real panel over a full-screen
+  app, opening with iTerm2 coming forward, creating and Esc giving the focus back are
+  checklist 18. Review fixes (Phase I-3b review, D32): the switcher remembers the row it
+  selects at each opening, each filter change and before each engine update, so a refresh
+  never moves the selection or Return's target; a pinned row the engine does not list opens
+  through its retained target on its host as enabled now, or shows that its host is no longer
+  turned on; a creation failure held back by the popover's Move here confirmation shows once
+  that ends or at the switcher's next opening; and a close from outside made by a press on
+  muxFinder's status item is left to the popover that press opens, so the handoff sends no
+  closed and opened pair in either order; with regression tests
+  (`aRefreshKeepsTheAutomaticSelection`, `aPinnedRetryAttachesThroughItsRetainedTarget`,
+  `aPinnedRetryOnAHostTurnedOffShowsWhy`, `aCreationFailureHeldBackByMoveHereShowsOnceItEnds`,
+  `aCreationFailureHeldBackByMoveHereShowsAtTheNextOpening`,
+  `statusItemHandoffWithTheOutsideCloseFirst`, plus `statusItemHandoffWithTheButtonActionFirst`
+  for the other order) that fail with their fix reverted (the last passes either way), and
+  `arrowsMoveWithoutWrapping` now expects the remembered first row instead of `nil`. On the
+  final tree 815 core + 324 UI tests pass.
 
 ## Deferred (explicitly out of scope for v1)
 

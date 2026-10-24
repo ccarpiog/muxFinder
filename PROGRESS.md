@@ -40,17 +40,16 @@ file.
 | I-2a | `directories.json` store (D31) with lock and refusal of unusable files, nonce-framed `path` probe record, recording on `onCreated`, in-memory store for self-tests | high | opus (impl + review-fix worker); real checks and records by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-2a.md` | `docs/progress-archive/i-2a.md` |
 | I-2b | Directory list in New session (in-popover, ⌥↓/↑/↓/Return/Esc), Settings › Directories with a merging Save, galleries, docs | routine | opus (impl + review-fix worker); self-test and one test-harness fix by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-2b.md` | `docs/progress-archive/i-2b.md` |
 | I-3a | Global shortcut: `GlobalShortcut`, `preferences.json` store, Carbon registrar, Settings › General recorder, `--report-hotkey-registration`, interim popover toggle (D32) | routine | opus (impl + review-fix worker); one checklist step by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-3a.md` | `docs/progress-archive/i-3a.md` |
+| I-3b | Session switcher panel: 540 pt floating non-activating panel, live sessions with filter and New session row, Open / New session form, failure carry-over, combined engine visibility (D32, D22) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-3b.md` | `docs/progress-archive/i-3b.md` |
 
-Queued (plan in `PLAN.md` "### Phase I-3"; specification
-`autoclaude/processed/30-global-hotkey-session-switcher.md`): **I-3b** — switcher panel
-(routine).
+No phase is queued: every phase of `PLAN.md` is complete and reviewed.
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b) and I-3a are complete and reviewed. **Phase I-3a —
-Shortcut, storage, registrar, Settings recorder (routine): complete** 2026-10-24
-(`docs/progress-archive/i-3a.md`; new **D32**, D23 edited). **Next: I-3b** (switcher panel).
-Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+Phases 1–14, I-1 (a, b), I-2 (a, b) and I-3 (a, b) are complete and reviewed. **Phase I-3b —
+Switcher panel (routine): complete** 2026-10-24 (`docs/progress-archive/i-3b.md`; **D32**
+extended, D22 and D30 edited). **The plan is finished**; what remains is the user's manual
+checklist. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
 I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
@@ -76,24 +75,19 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   "not openable in process" on the old scene; the cause is inferred. I-1b: after the fix,
   `--report-popover-placement` exit 0 three times; keys and real clicks owed (checklist 16).
   Evidence in `docs/progress-archive/{14,i-1a,i-1b}.md`.
-- Phase I-2a: all criteria met, 2026-10-24 — store, recording and parser-record tests (793
-  core + 229 UI tests); real `discover --local` and `discover --ssh saturno-m4` (a
-  `muxfinder-test-*` session made for it, killed after) parsed every folder, none dropped
-  (counts only in `docs/TESTING.md`); `--selftest new-session-local` 7/7 twice with no
-  `directories.json` created; bundle and `codesign` exit 0; no UI change —
-  `docs/progress-archive/i-2a.md`.
-- Phase I-2b: all criteria met, 2026-10-24. Picker, picking, key and Settings tests pass (795
-  core + 263 UI tests; 34 new UI, 2 new core; no existing test changed). Attach and Settings
-  galleries regenerated light and dark and inspected. Install-script check 35/35 after the
-  step 26 harness fix. `--selftest new-session-local` 7/7 with no `directories.json` created.
-  Bundle and `codesign` exit 0. The real keys and creating from each source are owed
-  (checklist 17) — `docs/progress-archive/i-2b.md`.
-- Phase I-3a: all criteria met, 2026-10-24 — shortcut, label, storage (private folders) and
-  registrar tests pass (815 core + 292 UI tests; 20 + 29 new, no existing test changed);
-  `--report-hotkey-registration` in the signed bundle exit 0, 8/8, nothing left registered;
-  `--report-menu-bar-item` as before; install-script check 35/35; uninstall removes
-  `preferences.json` with the support folder; bundle and `codesign` exit 0. A real press, the
-  real recorder and the user's layout are owed (checklist 18) — `docs/progress-archive/i-3a.md`.
+- Phases I-2a, I-2b, I-3a: all criteria met, 2026-10-24. I-2a: real `discover` on both hosts
+  parsed every start folder, self-test 7/7 with no `directories.json`. I-2b: galleries
+  inspected, install-script check 35/35, the real keys owed (checklist 17). I-3a:
+  `--report-hotkey-registration` 8/8 in the signed bundle, uninstall removes
+  `preferences.json`, a real press owed (checklist 18). Evidence in
+  `docs/progress-archive/{i-2a,i-2b,i-3a}.md`.
+- Phase I-3b: all criteria met, 2026-10-24 — content, keys, visibility-rule, carry-over and
+  hotkey-glue tests pass (815 core + 324 UI tests; 32 new UI). Three I-3a tests that asserted
+  the interim popover toggle now assert the switcher, and one `arrowsMoveWithoutWrapping` line
+  follows review fix 1; no other test changed. The switcher gallery (9 states) was rendered
+  light and dark and inspected. `--report-menu-bar-item` behaves as before; bundle and
+  `codesign` exit 0. A press, the real panel, opening, creating and Esc are owed (checklist
+  18) — `docs/progress-archive/i-3b.md`.
 
 ## Decisions
 
@@ -157,6 +151,12 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   refused, since macOS 27.2 registered them; a failed unregistration keeps the hotkey and its
   handle; an unusable file found by a save turns the hotkey off with "Try again" —
   `docs/progress-archive/i-3a.md`.
+- Phase I-3b: **D32** extended. The switcher reuses the popover's `PopoverPanelWindow` at the
+  floating level: 540 pt wide, centered on the display with the focus, top 18 % down. The
+  popover's panel host, observers and key view are shared, not copied. The popover reports a
+  new visibility before its panel shows, so a swap is never a close to the engine. The interim
+  popover toggle is removed, and `.shortcut` became `.switcherOpened`. D22's visibility rule
+  and D30 are edited — `docs/progress-archive/i-3b.md`.
 
 ## Open risks / deviations
 
@@ -175,6 +175,11 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   shortcuts are checklist 18's. The flag briefly registers the plain-letter ⌥J and ⌥⇧J
   system-wide. Leaving the General tab mid-recording is tested in the model only. The
   uninstall dry-run text does not name `preferences.json` — `docs/progress-archive/i-3a.md`.
+- I-3b: no press and no real panel (checklist 18). A press on another display's copy of the
+  status item, when its outside close comes first, still sends a closed/opened pair. A creation
+  failure that comes during an unconfirmed Move here closes that confirmation when the switcher
+  opens. "Detach from this Mac" on a pinned row whose host is gone does nothing. Beyond the spec:
+  a key-hint footer — `docs/progress-archive/i-3b.md`.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -226,18 +231,17 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   save blocked recovery; leaving General kept recording). A review-fix worker fixed all three,
   each regression failing with its fix reverted; re-verified by the orchestrator —
   `docs/reviews/phase-I-3a.md`.
+- Phase I-3b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
+  blockers, 4 should-fix: a refresh moved the automatic selection; a pinned row the engine did
+  not list could not be retried; a creation failure during Move here was dropped; a status-item
+  handoff sent a closed/opened pair. A review-fix worker fixed all four, each regression failing
+  with its fix reverted; re-verified by the orchestrator — `docs/reviews/phase-I-3b.md`.
 
 ## Next action
 
-1. **Start I-3b** (switcher panel, routine; `PLAN.md` "### Phase I-3", the I-3b bullet, and
-   the specification's Design 5–10 in `autoclaude/processed/30-global-hotkey-session-switcher.md`).
-   Poll the inbox first, mark I-3b `in_progress`, spawn one worker. It switches
-   `AppModel.globalShortcutPressed()` from the interim popover toggle to the switcher, records
-   the panel's width in D32 and edits D22 for the combined visibility rule. Patterns: keys
-   through `PopoverKey`/`AppModel.handle(_:)`, the D30 panel and `PopoverPlacement`, Phase 14's
-   row look (`PopoverStyle.swift`, `PopoverContent`), `NewSessionPanelView` with I-2b's
-   directory list, galleries through `--preview-snapshot`. No `e2e-*` run unless the attach
-   path changes; `--report-hotkey-registration` need not run again.
+1. **None for a run: the plan is finished.** A new iteration polls the inbox
+   (`~/.claude/scripts/autoclaude-inbox.sh list`). If an item is there it is triaged into a new
+   phase; if not, it confirms `DONE`.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -345,19 +349,23 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   `Sources/MuxFinderApp/HotkeyRegistrationReport.swift`; tests
   `Tests/MuxFinderCoreTests/{GlobalShortcut,PreferencesStore}Tests.swift`,
   `Tests/MuxFinderUITests/{GlobalShortcutModel,GlobalShortcutApp}Tests.swift`.
+- Session switcher (D32, I-3b): `Sources/MuxFinderUI/Model/{SwitcherContent,SwitcherController,
+  AppModelSwitcher}.swift`, `Views/{SwitcherView,SessionSwitcher}.swift`, gallery
+  `Preview/Switcher{Fixtures,Gallery}.swift` (`--preview-gallery switcher`,
+  `docs/screenshots/switcher-states-*.png`); tests
+  `Tests/MuxFinderUITests/{SwitcherContent,SwitcherController,SwitcherModel}Tests.swift`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-3a (final tree, orchestrator, 2026-10-24): `swift build` exit 0; `swift test` 815
-  core tests in 81 suites + 292 UI tests in 27 suites passed; `swift format lint -r Sources
-  Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0; `scripts/dev/test-install-scripts.sh` 35/35 PASS;
-  `--report-hotkey-registration` exit 0, 8/8, nothing left registered —
-  `docs/progress-archive/i-3a.md`.
-- Phases 1–I-2b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase I-3b (final tree, orchestrator, 2026-10-24): `swift build` exit 0, no warnings;
+  `swift test` 815 core tests in 81 suites + 324 UI tests in 30 suites passed; `swift format
+  lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep
+  --strict build/muxFinder.app` exit 0; `--report-menu-bar-item` (empty `CFFIXED_USER_HOME`)
+  SIGTERM exit 0, no child, private home empty — `docs/progress-archive/i-3b.md`.
+- Phases 1–I-3a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -382,6 +390,8 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 - Phase I-1b: `adf79ec`, pushed (`origin/main` at `adf79ec` before Phase I-2a).
 - Phase I-2a: `3feab0e`, pushed (`origin/main` at `3feab0e` before Phase I-2b).
 - Phase I-2b: `e36e471`, pushed (`origin/main` at `e36e471` before Phase I-3a).
-- Phase I-3a: the commit after `e36e471` (shortcut, store, registrar, recorder, flag, review
-  fixes, galleries, docs, review, archive and checkpoint); its SHA and push result are in the
-  run's final status line.
+- Phase I-3a: `29bb362`, pushed (`origin/main` at `29bb362` before Phase I-3b).
+- Phase I-3b: the commit after `29bb362` (switcher, review fixes, gallery, docs, review, archive
+  and checkpoint); its SHA and push result are in the run's final status line.
+- The runner's preflight file still names `PLAN.md`, `PROGRESS.json` and `PROGRESS.md` (the
+  user's Phase 13 edits, committed as `d03e146`); the tree was clean when I-3b started.

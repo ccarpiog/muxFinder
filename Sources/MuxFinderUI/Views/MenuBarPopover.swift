@@ -8,8 +8,10 @@ import SwiftUI
 ///
 /// - **Button:** its action (sent on the left or right mouse press) is the controller's
 ///   `buttonPressed()`.
-/// - **Session switcher shortcut** (PLAN.md D32, until the switcher exists): the model's
-///   `togglePopover` is the controller's `shortcutPressed()`.
+/// - **Session switcher** (PLAN.md D32): the model's `closePopover` is the controller's close
+///   (`switcherOpened`), so opening the switcher closes the popover; its
+///   `isStatusItemPressHeld` is the controller's `isButtonPressHeld`, so the switcher leaves a
+///   close from outside made by a press on the button to the popover that press opens.
 /// - **Panel:** at the pop-up menu level, on every Space and over full-screen apps; it becomes
 ///   key without activating the app, so the frontmost app stays frontmost and the search field
 ///   takes the keys. Its own close (Esc through the key monitor of `PopoverWindowBridge`) goes
@@ -31,8 +33,8 @@ public final class MenuBarPopover {
   private let button: StatusItemButton
   /// The panel's wiring.
   private let host: PopoverPanelHost
-  /// The notification observers (the default center's and the workspace's).
-  private var observers: [(center: NotificationCenter, token: any NSObjectProtocol)] = []
+  /// The panel's notification observers.
+  private var observers: PanelObservers?
 
   /// muxFinder's status item.
   public var statusItem: NSStatusItem { button.item }
@@ -56,38 +58,55 @@ public final class MenuBarPopover {
     self.host = host
     self.controller = controller
     button.onPress = { [weak controller] in controller?.buttonPressed() }
-    model.togglePopover = { [weak controller] in controller?.shortcutPressed() }
+    model.closePopover = { [weak controller] in controller?.close(.switcherOpened) }
+    model.isStatusItemPressHeld = { [weak controller] in controller?.isButtonPressHeld ?? false }
     host.panel.closeRequest = { [weak controller] in controller?.close(.escape) }
     host.onPressOutside = { [weak controller] in controller?.close(.pressOutside) }
     host.onContentSizeChange = { [weak controller] in controller?.contentSizeChanged() }
-    observe()
+    observers = PanelObservers(
+      panel: host.panel,
+      resignedKey: { [weak controller] in controller?.close(.resignedKey) },
+      occlusionChanged: { [weak controller] in controller?.occlusionChanged(isVisible: $0) },
+      displaysChanged: { [weak controller] in controller?.close(.displaysChanged) },
+      otherAppActivated: { [weak controller] in controller?.close(.appSwitch) })
   } // End of init(model:bundle:)
+}
 
-  /// Observes the panel's key and occlusion changes, other apps becoming active and the
-  /// displays changing.
-  private func observe() {
+/// What closes or hides a muxFinder panel from outside (the popover's, PLAN.md D30, and the
+/// session switcher's, D32): the panel resigning key, its occlusion changing, the displays
+/// changing, and another app becoming active (muxFinder itself becoming active does not count:
+/// opening Settings activates it). The observers live as long as this object.
+@MainActor
+final class PanelObservers {
+  /// The notification observers (the default center's and the workspace's).
+  private var observers: [(center: NotificationCenter, token: any NSObjectProtocol)] = []
+
+  /// Observes `panel` and the system, calling the handler for each event (`occlusionChanged`
+  /// gets whether some part of the panel shows).
+  init(
+    panel: NSPanel,
+    resignedKey: @escaping @MainActor () -> Void,
+    occlusionChanged: @escaping @MainActor (Bool) -> Void,
+    displaysChanged: @escaping @MainActor () -> Void,
+    otherAppActivated: @escaping @MainActor () -> Void
+  ) {
     let center = NotificationCenter.default
     let workspace = NSWorkspace.shared.notificationCenter
-    let panel = host.panel
     let ownPID = ProcessInfo.processInfo.processIdentifier
-    add(center, NSWindow.didResignKeyNotification, object: panel) { [weak self] _ in
-      self?.controller.close(.resignedKey)
-    }
+    add(center, NSWindow.didResignKeyNotification, object: panel) { _ in resignedKey() }
     add(center, NSWindow.didChangeOcclusionStateNotification, object: panel) {
-      [weak self, weak panel] _ in
+      [weak panel] _ in
       guard let panel else { return }
-      self?.controller.occlusionChanged(isVisible: panel.occlusionState.contains(.visible))
+      occlusionChanged(panel.occlusionState.contains(.visible))
     }
-    add(center, NSApplication.didChangeScreenParametersNotification, object: nil) {
-      [weak self] _ in
-      self?.controller.close(.displaysChanged)
+    add(center, NSApplication.didChangeScreenParametersNotification, object: nil) { _ in
+      displaysChanged()
     }
-    add(workspace, NSWorkspace.didActivateApplicationNotification, object: nil) {
-      [weak self] pid in
+    add(workspace, NSWorkspace.didActivateApplicationNotification, object: nil) { pid in
       guard pid != ownPID else { return }
-      self?.controller.close(.appSwitch)
+      otherAppActivated()
     }
-  } // End of func observe()
+  } // End of init(panel:resignedKey:occlusionChanged:displaysChanged:otherAppActivated:)
 
   /// Observes `name` from `object` on `center`'s main queue; `handler` gets the activated
   /// app's process id when the notification names one.
@@ -202,13 +221,35 @@ final class StatusItemButton: NSObject, PopoverStatusButton {
   }
 }
 
+/// A panel root view the host lays out no taller than a limit (`PopoverPanelRoot`,
+/// `SwitcherPanelRoot`).
+protocol PanelRootView: View {
+  /// The tallest the content lays itself out, in points (`nil`: no limit).
+  var maximumHeight: CGFloat? { get set }
+}
+
 /// The popover's panel and what it hosts, as `PopoverController` drives it.
+typealias PopoverPanelHost = PanelHost<PopoverPanelRoot>
+
+extension PanelHost where Root == PopoverPanelRoot {
+  /// The panel hosting the live popover for `model`, at the pop-up menu level (PLAN.md D30).
+  convenience init(model: AppModel) {
+    self.init(level: .popUpMenu) { onSizeChange in
+      PopoverPanelRoot(model: model, onSizeChange: onSizeChange)
+    }
+  }
+}
+
+/// A borderless, non-activating panel and the live view it hosts, as a panel controller
+/// drives it (`PopoverController` for the popover, `SwitcherController` for the session
+/// switcher): shown and hidden on request, watching for presses outside it while shown, and
+/// reporting changes of its content's natural size once per turn of the main loop.
 @MainActor
-final class PopoverPanelHost: PopoverPanelSurface {
+final class PanelHost<Root: PanelRootView>: PopoverPanelSurface {
   /// The panel.
   let panel: PopoverPanelWindow
-  /// The live `PopoverView`.
-  let hostingView: PopoverHostingView
+  /// The live view.
+  let hostingView: PanelHostingView<Root>
   /// Called for a mouse press another process received while the panel shows.
   var onPressOutside: (() -> Void)?
   /// Called once per turn of the main loop after the content's natural size changed.
@@ -218,15 +259,16 @@ final class PopoverPanelHost: PopoverPanelSurface {
   /// Whether a size change report is queued.
   private var isSizeChangeQueued = false
 
-  /// The panel hosting the live popover for `model`.
-  init(model: AppModel) {
+  /// A panel at `level` hosting the root view `makeRoot` builds; the root calls the handler it
+  /// is given when its natural size changed.
+  init(level: NSWindow.Level, makeRoot: (@escaping @MainActor () -> Void) -> Root) {
     let relay = PopoverSizeRelay()
-    let hostingView = PopoverHostingView(
-      rootView: PopoverPanelRoot(model: model, onSizeChange: { relay.sizeChanged() }))
+    let hostingView = PanelHostingView(rootView: makeRoot({ relay.sizeChanged() }))
     hostingView.sizingOptions = [.intrinsicContentSize]
     hostingView.onIntrinsicSizeChange = { relay.sizeChanged() }
     self.hostingView = hostingView
-    panel = PopoverPanelWindow(contentView: PopoverPanelContentView(hosting: hostingView))
+    panel = PopoverPanelWindow(
+      contentView: PopoverPanelContentView(hosting: hostingView), level: level)
     relay.handler = { [weak self] in self?.queueSizeChange() }
   }
 
@@ -288,22 +330,24 @@ final class PopoverPanelHost: PopoverPanelSurface {
   } // End of func queueSizeChange()
 }
 
-/// The popover's window: borderless, non-activating (it becomes key while the frontmost app
-/// stays frontmost), at the pop-up menu level, on every Space and over full-screen apps, not
-/// movable, transparent outside its rounded content, with a shadow. Closing it asks
-/// `closeRequest` (the controller), which orders it out; it is never released.
+/// A muxFinder panel's window (the popover's, PLAN.md D30, and the session switcher's, D32):
+/// borderless, non-activating (it becomes key while the frontmost app stays frontmost), at
+/// its level (the pop-up menu level for the popover, the floating level for the switcher), on
+/// every Space and over full-screen apps, not movable, transparent outside its rounded
+/// content, with a shadow. Closing it asks `closeRequest` (the controller), which orders it
+/// out; it is never released.
 final class PopoverPanelWindow: NSPanel {
   /// Called instead of closing the panel (Esc, or the diagnostic's own close).
   var closeRequest: (() -> Void)?
 
-  /// A panel showing `contentView`.
-  init(contentView: NSView) {
+  /// A panel showing `contentView` at `level`.
+  init(contentView: NSView, level: NSWindow.Level = .popUpMenu) {
     super.init(
       contentRect: NSRect(x: 0, y: 0, width: PopoverView.width, height: 100),
       styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     self.contentView = contentView
     isFloatingPanel = true
-    level = .popUpMenu
+    self.level = level
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
     hidesOnDeactivate = false
     isReleasedWhenClosed = false
@@ -315,7 +359,7 @@ final class PopoverPanelWindow: NSPanel {
     animationBehavior = .none
     tabbingMode = .disallowed
     isExcludedFromWindowsMenu = true
-  } // End of init(contentView:)
+  } // End of init(contentView:level:)
 
   /// A borderless window cannot become key unless it says so; the search field needs the keys.
   override var canBecomeKey: Bool { true }
@@ -380,9 +424,12 @@ final class PopoverPanelContentView: NSView {
   }
 }
 
-/// The hosting view of the live popover; reports when AppKit's idea of its natural size is
-/// invalidated (one of the two size reports, with `PopoverPanelRoot`'s).
-final class PopoverHostingView: NSHostingView<PopoverPanelRoot> {
+/// The hosting view of the live popover (`PanelHostingView`).
+typealias PopoverHostingView = PanelHostingView<PopoverPanelRoot>
+
+/// The hosting view of a panel's live view; reports when AppKit's idea of its natural size is
+/// invalidated (one of the two size reports, with the root view's).
+final class PanelHostingView<Root: View>: NSHostingView<Root> {
   /// Called after the hosted view's natural size was invalidated.
   var onIntrinsicSizeChange: (() -> Void)?
 
@@ -397,7 +444,7 @@ final class PopoverHostingView: NSHostingView<PopoverPanelRoot> {
 /// `maximumHeight` (`PopoverHeightLimit`; so the panel's frame, which the controller sets,
 /// never squeezes or stretches it, and never cuts it off), reporting each change of that size
 /// (one of the two size reports, with `PopoverHostingView`'s).
-struct PopoverPanelRoot: View {
+struct PopoverPanelRoot: PanelRootView {
   /// The popover's model.
   let model: AppModel
   /// The tallest the popover lays itself out, in points (`nil`: no limit); the controller sets

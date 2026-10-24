@@ -44,7 +44,7 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-3a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-3b* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
 Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
 
@@ -57,7 +57,8 @@ Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 1
 then once after the review fixes, unlocked, with screen 1 main: the button at screen 1's right
 edge and the panel clamped 8 pt inside it, top on the menu bar's bottom, "after-fix check:
 passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the toggle bug, occlusion, size) and `PopoverAnchoringTests` (the anchor rule over this Mac's displays, the replica frames never anchors, the after-fix check). |
-| A global shortcut, off until recorded in Settings › General ("Show session switcher"): checked (a modifier besides ⇧ unless F1–F20, macOS's own combinations refused, a warning before ⌘ with one key or only ⌥/⌥⇧), shown with the current layout's key, kept in `preferences.json`, registered at launch, again on a change, unregistered on clear and at quit, suspended while recording, a taken one explained beside the recorder; until the switcher exists it toggles the popover (PLAN.md Phase I-3a, D32). | Registration and its refusal of a second registration tested for real in the signed bundle (`--report-hotkey-registration`); the rest hermetically and in the preview renders (both appearances). Recording in the real Settings window, a taken shortcut, "Clear", a relaunch, the label on the user's layout and a press from another app: by a person (checklist 18). | Phase I-3a, 2026-10-24 (*Phase I-3a* below): `--report-hotkey-registration` exit 0, 8 of 8 checks as expected; `GlobalShortcutTests`, `PreferencesStoreTests`, `GlobalShortcutModelTests`, `GlobalShortcutAppTests`; `docs/screenshots/settings-states-*.png` regenerated and inspected. |
+| A global shortcut, off until recorded in Settings › General ("Show session switcher"): checked (a modifier besides ⇧ unless F1–F20, macOS's own combinations refused, a warning before ⌘ with one key or only ⌥/⌥⇧), shown with the current layout's key, kept in `preferences.json`, registered at launch, again on a change, unregistered on clear and at quit, suspended while recording, a taken one explained beside the recorder; its press toggles the session switcher (next row; PLAN.md Phase I-3a, D32). | Registration and its refusal of a second registration tested for real in the signed bundle (`--report-hotkey-registration`); the rest hermetically and in the preview renders (both appearances). Recording in the real Settings window, a taken shortcut, "Clear", a relaunch, the label on the user's layout and a press from another app: by a person (checklist 18). | Phase I-3a, 2026-10-24 (*Phase I-3a* below): `--report-hotkey-registration` exit 0, 8 of 8 checks as expected; `GlobalShortcutTests`, `PreferencesStoreTests`, `GlobalShortcutModelTests`, `GlobalShortcutAppTests`; `docs/screenshots/settings-states-*.png` regenerated and inspected. |
+| The session switcher: the shortcut toggles a non-activating panel centered on the display with the keyboard focus, in its upper part, over full-screen apps; a search field focused and empty at each opening; the live sessions in the popover's order (stale ones left out) with Phase 14's row look, filtered by the popover's rule; "New session…" last, naming the session from the filter; muted lines for hosts checking or unreachable; Return or a double-click opens as the popover does, Return on New session or ⌘N shows the form, ⌘R, ⌘, and Esc; it closes on success, keeps a failure on its row, and carries a failure that arrives once it closed to its next opening and the popover row; only one of it and the popover shows, and the engine hears one opened and one closed per change of "either one is visible" (PLAN.md Phase I-3b, D32, D22). | Tested hermetically and in the preview renders (both appearances); the app shell check as before. A press over a full-screen app, filtering and opening with iTerm2 coming forward, creating, and Esc giving the focus back: by a person (checklist 18). | Phase I-3b, 2026-10-24 (*Phase I-3b* below): `SwitcherContentTests`, `SwitcherControllerTests`, `SwitcherModelTests`, `GlobalShortcutAppTests.theShortcutTogglesTheSwitcher`; `docs/screenshots/switcher-states-*.png` rendered and inspected. |
 
 ## Unit tests (`swift test`)
 
@@ -1079,16 +1080,43 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   calls keeps a registration whose unregistration fails, and `unregisterAll()` keeps and
   counts it and keeps the handler until nothing is registered; inert and fixture models do
   nothing; the log holds kinds only. In the app: `AppModel.start()` registers and the press
-  reaches `globalShortcutPressed()`, which toggles the popover through `togglePopover`, and
-  `shutdown()` unregisters; with no shortcut environment nothing is read or registered;
-  Settings' window closing or losing the focus, or another tab, stops recording;
-  `PopoverController`'s `shortcutPressed()` opens under the button and closes; only normal
-  mode gets a shortcut
+  reaches `globalShortcutPressed()`, which toggles the session switcher through
+  `toggleSwitcher`, and `shutdown()` unregisters; with no shortcut environment nothing is read
+  or registered; Settings' window closing or losing the focus, or another tab, stops
+  recording; `SwitcherController`'s toggle opens the switcher on the focused display and
+  closes it; only normal mode gets a shortcut
   (`registersGlobalShortcut`), `--report-hotkey-registration` with any other mode is a usage
   error; the app's environment has `preferences.json`, the Carbon registrar and the system
   layout, the placement diagnostic and the self-tests none; the gallery covers the recorder
   empty, recording with a refusal, warning, set and taken; "Copy diagnostics" names the
   state by kind.
+- **Session switcher** (`Tests/MuxFinderUITests/SwitcherContentTests.swift`,
+  `SwitcherControllerTests.swift`, `SwitcherModelTests.swift`; PLAN.md D32, D22). The content,
+  a pure value: stale sessions left out (an unreachable host lists nothing), host order then
+  session order with the popover's rows, the popover's filter (a host name keeps all its
+  sessions; case, diacritics and spaces ignored), the New session row ("New session…", "New
+  session “<name>”…" with the trimmed valid name when no live session has exactly it, none
+  for an existing, invalid or empty name), the selection kept on the same session across an
+  update and the first row otherwise, ↑/↓ stopping at the ends, "No live sessions." and "No
+  session matches …", the no-hosts and loading placeholders (no New session row), muted host
+  lines with their tones, pinned rows (a carried failure first and not repeated, a stale one
+  too, an action's session not listed made from its target). The controller over a fake
+  panel and system: the toggle opens it centered on the focused display, the top 18 % of the
+  visible height down, reporting visible before the panel shows and limiting the content to
+  the room below; each close reason; occlusion; a size change keeping the top; the placement's
+  narrowing and shortening and the display choice (the focused window's area, `NSScreen.main`,
+  the pointer, the first). In the app (real model, engine and coordinator over
+  `SimulatedITerm2`): ↑/↓ without wrapping and typing selecting the first row; Return opening
+  the selected session and its success closing the switcher; Return on New session and ⌘N
+  showing the form with the filter's name for This Mac; Esc closing the directory list, then
+  going back to the list, then closing; Return in the form creating, the created session's
+  attach closing the switcher on success; ⌘R, ⌘, and ⌘F; a failure while it shows staying on
+  its row; a failure after it closed (the launch held, then refused) on the popover row and
+  pinned and selected at the next opening, once; a creation failure after the form was left
+  putting the form back; the popover, then the switcher, then both, then neither giving one
+  opened and one closed to the engine with each opening asking the other to close; both real
+  controllers over fakes swapping; the fake registrar's press toggling the switcher with an
+  empty, focused search field.
 - **Self-test drivers** (`Tests/MuxFinderUITests/SelfTestDriverTests.swift`, PLAN.md D25).
   `SelfTestDriver` over the real model, engine and coordinator with `SimulatedITerm2`, a
   `SimulatedTmux` (sessions in memory: the driver's tmux, discovery and New session's creator)
@@ -2649,3 +2677,22 @@ posted (a press is checklist 18's). The real `hosts.json`, `directories.json` an
 | Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery settings --appearance light\|dark --preview-snapshot <png>`, each image looked at | `settings-states-*.png` 4528 × 10808 px, 23 states: the five new General states (no shortcut, recording with a refusal, the ⌘K warning with "Use it anyway" and "Choose another", ⌃⌥Space set, ⌃⌥K taken with its message) readable in both appearances; the General frames are 420 pt tall (were 330) for the new section |
 | Install scripts | `scripts/dev/test-install-scripts.sh` (after `scripts/build-app.sh`) | exit 0, 35 of 35 PASS. `scripts/uninstall.sh` removes the whole support folder (`remove_support_folder`), so `preferences.json` and `preferences.lock` go with it; the script did not change |
 | Review fixes | `swift build` (and `-Xswiftc -warnings-as-errors`), `swift test`, `swift format lint -r Sources Tests`, `scripts/build-app.sh`, `codesign --verify --deep --strict build/muxFinder.app` | exit 0 each: 815 core tests in 81 suites and 292 UI tests in 27 suites, 4 of them new (`carbonRegistrarKeepsAFailedUnregistration`, `aFailedUnregistrationKeepsTheHotkey`, `anUnusableFileFoundBySavingCanBeRetried`, `settingsStopsRecordingOnAnotherTab`), each failing with its fix reverted. The Settings gallery's look did not change, so it was not regenerated; no `--report-hotkey-registration` run |
+
+### Phase I-3b — session switcher panel (2026-10-24)
+
+The switcher panel, its content, keys and actions, the visibility rule shared with the popover,
+and the hotkey's entry point switched from the interim popover toggle to the switcher (PLAN.md
+Phase I-3, D32, D22). The attach path did not change (the switcher calls the popover's Open and
+New session), so no `e2e-*` run or self-test was made; `--report-hotkey-registration` was not
+run again. No key was pressed, no event was posted and the real switcher panel was never shown
+(a press is checklist 18's). The real `hosts.json`, `directories.json` and `preferences.json`
+were neither read nor written.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build` | exit 0, no warnings (the UI and app modules rebuilt from touched sources showed none) |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites and 317 UI tests in 30 suites (25 new in 3 suites: `SwitcherContentTests`, `SwitcherControllerTests`, `SwitcherModelTests`). Three I-3a tests in `GlobalShortcutAppTests` asserted the interim popover toggle the plan replaces and now assert the switcher: `thePressReachesTheEntryPoint` and `noEnvironmentRegistersNothing` count `toggleSwitcher` instead of `togglePopover`, and `theShortcutTogglesThePopover` became `theShortcutTogglesTheSwitcher` (over `SwitcherController`, since `PopoverController.shortcutPressed()` is gone). No other test changed |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| App shell | `CFFIXED_USER_HOME=$(mktemp -d) build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`, then `kill -TERM` | 7 status-bar windows printed as before (the item at {1629, 1698} and {4152, 2139}, the replicas at {0, −30}); no child process while running or after; exit 0; the private home still empty (no `hosts.json`, no `preferences.json`). That mode builds no switcher panel (only normal mode with the shortcut does) |
+| Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery switcher\|settings --appearance light\|dark --preview-snapshot <png>`, each image looked at | `switcher-states-*.png` 3448 × 2452 px, 9 states (sessions, filtered, New session with a name, the form, opening, a failure, a failure since the last opening pinned on top, no hosts, hosts checking or unreachable) readable in both appearances; `settings-states-*.png` regenerated (4528 × 10808 px) for the General tab's new note, otherwise as before |

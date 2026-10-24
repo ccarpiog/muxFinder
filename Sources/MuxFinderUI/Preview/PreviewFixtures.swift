@@ -39,6 +39,12 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var directoryStatus: DirectoryListStatus
   /// New session's directory list: open or closed, the highlighted row.
   public var directoryPicker: DirectoryPickerState
+  /// The session switcher's search text (PLAN.md D32).
+  public var switcherSearchText: String
+  /// The session switcher's selection (`nil`: the first row).
+  public var switcherSelection: SwitcherContent.Item?
+  /// Sessions whose switcher action failed after it closed, shown at its top.
+  public var switcherCarriedFailures: [SessionKey]
 
   /// Creates a fixture.
   public init(
@@ -59,7 +65,10 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     attachedHere: [SessionKey: AttachmentRecord] = [:],
     directoryLists: DirectoryLists = DirectoryLists(),
     directoryStatus: DirectoryListStatus = .notLoaded,
-    directoryPicker: DirectoryPickerState = DirectoryPickerState()
+    directoryPicker: DirectoryPickerState = DirectoryPickerState(),
+    switcherSearchText: String = "",
+    switcherSelection: SwitcherContent.Item? = nil,
+    switcherCarriedFailures: [SessionKey] = []
   ) {
     self.id = id
     self.title = title
@@ -79,6 +88,9 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.directoryLists = directoryLists
     self.directoryStatus = directoryStatus
     self.directoryPicker = directoryPicker
+    self.switcherSearchText = switcherSearchText
+    self.switcherSelection = switcherSelection
+    self.switcherCarriedFailures = switcherCarriedFailures
   } // End of init(id:title:state:hostList:searchText:selection:activities:shownExplanation:…)
 }
 

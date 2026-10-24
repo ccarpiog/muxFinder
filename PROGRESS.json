@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T19:08:41Z",
+  "updated": "2026-10-24T20:15:30Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -504,11 +504,11 @@
     {
       "id": "I-3",
       "title": "Global hotkey: session switcher",
-      "status": "in_progress",
-      "summary": "Opens a keyboard-first session switcher from a user-recorded global hotkey; split into I-3a (done) and I-3b.",
+      "status": "done",
+      "summary": "Opens a keyboard-first session switcher from a user-recorded global hotkey; split into I-3a and I-3b, both done.",
       "added": "2026-10-24T12:25:35Z",
       "started": "2026-10-24T19:08:41Z",
-      "status_since": "2026-10-24T19:08:41Z"
+      "status_since": "2026-10-24T20:15:30Z"
     },
     {
       "id": "I-3a",
@@ -526,12 +526,15 @@
     {
       "id": "I-3b",
       "title": "Switcher panel",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "I-3",
-      "summary": "Show a centered panel listing live sessions with search, open and New session.",
+      "summary": "A centered switcher panel lists live sessions with search, opens one or creates a new session, and carries failures over.",
+      "review": "docs/reviews/phase-I-3b.md",
+      "narrative": "docs/progress-archive/i-3b.md",
       "added": "2026-10-24T12:25:35Z",
-      "status_since": "2026-10-24T12:25:35Z"
+      "started": "2026-10-24T19:11:01Z",
+      "status_since": "2026-10-24T20:15:30Z"
     }
   ]
 }

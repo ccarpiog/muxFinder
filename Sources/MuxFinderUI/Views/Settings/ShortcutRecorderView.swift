@@ -40,8 +40,8 @@ struct SessionSwitcherSettingsSection: View {
       }
       NoteText(
         text: "Click the shortcut field, then press the keys, such as ⌃⌥Space. Esc cancels and "
-          + "Delete clears. The shortcut works in every app; for now it opens muxFinder's menu "
-          + "bar popover.")
+          + "Delete clears. The shortcut works in every app and shows the session switcher: "
+          + "type to filter, Return opens, Esc closes.")
     } // End of SettingsSection "Session switcher"
   } // End of var body
 }

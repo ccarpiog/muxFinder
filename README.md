@@ -103,8 +103,9 @@ says which kind it installed.
   cookie with one fixed AppleScript command. The first time, macOS asks whether "muxFinder"
   may control "iTerm2"; allow it. If you refused, turn it on in System Settings › Privacy &
   Security › Automation › muxFinder › iTerm2 (the app's error offers "Open Automation
-  settings"). muxFinder contacts iTerm2 only while iTerm2 is running and the popover or
-  Settings window is open, or when you act on a session or choose "Set up SSH in iTerm2…";
+  settings"). muxFinder contacts iTerm2 only while iTerm2 is running and the popover, the
+  session switcher or the Settings window is open, or when you act on a session or choose
+  "Set up SSH in iTerm2…";
   never at launch, and discovery never starts iTerm2.
 - **Launch at login** is off until you turn on "Open muxFinder when you log in" in Settings ›
   General. It uses macOS's login item service for the installed app, so turn it on from the
@@ -201,10 +202,27 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   working in every app, and before only ⌥ or ⌥⇧ with a key, which macOS may not pass to apps.
   If another app already uses the combination, the message "Another app uses this shortcut.
   Choose another." shows beside the field. The field shows the key as your keyboard layout
-  prints it. For now the shortcut opens and closes the popover; the session switcher itself
-  comes in a later version. The shortcut lives in
+  prints it. The shortcut shows and hides the session switcher (below). It lives in
   `~/Library/Application Support/muxFinder/preferences.json`; if that file cannot be used,
   muxFinder leaves it as it is and the shortcut stays off.
+- **Session switcher:** press the shortcut in any app, even over a full-screen one, and a
+  Spotlight-like panel opens in the upper part of the screen you are working on, with the
+  search field ready. It lists the live sessions of every host in the popover's order (stale
+  ones are left out), each with its state, its host and "2 windows · 1 client" or the "Open in
+  iTerm2 here" badge; muted lines such as "Sirio: unreachable" or "Saturno: checking…" explain
+  hosts whose sessions are missing. Type to filter by session or host name, move with ↑/↓,
+  and press Return (or double-click) to open the selected session the same way the popover
+  does: a session already open here is brought forward, any other one is attached. The
+  last row is always "New session…"; when what you typed is a valid session name nobody uses
+  yet, it reads "New session “<name>”…" and fills the name in. Return on it (or ⌘N) shows the
+  New session form inside the panel, for This Mac by default and with the directory list;
+  Return creates, Esc goes back to the list. ⌘R refreshes and ⌘, opens Settings; Move here and
+  Detach stay in the popover. The panel shows the row's progress, closes once the session is
+  open (or as soon as iTerm2 comes forward), and stays open with the explanation and its
+  buttons when something fails. A failure that arrives after the panel closed shows on the
+  popover's row and at the top of the switcher the next time you open it. Esc, the
+  shortcut, a click outside it or switching apps closes it and gives the focus back to the
+  app you were in. Opening the switcher closes the popover and the other way round.
 - **Set up SSH in iTerm2…** (on a host that needs a sign-in or has a host key problem) opens an
   iTerm2 tab running plain `ssh <destination>`, where you sign in or accept the host key the
   normal way. muxFinder never weakens host key checking.

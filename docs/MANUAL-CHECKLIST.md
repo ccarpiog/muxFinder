@@ -349,19 +349,22 @@ the real popover, press keys in it or create a session from the real app, and th
 - **Undo:** remove the saved entries in Settings › Directories (Save) and clear the recent
   ones from New session's list.
 
-## 18. The session switcher shortcut
+## 18. The session switcher and its shortcut
 
-Owed by Phase I-3a (PLAN.md Phase I-3, D32): the shortcut's checks, storage, registration
-lifecycle and recorder are unit-tested over fakes, and `--report-hotkey-registration` showed
-that registration works in the signed bundle, but no unattended run may press a key, record
-in the real Settings window or write the real `preferences.json`. Until Phase I-3b the
-shortcut opens and closes the menu bar popover.
+Owed by Phases I-3a and I-3b (PLAN.md Phase I-3, D32): the shortcut's checks, storage,
+registration lifecycle and recorder, and the switcher's content, keys, actions and visibility
+rule, are unit-tested over fakes, `--report-hotkey-registration` showed that registration works
+in the signed bundle, and the switcher's states were rendered from fixtures, but no unattended
+run may press a key, record in the real Settings window, write the real `preferences.json` or
+open the real switcher panel.
 
-- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`):
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
+  This Mac and Saturno turned on and at least one session on each:
   1. Settings › General › "Session switcher": the field says "Record shortcut". Click it
      ("Type the shortcut"), press ⌃⌥Space.
   2. Switch to another app (Finder, iTerm2) and press ⌃⌥Space; press it again. Do the same
-     over a full-screen app.
+     over a full-screen app, and with the pointer and the frontmost window on the other
+     display.
   3. Click the field again and press ⌃⌥Space itself, then Esc in a second recording.
   4. Click the field and press, in turn: K alone, ⇧K, ⌘Space (or ⌘⇧4, if Spotlight takes
      ⌘Space before muxFinder sees it), ⌘K (then "Choose another"), ⌥J (then "Use it anyway"),
@@ -375,25 +378,54 @@ shortcut opens and closes the menu bar popover.
      shortcut.
   8. Click the field (recording), then click another Settings tab; press a letter key, then
      press the shortcut from another app.
-  9. Click "Clear"; press the old shortcut from another app. Quit and reopen.
-- **Expect:** 1: the field shows ⌃⌥Space at once (no Save). 2: each press opens the popover
-  under the menu bar icon, the next one closes it, whichever app is in front, and over the
-  full-screen app too. 3: pressing the recorded shortcut while recording records it (it does
-  not open the popover); Esc keeps it as it was. 4: K and ⇧K: "Add ⌃, ⌥ or ⌘ to the shortcut.
-  Only F1 to F20 work on their own."; ⌘Space or ⌘⇧4: "macOS uses this shortcut itself. Choose
-  another." (or the system's own action, the field still listening); ⌘K: "⌘K would stop
-  working in every app while muxFinder uses it. Use it anyway?"; ⌥J: the ⌥ warning; whether a
-  ⌥J press from another app opens the popover tells whether macOS passes ⌥-only shortcuts to
-  apps on this Mac: note it in the results (D32 refuses them if it does not). 5: "Another app
-  uses this shortcut. Choose another." beside the field, no alert, the field still listening
-  (or, if that app registered it non-exclusively, both apps react: note which). 6: the field
-  shows ⌃⌥Ñ, not the US key's ";". 7: the shortcut is still set and works after the relaunch.
-  8: leaving the tab ends the recording (the field shows the shortcut again when you come
-  back), the letter key is not captured, and the shortcut opens the popover. 9: the field says
-  "Record shortcut", the old combination does nothing in muxFinder, and it stays off after
-  the relaunch.
+  9. From another app, open the switcher, type part of a session's name (also with an accent
+     left out, or a dead-key accent composed in the field), move with ↑/↓ and press Return; then
+     open it again and double-click another session.
+  10. Open the switcher, type a new name such as `muxfinder-test-switcher`, press Return on
+      "New session “muxfinder-test-switcher”…", then Return in the form; afterwards kill that
+      session (`/opt/homebrew/bin/tmux kill-session -t '=muxfinder-test-switcher'`).
+  11. Open the switcher from TextEdit (or any app with a text field focused) and press Esc;
+      open it again and click outside it; open it again and press ⌘Tab.
+  12. Open the popover from the menu bar icon, then press the shortcut; then click the icon
+      while the switcher shows. Open the switcher and press ⌘, and ⌘R.
+  13. Take Saturno offline (put it to sleep, or disconnect it from Tailscale) and open the
+      switcher. Then make an Open fail (for example turn off iTerm2's Python API in iTerm2's
+      settings for a moment), press the shortcut to close the switcher before the failure
+      shows, then open the switcher and the popover again.
+  14. Click "Clear"; press the old shortcut from another app. Quit and reopen.
+- **Expect:** 1: the field shows ⌃⌥Space at once (no Save). 2: each press opens the session
+  switcher (a panel in the upper part of the screen with the frontmost window, centered,
+  the search field focused and empty), the next one closes it, whichever app is in front, over
+  the full-screen app too, and on the other display when that is where you work. 3: pressing
+  the recorded shortcut while recording records it (it does not open the switcher); Esc keeps
+  it as it was. 4: K and ⇧K: "Add ⌃, ⌥ or ⌘ to the shortcut. Only F1 to F20 work on their
+  own."; ⌘Space or ⌘⇧4: "macOS uses this shortcut itself. Choose another." (or the system's
+  own action, the field still listening); ⌘K: "⌘K would stop working in every app while
+  muxFinder uses it. Use it anyway?"; ⌥J: the ⌥ warning; whether a ⌥J press from another app
+  opens the switcher tells whether macOS passes ⌥-only shortcuts to apps on this Mac: note it
+  in the results (D32 refuses them if it does not). 5: "Another app uses this shortcut. Choose
+  another." beside the field, no alert, the field still listening (or, if that app registered
+  it non-exclusively, both apps react: note which). 6: the field shows ⌃⌥Ñ, not the US key's
+  ";". 7: the shortcut is still set and works after the relaunch. 8: leaving the tab ends the
+  recording (the field shows the shortcut again when you come back), the letter key is not
+  captured, and the shortcut opens the switcher. 9: the list narrows as you type (accents and
+  case ignored; a host's name keeps all its sessions), the first row is selected after each
+  keystroke, the arrows stop at the ends, the composed accent lands in the field; Return and
+  the double-click show "Opening…", iTerm2 comes forward with the session's windows and the
+  focus in them, and the switcher is gone. 10: the form shows This Mac and the name filled in,
+  with the directory list button; Return creates, the session opens in iTerm2 and the switcher
+  closes. 11: each closes it and the focus is back in the app you were in (TextEdit's cursor
+  where it was), with no muxFinder window left and muxFinder never in front. 12: only one of
+  the popover and the switcher shows at a time; ⌘, opens Settings (the switcher closes), ⌘R
+  shows the hosts' spinners in the popover later. 13: Saturno's sessions are missing and a
+  muted line says why ("Saturno: unreachable" or "checking…"), never in red; the failure shows
+  on the popover's row and at the top of the next switcher opening, selected, with "Try
+  again", and is not at the top the time after. 14: the field says "Record shortcut", the old
+  combination does nothing in muxFinder, and it stays off after the relaunch.
 - **Undo:** "Clear" in Settings › General (or remove
-  `~/Library/Application Support/muxFinder/preferences.json` while muxFinder is not running).
+  `~/Library/Application Support/muxFinder/preferences.json` while muxFinder is not running);
+  kill any `muxfinder-test-*` session step 10 left; turn iTerm2's Python API back on and bring
+  Saturno back after step 13.
 
 ## Results
 

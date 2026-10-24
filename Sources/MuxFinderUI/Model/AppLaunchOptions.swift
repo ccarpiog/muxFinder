@@ -4,9 +4,10 @@ import Foundation
 ///
 /// - `--preview-fixtures`: no menu bar item, no refresh engine, no host list, no iTerm2; one
 ///   normal window renders every state from synthetic fixtures, for screenshots.
-/// - `--preview-gallery popover|settings|onboarding|attach` (or `--preview-gallery=…`; with
-///   `--preview-fixtures`): which states the window shows, the popover's (the default), the
-///   Settings window's, the onboarding window's, or the session actions' (Phase 10).
+/// - `--preview-gallery popover|settings|onboarding|attach|switcher` (or `--preview-gallery=…`;
+///   with `--preview-fixtures`): which states the window shows, the popover's (the default),
+///   the Settings window's, the onboarding window's, the session actions' (Phase 10), or the
+///   session switcher's (PLAN.md D32, Phase I-3b).
 /// - `--appearance light|dark` (or `--appearance=…`): forces the appearance of the app's own
 ///   windows (`NSApp.appearance`); the system appearance and every preference stay as they
 ///   are.
@@ -74,6 +75,10 @@ public struct AppLaunchOptions: Sendable, Hashable {
     /// The session actions' states: progress, results, failures, Move here, Detach, New
     /// session and the banners (PLAN.md D25).
     case attach
+    /// The session switcher's states: the list, a filtered list, New session with a name, the
+    /// form, an action in progress, failures, no hosts, hosts checking or unreachable
+    /// (PLAN.md D32).
+    case switcher
   }
 
   /// Whether to show the fixture gallery instead of the menu bar item.
