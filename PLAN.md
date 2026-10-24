@@ -2825,6 +2825,260 @@ records its results in them.
   and exit statuses recorded in `docs/TESTING.md`'s matrix. Gated by the iTerm2 thread-count
   rule like every real run; fixes the run calls for.
 
+### Phase 13 — Hide the launch tab once attached (high)
+
+Goal: an attach shows only the session's tmux windows. Today the launch tab (the tmux gateway,
+showing "** tmux mode started **" and iTerm2's command menu) stays visible in a window of its
+own next to them (reported by the user on 2026-10-24 for New session; Open and Move here do the
+same, PLAN.md *Verified facts*, Phase 4). iTerm2's "Automatically bury the tmux client session
+after connecting" (`AutoHideTmuxClientSession`) is off by default and muxFinder never writes
+iTerm2 preferences, so muxFinder buries its own launch tab through the API. The user chose this
+on 2026-10-24 over documenting the iTerm2 setting.
+
+Source facts (iTerm2 tag `v3.7.6`, read on 2026-10-24 from the public `gnachman/iTerm2`
+sources; **not yet seen at run time**, 13a verifies them):
+- **S1.** `SetPropertyRequest` is `ClientOriginatedMessage` field 111 (`window_id` 1 and
+  `session_id` 5 in the oneof `identifier`, `name` 3, `json_value` 4); `SetPropertyResponse`
+  is `ServerOriginatedMessage` field 111 (`status` 1: `OK` 0, `UNRECOGNIZED_NAME` 1,
+  `INVALID_VALUE` 2, `INVALID_TARGET` 3, `DEFERRED` 4, `IMPOSSIBLE` 5, `FAILED` 6). The Python
+  module's `Session.async_set_buried(b)` is `rpc.async_set_property(name="buried",
+  json_value=json.dumps(b), session_id=…)`; `GetProperty` (112) also knows `"buried"`.
+- **S2.** The API's `buried` setter (`iTermAPIHelper.m`) is idempotent: it answers `OK` without
+  acting when the session is already in the requested state, else it calls `-[PTYSession bury]`
+  or restores the session.
+- **S3.** `-[PTYSession bury]` adds the session to `iTermBuriedSessions`, removes it from its
+  tab (the window closes when that was its only tab) and sets its delegate to nil. Burying a
+  buried session again does nothing.
+- **S4.** A buried session whose program ends is **not closed**: `brokenPipe` with the end action
+  Close asks the nil delegate `sessionShouldAutoClose:` (so NO); the session stays under
+  Session > Buried Sessions as a dead session.
+- **S5.** `tmuxHostDisconnected:` restores a buried gateway only when `AutoHideTmuxClientSession`
+  is on. With the default (off), a gateway buried through the API stays buried after tmux ends,
+  so with S4 every attach would leave a dead buried session unless muxFinder restores it.
+- **S6.** iTerm2's own auto-hide buries the gateway only once the first tmux window has opened
+  (`_hideAfterTmuxWindowOpens`), never while only the tmux dashboard shows.
+- **S7.** `OSC 1337 ; Disinter ST` makes a session restore itself (`VT100Terminal` key
+  `Disinter`, then `screenDisinterSession`; nothing happens when it is not buried). It runs as an
+  unmanaged *paused* side effect, so token execution waits until the restore ran; a report
+  request written after it (DSR `ESC [ 5 n`, answered `ESC [ 0 n`) should therefore be answered
+  only after the restore. That would be the acknowledgment the helper needs (an inference; 13a
+  verifies it).
+- **S8.** Restoring a session whose window is gone creates a new window for it.
+
+A Codex design review (2026-10-24, verdict "proceed with changes") shaped the requirements
+below. Its findings: two `Disinter` writes alone do not close the race between a bury and the
+helper's end; a written OSC is not an acknowledged restore; an abnormal end (the attach child
+killed without `%exit`, ssh dropping) may leave iTerm2's parser in tmux mode, so neither the
+OSC nor the helper's explanation would be parsed; e2e cleanup must never hide a stranded
+gateway.
+
+Design (13a records it as **D29**, as far as the spike's facts support it, and edits D14, D15
+and D25 where they change):
+1. **Client.** `SetPropertyRequest`/`SetPropertyResponse` in the hand-written client (envelope
+   field 111 both ways); `ITerm2Error.setPropertyFailed(status)` (answered, definitive, D13);
+   `ITerm2Integration.setBuried(_:sessionID:)`; and an ownership-bound compound
+   `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)` that lists the tmux connections and sends
+   SetProperty on the same API connection, never reconnecting in between, like
+   `activateFirstTab(ofTmuxConnection:ownedBy:options:)` (`tmuxConnectionNotOwned` when the
+   launch tab no longer owns that connection). Golden fixtures come from the Python module
+   (`scripts/dev/gen-iterm2-fixtures.py`): bury and unbury requests, an `OK` response and a
+   non-`OK` one. Every conformer gets the methods: `ITerm2APIClient`, `FakeITerm2Integration`,
+   `InstrumentedITerm2`, `SimulatedITerm2` and `SimulatedProfileITerm2`.
+2. **When the coordinator buries.** Only a launch tab this launch opened, only after step 9
+   returned `.activated(tabID:)` (S6). It never buries after `.noTab` or a failed activation,
+   for a failed or unconfirmed attach, for a `focused` attach, or any tab muxFinder did not
+   open. It buries once per launch (coalesced callers share it), for `attach`,
+   `createAndAttach` and `moveHere` alike. A failed bury is not fatal and is never retried
+   (D13). The outcome goes on `AttachResult` (new field) and into diagnostics: `buried`,
+   `skipped(reason)`, `failed(error)`, `uncertain` (sent, no answer) or `restoredAfterEnd`.
+   muxFinder never reads iTerm2's preference: the setter is idempotent (S2), and with the
+   preference on, iTerm2 restores its gateway itself (S5).
+3. **Closing the race by order.** The helper writes its result before its first `Disinter`
+   (item 4). After the bury's answer (or its timeout), the coordinator checks, without
+   consuming the result (a peek, so `detach` still takes it later), whether the helper's
+   result exists or the launch tab no longer owns the connection. If either holds, it sends
+   `setBuried(false)` (idempotent). A bury that iTerm2 handled after the helper's `Disinter`
+   was therefore answered after the result existed, and is undone. Unit tests drive every
+   interleaving with the fakes. Mind `LaunchStore.sweep()`, which deletes result files older
+   than its time to live.
+4. **The helper** (`attach` mode only, not `profile` or `ssh-setup`; only on a terminal). After
+   the child exits, for every outcome, it writes the result, then `Disinter`, then a DSR, and
+   waits a bounded time (about 2 s; raw mode; input typed earlier discarded) for the reply. A
+   missing reply is logged without user data, and the helper goes on. Then come the
+   explanation, the Return wait and the minimum-lifetime hold, as today. Just before exiting,
+   it writes `Disinter` and a DSR again and waits again (this covers a bury during the hold).
+   Hermetic tests use the `LaunchTerminal` seam: the bytes written, their order relative to
+   the result, and the bounded wait.
+5. **Recovery by the app while it runs.** The coordinator remembers the launch tabs it buried
+   (launch id and gateway session id, bounded like `rememberedLaunches`). While that list is
+   not empty, a cheap file-only check (a peek at the result) runs on a timer, and on every
+   attach, detach and attachment check. A remembered tab whose helper ended gets
+   `setBuried(false)`. If its result is clean and the session is still listed afterwards (a
+   dead tab, S4), muxFinder closes it (forced `Close` by its own session id, statuses
+   checked). A tab that ended with a failure is left visible so the user can read it. iTerm2
+   is contacted only once a result has appeared. 13a's abnormal-end result decides whether the
+   list must survive a restart of muxFinder: if the helper alone recovers abnormal ends,
+   memory is enough; otherwise persist it under `~/Library/Application Support/muxFinder/`
+   with D19-style safe writes.
+6. **Show tab.** `showLaunchTab(_:)` restores the tab (`setBuried(false)`) before activating
+   it, and never runs alongside a pending bury of that same tab.
+7. **The harness.** After confirmation, `e2e-local` and `e2e-remote` assert that the gateway is
+   in `buried_sessions` and in no tab. After each detach, they assert that it left both tabs
+   and `buried_sessions` by itself before any cleanup; a stranded gateway fails the step.
+   Cleanup's `Close` checks every status and the session's absence afterwards, falling back to
+   restore, then close.
+
+Acceptance:
+- With default iTerm2 preferences, an attach (Open, New session, Move here), locally and on
+  Saturno, leaves exactly the session's tmux windows visible, and the launch tab is in
+  `buried_sessions`.
+- After every detach, the launch tab leaves both tabs and `buried_sessions` by itself. This
+  covers muxFinder's Detach, a tmux detach inside the session, and a detach within 10 s of
+  attaching. No real run leaves a dead buried session (checked before cleanup).
+- After a failure following confirmation (the attach child killed in a test), the launch tab
+  comes back with its explanation readable and Return working. If 13a proves the terminal
+  cannot do that, muxFinder's recovery (item 5) restores the tab within a stated time while
+  it runs. The case it cannot cover (muxFinder not running) is documented.
+- Nothing is buried for a focused attach, `.noTab`, a failed activation or a failed attach;
+  coalesced callers get exactly one bury.
+- The unattended-run rules still hold: no other tab or session is touched, and no iTerm2
+  preference is written. The shared verification, every existing `e2e-*` run and both
+  self-tests still pass.
+
+Split (2026-10-24, when the phase was written): three sub-phases, each with its own
+verification, review and commit, so iTerm2's real behavior is known before the coordinator is
+built on it.
+
+- **13a — Client, helper and spike (high; hermetic code plus one gated real spike).** Design
+  items 1 and 4 with unit and golden tests. In test mode, the helper records its attach
+  child's PID in the argv digest, so a harness can kill exactly that process and nothing
+  matched by name. Also a probe harness, `muxfinder-probe e2e-bury --local | --ssh
+  saturno-m4`: it uses its own `muxfinder-test-*` session and its own launch tab, bounds every
+  wait, cleans up on every way out, prints one PASS/FAIL/observation line per step and changes
+  no coordinator code. On the real iTerm2 3.7.6 with default preferences, it establishes:
+  (a) burying its gateway answers `OK` and moves the session from its tab to
+  `buried_sessions` (S1–S3), and `GetProperty`/`ListSessions` show it; (b) a clean detach of a
+  buried gateway when the helper writes no `Disinter` (a test-mode switch) leaves a dead buried
+  session (S4, S5), which the harness then restores and closes; (c) with the 13a helper, a
+  clean detach of a buried gateway leaves nothing behind, and the DSR reply arrives only after
+  the restore (S7); (d) what `Close` answers for a buried session id, and whether the session
+  is gone afterwards; (e) the abnormal end: SIGKILL of only the helper's attach child (locally
+  the `tmux -CC` client; remotely the local ssh child, `ControlMaster=no`) while the gateway is
+  buried. Does the tab come back, does the explanation show, does Return work, and does the
+  `muxfinder-test-*` session survive? The answers go into *Verified facts*; D29 is written
+  from them, including item 5's persistence decision. Gated by the iTerm2 thread-count rule.
+- **13b — Coordinator, race and recovery (high, hermetic).** Design items 2, 3, 5, 6 and 7 as
+  D29 settled them. Unit tests cover: a bury before or after the helper's restore; the result
+  appearing before or after the peek; a bury timeout; the connection gone; coalesced callers;
+  focused attaches; Move here; `.noTab`; a failed activation; `showLaunchTab` during a pending
+  bury; recovery closing a clean dead tab while leaving a failed one visible.
+  `SimulatedITerm2` gains buried state. No user-facing string changes are planned.
+- **13c — Real runs and documents (high).** Gated real runs: `e2e-local`, `e2e-remote
+  saturno-m4`, `e2e-bury --local` and `--ssh saturno-m4` (now through the coordinator), both
+  self-tests (which then also assert the buried launch tab), `e2e-profile --local` unchanged;
+  fixes the runs call for. The `e2e-bury` runs cover: confirmation, then buried; a detach
+  within 10 s, one after 10 s, and one timed right at the bury; the attach child killed after
+  confirmation. Documents: `README.md` (one attach shows the session's windows; while
+  attached, the launch tab is under Session > Buried Sessions; it shows briefly on detach;
+  iTerm2's own setting needs nothing more), `docs/ARCHITECTURE.md`, the `docs/TESTING.md`
+  matrix and results, `docs/INTEGRATION-PROOF.md` (its "stays in its window" statement),
+  `docs/MANUAL-CHECKLIST.md` (which window has focus after a detach brings the tab back; the
+  flow through the real popover), and the project `CLAUDE.md` command notes (step counts,
+  `e2e-bury`).
+
+### Phase 14 — Popover readability: host sections, attach state, muted offline hosts (routine)
+
+Goal: the popover reads at a glance. The user reviewed the real popover on 2026-10-24 and
+asked for four things:
+1. **Distinct items, not a "Material/iOS 7" look.** They want a clear section per computer
+   and, inside it, a clear view of which sessions are active.
+2. **"Open in iTerm2 here" is hard to read**: blue text on gray.
+3. **An unreachable computer should not draw the eye.** Its red dot reads as an alert. Gray
+   it out instead.
+4. **Footer spacing is wrong.** The refresh arrow sits much closer to "New session" than to
+   "Refresh".
+
+Findings behind it (2026-10-24):
+- **The real popover is translucent.** `MenuBarExtra` with `.menuBarExtraStyle(.window)`
+  (`Sources/MuxFinderApp/MuxFinderMenuBarApp.swift`) draws on the system's vibrant material.
+  The preview galleries paint `windowBackgroundColor` behind the same views
+  (`Sources/MuxFinderUI/Preview/PreviewGallery.swift`), so `docs/screenshots/popover-states-*`
+  never showed what the menu bar shows. On the material, `.secondary` text, the selection tint
+  (`Color.accentColor.opacity(0.22)`, `SessionRowView`) and the badge (accent text on an
+  accent capsule at 0.14, `OpenHereBadge`) all lose contrast. A selected row with the badge
+  becomes blue on blue-gray.
+- **Hosts are separated by whitespace only.** `HostSectionView` lays out a header, then rows
+  with `spacing: 12` between hosts, with no boundary.
+- **Unreachable is the only red host status.** `StatusLabelView` maps
+  `HostStatusLabel.Tone.problem` (only `.unreachable`) to a red dot, and its problem line
+  carries an orange warning triangle. Sirio is offline most of the time, so this is the
+  normal state and should look routine.
+- **The footer packs its buttons together.** `FooterView` uses `HStack(spacing: 2)` with
+  `.labelStyle(.titleAndIcon)`, so the gap between one button's title and the next one's icon
+  is narrower than the gap inside a label.
+
+Deliverables: changes in `Sources/MuxFinderUI/Views/` (`PopoverView`, `PopoverParts`,
+`HostSectionView`, `SessionRowView`, `SessionPanelViews` where the panels share the styles),
+in `Model/HostStatusLabel.swift` (tones), and in the preview galleries. Regenerated
+`docs/screenshots/popover-states-{light,dark}.png` and `attach-states-{light,dark}.png`.
+Tests, and D22 edited for the new look.
+
+Requirements:
+- **Opaque popover.** It draws its own opaque background (`windowBackgroundColor` or
+  equivalent), with no vibrancy or blur under the content, so the real popover and the
+  preview gallery look the same. Verify that the `.window` style still sizes and closes as
+  before.
+- **A clear section per computer.** Each host is a visibly bounded group: for example a box
+  with a hairline border and a header band (name; "Last checked …"; status) set off from its
+  session rows. Sections are separated by more than whitespace. No translucent cards, glows or
+  heavy shadows; flat, macOS-native grouping in the spirit of a grouped form or a source
+  list. Rows inside a section are told apart by separators or a consistent row rhythm.
+- **Active sessions stand out inside each section.** Here "active" means *attached*: at least
+  one tmux client, or open in iTerm2 on this Mac. It never claims process activity or
+  idleness (the brief and Phase 8 forbid that). Each row gets a leading state indicator with
+  a distinct shape and color: open in iTerm2 here; attached elsewhere ("1 client"); detached;
+  stale (last seen … · not live). The row's text still says the state, so color is never the
+  only signal. Attached rows read stronger than detached ones (for example, primary versus
+  secondary name weight). The order of rows does not change.
+- **"Open in iTerm2 here" is readable.** Its text contrasts at least 4.5:1 with what is
+  actually behind it, in light and dark, on a selected row and an unselected one. Do not
+  stack accent on accent: for example, give the badge a solid fill with white or primary
+  text, and show the selection as a neutral fill or an outline that keeps the badge legible.
+- **Muted unreachable host.** `.unreachable` gets a new muted tone: no red, and the status
+  dot is gray or hollow. The section is dimmed: name, caption and status in secondary
+  colors, and its stale rows dimmed. The problem line ("The connection timed out.") uses a
+  neutral icon in secondary color instead of the orange triangle. "Retry" stays usable.
+  Statuses the user can act on ("Sign-in needed", "Host key problem", "tmux not found",
+  "Check failed") keep their orange attention tone. Red stays for failed session actions
+  (`ActivityLine` `.failed`), not for host reachability.
+- **Footer spacing.** Each icon sits clearly closer to its own title than to its neighbor:
+  the gap between buttons is at least three times the icon–title gap, or the buttons are
+  separated visibly. "Quit" stays trailing. The keyboard shortcuts and help texts are
+  unchanged.
+- **Unchanged.** Behavior, keyboard navigation (↑/↓, Return, ⌘F, ⌘R, ⌘N, ⌘, and Esc), search,
+  panels (Move here, New session), accessibility labels, values and traits (they may gain the
+  attach state), sentence-case text, and the width (360 pt) unless the layout needs more,
+  recorded in D22.
+
+Acceptance:
+- Unit tests: `HostStatusLabel.unreachable` has the muted tone and every other status keeps
+  its tone. A contrast test resolves the badge's text color, and the background behind it on
+  selected and unselected rows, in light and dark environments (`Color.resolve(in:)`). It
+  computes the WCAG ratio and requires at least 4.5:1. The row-state mapping (here, attached,
+  detached, stale) has its own test. The existing UI tests pass unchanged, or with recorded
+  label additions.
+- The preview galleries (`--preview-fixtures`, and `--preview-gallery attach`) are rendered
+  with `--preview-snapshot` in light and dark and committed. The popover gallery includes a
+  state with a selected row carrying the badge, and an unreachable host next to a host in an
+  "attention" state. They show: bounded sections per host, attach state at a glance,
+  a muted unreachable host, a readable badge and even footer spacing.
+- `scripts/build-app.sh` exits 0, and `codesign --verify --deep --strict build/muxFinder.app`
+  passes. `--report-menu-bar-item` still shows the item and quits with exit 0.
+- `docs/MANUAL-CHECKLIST.md` gains an item: open the real popover and confirm it matches the
+  screenshots (opaque, readable badge, muted Sirio when offline, footer spacing).
+- Shared verification (`swift build`, `swift test`, `swift format lint -r Sources Tests`)
+  passes. No iTerm2 window is opened, and no real run is needed.
+
 ## Deferred (explicitly out of scope for v1)
 
 Named tmux sockets, session deletion, cloud sync, terminal previews, AI features, process

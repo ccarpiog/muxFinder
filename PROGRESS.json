@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-23T06:58:10Z",
+  "updated": "2026-10-24T07:41:19Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -368,6 +368,54 @@
       "added": "2026-10-23T02:36:02Z",
       "started": "2026-10-23T03:53:31Z",
       "status_since": "2026-10-23T06:58:10Z"
+    },
+    {
+      "id": "13",
+      "title": "Hide the launch tab once attached",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Split into 13a, 13b and 13c: muxFinder buries its own launch tab after an attach and brings it back when tmux ends.",
+      "added": "2026-10-24T07:22:53Z",
+      "status_since": "2026-10-24T07:22:53Z"
+    },
+    {
+      "id": "13a",
+      "title": "Client, helper and spike",
+      "status": "queued",
+      "risk": "high",
+      "parent": "13",
+      "summary": "Adds the iTerm2 bury request and the helper's restore order, then proves iTerm2's real bury and restore behavior.",
+      "added": "2026-10-24T07:22:53Z",
+      "status_since": "2026-10-24T07:22:53Z"
+    },
+    {
+      "id": "13b",
+      "title": "Coordinator, race and recovery",
+      "status": "queued",
+      "risk": "high",
+      "parent": "13",
+      "summary": "Buries confirmed launch tabs, undoes a bury that lands after the helper ended, and recovers tabs while the app runs.",
+      "added": "2026-10-24T07:22:53Z",
+      "status_since": "2026-10-24T07:22:53Z"
+    },
+    {
+      "id": "13c",
+      "title": "Real runs and documents",
+      "status": "queued",
+      "risk": "high",
+      "parent": "13",
+      "summary": "Runs every real check with hidden launch tabs locally and on Saturno, and updates the docs.",
+      "added": "2026-10-24T07:22:53Z",
+      "status_since": "2026-10-24T07:22:53Z"
+    },
+    {
+      "id": "14",
+      "title": "Popover readability",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "Gives each host a bounded section, shows attach state at a glance, mutes unreachable hosts and fixes badge contrast and footer spacing.",
+      "added": "2026-10-24T07:41:19Z",
+      "status_since": "2026-10-24T07:41:19Z"
     }
   ]
 }

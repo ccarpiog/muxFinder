@@ -34,9 +34,18 @@ file.
 
 ## Current phase
 
-None. **The plan is done**: phases 1–12b are complete and reviewed. Phase 6 was split into
-6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into 11a/11b/11c and 12 into 12a/12b
-in `PLAN.md`. What remains is owed to the user, not to a run (*Next action*).
+**Phase 13 — Hide the launch tab once attached (high), added 2026-10-24, not started.** Phases
+1–12b are complete and reviewed. Phase 13 comes from a user report: every attach shows the
+launch tab (the tmux gateway) in a window of its own next to the session's windows. It is
+split into 13a (client, helper and real spike), 13b (coordinator, race and recovery) and 13c
+(real runs and documents) in `PLAN.md` *Phase 13*. That section carries the iTerm2 3.7.6
+source facts S1–S8 and the design a Codex review on 2026-10-24 approved with changes.
+**Phase 14 — Popover readability (routine), added 2026-10-24, queued after 13.** It comes
+from the user's review of the real popover: a bounded section per host, attach state at a
+glance, a readable "Open in iTerm2 here", a muted unreachable host, footer spacing, and an
+opaque popover so the preview gallery matches the menu bar. It is independent of Phase 13 and
+needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into
+10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b.
 
 ## Acceptance
 
@@ -290,9 +299,13 @@ in `PLAN.md`. What remains is owed to the user, not to a run (*Next action*).
 
 ## Next action
 
-1. **Nothing left for a run: the plan is done.** A confirmation pass (`confirm-done`) re-runs the
-   last three phases' recorded checks (12b's in `docs/progress-archive/12b.md`; 12a's and
-   11c's in theirs) and `git status --short`.
+1. **Start Phase 13a** (`PLAN.md` *Phase 13*, the 13a bullet): the `SetProperty` client with
+   golden fixtures, `setBuried` on every `ITerm2Integration` conformer, the helper's
+   result → `Disinter` → DSR order with test-mode child PID recording, and the `e2e-bury`
+   spike harness. Then, behind the gate in item 3, the spike's real runs (a)–(e). Record the
+   answers in `PLAN.md` *Verified facts* and write D29 from them before 13b starts. After
+   13c comes Phase 14 (`PLAN.md` *Phase 14*, hermetic UI work, no real run). Since it does not
+   depend on 13, it may run first if 13a ends `BLOCKED` on the iTerm2 gate.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
