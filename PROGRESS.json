@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T12:24:40Z",
+  "updated": "2026-10-24T12:25:35Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -463,6 +463,34 @@
       "summary": "Add the directory pull-down to New session and a saved-directories editor in Settings.",
       "added": "2026-10-24T12:24:40Z",
       "status_since": "2026-10-24T12:24:40Z"
+    },
+    {
+      "id": "I-3",
+      "title": "Global hotkey: session switcher",
+      "status": "queued",
+      "summary": "Open a keyboard-first session switcher from a user-recorded global hotkey; split into I-3a and I-3b.",
+      "added": "2026-10-24T12:25:35Z",
+      "status_since": "2026-10-24T12:25:35Z"
+    },
+    {
+      "id": "I-3a",
+      "title": "Shortcut, storage, registrar and Settings recorder",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-3",
+      "summary": "Record a global shortcut in Settings and register it system-wide through Carbon.",
+      "added": "2026-10-24T12:25:35Z",
+      "status_since": "2026-10-24T12:25:35Z"
+    },
+    {
+      "id": "I-3b",
+      "title": "Switcher panel",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-3",
+      "summary": "Show a centered panel listing live sessions with search, open and New session.",
+      "added": "2026-10-24T12:25:35Z",
+      "status_since": "2026-10-24T12:25:35Z"
     }
   ]
 }
