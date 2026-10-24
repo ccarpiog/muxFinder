@@ -415,3 +415,45 @@ func poll<Value: Sendable>(
 func milliseconds(_ duration: Duration) -> Int {
   Int(duration / .milliseconds(1))
 }
+
+/// After a detach, before any cleanup (PLAN.md D29, design item 7): waits until iTerm2 lists the
+/// launch tab `gateway` neither in a tab nor in `buried_sessions`, within `limit`, and returns
+/// how long that took. A stranded tab throws a `StepFailure` saying where it stayed.
+///
+/// "By itself" is checked, not assumed: once the listing shows the tab gone, the requests the
+/// run's coordinators sent (`recording`, each recorded before it was sent, so any that could
+/// have removed the tab is there by then) may hold at most `allowedRestores` restores of it
+/// (the coordinator's own restore right after a bury that came after tmux ended,
+/// `LaunchTabBurial.restoredAfterEnd`) and no `Close` that may have touched it. More (the
+/// coordinator's recovery of a dead buried tab: a restore, then a forced `Close`) throws.
+func checkLaunchTabLeft(
+  _ gateway: String,
+  client: ITerm2APIClient,
+  recording: RecordingITerm2Integration,
+  within limit: Duration,
+  allowedRestores: Int = 0
+) async throws -> Duration {
+  let start = ContinuousClock.now
+  let gone = try await poll(timeout: limit) { () -> Bool? in
+    try await client.listSessions().allSessionIDs.contains(gateway) ? nil : true
+  }
+  let elapsed = ContinuousClock.now - start
+  let touched = await recording.restoresAndCloses(of: gateway)
+  let restores = touched.filter { if case .setBuried = $0 { true } else { false } }.count
+  let closes = touched.count - restores
+  let sent =
+    "the coordinator sent \(restores) restore(s) and \(closes) Close(s) that may have touched it"
+  guard gone == true else {
+    let place = GatewayPlace(of: gateway, in: try await client.listSessions())
+    throw StepFailure(
+      "the launch tab was stranded "
+        + (place == .buried ? "in buried_sessions" : place.rawValue)
+        + " \(limit) after the detach" + (touched.isEmpty ? "" : "; \(sent)"))
+  }
+  guard closes == 0, restores <= allowedRestores else {
+    throw StepFailure(
+      "the launch tab left \(milliseconds(elapsed)) ms after the detach, but not by itself: "
+        + sent + (allowedRestores > 0 ? " (\(allowedRestores) restore(s) expected)" : ""))
+  }
+  return elapsed
+} // End of func checkLaunchTabLeft(_:client:recording:within:allowedRestores:)

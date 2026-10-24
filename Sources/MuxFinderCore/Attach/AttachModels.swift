@@ -314,7 +314,8 @@ public enum LaunchTabBurial: Sendable, Hashable {
     /// owned by the launch tab.
     case activationFailed
     /// The coordinator's configuration turns burying off
-    /// (`AttachCoordinator.Configuration.buriesLaunchTabs`, the Phase 13a spike harness only).
+    /// (`AttachCoordinator.Configuration.buriesLaunchTabs`; nothing turns it off since Phase
+    /// 13c).
     case turnedOff
   }
 

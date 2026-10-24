@@ -60,8 +60,8 @@ Owed by Phase 8 (the real popover was never opened by a click) and by the matrix
   7. Quit from the popover.
 - **Expect:** 1: matching rows only, the selection moves, a refresh spinner, Esc closes. 2:
   "Opening…", "Waiting for iTerm2…", "Confirmed — open in iTerm2 on this Mac", the session's
-  windows as native iTerm2 tabs; the second click says "Already open here — brought its tab
-  forward". 3: the session is created and opened; the same name again is refused with "Open
+  windows as native iTerm2 tabs and no launch tab window (item 14); the second click says
+  "Already open here — brought its tab forward". 3: the session is created and opened; the same name again is refused with "Open
   existing" offered. 4: detach leaves the session running (it reappears as Detached); the
   Move here text says the other clients will be detached. 5: two separate rows under two
   hosts, each opening its own host's session. 6: the popover stays responsive; the host shows
@@ -218,6 +218,38 @@ Owed by Phase 12a (the script ran only on private folders).
 - **Undo:** item 1, then copy the backup back to
   `~/Library/Application Support/muxFinder/hosts.json` before the first launch.
 
+## 14. The hidden launch tab
+
+Owed by Phase 13c (the real runs drove the core and the self-tests, never the popover; nobody
+looked at the screen or pressed a key; they ran only with iTerm2's auto-hide setting off).
+
+- **Do**, from the installed app with This Mac and Saturno turned on:
+  1. Open a detached session of each host from the popover; also try New session and, with a
+     session attached on another Mac, "Move here…". While attached, look at iTerm2's Session ›
+     Buried Sessions menu.
+  2. A while later (more than 10 s after opening), "Detach from this Mac". Note which window
+     has the focus afterwards, and whether anything comes to the front.
+  3. Open a session and detach it again within 10 s.
+  4. The abnormal end: open a session of This Mac that no other Mac has attached (such as
+     `manual-check`), then end only iTerm2's tmux client for it:
+     `/opt/homebrew/bin/tmux list-clients -t '=manual-check' -F '#{client_pid}
+     #{client_control_mode}'` and `kill -9` the pid whose second field is `1`. For Saturno,
+     with only one of its sessions open here (and no "Persistent work" tab of it), `kill -9`
+     the launch tab's local ssh instead (the pid
+     `pgrep -fl 'ssh -t -o ConnectTimeout=10 -- saturno-m4'` lists), and only when `ssh -G
+     saturno-m4` shows `controlmaster false`, so no shared connection ends with it.
+  5. iTerm2 › Settings › General › tmux: turn on "Automatically bury the tmux client session
+     after connecting" (note how it was), then repeat 1–3.
+- **Expect:** 1: only the session's windows show, no window with "tmux mode started" or the
+  tmux command menu; the launch tab is listed under Session › Buried Sessions while attached
+  (a sign-in or host key prompt over ssh shows in the tab before it is hidden). 2: the tab
+  shows for a moment in a window of its own and closes by itself; nothing stays under Buried
+  Sessions (note where the focus went). 3: the tab shows and stays until it is 10 s old, then
+  closes by itself. 4: the session's windows close, the launch tab comes back within a few
+  seconds with the explanation readable, and Return closes it (once it is 10 s old); the
+  session is still listed in the popover. 5: the same as 1–3.
+- **Undo:** put iTerm2's auto-hide setting back as it was; detach and kill `manual-check`.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -235,3 +267,4 @@ Owed by Phase 12a (the script ran only on private folders).
 | 11 | | | |
 | 12 | | | |
 | 13 | | | |
+| 14 | | | |

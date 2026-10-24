@@ -1934,8 +1934,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     check, so the first one run asks for that permission again, once.
 - **D29 — Hiding the launch tab once attached** (decided in Phase 13a, 2026-10-24, from the
   spike's facts, *Verified facts*, Phase 13a; client in `ITerm2/ITerm2Property.swift`, helper
-  in `Launch/LaunchHelper.swift` and `Launch/TerminalStatusRequest.swift`, spike harness in
-  `Sources/muxfinder-probe/E2EBury*.swift`; the coordinator's part, built in Phase 13b, in
+  in `Launch/LaunchHelper.swift` and `Launch/TerminalStatusRequest.swift`, the `e2e-bury`
+  harness (the spike's, run through the coordinator since Phase 13c) in
+  `Sources/muxfinder-probe/E2EBury*.swift`, its judgements of steps 7 and 11 in
+  `Attach/LaunchTabChecks.swift` (unit-tested; the probe has no test target); the
+  coordinator's part, built in Phase 13b, in
   `Attach/AttachCoordinatorBurial.swift`, with `LaunchTabBurial` in `Attach/AttachModels.swift`
   and `BuriedTabTimer` in `Attach/AttachSeams.swift`).
   - **The bury** (the coordinator's step 10): the coordinator buries a launch tab it opened
@@ -1950,9 +1953,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     included, or answered with an error), `uncertain` (sent, no answer: a timeout, a lost
     connection) or `restoredAfterEnd`; `timings.buried` says when the bury and its check
     ended. The bury and its check run in a task of their own, so cancelling the attach cannot
-    cut them short. `Configuration.buriesLaunchTabs` (on by default) is off only in `e2e-bury`,
-    whose spike buries by itself (`turnedOff`). A buried tab still owns its connection, so the
-    bound identity check and `detach-client` work as before. muxFinder never reads iTerm2's
+    cut them short. `Configuration.buriesLaunchTabs` (on by default) is on everywhere, in the
+    app, the probe, the self-tests and `e2e-bury` alike (since Phase 13c); no caller turns it
+    off, and the switch remains (off, the outcome is `skipped(turnedOff)`). A buried tab still
+    owns its connection, so the bound identity check and `detach-client` work as before.
+    muxFinder never reads iTerm2's
     preferences: with "Automatically bury the tmux client session after connecting" on, iTerm2
     has buried the tab already (the bury answers `OK`, S2) and restores it itself when tmux
     ends (S5). Decisions read `ListSessions`' `buried_sessions`, never `GetProperty` `buried`
@@ -2020,9 +2025,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Persistence (item 5's decision): memory only.** The helper alone brought the tab back
     after every abnormal end the spike tried (the attach child killed locally, the local ssh
     killed for Saturno), with iTerm2's default setting emulated, before its explanation, so a
-    restart of muxFinder loses no recovery the helper does not make itself. Left to the
-    running app's recovery, and stranded while muxFinder is not running (a buried session
-    under Session > Buried Sessions; README, Phase 13c): a helper that died without its
+    restart of muxFinder loses no recovery the helper does not make itself. Phase 13c's runs,
+    with the setting really off, agree: on Saturno the helper's restores brought the tab back
+    2.1 s after the kill; locally it was back after 0.9 s, possibly through the coordinator's
+    recovery, which acts at once on a failure result, before the helper's second restore.
+    Left to the running app's recovery, and stranded while muxFinder is not running (a buried
+    session under Session > Buried Sessions; README, Phase 13c): a helper that died without its
     restores, iTerm2's "Tolerate unrecognized commands from server" advanced setting on, or a
     tmux command still pending at the abnormal end (both keep iTerm2 in tmux mode).
   - **Show tab** (D25): restores the tab before activating it (a refused restore ends it with
@@ -2049,7 +2057,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     unit-tested), which records each bury, restore and `Close` before sending it; once the
     tab is seen gone, any recorded restore or `Close` that may have touched it fails the step.
     The step counts are unchanged. `muxfinder-probe attach`'s JSON carries `burial` and
-    `timingsMs.buried`. 13c runs them for real, with `e2e-bury` through the coordinator.
+    `timingsMs.buried`. Phase 13c ran them for real, with `e2e-bury` through the coordinator
+    (*Verified facts*, Phase 13c real runs).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -2145,8 +2154,9 @@ one on the helper before the line feed; runs in `docs/TESTING.md`, *Phase 13a*).
 S6–S8 were confirmed at run time, locally and on Saturno; S5's "off" branch only from the
 source:
 
-- **This iTerm2 has `AutoHideTmuxClientSession` on** (read with `defaults read`, never
-  written; Phase 4 ran with it off). So iTerm2 buried every launch tab itself by the time the
+- **This iTerm2 had `AutoHideTmuxClientSession` on** (read with `defaults read`, never
+  written; Phase 4 ran with it off, and so did Phase 13c, below). So iTerm2 buried every
+  launch tab itself by the time the
   attach was confirmed (S6) and restored it itself when tmux ended, 144–228 ms after a detach
   (S5's "on" branch). The harness emulated the default by burying its own tab again where the
   default would have left it buried.
@@ -2188,6 +2198,59 @@ source:
   `muxfinder-test-*` session survived with no client in both places (on Saturno its tmux
   client ended with the ssh connection).
 - iTerm2's thread count stayed at 15–17 before and after all six runs.
+
+Verified in the Phase 13c real runs (2026-10-24, iTerm2 3.7.6, tmux 3.8; the coordinator's
+bury on everywhere; every run exit 0 with every step PASS: `e2e-local` 16, `e2e-remote
+saturno-m4` 17, `e2e-bury --local` and `--ssh saturno-m4` 13 each (both rerun after the
+Phase 13c review's harness fix), the self-tests 8 and 7, `e2e-profile --local` 14; details in
+`docs/TESTING.md`, *Phase 13c*):
+
+- **iTerm2's default setting, at run time.** iTerm2 exited between two runs' gates (not by
+  the run) and came back with `AutoHideTmuxClientSession` absent (read only), so these runs
+  had the default (off). iTerm2 buried none of the 20 `e2e-bury` launch tabs itself before
+  the coordinator's bury, and a buried tab whose helper wrote no
+  `Disinter` stayed buried at the tmux end and became a dead buried session once its helper
+  exited (S4, S5's "off" branch, until now known only from the source).
+- **The bury.** Every confirmed attach (attach, reattach, concurrent attaches, new session,
+  move here, the self-tests' Open and New session) ended `burial` `buried` with the tab in
+  `buried_sessions` and in no tab; in the first two attaches of `e2e-local` and `e2e-remote`
+  the bury and its check ended 29–31 ms after the activation locally, 76–105 ms over ssh.
+- **The race** (`e2e-bury` step 7, the bury and a bound `detach-client` released together):
+  the bury was sent and answered `OK` 8–10 ms after the release, before tmux ended, so on
+  both hosts iTerm2 handled it before the helper's restore. Locally tmux ended at once (the
+  detach's answer and the helper's result 39 ms after the release), the coordinator's check
+  after the bury saw it and restored the tab: `restoredAfterEnd`. On Saturno the check came
+  first (the attach returned at 39 ms, the helper's result at 165 ms): `buried`, undone by
+  the helper's first restore. Both tabs left by themselves, with no `Close` and no restore of
+  the coordinator's beyond that one. A detach sent first, with the bury only after its answer
+  (the first runs), made the bury's ownership check refuse it on both hosts (`failed`
+  `tmuxConnectionNotOwned`: the connection was gone, nothing buried), so that order never
+  races and no longer counts as the race.
+- **After a detach** the tab left both its tab and `buried_sessions` by itself in every run,
+  with no restore or `Close` of the coordinator's: 1–271 ms after the helper's result for a
+  detach after 10 s, 4.8–5.1 s for one at 5 s (the helper's minimum lifetime).
+- **The dead tab** (no `Disinter`): the coordinator's recovery sent one restore and one forced
+  `Close`, and the tab was gone within the step's 29 s bound of the helper's result. Without
+  `Disinter`, a buried session answered the helper's status reports after 113 and 1004 ms
+  locally; on Saturno the first two went unanswered within 2 s and the last was answered
+  after 1139 ms (13a, with the setting on, saw 34–36 ms).
+- **The abnormal end** (SIGKILL of the attach child while buried, setting off): the connection
+  and its tmux tabs were gone 107–109 ms after the kill, the helper's first restore went
+  unanswered and its second was answered (11 ms locally, 101 ms on Saturno); the tab was back
+  in a tab 889 ms after the kill locally, possibly by the coordinator's recovery (it had sent a
+  restore after the helper's failure result), and 2110 ms after it on Saturno by the helper's
+  restores (in the reruns 1555 and 2127 ms, both possibly by the coordinator's recovery); the
+  session survived in both places. The reruns also showed the helper's result
+  `childSignaled(9)`, exit 137, on both hosts, and the tab in a tab at every look after it came
+  back until 2 s past the helper's 10 s minimum lifetime and right before the harness closed
+  it, its helper alive and waiting for Return, with no `Close` or further bury of the
+  coordinator's. A forced `Close` of the restored tab answered `OK`, the tab gone 15–25 ms
+  later.
+- **The argv digest is rewritten after each restore** (since 13a), also after a later step
+  took it, so `e2e-local` now leaves out digests of launches it already checked
+  (`takeNewArgvDigests()`); its first attempt failed step 7 on that.
+- iTerm2's thread count stayed at 17–23; nothing of any run was left, and `profiles hashes`
+  was byte-identical before the first run and after the last.
 
 Verified in Phase 6a (2026-10-22, tmux 3.8, a private `TMUX_TMPDIR` server with
 `muxfinder-test-*` sessions only; the real `e2e-local` and `e2e-remote` results are in
@@ -3049,7 +3112,8 @@ on 2026-10-24 over documenting the iTerm2 setting.
 
 Source facts (iTerm2 tag `v3.7.6`, read on 2026-10-24 from the public `gnachman/iTerm2`
 sources; seen at run time in the 13a spike, *Verified facts*, Phase 13a: all confirmed but
-S5's "off" branch, which the Mac's iTerm2 setting hid):
+S5's "off" branch, which the Mac's iTerm2 setting hid; the Phase 13c runs, with the setting
+off, confirmed that branch too):
 - **S1.** `SetPropertyRequest` is `ClientOriginatedMessage` field 111 (`window_id` 1 and
   `session_id` 5 in the oneof `identifier`, `name` 3, `json_value` 4); `SetPropertyResponse`
   is `ServerOriginatedMessage` field 111 (`status` 1: `OK` 0, `UNRECOGNIZED_NAME` 1,

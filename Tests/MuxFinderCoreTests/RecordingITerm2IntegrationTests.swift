@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import MuxFinderCore
 
@@ -66,6 +67,78 @@ struct RecordingITerm2IntegrationTests {
         .close(.init(target: .tabs(["t1"]), force: false)),
       ])
   } // End of func forwardsEveryCallAndRecordsBuriesRestoresAndCloses()
+
+  /// The bury hook (`e2e-bury`'s detach right at the bury, PLAN.md Phase 13c) runs before each
+  /// bury is recorded and reaches the fake, with the launch tab and the connection the bury is
+  /// bound to, and the bury waits for it; a restore or a bury through `setBuried` never runs
+  /// it, and once cleared it no longer runs.
+  @Test func runsTheBuryHookBeforeEachBury() async throws {
+    var script = FakeITerm2Integration.Script()
+    script.listTmuxConnections = .init(
+      .success([.init(connectionID: "c", owningSessionID: "g")]))
+    script.setBuried = .init(.success(()))
+    let fake = FakeITerm2Integration(script: script)
+    let recorder = RecordingITerm2Integration(base: fake)
+    let seen = OSAllocatedUnfairLock(initialState: [String]())
+    await recorder.setBeforeBury { sessionID, connectionID in
+      let callsSoFar = await fake.calls.count
+      let recordedSoFar = await recorder.requests.count
+      seen.withLock { $0.append("\(sessionID) \(connectionID) \(callsSoFar) \(recordedSoFar)") }
+    }
+    try await recorder.setBuried(false, sessionID: "g")
+    try await recorder.buryLaunchTab(sessionID: "g", ifOwnsTmuxConnection: "c")
+    #expect(seen.withLock { $0 } == ["g c 1 1"])
+    #expect(
+      await fake.calls == [
+        .setBuried(buried: false, sessionID: "g"),
+        .buryLaunchTab(sessionID: "g", connectionID: "c"),
+        .setBuried(buried: true, sessionID: "g"),
+      ])
+    await recorder.setBeforeBury(nil)
+    try await recorder.buryLaunchTab(sessionID: "g", ifOwnsTmuxConnection: "c")
+    #expect(seen.withLock { $0.count } == 1)
+    #expect(
+      await recorder.requests == [
+        .setBuried(buried: false, sessionID: "g"), .buryLaunchTab(sessionID: "g"),
+        .buryLaunchTab(sessionID: "g"),
+      ])
+  } // End of func runsTheBuryHookBeforeEachBury()
+
+  /// Each forwarded bury's answer is recorded in the order the answers came, after the hook and
+  /// with the error passed on unchanged: answered `OK`, refused by its ownership check
+  /// (`tmuxConnectionNotOwned`, nothing sent) and answered with an error; `buryAnswers(of:)`
+  /// keeps one session's, and a restore through `setBuried` records none.
+  @Test func recordsEachBurysAnswer() async throws {
+    var script = FakeITerm2Integration.Script()
+    let ownedByG = ITerm2API.TmuxConnection(connectionID: "c", owningSessionID: "g")
+    let ownedByH = ITerm2API.TmuxConnection(connectionID: "c", owningSessionID: "h")
+    script.listTmuxConnections = .init(
+      .success([ownedByH]), queued: [.success([ownedByG]), .success([])])
+    script.setBuried = .init(.failure(.setPropertyFailed(.invalidValue)), queued: [.success(())])
+    let fake = FakeITerm2Integration(script: script)
+    let recorder = RecordingITerm2Integration(base: fake)
+    let before = Date()
+    try await recorder.buryLaunchTab(sessionID: "g", ifOwnsTmuxConnection: "c")
+    await #expect(throws: ITerm2Error.tmuxConnectionNotOwned) {
+      try await recorder.buryLaunchTab(sessionID: "g", ifOwnsTmuxConnection: "c")
+    }
+    await #expect(throws: ITerm2Error.setPropertyFailed(.invalidValue)) {
+      try await recorder.buryLaunchTab(sessionID: "h", ifOwnsTmuxConnection: "c")
+    }
+    await #expect(throws: ITerm2Error.setPropertyFailed(.invalidValue)) {
+      try await recorder.setBuried(false, sessionID: "g")
+    }
+    let answers = await recorder.buryAnswers
+    #expect(answers.map(\.sessionID) == ["g", "g", "h"])
+    #expect(
+      answers.map(\.outcome) == [
+        .ok, .failed(.tmuxConnectionNotOwned), .failed(.setPropertyFailed(.invalidValue)),
+      ])
+    #expect(answers.allSatisfy { before <= $0.forwardedAt && $0.forwardedAt <= $0.answeredAt })
+    #expect(
+      await recorder.buryAnswers(of: "g").map(\.outcome) == [.ok, .failed(.tmuxConnectionNotOwned)])
+    #expect(await recorder.buryAnswers(of: "x").isEmpty)
+  } // End of func recordsEachBurysAnswer()
 
   /// Through a coordinator, as in the e2e harness: when the helper brought its buried launch
   /// tab back and the tab closed by itself, the recorder holds no restore or `Close` of it once

@@ -165,7 +165,8 @@ struct SelfTestDriverTests {
       clock: VirtualClock(holdAfter: holdAfter), indexClock: PatientClock(),
       sessionCreator: tmux, tmux: tmux,
       timeouts: SelfTestTimeouts(
-        listing: .seconds(5), attach: attachTimeout, detach: .seconds(5), launchTabAge: .zero,
+        listing: .seconds(5), attach: attachTimeout, detach: .seconds(5),
+        burial: .milliseconds(300), departure: .milliseconds(300), launchTabAge: .zero,
         pollInterval: .milliseconds(5)),
       sessionName: "muxfinder-test-0000abcd", wallClock: { 1_800_000_000 },
       output: { log.append($0) })
@@ -181,16 +182,23 @@ struct SelfTestDriverTests {
     await run.iTerm2.addUserConnection("user-conn", owner: "user-tab", key: other)
   }
 
-  /// `attach-local` passes: six steps, one launch for the burst, a focus, one `detach-client`
-  /// to its own connection, the session killed, the user's connection never asked, no tab
-  /// closed.
+  /// `attach-local` passes: eight steps, one launch for the burst, its launch tab buried once
+  /// (and never restored or closed by the app), a focus, one `detach-client` to its own
+  /// connection, the launch tab gone by itself, the session killed, the user's connection
+  /// never asked, no tab closed.
   @Test func attachLocalPasses() async {
     let run = await Self.run(SelfTestRequest(kind: .attachLocal))
     await Self.prepare(run)
     let outcome = await run.driver.run()
     #expect(outcome == .passed, "\(run.log.all)")
-    for step in 1...6 { #expect(run.log.contains("PASS \(step) "), "step \(step)") }
+    for step in 1...8 { #expect(run.log.contains("PASS \(step) "), "step \(step)") }
+    #expect(run.log.contains("PASS 4 launch tab buried"))
+    #expect(run.log.contains("PASS 7 launch tab left"))
     #expect(await run.iTerm2.createTabCount == 1)
+    #expect(
+      await run.iTerm2.buriedRequests.map { "\($0.buried) \($0.sessionID)" } == ["true gateway-1"])
+    #expect(await run.iTerm2.launchTabs.isEmpty)
+    #expect(await run.driver.coordinatorITerm2.requests == [.buryLaunchTab(sessionID: "gateway-1")])
     #expect(await run.iTerm2.focusedConnections.contains("conn-1"))
     #expect(await run.iTerm2.commands(to: "conn-1").filter { $0 == "detach-client" }.count == 1)
     #expect(await run.iTerm2.commands(to: "user-conn").isEmpty)
@@ -198,24 +206,96 @@ struct SelfTestDriverTests {
     #expect(run.tmux.names.isEmpty)
     #expect(run.tmux.kills == ["muxfinder-test-0000abcd"])
     #expect(run.driver.model?.lifecycle == .stopped)
-    #expect(run.log.all.last == "muxFinder self-test attach-local: passed (6 steps)")
+    #expect(run.log.all.last == "muxFinder self-test attach-local: passed (8 steps)")
   } // End of func attachLocalPasses()
 
-  /// `new-session-local` passes: created and confirmed through the sheet, the collision, the
-  /// detach and the kill; one launch, the user's connection never asked.
+  /// `new-session-local` passes: created and confirmed through the sheet, its launch tab
+  /// buried, the collision, the detach, the launch tab gone by itself and the kill; one launch,
+  /// the user's connection never asked.
   @Test func newSessionLocalPasses() async {
     let run = await Self.run(SelfTestRequest(kind: .newSessionLocal))
     await Self.prepare(run)
     let outcome = await run.driver.run()
     #expect(outcome == .passed, "\(run.log.all)")
-    for step in 1...5 { #expect(run.log.contains("PASS \(step) "), "step \(step)") }
-    #expect(run.log.contains("PASS 3 collision"))
+    for step in 1...7 { #expect(run.log.contains("PASS \(step) "), "step \(step)") }
+    #expect(run.log.contains("PASS 3 launch tab buried"))
+    #expect(run.log.contains("PASS 4 collision"))
+    #expect(run.log.contains("PASS 6 launch tab left"))
     #expect(await run.iTerm2.createTabCount == 1)
+    #expect(
+      await run.iTerm2.buriedRequests.map { "\($0.buried) \($0.sessionID)" } == ["true gateway-1"])
+    #expect(await run.iTerm2.launchTabs.isEmpty)
     #expect(await run.iTerm2.commands(to: "conn-1").filter { $0 == "detach-client" }.count == 1)
     #expect(await run.iTerm2.commands(to: "user-conn").isEmpty)
+    #expect(await run.iTerm2.closeCount == 0)
     #expect(run.tmux.names.isEmpty)
     #expect(run.tmux.kills == ["muxfinder-test-0000abcd"])
-  }
+    #expect(run.log.all.last == "muxFinder self-test new-session-local: passed (7 steps)")
+  } // End of func newSessionLocalPasses()
+
+  /// A bury iTerm2 refuses (`burial` `failed`) fails the buried step of either self-test;
+  /// cleanup detaches its own attachment through the core (never closing a tab) and kills the
+  /// session.
+  @Test(arguments: SelfTestKind.allCases)
+  func aRefusedBuryFailsTheBuriedStep(kind: SelfTestKind) async {
+    let run = await Self.run(SelfTestRequest(kind: kind))
+    await Self.prepare(run)
+    await run.iTerm2.configure { $0.buryError = .setPropertyFailed(.impossible) }
+    let outcome = await run.driver.run()
+    #expect(outcome == .failed)
+    let step = kind == .attachLocal ? 4 : 3
+    #expect(
+      run.log.all.contains {
+        $0.hasPrefix("FAIL \(step) launch tab buried")
+          && $0.hasSuffix("the launch tab was not buried: failed (setPropertyFailed)")
+      }, "\(run.log.all)")
+    #expect(run.log.contains("cleanup: detach detached"))
+    #expect(run.log.contains("cleanup: kill killed"))
+    #expect(await run.iTerm2.commands(to: "user-conn").isEmpty)
+    #expect(await run.iTerm2.closeCount == 0)
+    #expect(run.tmux.names.isEmpty)
+  } // End of func aRefusedBuryFailsTheBuriedStep(kind:)
+
+  /// A bury answered `OK` whose launch tab stays in its tab fails the buried step once the
+  /// burial timeout passes, saying where the tab is.
+  @Test func aLaunchTabLeftInItsTabFailsTheBuriedStep() async {
+    let run = await Self.run(SelfTestRequest(kind: .attachLocal))
+    await Self.prepare(run)
+    await run.iTerm2.configure { $0.appliesBury = false }
+    let outcome = await run.driver.run()
+    #expect(outcome == .failed)
+    #expect(
+      run.log.all.contains {
+        $0.hasPrefix("FAIL 4 launch tab buried")
+          && $0.hasSuffix("the launch tab is in a tab, not only in buried_sessions")
+      }, "\(run.log.all)")
+    #expect(run.log.contains("cleanup: kill killed"))
+    #expect(await run.iTerm2.closeCount == 0)
+  } // End of func aLaunchTabLeftInItsTabFailsTheBuriedStep()
+
+  /// A launch tab still buried after the detach (stranded) fails the departure step of either
+  /// self-test; cleanup closes no tab (it is left as it is), sends no second detach and kills
+  /// the session.
+  @Test(arguments: SelfTestKind.allCases)
+  func aStrandedLaunchTabFailsTheDepartureStep(kind: SelfTestKind) async {
+    let run = await Self.run(SelfTestRequest(kind: kind))
+    await Self.prepare(run)
+    await run.iTerm2.configure { $0.closesLaunchTabOnDetach = false }
+    let outcome = await run.driver.run()
+    #expect(outcome == .failed)
+    let step = kind == .attachLocal ? 7 : 6
+    #expect(
+      run.log.all.contains {
+        $0.hasPrefix("FAIL \(step) launch tab left")
+          && $0.contains("the launch tab was stranded in buried_sessions 300 ms after the detach")
+      }, "\(run.log.all)")
+    #expect(!run.log.contains("cleanup: detach"))
+    #expect(run.log.contains("cleanup: kill killed"))
+    #expect(await run.iTerm2.commands(to: "conn-1").filter { $0 == "detach-client" }.count == 1)
+    #expect(await run.iTerm2.buried == ["gateway-1"])
+    #expect(await run.iTerm2.closeCount == 0)
+    #expect(run.tmux.names.isEmpty)
+  } // End of func aStrandedLaunchTabFailsTheDepartureStep(kind:)
 
   /// A failing step (iTerm2 refuses the tab) stops the run; cleanup detaches nothing (nothing
   /// is attached) and kills the session; the outcome is `failed`.
@@ -243,7 +323,7 @@ struct SelfTestDriverTests {
     await run.iTerm2.configure { $0.closesOnDetach = false }
     let outcome = await run.driver.run()
     #expect(outcome == .failed)
-    #expect(run.log.contains("FAIL 5 detach from this Mac"))
+    #expect(run.log.contains("FAIL 6 detach from this Mac"))
     #expect(run.log.contains("cleanup: detach notClosed"))
     #expect(run.log.contains("cleanup: kill killed"))
     #expect(await run.iTerm2.commands(to: "conn-1").filter { $0 == "detach-client" }.count == 2)
@@ -325,8 +405,9 @@ struct SelfTestDriverTests {
     #expect(run.driver.model?.lifecycle == .stopped)
   } // End of func cleanupReportsAnAttachStillRunning()
 
-  /// Keep mode stops once the attachment is confirmed, reports the session, the connection and
-  /// the gateway, and leaves both in place, also after the model stopped.
+  /// Keep mode stops once the attachment is confirmed and its launch tab buried, reports the
+  /// session, the connection and the gateway, and leaves both in place (the launch tab still
+  /// buried), also after the model stopped.
   @Test func keepModeLeavesWorkRunning() async {
     for kind in SelfTestKind.allCases {
       let run = await Self.run(SelfTestRequest(kind: kind, keep: true))
@@ -336,6 +417,8 @@ struct SelfTestDriverTests {
         sessionName: "muxfinder-test-0000abcd", connectionID: "conn-1",
         gatewaySessionID: "gateway-1")
       #expect(outcome == .kept(info), "\(run.log.all)")
+      #expect(run.log.contains("PASS \(kind == .attachLocal ? 4 : 3) launch tab buried"))
+      #expect(await run.iTerm2.buried == ["gateway-1"])
       #expect(
         info.line
           == "muxFinder self-test keep: session muxfinder-test-0000abcd connection conn-1 "

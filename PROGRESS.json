@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T10:42:39Z",
+  "updated": "2026-10-24T12:24:40Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -372,12 +372,12 @@
     {
       "id": "13",
       "title": "Hide the launch tab once attached",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Split into 13a and 13b (done) and 13c: muxFinder buries its own launch tab after an attach and brings it back when tmux ends.",
+      "summary": "Attaches hide the launch tab under Buried Sessions and bring it back on detach or failure; split into 13a, 13b and 13c.",
       "added": "2026-10-24T07:22:53Z",
       "started": "2026-10-24T09:35:12Z",
-      "status_since": "2026-10-24T09:35:12Z"
+      "status_since": "2026-10-24T12:24:40Z"
     },
     {
       "id": "13a",
@@ -408,12 +408,15 @@
     {
       "id": "13c",
       "title": "Real runs and documents",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "13",
-      "summary": "Runs every real check with hidden launch tabs locally and on Saturno, and updates the docs.",
+      "summary": "Coordinator bury proven for real: e2e-bury through the coordinator, self-tests assert the buried tab, all e2e runs pass, docs updated.",
+      "review": "docs/reviews/phase-13c.md",
+      "narrative": "docs/progress-archive/13c.md",
       "added": "2026-10-24T07:22:53Z",
-      "status_since": "2026-10-24T07:22:53Z"
+      "started": "2026-10-24T10:45:05Z",
+      "status_since": "2026-10-24T12:24:40Z"
     },
     {
       "id": "14",
@@ -423,6 +426,43 @@
       "summary": "Gives each host a bounded section, shows attach state at a glance, mutes unreachable hosts and fixes badge contrast and footer spacing.",
       "added": "2026-10-24T07:41:19Z",
       "status_since": "2026-10-24T07:41:19Z"
+    },
+    {
+      "id": "I-1",
+      "title": "Popover under the menu bar icon",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Open the popover directly below the menu bar icon instead of at the far right; diagnose first.",
+      "added": "2026-10-24T12:24:40Z",
+      "status_since": "2026-10-24T12:24:40Z"
+    },
+    {
+      "id": "I-2",
+      "title": "New session: pick the directory",
+      "status": "queued",
+      "summary": "Pick the New session directory from recent, saved and session folders; split into I-2a and I-2b.",
+      "added": "2026-10-24T12:24:40Z",
+      "status_since": "2026-10-24T12:24:40Z"
+    },
+    {
+      "id": "I-2a",
+      "title": "Directory store and session folders in discovery",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-2",
+      "summary": "Store saved and recent directories and report each session start folder from discovery.",
+      "added": "2026-10-24T12:24:40Z",
+      "status_since": "2026-10-24T12:24:40Z"
+    },
+    {
+      "id": "I-2b",
+      "title": "Directory picker UI and saved list in Settings",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-2",
+      "summary": "Add the directory pull-down to New session and a saved-directories editor in Settings.",
+      "added": "2026-10-24T12:24:40Z",
+      "status_since": "2026-10-24T12:24:40Z"
     }
   ]
 }

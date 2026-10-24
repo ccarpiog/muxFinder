@@ -113,8 +113,14 @@ no quoting. A path with a space was not tried, so the D2 character rule stays.
   the result file at the coordinator's first poll (139 ms after the attach call in both runs,
   the same moment the tab was reported open).
 - In `ListSessions` the launch tab carries `tmux_window_id` `"-1"` and no
-  `tmux_connection_id`, like any ordinary tab, in a window with that one tab. It stays in its
-  window while tmux is attached (iTerm2 does not bury it with the default preferences).
+  `tmux_connection_id`, like any ordinary tab, in a window with that one tab. iTerm2 does not
+  hide it while tmux is attached with the default preferences, so in the runs above (Phases
+  4–6) it stayed in its window. Since Phase 13 (PLAN.md D29) muxFinder buries it once the
+  first tmux tab is active: while attached it is listed only in `buried_sessions` (its window
+  closes, its tmux tabs stay, and it still owns the connection), and when tmux ends its helper
+  restores it into a new window, where it closes with the helper. The Phase 13c runs showed
+  that locally and on Saturno with iTerm2's auto-hide setting off (`docs/TESTING.md`,
+  *Phase 13c*).
 - **Whether it closes when the helper exits:** yes. After a clean detach the helper exits 0
   and the launch tab closes by itself (`Close Sessions On End`), with its window; iTerm2 was
   back to the user's windows and tabs after each cycle.
@@ -126,7 +132,8 @@ no quoting. A path with a space was not tried, so the D2 character rule stays.
 
 With the default "open tmux windows as" preference (left unchanged), every tmux window opens
 as its own new iTerm2 window with one tab. The test session's two tmux windows gave two new
-windows next to the launch tab's window, in every attach.
+windows next to the launch tab's window, in every attach (since Phase 13 that window closes
+once the launch tab is buried, so only the session's windows stay).
 
 ### What a tmux tab carries in `ListSessions`
 

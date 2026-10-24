@@ -123,6 +123,9 @@ actor E2ERun {
   /// The move-here step's plain control client while it may still run; the step's failure path
   /// and cleanup end it (`stopControlClient()`).
   private var controlClient: BackgroundControlClient?
+  /// The launches whose argv digest a step checked (`checkArgvDigest`); their helpers' later
+  /// rewrites of it are left out of every later take (`takeNewArgvDigests()`).
+  private var checkedDigestLaunches: Set<LaunchToken> = []
 
   /// The test session as `new-session` reported it (or as cleanup found it by its name).
   private var created: CreatedSession?
@@ -489,7 +492,7 @@ actor E2ERun {
     let tabIDs = Set(before.windows.flatMap(\.tabs).compactMap(\.tabID))
     let newWindows = Set(after.windows.compactMap(\.windowID)).subtracting(windowIDs).count
     let newTabs = Set(after.windows.flatMap(\.tabs).compactMap(\.tabID)).subtracting(tabIDs).count
-    let digests = try store.takeArgvDigests().count
+    let digests = try takeNewArgvDigests().count
     guard newWindows == 0, newTabs == 0, own == ownAfter, connectionsAfter == connectionsBefore,
       recorder.launchCount(for: target.key) == launchesBefore, digests == 0
     else {
@@ -556,55 +559,45 @@ actor E2ERun {
 
   /// After a detach, before any cleanup (PLAN.md D29, design item 7): the launch tab `gateway`
   /// must leave both iTerm2's tabs and `buried_sessions` by itself within
-  /// `strandedGatewayWait`. A stranded one fails the step, which says where it stayed. "By
-  /// itself" is checked, not assumed: once the listing shows the tab gone, the requests the
-  /// run's coordinators sent (`coordinatorITerm2`, each recorded before it was sent, so any that
-  /// could have removed the tab is there by then) must hold no restore or `Close` that may
-  /// have touched it; one that does (the coordinator's recovery of a dead buried tab) fails
-  /// the step. Returns how long it took.
+  /// `strandedGatewayWait` (`checkLaunchTabLeft`, shared with `e2e-bury`). A stranded one fails
+  /// the step, which says where it stayed, and so does one that left through a restore or a
+  /// `Close` of the run's coordinators (`coordinatorITerm2`: the recovery of a dead buried
+  /// tab). Returns how long it took.
   private func checkGatewayLeft(_ gateway: String) async throws -> Duration {
-    let start = ContinuousClock.now
-    let gone = try await poll(timeout: Self.strandedGatewayWait) { () -> Bool? in
-      try await self.client.listSessions().allSessionIDs.contains(gateway) ? nil : true
+    try await checkLaunchTabLeft(
+      gateway, client: client, recording: coordinatorITerm2, within: Self.strandedGatewayWait)
+  }
+
+  /// Takes the argv digests and returns those of launches no step checked yet. The helper of a
+  /// checked launch writes its digest again after each launch tab restore (a `tabRestores`
+  /// record once its attach child ended and another just before it exits, PLAN.md D29), so a
+  /// later step's take can meet those rewrites; they say nothing about that step.
+  private func takeNewArgvDigests() throws -> [LaunchArgvDigest] {
+    try store.takeArgvDigests().filter { digest in
+      guard let launchID = digest.launchID else { return true }
+      return !checkedDigestLaunches.contains(launchID)
     }
-    let elapsed = ContinuousClock.now - start
-    let touched = await coordinatorITerm2.restoresAndCloses(of: gateway)
-    let restores = touched.filter { if case .setBuried = $0 { true } else { false } }.count
-    let sent =
-      "the coordinator sent \(restores) restore(s) and \(touched.count - restores) Close(s) "
-      + "that may have touched it"
-    guard gone == true else {
-      let place = GatewayPlace(of: gateway, in: try await client.listSessions())
-      throw StepFailure(
-        "the launch tab was stranded "
-          + (place == .buried ? "in buried_sessions" : place.rawValue)
-          + " \(Self.strandedGatewayWait) after the detach" + (touched.isEmpty ? "" : "; \(sent)"))
-    }
-    guard touched.isEmpty else {
-      throw StepFailure(
-        "the launch tab left \(milliseconds(elapsed)) ms after the detach, but not by itself: "
-          + sent)
-    }
-    return elapsed
-  } // End of func checkGatewayLeft(_:)
+  }
 
   /// Takes the argv digests and checks the one of `launchID`: three arguments, `attach` and the
   /// launch id; reports whether argv[0] is the helper's path. Its attach child, when the helper
   /// started one, must detach the session's other clients exactly when `detachesOtherClients`
   /// (a move here, PLAN.md D21); with `expectedChild` (argv, argv[0] first) it must exist and
-  /// have exactly that argv.
+  /// have exactly that argv. Rewrites from the helpers of launches checked before are left out
+  /// (`takeNewArgvDigests()`); the launch then counts as checked.
   private func checkArgvDigest(
     for launchID: LaunchToken,
     expectedChild: [String]? = nil,
     detachesOtherClients: Bool = false
   ) throws -> String {
-    let digests = try store.takeArgvDigests()
+    let digests = try takeNewArgvDigests()
     let mine = digests.filter { $0.launchID == launchID }
     guard mine.count == 1, digests.count == 1, let digest = mine.first else {
       throw StepFailure(
         "expected one argv digest for the launch, found \(mine.count) of "
           + "\(digests.count)")
     }
+    checkedDigestLaunches.insert(launchID)
     let expected = [helperPath.path, "attach", launchID.rawValue].map {
       LaunchArgvDigest.Argument(bytes: Array($0.utf8))
     }
@@ -1153,7 +1146,7 @@ actor E2ERun {
     }
     let states = recorder.stateKinds(of: attached.launchID)
     let connectionsAfter = try await client.listTmuxConnections()
-    let digests = try store.takeArgvDigests().count
+    let digests = try takeNewArgvDigests().count
     guard states == ["requested", "failed"], recorder.launchCount(for: target.key) == 0,
       ids.count == countBefore, !ids.contains(record.sessionID.rawValue), !names.contains(name),
       connectionsAfter == connectionsBefore, digests == 0
@@ -1469,7 +1462,7 @@ actor E2ERun {
     let refused = await coordinator.moveHere(
       target, confirmation: .detachOtherClients(of: otherKey))
     guard refused.failure == .moveHereNotConfirmed, recorder.count == mark,
-      try store.takeArgvDigests().isEmpty, try await clientPIDs(of: id) == [plainPID]
+      try takeNewArgvDigests().isEmpty, try await clientPIDs(of: id) == [plainPID]
     else {
       throw StepFailure(
         "a move here confirmed for another key ended \(refused.failure?.kind ?? "attached")")

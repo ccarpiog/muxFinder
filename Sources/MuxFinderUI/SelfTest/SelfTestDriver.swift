@@ -37,6 +37,13 @@ final class CoordinatorBox: Sendable {
 /// (`LaunchTabRecorder`), so the user's tmux connections never get a command, not even the
 /// read-only identity question.
 ///
+/// Once the attachment is confirmed, it checks that the coordinator buried its launch tab
+/// (PLAN.md D29: `AttachResult.burial` `buried`, the tab in `buried_sessions` and in no tab),
+/// and after its Detach that the tab left both by itself: the coordinator talks to iTerm2
+/// through a `RecordingITerm2Integration`, so a restore or `Close` of the coordinator's (its
+/// recovery of a dead buried tab) that may have removed the tab fails the step. Both checks
+/// read only `ListSessions` and look only at the run's own launch tab.
+///
 /// Safety: it creates, attaches, detaches and kills only its own `muxfinder-test-<hex>`
 /// session; it never closes an iTerm2 tab (detaching is `detach-client` through the core,
 /// which waits until the launch tab is 10 s old), never runs `kill-server`, and kills its
@@ -49,8 +56,9 @@ final class CoordinatorBox: Sendable {
 /// `failed`. An action still running after that wait makes it detach and kill nothing (a launch
 /// tab of unknown age may still attach the session) and print what it left and how to clean up.
 ///
-/// Keep mode (`SelfTestRequest.keep`) stops after the attachment is confirmed and reports
-/// `kept` with the session name, the connection id and the gateway session id; the app then
+/// Keep mode (`SelfTestRequest.keep`) stops after the attachment is confirmed and its launch
+/// tab buried, and reports `kept` with the session name, the connection id and the gateway
+/// session id; the app then
 /// waits for SIGTERM and quits through `AppTermination`, leaving the session and the
 /// connection in place.
 @MainActor
@@ -100,6 +108,10 @@ public final class SelfTestDriver {
   public let host = HostConfig(displayName: "This Mac", mode: .local)
   /// The launch tabs this run opened.
   public let recorder = LaunchTabRecorder()
+  /// What the coordinator talks to: `seams.iTerm2`, with each bury, restore and `Close`
+  /// recorded before it is sent, so the departure step can tell whether the launch tab left
+  /// by itself.
+  let coordinatorITerm2: RecordingITerm2Integration
   /// The model under test, once built.
   public private(set) var model: AppModel?
   /// The coordinator the model built.
@@ -110,6 +122,8 @@ public final class SelfTestDriver {
   private var creationStartedAt: Int64?
   /// The confirmed attachment.
   private(set) var confirmed: AttachmentRecord?
+  /// What became of the confirmed attachment's launch tab (`AttachResult.burial`).
+  private var confirmedBurial: LaunchTabBurial?
   /// Whether the detach step detached the attachment.
   private var detached = false
   /// Steps that passed.
@@ -119,6 +133,7 @@ public final class SelfTestDriver {
   public init(request: SelfTestRequest, seams: SelfTestSeams) {
     self.request = request
     self.seams = seams
+    coordinatorITerm2 = RecordingITerm2Integration(base: seams.iTerm2)
   }
 
   /// The test session's key on This Mac, once created.
@@ -155,17 +170,21 @@ public final class SelfTestDriver {
       try await step(1, "create session") { try await self.createTestSession() }
       try await step(2, "listed") { try await self.startAndWaitForSession() }
       try await step(3, "open (5 clicks)") { try await self.openConfirmed() }
+      try await step(4, "launch tab buried") { try await self.checkLaunchTabBuried() }
       if request.keep { return keepInfo() }
-      try await step(4, "open again") { try await self.openFocused() }
-      try await step(5, "detach from this Mac") { try await self.detachHere() }
-      try await step(6, "kill session") { try await self.killTestSession() }
+      try await step(5, "open again") { try await self.openFocused() }
+      try await step(6, "detach from this Mac") { try await self.detachHere() }
+      try await step(7, "launch tab left") { try await self.checkLaunchTabLeft() }
+      try await step(8, "kill session") { try await self.killTestSession() }
     case .newSessionLocal:
       try await step(1, "listed This Mac") { try await self.startAndWaitForHost() }
       try await step(2, "new session") { try await self.createThroughSheet() }
+      try await step(3, "launch tab buried") { try await self.checkLaunchTabBuried() }
       if request.keep { return keepInfo() }
-      try await step(3, "collision") { try await self.collideThroughSheet() }
-      try await step(4, "detach from this Mac") { try await self.detachHere() }
-      try await step(5, "kill session") { try await self.killTestSession() }
+      try await step(4, "collision") { try await self.collideThroughSheet() }
+      try await step(5, "detach from this Mac") { try await self.detachHere() }
+      try await step(6, "launch tab left") { try await self.checkLaunchTabLeft() }
+      try await step(7, "kill session") { try await self.killTestSession() }
     }
     return nil
   } // End of func runSteps()
@@ -273,6 +292,7 @@ public final class SelfTestDriver {
     }
     confirmed = AttachmentRecord(
       connectionID: connection, gatewaySessionID: gateway, launchID: result.launchID)
+    confirmedBurial = result.burial
     return "confirmed: connection \(connection), gateway \(gateway), 1 launch for 5 clicks"
   } // End of func openConfirmed()
 
@@ -323,6 +343,7 @@ public final class SelfTestDriver {
     else { throw SelfTestFailure("the sheet stayed open, or the row or launch count is wrong") }
     confirmed = AttachmentRecord(
       connectionID: connection, gatewaySessionID: gateway, launchID: attach.launchID)
+    confirmedBurial = attach.burial
     return "created \(session.sessionID.rawValue) and confirmed: connection \(connection), "
       + "gateway \(gateway)"
   } // End of func createThroughSheet()
@@ -389,6 +410,102 @@ public final class SelfTestDriver {
     return "detached \(result.detaches.count) attachment(s) with detach-client; the session "
       + "keeps running"
   } // End of func detachHere()
+
+  /// Both self-tests, once the attachment is confirmed (PLAN.md D29): the coordinator buried
+  /// the launch tab (`AttachResult.burial` is `buried`; with iTerm2's own "Automatically bury
+  /// the tmux client session" setting on, iTerm2 buried it first and the bury answered `OK`),
+  /// and iTerm2 lists it in `buried_sessions` and in no tab within the burial timeout.
+  private func checkLaunchTabBuried() async throws -> String {
+    guard let gateway = confirmed?.gatewaySessionID else { throw SelfTestFailure("no attachment") }
+    guard confirmedBurial == .buried else {
+      let detail = confirmedBurial?.detail.map { " (\($0))" } ?? ""
+      throw SelfTestFailure(
+        "the launch tab was not buried: \(confirmedBurial?.kind ?? "no outcome")\(detail)")
+    }
+    let waited = try await waitForLaunchTab(gateway, at: .buried, within: seams.timeouts.burial)
+    guard let elapsed = waited.elapsed else {
+      throw SelfTestFailure(
+        "\(Self.milliseconds(seams.timeouts.burial)) ms after the attach the launch tab is "
+          + "\(waited.last.rawValue), not only in buried_sessions")
+    }
+    return "burial buried; the launch tab is in buried_sessions and in no tab "
+      + "(\(Self.milliseconds(elapsed)) ms after the attach ended)"
+  } // End of func checkLaunchTabBuried()
+
+  /// Both self-tests, after the detach (PLAN.md D29): the launch tab leaves both iTerm2's tabs
+  /// and `buried_sessions` by itself within the departure timeout (its helper restores it and
+  /// exits, and the tab closes). A tab still listed fails the step, and so does one that left
+  /// while the coordinator had sent a restore or a `Close` that may have touched it (its
+  /// recovery of a dead buried tab; `coordinatorITerm2` records each before sending it, so any
+  /// that could have removed the tab is there by the time the listing shows it gone). The tab
+  /// is left as it is either way: the self-test never closes a tab.
+  private func checkLaunchTabLeft() async throws -> String {
+    guard let gateway = confirmed?.gatewaySessionID else { throw SelfTestFailure("no attachment") }
+    let waited = try await waitForLaunchTab(gateway, at: .absent, within: seams.timeouts.departure)
+    let touched = await coordinatorITerm2.restoresAndCloses(of: gateway)
+    let restores = touched.filter { if case .setBuried = $0 { true } else { false } }.count
+    let sent =
+      "the coordinator sent \(restores) restore(s) and \(touched.count - restores) Close(s) that "
+      + "may have touched it"
+    guard let elapsed = waited.elapsed else {
+      throw SelfTestFailure(
+        "the launch tab was stranded \(waited.last.rawValue) "
+          + "\(Self.milliseconds(seams.timeouts.departure)) ms after the detach"
+          + (touched.isEmpty ? "" : "; \(sent)") + " (left as it is: the self-test closes no tab)")
+    }
+    guard touched.isEmpty else {
+      throw SelfTestFailure(
+        "the launch tab left \(Self.milliseconds(elapsed)) ms after the detach, but not by "
+          + "itself: \(sent)")
+    }
+    return "the launch tab left its tab and buried_sessions by itself "
+      + "\(Self.milliseconds(elapsed)) ms after the detach ended"
+  } // End of func checkLaunchTabLeft()
+
+  /// Where iTerm2 lists one launch tab (its own session id only).
+  enum LaunchTabPlace: String, Sendable {
+    /// In a tab of a window.
+    case inTab = "in a tab"
+    /// In `buried_sessions`.
+    case buried = "in buried_sessions"
+    /// Not listed at all.
+    case absent = "gone"
+
+    /// Where `sessions` lists `gateway`.
+    init(of gateway: String, in sessions: ITerm2API.ListSessionsResponse) {
+      if sessions.placement(ofSession: gateway) != nil {
+        self = .inTab
+      } else if sessions.buriedSessions.contains(where: { $0.uniqueIdentifier == gateway }) {
+        self = .buried
+      } else {
+        self = .absent
+      }
+    } // End of init(of:in:)
+  } // End of enum LaunchTabPlace
+
+  /// Lists iTerm2's sessions (read-only; only `gateway` is looked at) every poll interval until
+  /// `gateway` is at `wanted` or `timeout` passes; returns how long it took, or `nil` and where
+  /// it was at the last look. A failed listing fails the step; cancelling the task throws.
+  private func waitForLaunchTab(
+    _ gateway: String,
+    at wanted: LaunchTabPlace,
+    within timeout: Duration
+  ) async throws -> (elapsed: Duration?, last: LaunchTabPlace) {
+    let start = ContinuousClock.now
+    while true {
+      try Task.checkCancellation()
+      let sessions: ITerm2API.ListSessionsResponse
+      do {
+        sessions = try await seams.iTerm2.listSessions()
+      } catch {
+        throw SelfTestFailure("iTerm2's sessions could not be listed: \(error)")
+      }
+      let place = LaunchTabPlace(of: gateway, in: sessions)
+      if place == wanted { return (ContinuousClock.now - start, place) }
+      guard ContinuousClock.now - start < timeout else { return (nil, place) }
+      try await Task.sleep(for: seams.timeouts.pollInterval)
+    } // End of loop over the listings
+  } // End of func waitForLaunchTab(_:at:within:)
 
   /// Kills the test session (only while it is still exactly that session).
   private func killTestSession() async throws -> String {
@@ -484,14 +601,16 @@ public final class SelfTestDriver {
   }
 
   /// The model's environment: This Mac in memory, an engine over the seams' discovery (no
-  /// attachment checks), an attach coordinator whose index asks only this run's launch tabs'
-  /// connections, and a shutdown that waits for session actions no longer than the attach
-  /// timeout (nor than the app's own budget, so keep mode's quit stays within its deadline).
+  /// attachment checks), an attach coordinator (over `coordinatorITerm2`) whose index asks only
+  /// this run's launch tabs' connections, and a shutdown that waits for session actions no
+  /// longer than the attach timeout (nor than the app's own budget, so keep mode's quit stays
+  /// within its deadline).
   func makeEnvironment() -> AppEnvironment {
     let seams = self.seams
     let recorder = self.recorder
     let box = coordinatorBox
     let host = self.host
+    let coordinatorITerm2 = self.coordinatorITerm2
     return AppEnvironment(
       loadHosts: { .inMemory(try HostList([host])) },
       makeEngine: { hosts in RefreshCoordinator(hosts: hosts, discovery: seams.discovery) },
@@ -505,7 +624,7 @@ public final class SelfTestDriver {
             connection.owningSessionID.map(recorder.isLaunchTab) ?? false
           }))
         let coordinator = AttachCoordinator(
-          iTerm2: seams.iTerm2, discovery: seams.discovery, store: seams.store,
+          iTerm2: coordinatorITerm2, discovery: seams.discovery, store: seams.store,
           helperPath: seams.helperPath, clock: seams.clock,
           configuration: seams.coordinatorConfiguration, existingAttachments: .index(index),
           sessionCreator: seams.sessionCreator, diagnostics: seams.diagnostics,

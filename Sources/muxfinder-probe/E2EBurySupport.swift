@@ -6,7 +6,7 @@ import os
 /// The launch store of `e2e-bury`: the real store, except that while `suppressesDisinter` is
 /// on, every request it writes asks the helper to write no `Disinter`
 /// (`LaunchRequest.testSuppressDisinter`, honored only in test mode, which the run's setup
-/// turns on), for spike step (b).
+/// turns on), for step 9's dead tab (spike (b)).
 final class BuryRequestStore: LaunchRequestStore {
   /// The real store.
   let base: LaunchStore
@@ -54,79 +54,6 @@ final class BuryRequestStore: LaunchRequestStore {
   }
 } // End of class BuryRequestStore
 
-/// Where iTerm2 lists a launch tab's session at one moment.
-enum GatewayPlace: String, Sendable {
-  /// In a tab of a window.
-  case inTab = "in a tab"
-  /// In `buried_sessions`.
-  case buried
-  /// Not listed at all.
-  case absent = "gone"
-
-  /// Where `sessions` lists `gateway`.
-  init(of gateway: String, in sessions: ITerm2API.ListSessionsResponse) {
-    if sessions.placement(ofSession: gateway) != nil {
-      self = .inTab
-    } else if sessions.buriedSessions.contains(where: { $0.uniqueIdentifier == gateway }) {
-      self = .buried
-    } else {
-      self = .absent
-    }
-  } // End of init(of:in:)
-} // End of enum GatewayPlace
-
-/// One look at a launch tab's session: when the `ListSessions` request went out, when its
-/// answer came back (wall clock, like the helper's digest), and where the session was.
-struct GatewaySample: Sendable {
-  /// When the request was sent.
-  let sentAt: Date
-  /// When the answer arrived.
-  let receivedAt: Date
-  /// Where iTerm2 listed the session.
-  let place: GatewayPlace
-}
-
-/// Looks at one launch tab's session every `interval` from a task of its own until stopped or
-/// `limit` passes, so a step can tell when it moved (spike (c): did the helper's status report
-/// answer come only after the restore?).
-struct GatewaySampler {
-  /// The sampling task; its value is every sample, oldest first.
-  private let task: Task<[GatewaySample], Never>
-
-  /// Starts sampling `gateway` through `client`.
-  init(
-    _ gateway: String,
-    client: ITerm2APIClient,
-    every interval: Duration = .milliseconds(100),
-    limit: Duration = .seconds(40)
-  ) {
-    task = Task {
-      var samples: [GatewaySample] = []
-      let deadline = ContinuousClock.now + limit
-      while !Task.isCancelled, ContinuousClock.now < deadline {
-        let sentAt = Date()
-        if let sessions = try? await client.listSessions() {
-          samples.append(
-            GatewaySample(
-              sentAt: sentAt, receivedAt: Date(), place: GatewayPlace(of: gateway, in: sessions)))
-        }
-        do {
-          try await Task.sleep(for: interval)
-        } catch {
-          break
-        }
-      } // End of loop over the samples
-      return samples
-    }
-  } // End of init(_:client:every:limit:)
-
-  /// Stops sampling and returns the samples.
-  func stop() async -> [GatewaySample] {
-    task.cancel()
-    return await task.value
-  }
-} // End of struct GatewaySampler
-
 /// What `e2e-bury` reads about a process of the helper's before signaling it: through
 /// `libproc`, never by name, so only the exact process the helper recorded is ever touched.
 enum ProcessCheck {
@@ -159,7 +86,7 @@ enum ProcessCheck {
 } // End of enum ProcessCheck
 
 /// Whether ssh shares connections for a destination (`ControlMaster`, `ControlPath`), read from
-/// `ssh -G` (OpenSSH's evaluated configuration; no connection is made). Spike step (e) kills
+/// `ssh -G` (OpenSSH's evaluated configuration; no connection is made). Step 11 (e) kills
 /// the helper's local ssh child only when it cannot be, or use, a shared master connection, so
 /// that nothing but this run's own connection ends. The values themselves are never printed.
 enum SSHConnectionSharing {
@@ -208,4 +135,12 @@ enum SSHConnectionSharing {
 /// Whole milliseconds from `start` to `end` (negative when `end` is earlier).
 func milliseconds(from start: Date, to end: Date) -> Int {
   Int((end.timeIntervalSince(start) * 1000).rounded())
+}
+
+extension Date {
+  /// This date plus `duration`.
+  func adding(_ duration: Duration) -> Date {
+    let parts = duration.components
+    return addingTimeInterval(Double(parts.seconds) + Double(parts.attoseconds) * 1e-18)
+  }
 }

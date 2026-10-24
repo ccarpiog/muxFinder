@@ -103,16 +103,22 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
 - App self-tests (real runs: they open real iTerm2 windows; run explicitly, never from `swift
   test`, with `TMUX_TMPDIR` unset, after `scripts/build-app.sh`, with the same iTerm2
   thread-count caution as the e2e runs below; never through `open`/LaunchServices):
-  `build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local` (create a
-  `muxfinder-test-*` session, Open five times → confirmed with one launch, Open again →
-  focused, Detach from this Mac, kill) or `--selftest new-session-local` (New session →
-  confirmed, the same name → collision, Detach, kill). They drive the real `AppModel` over an
-  in-memory This Mac (no `hosts.json` read or written; no menu bar item, popover, onboarding
-  or Settings), ask only their own launch tabs' tmux connections, print one PASS/FAIL line
-  per step, bound every wait, clean up (detach through the core, never closing a tab, then
-  kill their own session) on any failure or SIGTERM/SIGINT, and exit 0 passed, 1 failed, 2
-  unusable arguments or environment (nothing contacted). `--selftest-keep` stops once the
-  attachment is confirmed, prints `muxFinder self-test keep: session <name> connection <id>
+  `build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local` (8 steps: create a
+  `muxfinder-test-*` session, listed, Open five times → confirmed with one launch, launch tab
+  buried, Open again → focused, Detach from this Mac, launch tab left, kill) or `--selftest
+  new-session-local` (7 steps: listed, New session → confirmed, launch tab buried, the same
+  name → collision, Detach, launch tab left, kill). "Launch tab buried": `AttachResult.burial`
+  `buried` and their own launch tab in `buried_sessions` and in no tab within 5 s; "launch
+  tab left": after the Detach it is in neither within 10 s, with no restore or `Close` of the
+  coordinator's recorded for it (`RecordingITerm2Integration`; a stranded tab is left as it
+  is). Both read only `ListSessions`, for their own session id. They drive the real
+  `AppModel` over an in-memory This Mac (no `hosts.json` read or written; no menu bar item,
+  popover, onboarding or Settings), ask only their own launch tabs' tmux connections, print
+  one PASS/FAIL line per step, bound every wait, clean up (detach through the core, never
+  closing a tab, then kill their own session) on any failure or SIGTERM/SIGINT, and exit 0
+  passed, 1 failed, 2 unusable arguments or environment (nothing contacted).
+  `--selftest-keep` stops once the attachment is confirmed and its launch tab buried, prints
+  `muxFinder self-test keep: session <name> connection <id>
   gateway <session id>` and waits; `kill -TERM <pid>` quits normally (exit 0) leaving both;
   then clean up with `swift run muxfinder-probe detach --connection <id> --gateway <session
   id>` and `/opt/homebrew/bin/tmux kill-session -t '=<name>'`. See `docs/TESTING.md` (Phase
@@ -206,20 +212,40 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   session, removes only the file it wrote, and compares the hash snapshot of iTerm2's other
   profiles before install, after install and after removal; its remote tab runs interactive
   ssh (key authentication; Saturno only).
-  `swift run muxfinder-probe e2e-bury --local | --ssh saturno-m4` (a spike harness for PLAN.md
-  Phase 13a, not a regression check; 12 steps; `--help` contacts nothing) creates its own
-  `muxfinder-test-*` session (a `sleep 600` pane), attaches it three times through its own
-  launch tabs with no existing-attachment check (so it asks no other connection) and buries
-  each launch tab through the API once its first tmux tab is active: (a) the bury, (c) a
-  detach of the buried tab at 5 s while sampling `ListSessions`, then a bury during the
-  helper's hold, (b) the same with the helper's `Disinter` suppressed (`testSuppressDisinter`),
-  (d) `Close` of the dead buried session, (e) SIGKILL of only the helper's attach child (the
-  pid its digest recorded, checked to be the helper's child running tmux, or remotely the
-  local `/usr/bin/ssh`, killed only when `ssh -G` shows no connection sharing), then `Close`
-  of the live buried tab. With iTerm2's "Automatically bury the tmux client session" setting
-  on (as on this Mac), it buries its own tab again where the default would have left it
-  buried; it never reads or writes the setting. It prints `OBSERVATION` lines with what iTerm2
-  did (FAIL only for harness or safety problems; about 40 s locally, 48 s on Saturno); its
+  `swift run muxfinder-probe e2e-bury --local | --ssh saturno-m4` (PLAN.md D29 through the
+  coordinator, whose own bury is on as in the app; 13 steps; `--help` contacts nothing)
+  creates its own `muxfinder-test-*` session (a `sleep 600` pane) and attaches it five times
+  (up to seven when step 7 races again) through its own launch tabs with no
+  existing-attachment check (so it asks no other connection), its coordinator going through
+  `RecordingITerm2Integration` (each bury, restore and `Close` recorded, and each bury's
+  answer; a hook runs right before each bury). Steps: 1 create session, 2 discover, 3 attach
+  (bury): confirmed, `burial` `buried`, the tab in `buried_sessions` and in no tab; 4 detach
+  within 10 s (at 5 s, a bound `detach-client` of the harness: the coordinator waits until
+  10 s); 5 reattach; 6 detach after 10 s (the coordinator's); 7
+  detach at the bury (D29's race: once the tab is 5 s old the hook releases the coordinator's
+  bury together with a bound `detach-client`, neither waiting for the other's answer; the
+  bury must be sent and answered `OK` and `burial` be `buried` or `restoredAfterEnd`; a bury
+  its ownership check refused, `failed` `tmuxConnectionNotOwned`, is not the race: the step
+  attaches and races again with the bury first, at most 3 attaches, then fails); 8 attach
+  without Disinter (`testSuppressDisinter`); 9 dead tab recovery (b, d): with iTerm2's
+  auto-hide setting on the tab must leave by itself, with it off the coordinator's recovery
+  must restore and close the dead buried tab within 29 s of the helper's result; 10 attach for
+  the kill; 11
+  kill attach child (e): SIGKILL of only the helper's attach child (the pid its digest
+  recorded, checked to be the helper's child running tmux, or remotely the local
+  `/usr/bin/ssh`, killed only when `ssh -G` shows no connection sharing) while buried: the
+  helper's result `childSignaled(9)`, exit 137; the tab back in a tab with an answered status
+  report (who brought it back observed) and in a tab at every later look until 2 s past the
+  helper's 10 s minimum lifetime, its helper alive, no `Close` or further bury of the
+  coordinator's, the session alive; 12 close after the kill (the same checks once more right
+  before the close); 13 cleanup. After every detach the launch tab must leave its tab and
+  `buried_sessions` by itself within 10 s (no restore or `Close` of the coordinator's recorded for it, except step
+  7's restore right after the bury) before any cleanup, or the step fails. It passes with
+  iTerm2's "Automatically bury the tmux client session" setting on or off (off by default;
+  this Mac has had it both ways, so never assume either), never reads or writes it, and
+  prints at the end what it saw of it (where each tab was right before the coordinator's
+  bury, and step 9's tmux end); about 72 s locally, 84 s on Saturno. Helper results are
+  peeked, never taken, so the coordinator's watch sees them (cleanup takes those left). Its
   cleanup restores, then closes, only its own launch tabs, checking every `Close` status and
   their absence, and kills only its own session.
   Check `muxfinder-probe iterm2 status` and iTerm2's thread count (`ps -M -p <pid> | wc -l`)

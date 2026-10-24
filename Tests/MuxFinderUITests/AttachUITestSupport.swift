@@ -49,6 +49,14 @@ actor SimulatedITerm2: ITerm2Integration {
   var attaches: Bool
   /// Whether `detach-client` closes the connection.
   var closesOnDetach = true
+  /// Whether a detach that closes the connection also lets the launch tab go (its helper
+  /// restores it, exits, and the tab closes); `false` leaves it where it is (stranded).
+  var closesLaunchTabOnDetach = true
+  /// The error `buryLaunchTab` answers once its ownership check passed, if any (iTerm2
+  /// refusing the bury).
+  var buryError: ITerm2Error?
+  /// Whether an answered bury buries the tab; `false` answers `OK` and leaves it in its tab.
+  var appliesBury = true
   /// The error `createTab` throws, if any.
   var createTabError: ITerm2Error?
   /// When set, the identity answer of a launch tab's connection names this session instead.
@@ -246,10 +254,12 @@ actor SimulatedITerm2: ITerm2Integration {
     sent.append(Sent(command: command, connectionID: connection.id))
     if command == ConnectionIdentity.detachCommand {
       if closesOnDetach {
-        // The helper restores its tab, then exits, and the tab closes (PLAN.md D29).
         connections.removeAll { $0.id == connection.id }
-        launchTabs.removeAll { $0 == connection.owner }
-        buried.remove(connection.owner)
+        if closesLaunchTabOnDetach {
+          // The helper restores its tab, then exits, and the tab closes (PLAN.md D29).
+          launchTabs.removeAll { $0 == connection.owner }
+          buried.remove(connection.owner)
+        }
       }
       return ""
     }
@@ -298,14 +308,16 @@ actor SimulatedITerm2: ITerm2Integration {
   }
 
   /// Records and applies the bury while the connection is owned by `sessionID`, like
-  /// `activateFirstTab`.
+  /// `activateFirstTab`; answers `buryError` instead when set, and buries nothing unless
+  /// `appliesBury`.
   func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws {
     guard connections.contains(where: { $0.id == connectionID && $0.owner == sessionID }) else {
       throw ITerm2Error.tmuxConnectionNotOwned
     }
     buriedRequests.append((true, sessionID))
-    apply(buried: true, to: sessionID)
-  }
+    if let buryError { throw buryError }
+    if appliesBury { apply(buried: true, to: sessionID) }
+  } // End of func buryLaunchTab(sessionID:ifOwnsTmuxConnection:)
 
   /// A bury (idempotent, S2) or a restore of a buried tab into a new window (S8).
   private func apply(buried bury: Bool, to sessionID: String) {

@@ -15,7 +15,11 @@ same core the app uses, and the self-tests drive the app's own `AppModel` in the
 binary. The last column is the Phase 12b acceptance run's, made on the final tree on
 2026-10-23: every unit test, both `e2e-*` runs, `e2e-profile` locally and on Saturno, both
 self-tests and row 12's quit check ran fresh and exited 0 (details under *Phase 12b —
-acceptance run* below).
+acceptance run* below). Phase 13c ran them again on 2026-10-24 with the launch tab hidden once
+attached (PLAN.md D29), all exiting 0 with every step passing: `e2e-local` 16 of 16,
+`e2e-remote saturno-m4` 17 of 17, `e2e-profile --local` 14 of 14 and the two self-tests,
+now 8 and 7 steps (rows 1–5, 9–11 and 13, the last locally only; row 12's quit check was not
+repeated; *Phase 13c* below).
 
 | # | Acceptance bullet | Status | Evidence so far (command, date, result, where) | 12b fresh run |
 |---|---|---|---|---|
@@ -40,7 +44,13 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase 12a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase 13c* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+
+Added after the brief (the user's report of 2026-10-24, PLAN.md Phase 13):
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| An attach (Open, New session, Move here) shows only the session's windows: the launch tab is buried once its first tmux tab is active, leaves by itself after every detach, and comes back after a failure. | Tested for real, locally and on Saturno, with iTerm2's "Automatically bury the tmux client session after connecting" off (its default); with it on, only by the Phase 13a spike. Through the real popover, with that setting on and off, where the focus goes after a detach, and Return after an abnormal end: owed to a person (checklist 14). | Phase 13c, 2026-10-24 (*Phase 13c* below): `e2e-local` 16 of 16 and `e2e-remote saturno-m4` 17 of 17 PASS, every confirmed attach (attach, reattach, concurrent attaches, new session, move here) `burial` `buried` with the tab in `buried_sessions` and in no tab, and after every detach the tab gone by itself, no restore or `Close` of the coordinator's recorded. `e2e-bury --local` and `--ssh saturno-m4` 13 of 13 PASS each: detaches within 10 s and after 10 s; the bury released together with a detach, sent and answered `OK` (`restoredAfterEnd` locally, `buried` on Saturno), the tab gone by itself; a dead buried tab removed by the coordinator's recovery; the attach child killed: the helper's result `childSignaled(9)`, the tab back with an answered status report and in a tab, its helper alive, past the helper's minimum lifetime, and the session alive. Both self-tests PASS with "launch tab buried" and "launch tab left". Hermetic: `LaunchTabBurialTests`, `ShowLaunchTabTests`, `LaunchTabRestoreTests`, `RecordingITerm2IntegrationTests`, `LaunchTabChecksTests`, `SelfTestDriverTests`. |
 
 ## Unit tests (`swift test`)
 
@@ -996,6 +1006,20 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   and both folders parse; each option without the flag, the flag with another mode, one
   folder alone, a missing, empty or relative folder are usage errors, and none rewrites at
   launch.
+- **Hiding the launch tab** (PLAN.md D29). The client: `SetProperty`/`GetProperty` against
+  golden fixtures from iTerm2's Python module and the bound `buryLaunchTab`
+  (`ITerm2APIClientTests`, `ITerm2GoldenTests`). The helper's restore (`LaunchTabRestoreTests`:
+  the bytes and their order after the result, the 2 s bound under back pressure, the second
+  restore when unanswered, the Return reader and signals, in a pseudo-terminal too). The
+  coordinator over the fakes' buried state (`LaunchTabBurialTests`: a bury before or after the
+  helper's restore, the result before or after the peek, a bury timeout, the connection gone,
+  coalesced callers, focus, Move here, `.noTab`, a failed activation, the recovery closing a
+  clean dead tab and leaving a failed one visible; `ShowLaunchTabTests` for Show tab during a
+  pending bury; `LaunchStoreTests` for `peekResult`). `RecordingITerm2IntegrationTests` for the
+  e2e runs' recording (each bury's answer included), `LaunchTabChecksTests` for `e2e-bury`'s
+  judgements of steps 7 and 11 (an ownership refusal is never the race; a killed attach's tab
+  that vanishes or is buried again after coming back, a wrong result, a dead helper or a short
+  watch fail), and `SelfTestDriverTests` for the self-tests' two new steps.
 - **Install and uninstall scripts** (not `swift test`; `scripts/dev/test-install-scripts.sh`,
   PLAN.md D27): see *Phase 12a* below.
 
@@ -1024,7 +1048,8 @@ and read the digest it writes before parsing its arguments (PLAN.md D14):
   SHA-256, and `launchID` with the request's id. `muxfinder-probe e2e-local` does exactly that
   for every launch it makes, and checks that no attach child of a normal attach used `-d`;
   for its attaches and its move here it also compares `attachChild` with the exact argv it
-  expects.
+  expects. A helper rewrites its digest after each launch tab restore (below), also after a
+  later step took it, so the run leaves out digests of launches a step already checked.
 - In `profile` mode (PLAN.md D26) test mode never starts the login shell: its argv
   (`-<name>`) is recorded as `attachChild` with `startsLoginShell: true`, and the helper ends
   like a failed launch. It also reads `launch/profile-test-<host id>.json`, when one exists for
@@ -1103,7 +1128,14 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   cleanup (first ends the plain control client if it still runs; also kills any extra session
   of the run, found by its exact name if its output was lost, and removes the private
   directory). Steps 3 and 7 also compare their attach child with the exact argv without
-  `-d`. Notes under the steps record what iTerm2 did
+  `-d`. Every confirmed attach (steps 3, 7, 8, 14 and 15) must also end with `burial`
+  `buried` and its launch tab in `buried_sessions` and in no tab within 5 s, and after every
+  detach that tab must leave both iTerm2's tabs and `buried_sessions` by itself within 10 s,
+  before any cleanup: the run's coordinators talk to iTerm2 through
+  `RecordingITerm2Integration`, and a restore or `Close` of the coordinator's that may have
+  touched the tab fails the step (PLAN.md D29). Cleanup closes each leftover launch tab
+  (forced), checking the answer and its absence, and restores a still-listed buried one before
+  closing it again. Notes under the steps record what iTerm2 did
   (argv split, placement, tab fields, the check's counts and timings, whether the launch tab
   closed, how old each launch tab was when it ended). Exit 0 only when all 16 pass; 128 + n
   after signal n. Safety: only its own session, which every later step (rediscovery
@@ -1168,8 +1200,10 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   runs, detaches leftovers, kills the run's sessions by id with the identity check
   in the same tmux command, one ssh invocation each — never
   `kill-server`; the server exits by itself when it was the last session — closes the run's
-  leftover launch tabs once 10 s old, removes the marker). The same safety rules as
-  `e2e-local`: only its own session, recognized by server, id, creation time and name; its
+  leftover launch tabs once 10 s old, removes the marker). The same launch tab checks as
+  `e2e-local` (steps 3, 6, 15 and 16 buried; every detach's tab gone by itself). The same
+  safety rules as `e2e-local`: only its own session, recognized by server, id, creation time
+  and name; its
   index asks only its own launch tabs' connections; every wait bounded (ssh calls 12 s, the
   plain client 15 s to attach and 10 s to exit, the whole run 300 s); cleanup after a failure,
   a signal or the time limit; exit 0 only when all 17 pass, 128 + n after signal n. Needs key
@@ -1177,6 +1211,50 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   not answer). Every ssh login it makes is the run's own, with key authentication. A passing
   run takes about 123 s, 28.7 s of it the still-waiting step, 16.6 s the move-here step and
   14 s the new-session step.
+- `swift run muxfinder-probe e2e-bury --local | --ssh saturno-m4` — the real check of the
+  hidden launch tab (PLAN.md D29; Phase 13a's spike, run through the coordinator since Phase
+  13c, whose own bury is on as in the app; `--help` contacts nothing). It creates
+  `muxfinder-test-<8 hex digits>` (one `sleep 600` pane) and attaches it five times (up to
+  seven when step 7 races again) with no existing-attachment check, so it asks no other
+  connection; its coordinator goes through `RecordingITerm2Integration`, which also records
+  each bury's answer, with a hook right before each bury. Steps 7 and 11 are judged by
+  `BuryRaceOutcome` and `KilledLaunchTabWatch`
+  (`Sources/MuxFinderCore/Attach/LaunchTabChecks.swift`, covered by `LaunchTabChecksTests`; the
+  probe has no test target). Steps: 1 create session, 2 discover, 3 attach (bury): confirmed,
+  `burial` `buried`, the tab in `buried_sessions` and in no tab, the helper's digest naming
+  its attach child's pid; 4 detach within 10 s (a bound
+  `detach-client` of the harness at 5 s); 5 reattach; 6 detach after 10 s (the
+  coordinator's); 7 detach at the bury, D29's race for real: once the tab is 5 s old the hook
+  releases the coordinator's bury together with a bound `detach-client` of the harness,
+  neither waiting for the other's answer (attempt 1: both at once; later attempts: the bury
+  first, the detach the moment the recorder forwarded it); the bury must be sent and answered
+  `OK` and `burial` be `buried` (the helper's restore undoes it) or `restoredAfterEnd` (the
+  coordinator's check after the bury saw tmux had ended), and the order of the detach, the
+  bury, their answers, the helper's result and first restore and the attach's return is
+  printed; a bury its ownership check refused (`failed` `tmuxConnectionNotOwned`, nothing
+  buried) is reported as not the race, its tab must still leave by itself, and the step
+  attaches and races again, at most 3 attaches, then fails; 8 attach without Disinter
+  (`testSuppressDisinter`); 9 dead tab recovery (b, d): with iTerm2's auto-hide setting on
+  the tab must leave by itself, with it off the coordinator's recovery must restore and close
+  the dead buried tab within 29 s of the helper's result; 10 attach for the kill; 11 kill
+  attach child (e): SIGKILL of only the helper's attach child (checked to be the helper's
+  child running tmux, or remotely the local `/usr/bin/ssh`, killed only when `ssh -G` shows
+  no connection sharing) while buried, then a watch until 2 s past the helper's 10 s minimum
+  lifetime (at least 8 s, at most 20 s after the kill): the helper's result
+  `childSignaled(9)`, exit 137 (D14); the tab back in a tab with an answered status report
+  (who brought it back observed) and in a tab at every later look (never buried again, never
+  gone), its helper alive at the end (waiting for Return), no `Close` or further bury of the
+  coordinator's, the session alive; 12 close after the kill (the same checks once more right
+  before the close); 13 cleanup (restores, then closes, only its own launch tabs,
+  checking every status and their absence; kills only its own session). After every detach
+  the tab must leave its tab and `buried_sessions` by itself within 10 s, before any cleanup,
+  with no restore or `Close` of the coordinator's recorded for it (but step 7's one restore
+  right after the bury).
+  It passes with the auto-hide setting on or off, never reads or writes it, and prints
+  `OBSERVATION` lines with what iTerm2 did, ending with what it saw of the setting. Exit 0
+  only when all 13 pass, 128 + n after signal n; the whole run is bounded to 300 s. A passing
+  run takes about 72 s locally and 84 s on Saturno (about 11 s more for each extra attempt of
+  step 7).
 - `swift run muxfinder-probe attach --local | --ssh <destination> --session '<$id>'` — one
   real attach of a session of the default server of this Mac or of a remote host (the launch
   tab runs `ssh -t`, so any password prompt appears there), the way the app does it; prints
@@ -1705,7 +1783,10 @@ covered by the unit tests above (PLAN.md D25).
   self-test <name>: passed (<n> steps)` or `failed` after `cleanup:` lines; exit 0 passed, 1 a
   step failed or the run was interrupted (cleanup ran), 2 unusable arguments, `TMUX_TMPDIR` set
   or the helper missing (nothing contacted). It opens one launch tab (in a new window) and
-  its session's tmux tab, creates and kills only its own `muxfinder-test-<hex>` session,
+  its session's tmux tab; since Phase 13c a "launch tab buried" step checks that tab in
+  `buried_sessions` and in no tab after the confirmation, and a "launch tab left" step its
+  departure by itself after the detach (`attach-local` 8 steps, `new-session-local` 7). It
+  creates and kills only its own `muxfinder-test-<hex>` session,
   detaches only with `detach-client` through the core and never closes a tab; SIGTERM or
   SIGINT during the steps clean up and exit 1.
 - **Quit leaves work running (Phase 10b).** `build/muxFinder.app/Contents/MacOS/muxFinder
@@ -2047,3 +2128,32 @@ tab again where the default would have left it buried. The answers to (a)–(e) 
 | Saturno, runs 1–2 | `swift run muxfinder-probe e2e-bury --ssh saturno-m4` (`ssh -G`: no connection sharing, so step 10 killed the local ssh child) | exit 0, 12 of 12 PASS each in 47.8 s (run 2 is the final one). iTerm2 at 17 and 16 threads after |
 | Leftovers after every run | `tmux ls` on Neptuno and Saturno; `iterm2 list-sessions` (summary); `ls` of the launch directory; `pgrep -fl muxfinder-launch` | no tmux server on either Mac; 1 window, 1 tab, 0 buried sessions, as before; the launch directory empty; no helper running |
 | Hermetic | `swift build`; `swift test`; `swift format lint -r Sources Tests` | exit 0, no warnings; exit 0, 705 tests in 70 suites (core) and 162 in 14 suites (UI); exit 0 |
+
+### Phase 13c — real runs with the launch tab hidden (2026-10-24)
+
+The coordinator's bury (Phase 13b) and the self-tests' new steps against the real iTerm2
+3.7.6 and tmux 3.8, locally and on Saturno, one run at a time from the repo root with
+`TMUX_TMPDIR` unset. Before each run: `swift build`, `iterm2 status` connected, iTerm2 at 38
+threads or fewer, no leftovers. iTerm2 exited between 12:15 and 12:24, not by the run; the
+first gate found it not running (`iterm2 status` exit 69) and waited, never launching it. It
+came back with the `AutoHideTmuxClientSession` key absent (read only; it read on before the
+exit), so every run below had iTerm2's default, auto-hide off; Phase 13a's spike had it on.
+iTerm2 buried none of the 20 launch tabs of the four `e2e-bury` runs itself, and step 9's tab
+stayed buried at the tmux end without `Disinter`: S5's "off" branch, seen at run time. From
+the second `e2e-local` attempt on, one tmux connection of the user's existed; no run asked it
+anything. iTerm2's thread
+count stayed at 17–23.
+
+| Check | Command | Observed result |
+|---|---|---|
+| `e2e-local`, attempt 1 | `swift run muxfinder-probe e2e-local` | exit 1, 7 of 16 PASS in 22.4 s: step 7 reattach found 2 argv digests where it expected 1. Since Phase 13a the helper rewrites its digest after each launch tab restore, so step 3's helper rewrote it after step 6's detach, after that step's take. Harness fix: `takeNewArgvDigests()` (`Sources/muxfinder-probe/E2ERun.swift`) leaves out launches a step already checked; then `swift build`, `swift test` (737 tests in 73 suites, core; 166 in 14 suites, UI) and the lint exit 0. Cleanup left nothing of the run but one helper result in the launch directory (later removed by the sweep, D14) |
+| `e2e-local`, attempt 2 | the same | exit 0, 16 of 16 PASS in 65.5 s. Every confirmed attach (steps 3, 7, 8, 14, 15) `burial` `buried`, the bury and its check done 449–702 ms after the call (29–31 ms after the activation in steps 3 and 7); after every detach the tab left its tab and `buried_sessions` by itself, 224–241 ms after the helper's result where noted, the tabs 10.3–10.4 s old. Threads 19 → 21 |
+| `e2e-remote` | `swift run muxfinder-probe e2e-remote saturno-m4` | exit 0, 17 of 17 PASS in 120.4 s. The bury and its check done 2174–3341 ms after the call (76–105 ms after the activation in steps 3 and 6); the tab left by itself 23–248 ms after the helper's result. Threads 18 → 18 |
+| `e2e-bury`, locally | `swift run muxfinder-probe e2e-bury --local` | exit 0, 13 of 13 PASS in 72.3 s (the rerun after the Phase 13c review's harness fix: the first run, 13 of 13 in 72.6 s, had passed step 7 on a bury its ownership check refused, `failed` `tmuxConnectionNotOwned`, since its detach went out first and the bury only after the detach's answer; such a refusal no longer counts, and step 11 now asserts more; then `swift build`, `swift test` (745 tests in 74 suites, core; 166 in 14 suites, UI) and the lint exit 0). Steps 4 and 7 (detach at 5 s): the tab left by itself 5519 and 5053 ms after the helper's result (its 10 s minimum lifetime); step 6 (the coordinator's detach at 10.3 s): 225 ms. Step 7, attempt 1 (the bury and the detach released together, the tab 5.2 s old): the bury answered `OK` 10 ms after the release, the detach's answer and the helper's result at 39 ms, its first restore requested at 40 ms; the coordinator's check after the bury saw tmux had ended and restored the tab (`restoredAfterEnd`, its one restore; the attach returned at 140 ms); the tab left by itself. Step 9: a dead buried session once its helper exited (S4); the coordinator's recovery sent 1 restore and 1 forced `Close`, and it was gone within the 29 s bound; the helper's status reports, with no `Disinter`, answered after 58 and 1008 ms. Step 11 (SIGKILL of the `tmux -CC` child): the helper's result exit 137 `childSignaled`; the connection gone 102 ms after the kill; the helper's first restore unanswered, its second answered after 10 ms; the tab back in a tab 1555 ms after the kill, possibly by the coordinator's recovery (it had sent a restore after the helper's failure result), and in a tab at every look after that until 11.9 s after the kill (the helper's minimum lifetime ended at 9.7 s; 55 looks); the helper alive, waiting for Return; the session alive. Step 12: still in a tab right before the close; `Close` answered OK, the tab gone 25 ms later. Threads 17 → 20 |
+| `e2e-bury`, Saturno | `swift run muxfinder-probe e2e-bury --ssh saturno-m4` (`ssh -G`: no connection sharing, so step 11 killed the local ssh child) | exit 0, 13 of 13 PASS in 83.7 s (the rerun after the review fix; the first run, 13 of 13 in 81.5 s, had passed step 7 on an ownership refusal as locally). Steps 4 and 7: left 4829 and 4844 ms after the helper's result; step 6: 0 ms. Step 7, attempt 1 (released together, the tab 5.2 s old): the bury answered `OK` 8 ms after the release and the attach returned at 39 ms with `burial` `buried` (its check saw no result and the connection still owned); the detach answered at 88 ms, the helper's result and its first restore came at 165 ms and undid the bury; the tab left by itself. Step 9: as locally; the status reports with no `Disinter`: two unanswered within 2 s, the last answered after 1341 ms. Step 11: the result exit 137 `childSignaled`; the connection gone 104 ms after the kill; the first restore unanswered, the second answered after 116 ms; the tab back 2127 ms after the kill, possibly by the coordinator's recovery, and in a tab at every later look until 10.9 s after the kill (the minimum lifetime ended at 8.7 s; 55 looks); the helper alive; the session alive. Step 12: gone 25 ms after `Close`. Threads 20 → 17 |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Attach self-test | `build/muxFinder.app/Contents/MacOS/muxFinder --selftest attach-local` | exit 0, passed (8 steps) in about 16 s: Open five times confirmed with 1 launch in 623 ms; 4 launch tab buried (`burial` `buried`, listed so when the attach ended); Open again focused; detach from this Mac; 7 launch tab left by itself 106 ms after the detach ended; kill. Threads 18 → 20 |
+| New session self-test | `build/muxFinder.app/Contents/MacOS/muxFinder --selftest new-session-local` | exit 0, passed (7 steps) in 11 s: new session confirmed in 526 ms; 3 launch tab buried; the same name refused as a collision with "Open existing" offered; detach; 6 launch tab left 107 ms after the detach ended; kill. Threads 17 → 23 |
+| `e2e-profile`, locally | `swift run muxfinder-probe e2e-profile --local` | exit 0, 14 of 14 PASS in 11.3 s, unchanged (its tab is not the coordinator's, so nothing buries it); the snapshots before install, after install and after removal identical (0 other `DynamicProfiles` entries, 13 `New Bookmarks` entries hashed). Threads 18 → 18 |
+| Leftovers after every run | `tmux ls` on Neptuno and Saturno; `iterm2 list-sessions` (summary); `ls` of the launch directory, `DynamicProfiles/` and `/private/tmp`; `ps` | no `muxfinder-test-*` session on either Mac; 0 buried sessions and iTerm2's listing as before the run; the launch directory empty (after attempt 1, the one helper result above); no `mfx.*` folder; no `muxFinder.json`; no process of the bundle left after the self-tests |
+| After all runs | `muxfinder-probe profiles hashes`, compared with the one taken before the first run | byte-identical |

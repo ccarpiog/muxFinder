@@ -153,6 +153,15 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   session is already open in iTerm2 here, it brings that tab forward instead of opening a
   second one; repeated clicks while a launch is pending start only one. A session that
   disappeared since the last refresh is reported, never recreated.
+- **The launch tab is hidden while attached.** Once the session's first window shows,
+  muxFinder hides the tab it opened (it buries it through iTerm2's API), so one open (or New
+  session, or Move here) shows only the session's windows. While the session is attached, that
+  tab is listed under iTerm2's Session › Buried Sessions. When the session is detached, the tab
+  shows briefly and closes by itself (after a detach within 10 s of opening, it stays until it
+  is 10 s old). If the attachment ends with a failure (the connection drops, say), the tab
+  comes back with the explanation and closes when you press Return. iTerm2's own
+  "Automatically bury the tmux client session after connecting" setting (Settings › General ›
+  tmux) needs nothing more: muxFinder works the same with it on or off, and never changes it.
 - **Move here…** (context menu) attaches here and detaches the session's other clients (on
   other Macs); the confirmation says so. A normal open keeps other clients attached.
 - **Detach from this Mac** (context menu) detaches iTerm2's tmux client with tmux's own
@@ -203,9 +212,14 @@ profile your default: iTerm2 › Settings › Profiles, select it, Other Actions
   none is published), Intel builds.
 - **Known rough edges** (details in `docs/TESTING.md` and `PROGRESS.md`): a few checks need a
   person and are listed in `docs/MANUAL-CHECKLIST.md` (the real popover by hand, launch at
-  login, "Show tab", the first Finder launch, Sirio, persistent profiles from Settings);
+  login, "Show tab", the first Finder launch, Sirio, persistent profiles from Settings, the
+  hidden launch tab);
   quitting can take up to 15 s while an open is in flight; iTerm2 3.7.6 shows a modal warning
-  for tabs that end within 3 s of opening, so muxFinder's tabs never end sooner than 10 s.
+  for tabs that end within 3 s of opening, so muxFinder's tabs never end sooner than 10 s. A
+  launch tab can be left under Session › Buried Sessions when its attachment ended abnormally
+  and its helper could not bring it back (the helper itself killed, iTerm2's advanced setting
+  "Tolerate unrecognized commands from server" on, or a tmux command still in flight at that
+  moment) while muxFinder was not running to do it; choose it there to show it, then close it.
 
 What was tested for real and what is only expected to work: `docs/TESTING.md`, "Tested vs
 expected to work".
@@ -240,6 +254,6 @@ delete the app and `~/Library/Application Support/muxFinder`.
 - `docs/TESTING.md`: unit tests, real checks and the tested vs expected-to-work matrix.
 - `docs/MANUAL-CHECKLIST.md`: the checks owed to a person.
 - `docs/INTEGRATION-PROOF.md`: what the attach path does against the real iTerm2.
-- `PLAN.md`: the plan and every design decision (D1–D27).
+- `PLAN.md`: the plan and every design decision (D1–D29).
 
 License: MIT (`LICENSE`).

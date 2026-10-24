@@ -6,10 +6,12 @@ import os
 /// `--selftest new-session-local`.
 public enum SelfTestKind: String, Sendable, Hashable, CaseIterable {
   /// Create a `muxfinder-test-*` session, Open it (confirmed; a burst of five clicks gives one
-  /// launch), Open it again (focused, no second launch), Detach from this Mac, kill it.
+  /// launch), its launch tab buried (PLAN.md D29), Open it again (focused, no second launch),
+  /// Detach from this Mac, its launch tab gone by itself, kill it.
   case attachLocal = "attach-local"
-  /// New session with a `muxfinder-test-*` name (created and confirmed), the same name again
-  /// (collision), Detach from this Mac, kill it.
+  /// New session with a `muxfinder-test-*` name (created and confirmed), its launch tab
+  /// buried, the same name again (collision), Detach from this Mac, its launch tab gone by
+  /// itself, kill it.
   case newSessionLocal = "new-session-local"
 }
 
@@ -39,6 +41,13 @@ public struct SelfTestTimeouts: Sendable {
   /// For a "Detach from this Mac" to end (it waits until the tab is 10 s old, then up to 10 s
   /// for the connection to close and 5 s for the helper's result).
   public var detach: Duration
+  /// For the launch tab of the confirmed attach to show only in `buried_sessions` once the
+  /// attach ended (PLAN.md D29: the coordinator buried it before it reported the attach).
+  public var burial: Duration
+  /// For the launch tab to leave both iTerm2's tabs and `buried_sessions` by itself once the
+  /// detach ended: the helper restores it (one bounded 2 s exchange), makes its last restore
+  /// and exits, and the tab closes (as `e2e-local` waits).
+  public var departure: Duration
   /// How old every launch tab of the run must be before cleanup ends its session: iTerm2
   /// blocks its API behind a modal warning for a session that ends within 3 s of starting, so
   /// cleanup keeps the coordinator's 10 s, plus a margin.
@@ -51,15 +60,19 @@ public struct SelfTestTimeouts: Sendable {
     listing: Duration = .seconds(20),
     attach: Duration = .seconds(45),
     detach: Duration = .seconds(45),
+    burial: Duration = .seconds(5),
+    departure: Duration = .seconds(10),
     launchTabAge: Duration = .seconds(11),
     pollInterval: Duration = .milliseconds(100)
   ) {
     self.listing = listing
     self.attach = attach
     self.detach = detach
+    self.burial = burial
+    self.departure = departure
     self.launchTabAge = launchTabAge
     self.pollInterval = pollInterval
-  } // End of init(listing:attach:detach:launchTabAge:pollInterval:)
+  } // End of init(listing:attach:detach:burial:departure:launchTabAge:pollInterval:)
 }
 
 /// tmux as a self-test drives it outside the app's own paths: creating its test session (for
@@ -88,7 +101,9 @@ public protocol SelfTestTmux: Sendable {
 /// iTerm2 client, discovery, launch store, tmux and clock; the hermetic tests pass a fake
 /// iTerm2 integration, fake discovery and tmux, an in-memory store and a manual clock.
 public struct SelfTestSeams: Sendable {
-  /// iTerm2 (the coordinator's, and the setup's read-only status check).
+  /// iTerm2: the coordinator's (through the driver's `RecordingITerm2Integration`), the
+  /// attachment index's, and the driver's read-only checks (status, connections, the listing
+  /// of its own launch tab).
   public var iTerm2: any ITerm2Integration
   /// Discovery, for the engine and the coordinator.
   public var discovery: any HostDiscovering

@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D27); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D29); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -18,8 +18,8 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | ├ `Tmux/` | tmux locator, the static discovery script and its parser, session identity, error classification, session creation commands. |
 | ├ `Refresh/` | `RefreshCoordinator` actor (concurrency limit, cadence, backoff, stale results dropped), `HostSnapshot`, sleep/wake and network events. |
 | ├ `ITerm2/` | The hand-written iTerm2 API client: WebSocket over iTerm2's Unix socket, a minimal protobuf codec, typed requests, the `ITerm2Integration` protocol and its fake. |
-| ├ `Launch/` | The launch protocol shared with the helper: request and result files, the guard script, remote launch strings, `LaunchHelper` itself, profile mode. |
-| ├ `Attach/` | `AttachCoordinator` (revalidate, launch, confirm, focus, detach, move here, create and attach), `AttachmentIndex`, `LaunchTab`, `SSHSetupLauncher`. |
+| ├ `Launch/` | The launch protocol shared with the helper: request and result files, the guard script, remote launch strings, `LaunchHelper` itself (with its launch tab restore, `TerminalStatusRequest`), profile mode. |
+| ├ `Attach/` | `AttachCoordinator` (revalidate, launch, confirm, focus, detach, move here, create and attach; the launch tab's bury and recovery in `AttachCoordinatorBurial`), `AttachmentIndex`, `LaunchTab`, `SSHSetupLauncher`. |
 | ├ `Profiles/` | Persistent profile generator, installer and remover, the hash snapshot of iTerm2's other profiles, the `e2e-profile` run. |
 | ├ `Diagnostics/` | Operation log (ring buffer plus `os.Logger`); outcomes and timings, never terminal content. |
 | └ `Concurrency/` | Small helpers for awaited, cancellable tasks. |
@@ -59,6 +59,8 @@ click → AttachCoordinator: rediscover (still the same session?) → already op
         ssh -t -- <dest> '<static script>' <args>   (SSH host; the script re-checks identity)
       → iTerm2 shows a new tmux connection owned by that tab
       → coordinator asks it for its server and session (identity) → confirmed → activate
+      → bury the launch tab (SetProperty "buried", bound to that connection's owner)
+      → tmux ends: the helper restores the tab (Disinter), explains a failure, exits
 ```
 
 - iTerm2 only ever receives the helper's absolute path and a token (D2); every value travels
@@ -72,12 +74,43 @@ click → AttachCoordinator: rediscover (still the same session?) → already op
   closes a tab. New session creates with `new-session -d`, then attaches the same way (D18).
 - "Set up SSH in iTerm2…" opens the same kind of tab running plain interactive ssh (D24).
 
+## Hiding the launch tab (D29)
+
+- **The bury** is the coordinator's step 10: once an attach (also a new session or a move
+  here) is confirmed and step 9 activated a tmux tab, it buries its own launch tab, once per
+  launch, through `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)` (bound like every command,
+  D15). The outcome is `AttachResult.burial` (`buried`, `skipped`, `failed`, `uncertain` or
+  `restoredAfterEnd`); a failed bury is never retried and the attach stays confirmed. A
+  buried tab still owns its connection, so the bound identity check and `detach-client` work
+  as before. muxFinder never reads iTerm2's preferences: with its "Automatically bury the tmux
+  client session" setting on, iTerm2 has buried the tab already and the bury answers `OK`.
+- **The helper's restore** (D14, D29): once its attach child ends, for every outcome, the
+  helper writes its result, then a line feed, `OSC 1337 ; Disinter ST` and a status report
+  request (`ESC [ 5 n`), and waits at most 2 s for the answer; iTerm2 answers only after it
+  ran what came before, so an answer means the restore ran. The line feed ends iTerm2's tmux
+  mode after an abnormal end (tmux sent no `%exit`); when the first exchange goes unanswered,
+  `Disinter` and the request go again at once. Then come the explanation, the wait for Return
+  and the 10 s hold, and one more restore just before it exits.
+- **The race, closed by order:** the result is written before the first restore, so right
+  after the bury's answer the coordinator peeks at it (`LaunchRequestStore.peekResult`, never
+  a take) and checks the connection's owner; if tmux already ended, it restores the tab at
+  once (`restoredAfterEnd`).
+- **Recovery while the app runs** (memory only): the coordinator remembers the latest 64 tabs
+  it buried. While any is remembered, a file-only peek at their results runs every 2 s
+  (`BuriedTabTimer`) and at every attach and detach; iTerm2 is contacted only once a result
+  appeared (or one of the coordinator's own connection listings showed the tab owning none).
+  After a failure the tab is restored and left visible for its explanation; after a clean end
+  a tab still listed 15 s later (a dead buried session) is restored and closed (forced, by its
+  own session id).
+  "Show tab" restores a buried tab before it activates it.
+
 ## The iTerm2 client (D1)
 
 muxFinder speaks iTerm2's API itself: a WebSocket client over the Unix socket
 `~/Library/Application Support/iTerm2/private/socket`, a hand-written protobuf codec for the
 few messages it needs (`ListSessions`, `CreateTab`, `Activate`, `ListProfiles`, tmux
-`ListConnections`/`SendCommand`, `Close`), and the access cookie from one static AppleScript
+`ListConnections`/`SendCommand`, `Close`, `SetProperty`/`GetProperty`), and the access cookie
+from one static AppleScript
 command run in-process (the macOS Automation permission). One reader thread and one writer
 queue per connection; requests carry deadlines and are never retried (D13). There is no
 Python, no SwiftProtobuf and no code generated from iTerm2's `api.proto`: iTerm2 is GPLv2 and
@@ -138,4 +171,5 @@ All in `PLAN.md` *Decisions*:
 | D11 | Hermetic tests | D25 | Attach UX in the app |
 | D12 | `tmux -u` everywhere | D26 | Persistent work profiles |
 | D13 | iTerm2 transport model | D27 | Install and uninstall scripts |
-| D14 | Launch protocol | | |
+| D14 | Launch protocol | D28 | App icon, menu bar icon and release signing |
+| | | D29 | Hiding the launch tab once attached |

@@ -130,8 +130,9 @@ public actor AttachCoordinator {
     /// user clicks the menu bar).
     public var activatesApp: Bool
     /// Whether a confirmed attach buries its launch tab once its first tmux tab is activated
-    /// (PLAN.md D29). Off only for the Phase 13a spike harness (`e2e-bury`), which buries by
-    /// itself; `AttachResult.burial` is then `skipped(turnedOff)`.
+    /// (PLAN.md D29). On in the app, the probe and the self-tests (`e2e-bury` too, since Phase
+    /// 13c); turned off, the launch tab stays in its tab and `AttachResult.burial` is
+    /// `skipped(turnedOff)`.
     public var buriesLaunchTabs: Bool
     /// How often the timer looks (file only) at the helpers' results of the launch tabs the
     /// coordinator buried, while it remembers any (`BuriedTabTimer`).
