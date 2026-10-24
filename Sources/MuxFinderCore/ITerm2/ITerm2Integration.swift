@@ -103,6 +103,24 @@ public protocol ITerm2Integration: Sendable {
     options: ITerm2API.ActivateRequest
   ) async throws -> String?
 
+  /// Buries (`buried` `true`) or restores (`false`) the session `sessionID` through its
+  /// `buried` property (`SetPropertyRequest`, PLAN.md Phase 13 S1). iTerm2 answers `OK` without
+  /// acting when the session is in that state already (S2). Throws `setPropertyFailed` unless
+  /// iTerm2 reports `OK`.
+  func setBuried(_ buried: Bool, sessionID: String) async throws
+
+  /// Buries the launch tab `sessionID` only while iTerm2 lists the tmux connection
+  /// `connectionID` as owned by it, the rule of `activateFirstTab(ofTmuxConnection:ownedBy:options:)`:
+  /// on one API connection, never reconnecting in between, it lists the tmux connections and,
+  /// if one has that id and owner, sends the bury (`setBuried(true, sessionID:)`'s request). A
+  /// launch tab whose connection ended, or whose connection id now names another tab's
+  /// connection, is never buried this way.
+  ///
+  /// - Throws: `tmuxConnectionNotOwned` when no listed connection has that id and owner, and
+  ///   `notSent(reason)` when the listing failed (in both cases nothing was buried); otherwise
+  ///   what `setBuried(_:sessionID:)` throws.
+  func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws
+
   /// Profiles with the requested properties (`properties` empty: all of them), limited to
   /// `guids` (empty: every profile).
   func listProfiles(properties: [String], guids: [String]) async throws -> [ITerm2API.Profile]

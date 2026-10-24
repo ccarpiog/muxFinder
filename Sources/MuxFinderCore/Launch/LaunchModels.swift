@@ -173,6 +173,12 @@ public struct LaunchRequest: Sendable, Hashable, Codable {
   /// it. Absent (`nil`, not written to the file) in every request the app writes; when set it
   /// must be within `testLaunchDelayRange`.
   public var testLaunchDelaySeconds: Int? = nil
+  /// Test mode only (PLAN.md Phase 13a, spike (b)): `true` makes the helper write no
+  /// `Disinter` sequence when its attach child has ended (it still writes the status report
+  /// requests and waits for their answers), so a launch tab buried through the API stays
+  /// buried. A helper not in test mode ignores it, so a request alone can never suppress the
+  /// restore. Absent (`nil`, not written to the file) in every request the app writes.
+  public var testSuppressDisinter: Bool? = nil
   /// Move here (PLAN.md D21): whether tmux detaches the session's other clients as it attaches
   /// (`attach-session -d`). Absent (`nil`, not written to the file) in every request of a
   /// normal attach, so a request without the field, including one written before Move here

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 /// A digest of the argv `muxfinder-launch` received, written in test mode so Phase 4b can check
 /// exactly how iTerm2 split the tab's `Command` property (PLAN.md D14).
@@ -19,6 +20,11 @@ import Foundation
 /// a remote host, or the plain ssh of `ssh-setup`, PLAN.md D24), the helper writes the digest
 /// again with `attachChild`: that child's argv digested the same way, and whether it detaches
 /// the session's other clients (`-d`, a move here, PLAN.md D21; never for ssh setup).
+///
+/// In `attach` mode it is written again as the launch goes on (PLAN.md Phase 13a): with
+/// `attachChildProcessID` right after the attach child was spawned, so a harness can signal
+/// exactly that process, and with one `tabRestores` record after each launch tab restore
+/// (after the attach child ended, and just before the helper exits).
 public struct LaunchArgvDigest: Sendable, Hashable, Codable {
   /// One argument's digest.
   public struct Argument: Sendable, Hashable, Codable {
@@ -66,6 +72,55 @@ public struct LaunchArgvDigest: Sendable, Hashable, Codable {
     } // End of init(executable:arguments:detachesOtherClients:startsLoginShell:)
   } // End of struct AttachChild
 
+  /// One launch tab restore of a finished attach (PLAN.md Phase 13 item 4): the `Disinter`
+  /// sequence (unless the request's test switch suppressed it) and a status report request,
+  /// and how the terminal answered. It holds times and kinds only, never terminal content.
+  public struct TabRestoreRecord: Sendable, Hashable, Codable {
+    /// When in the helper's end the restore ran.
+    public enum Stage: String, Sendable, Hashable, Codable {
+      /// Right after the attach child ended and the result was written (a line feed comes
+      /// first, `LaunchHelper.tmuxModeEndSequence`).
+      case afterChild
+      /// Right after `afterChild`, only when that went unanswered: iTerm2 was still parsing the
+      /// tab as a tmux gateway, and the line feed ended that (PLAN.md D29).
+      case afterTmuxModeEnd
+      /// Just before the helper exits, after the explanation, the wait and the hold.
+      case beforeExit
+    }
+
+    /// When in the helper's end the restore ran.
+    public var stage: Stage
+    /// Whether the `Disinter` sequence was written before the status report request (`false`
+    /// only for a request with `testSuppressDisinter` in test mode).
+    public var wroteDisinter: Bool
+    /// When the helper asked the terminal (just before it discarded typed input and wrote).
+    public var requestedAt: Date
+    /// When the wait ended (the answer read, the time up, or nothing to wait for).
+    public var endedAt: Date
+    /// `TerminalStatusReport.kind`: `answered`, `unanswered` or `unavailable`.
+    public var outcome: String
+    /// For an answer, how long after the request it came, in whole milliseconds.
+    public var answeredAfterMilliseconds: Int?
+
+    /// Creates a record of a restore whose status report ended with `report`.
+    public init(
+      stage: Stage,
+      wroteDisinter: Bool,
+      requestedAt: Date,
+      endedAt: Date,
+      report: TerminalStatusReport
+    ) {
+      self.stage = stage
+      self.wroteDisinter = wroteDisinter
+      self.requestedAt = requestedAt
+      self.endedAt = endedAt
+      outcome = report.kind
+      if case .answered(let after) = report {
+        answeredAfterMilliseconds = Int(after / .milliseconds(1))
+      }
+    } // End of init(stage:wroteDisinter:requestedAt:endedAt:report:)
+  } // End of struct TabRestoreRecord
+
   /// The format version this build writes.
   public static let currentFormatVersion = 1
   /// The prefix of digest file names.
@@ -88,6 +143,12 @@ public struct LaunchArgvDigest: Sendable, Hashable, Codable {
   /// The attach child, once the helper is about to start it (the digest file is then written
   /// again with it); absent before, and for a launch that ended without one.
   public var attachChild: AttachChild?
+  /// The attach child's process id, once it was spawned (`attach` mode only); absent before,
+  /// and for a launch that started none. The child is the helper's own, unreaped until it ends.
+  public var attachChildProcessID: Int32?
+  /// The launch tab restores so far (`attach` mode only, after the attach child ran), in order;
+  /// absent before the first.
+  public var tabRestores: [TabRestoreRecord]?
 
   /// Digests `argv` (raw bytes, argv[0] first).
   public init(argv: [[UInt8]], helperPID: Int32, recordedAt: Date) {
@@ -111,3 +172,40 @@ public struct LaunchArgvDigest: Sendable, Hashable, Codable {
     name.hasPrefix(fileNamePrefix) && name.hasSuffix(fileNameSuffix)
   }
 }
+
+/// The helper's argv digest while an `attach` launch goes on in test mode (PLAN.md Phase 13a):
+/// keeps the latest digest and writes it again, whole, after every change, so the file always
+/// holds everything recorded so far. Changes may come from the thread that supervises the
+/// attach child (its process id) and from the helper's own task; the lock keeps them, and the
+/// writes, in order.
+final class LaunchDigestRecorder: Sendable {
+  /// Where the digest is written.
+  private let store: LaunchStore
+  /// The latest digest.
+  private let digest: OSAllocatedUnfairLock<LaunchArgvDigest>
+
+  /// Starts from `digest`, already written.
+  init(store: LaunchStore, digest: LaunchArgvDigest) {
+    self.store = store
+    self.digest = OSAllocatedUnfairLock(initialState: digest)
+  }
+
+  /// The latest digest.
+  var current: LaunchArgvDigest { digest.withLock { $0 } }
+
+  /// Applies `change` and writes the digest again; returns the write's error, if any (the
+  /// change is kept either way).
+  @discardableResult
+  func update(_ change: @Sendable (inout LaunchArgvDigest) -> Void) -> LaunchStoreError? {
+    let store = store
+    return digest.withLock { latest -> LaunchStoreError? in
+      change(&latest)
+      do throws(LaunchStoreError) {
+        try store.writeArgvDigest(latest)
+        return nil
+      } catch {
+        return error
+      }
+    }
+  } // End of func update(_:)
+} // End of class LaunchDigestRecorder

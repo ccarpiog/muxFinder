@@ -77,6 +77,10 @@ actor SimulatedITerm2: ITerm2Integration {
   private(set) var focusedConnections: [String] = []
   /// `close(_:)` calls.
   private(set) var closeCount = 0
+  /// Every bury or restore that reached "iTerm2" (`setBuried`, and the bury of
+  /// `buryLaunchTab` once its ownership check passed), in order. Phase 13b gives the fake real
+  /// buried state; for now it only records.
+  private(set) var buriedRequests: [(buried: Bool, sessionID: String)] = []
   /// Numbers the tabs.
   private var nextNumber = 0
 
@@ -266,6 +270,19 @@ actor SimulatedITerm2: ITerm2Integration {
     focusedConnections.append(connectionID)
     return "tab-\(connectionID)"
   } // End of func activateFirstTab(ofTmuxConnection:ownedBy:options:)
+
+  /// Records the bury or restore.
+  func setBuried(_ buried: Bool, sessionID: String) async throws {
+    buriedRequests.append((buried, sessionID))
+  }
+
+  /// Records the bury while the connection is owned by `sessionID`, like `activateFirstTab`.
+  func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws {
+    guard connections.contains(where: { $0.id == connectionID && $0.owner == sessionID }) else {
+      throw ITerm2Error.tmuxConnectionNotOwned
+    }
+    buriedRequests.append((true, sessionID))
+  }
 
   /// No profiles.
   func listProfiles(properties: [String], guids: [String]) async throws -> [ITerm2API.Profile] {

@@ -18,6 +18,10 @@ extension ITerm2API {
       case listSessions(ListSessionsRequest)
       /// `create_tab_request` (108).
       case createTab(CreateTabRequest)
+      /// `set_property_request` (111).
+      case setProperty(SetPropertyRequest)
+      /// `get_property_request` (112).
+      case getProperty(GetPropertyRequest)
       /// `activate_request` (114).
       case activate(ActivateRequest)
       /// `list_profiles_request` (118).
@@ -45,6 +49,8 @@ extension ITerm2API {
       switch request {
       case .listSessions(let message): writer.writeMessage(106, message)
       case .createTab(let message): writer.writeMessage(108, message)
+      case .setProperty(let message): writer.writeMessage(111, message)
+      case .getProperty(let message): writer.writeMessage(112, message)
       case .activate(let message): writer.writeMessage(114, message)
       case .listProfiles(let message): writer.writeMessage(118, message)
       case .tmux(let message): writer.writeMessage(124, message)
@@ -63,6 +69,10 @@ extension ITerm2API {
       case listSessions(ListSessionsResponse)
       /// `create_tab_response` (108).
       case createTab(CreateTabResponse)
+      /// `set_property_response` (111).
+      case setProperty(SetPropertyResponse)
+      /// `get_property_response` (112).
+      case getProperty(GetPropertyResponse)
       /// `activate_response` (114).
       case activate(ActivateResponse)
       /// `list_profiles_response` (118).
@@ -124,6 +134,8 @@ extension ITerm2API {
       case 2: return .error(error)
       case 106: return try message.decode(ListSessionsResponse.self).map(Response.listSessions)
       case 108: return try message.decode(CreateTabResponse.self).map(Response.createTab)
+      case 111: return try message.decode(SetPropertyResponse.self).map(Response.setProperty)
+      case 112: return try message.decode(GetPropertyResponse.self).map(Response.getProperty)
       case 114: return try message.decode(ActivateResponse.self).map(Response.activate)
       case 118: return try message.decode(ListProfilesResponse.self).map(Response.listProfiles)
       case 124: return try message.decode(TmuxResponse.self).map(Response.tmux)

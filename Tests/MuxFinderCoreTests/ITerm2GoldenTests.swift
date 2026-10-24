@@ -156,6 +156,36 @@ struct ITerm2GoldenTests {
       fixture: "close-request-windows",
       message: .init(
         id: 13, request: .close(.init(target: .windows(["fixture-window-1"]), force: false)))),
+    GoldenRequest(
+      fixture: "set-property-request-bury",
+      message: .init(
+        id: 20, request: .setProperty(.buried(true, sessionID: ITerm2Fixture.session(1))))),
+    GoldenRequest(
+      fixture: "set-property-request-unbury",
+      message: .init(
+        id: 21, request: .setProperty(.buried(false, sessionID: ITerm2Fixture.session(1))))),
+    GoldenRequest(
+      fixture: "get-property-request-buried",
+      message: .init(
+        id: 22,
+        request: .getProperty(
+          .init(target: .session(ITerm2Fixture.session(1)), name: ITerm2API.SessionProperty.buried))
+      )),
+    GoldenRequest(
+      fixture: "set-property-request-window",
+      message: .init(
+        id: 23,
+        request: .setProperty(
+          .init(
+            target: .window("fixture-window-1"), name: "fixture-name",
+            jsonValue: ITerm2JSON.encode("fixture-value")))
+      )),
+    GoldenRequest(
+      fixture: "get-property-request-window",
+      message: .init(
+        id: 24,
+        request: .getProperty(.init(target: .window("fixture-window-1"), name: "fixture-name"))
+      )),
   ]
 
   /// Every response fixture; each has its own decoding test below.
@@ -168,7 +198,8 @@ struct ITerm2GoldenTests {
     "list-sessions-response-split", "create-tab-response-unknown-fields",
     "create-tab-response-then-unmodeled", "create-tab-response-after-unmodeled",
     "activate-response-split", "tmux-send-command-response-split", "close-response",
-    "close-response-packed",
+    "close-response-packed", "set-property-response-ok", "set-property-response-invalid-target",
+    "get-property-response-buried", "get-property-response-invalid-target",
   ]
 
   /// Each request encodes byte for byte like its `api_pb2` fixture.
@@ -406,6 +437,25 @@ struct ITerm2GoldenTests {
         == .init(id: 15, response: .close(.init(statuses: [.ok, .notFound, .userDeclined]))))
   }
 
+  /// Set-property responses (`OK` and a refused target) and get-property responses (the
+  /// `buried` value, and a refused target without a value).
+  @Test func decodesProperties() throws {
+    #expect(
+      try ITerm2Fixture.server("set-property-response-ok")
+        == .init(id: 20, response: .setProperty(.init(status: .ok))))
+    #expect(
+      try ITerm2Fixture.server("set-property-response-invalid-target")
+        == .init(id: 21, response: .setProperty(.init(status: .invalidTarget))))
+    #expect(
+      try ITerm2Fixture.server("get-property-response-buried")
+        == .init(id: 22, response: .getProperty(.init(status: .ok, jsonValue: "true"))))
+    #expect(
+      try ITerm2Fixture.server("get-property-response-invalid-target")
+        == .init(id: 23, response: .getProperty(.init(status: .invalidTarget, jsonValue: nil))))
+    #expect(ITerm2API.SetPropertyRequest.buried(true, sessionID: "s").jsonValue == "true")
+    #expect(ITerm2API.SetPropertyRequest.buried(false, sessionID: "s").jsonValue == "false")
+  } // End of func decodesProperties()
+
   /// The error member of the oneof, and submessages this package does not model (a notification
   /// carries no id).
   @Test func decodesErrorsAndUnsupportedMessages() throws {
@@ -448,6 +498,17 @@ struct ITerm2GoldenTests {
     #expect(
       try decode(envelope(131, statusField: 1, 9)).response
         == .close(.init(statuses: [.unknown(9)])))
+    #expect(
+      try decode(envelope(111, statusField: 1, 6)).response == .setProperty(.init(status: .failed)))
+    #expect(
+      try decode(envelope(111, statusField: 1, 42)).response
+        == .setProperty(.init(status: .unknown(42))))
+    #expect(
+      try decode(envelope(112, statusField: 1, 1)).response
+        == .getProperty(.init(status: .unrecognizedName)))
+    #expect(
+      try decode(envelope(112, statusField: 1, 7)).response
+        == .getProperty(.init(status: .unknown(7))))
   } // End of func unknownEnumValuesAreKept()
 
   /// Oneof rules in the envelope: the last member wins, unmodeled members (`notification` and

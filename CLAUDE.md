@@ -165,10 +165,16 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `MUXFINDER_LAUNCHED` set, or on any failure, execs the login shell; so by hand only in test
   mode with `MUXFINDER_LAUNCH_NO_WAIT=1` (then no shell is started and the host comes from a
   `profile-test-<host id>.json` host list in the launch directory, never the real
-  `hosts.json`). For checks, set
+  `hosts.json`). In `attach` mode, once its attach child has ended, the helper writes a line
+  feed, `OSC 1337 ; Disinter ST` and a status report request to its terminal and waits at
+  most 2 s for the answer (unanswered: `Disinter` and the request again at once), before its
+  explanation, and `Disinter` and the request again just before it exits (only when stdin and
+  stdout are terminals; PLAN.md D14, D29). For checks, set
   `MUXFINDER_LAUNCH_DIRECTORY=<absolute private dir>` and a private `TMUX_TMPDIR`.
   `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
-  argv digest and honors a request's `testLaunchDelaySeconds` (ignored outside test mode);
+  argv digest (in `attach` mode also the attach child's pid and each launch tab restore) and
+  honors a request's `testLaunchDelaySeconds` and `testSuppressDisinter` (ignored outside test
+  mode);
   `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return and the 10 s minimum
   lifetime (on a terminal the helper never exits younger). Exit codes and the digest format:
   PLAN.md D14, D26, `docs/TESTING.md`.
@@ -200,6 +206,22 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   session, removes only the file it wrote, and compares the hash snapshot of iTerm2's other
   profiles before install, after install and after removal; its remote tab runs interactive
   ssh (key authentication; Saturno only).
+  `swift run muxfinder-probe e2e-bury --local | --ssh saturno-m4` (a spike harness for PLAN.md
+  Phase 13a, not a regression check; 12 steps; `--help` contacts nothing) creates its own
+  `muxfinder-test-*` session (a `sleep 600` pane), attaches it three times through its own
+  launch tabs with no existing-attachment check (so it asks no other connection) and buries
+  each launch tab through the API once its first tmux tab is active: (a) the bury, (c) a
+  detach of the buried tab at 5 s while sampling `ListSessions`, then a bury during the
+  helper's hold, (b) the same with the helper's `Disinter` suppressed (`testSuppressDisinter`),
+  (d) `Close` of the dead buried session, (e) SIGKILL of only the helper's attach child (the
+  pid its digest recorded, checked to be the helper's child running tmux, or remotely the
+  local `/usr/bin/ssh`, killed only when `ssh -G` shows no connection sharing), then `Close`
+  of the live buried tab. With iTerm2's "Automatically bury the tmux client session" setting
+  on (as on this Mac), it buries its own tab again where the default would have left it
+  buried; it never reads or writes the setting. It prints `OBSERVATION` lines with what iTerm2
+  did (FAIL only for harness or safety problems; about 40 s locally, 48 s on Saturno); its
+  cleanup restores, then closes, only its own launch tabs, checking every `Close` status and
+  their absence, and kills only its own session.
   Check `muxfinder-probe iterm2 status` and iTerm2's thread count (`ps -M -p <pid> | wc -l`)
   before and after; each run adds about 12 blocked iTerm2 workers that are reclaimed within
   minutes, so let the count fall back between runs (the API stalls at 64 workers). A timeout

@@ -384,6 +384,115 @@ struct ITerm2APIClientTests {
     #expect(harness.connector.connects == 1)
   } // End of func ownedActivation()
 
+  /// `setBuried` sends one set-property request (`buried`, the JSON value, the session id) and
+  /// maps a status other than `OK` to `setPropertyFailed`; `sessionProperty` reads the JSON
+  /// value and maps its own refused status to `getPropertyFailed`.
+  @Test func buriedProperty() async throws {
+    let stream = FakeByteStream()
+    let harness = Self.makeClient(streams: [stream])
+    var peer = FakeITerm2Peer(stream: stream)
+    let session = ITerm2Fixture.session(1)
+    let bury = Task { try await harness.client.setBuried(true, sessionID: session) }
+    try await peer.answerHandshake()
+    var request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 111)
+    let buryBytes = ITerm2API.ClientOriginatedMessage(
+      id: request.id, request: .setProperty(.buried(true, sessionID: session))
+    ).encode()
+    #expect(Data(request.bytes) == buryBytes)
+    try peer.respond(to: request.id, withFixture: "set-property-response-ok")
+    try await bury.value
+
+    let restore = Task { try await harness.client.setBuried(false, sessionID: session) }
+    request = try await peer.nextRequest()
+    #expect(request.bytes.firstRange(of: Array("false".utf8)) != nil)
+    try peer.respond(to: request.id, withFixture: "set-property-response-invalid-target")
+    await #expect(throws: ITerm2Error.setPropertyFailed(.invalidTarget)) {
+      try await restore.value
+    }
+
+    let read = Task {
+      try await harness.client.sessionProperty(ITerm2API.SessionProperty.buried, sessionID: session)
+    }
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 112)
+    try peer.respond(to: request.id, withFixture: "get-property-response-buried")
+    #expect(try await read.value == "true")
+
+    let refused = Task {
+      try await harness.client.sessionProperty(ITerm2API.SessionProperty.buried, sessionID: "x")
+    }
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "get-property-response-invalid-target")
+    await #expect(throws: ITerm2Error.getPropertyFailed(.invalidTarget)) {
+      _ = try await refused.value
+    }
+  } // End of func buriedProperty()
+
+  /// The bound bury lists the connections and sends the bury, on the same API connection, only
+  /// when the listed owner of the connection is the launch tab; for another owner only the
+  /// listing goes out (`tmuxConnectionNotOwned`); a listing lost with its connection buries
+  /// nothing (`notSent`), and nothing reconnects to send it.
+  @Test func boundBury() async throws {
+    let stream = FakeByteStream()
+    let harness = Self.makeClient(streams: [stream])
+    var peer = FakeITerm2Peer(stream: stream)
+    let owner = ITerm2Fixture.session(4)
+    let owned = Task {
+      try await harness.client.buryLaunchTab(
+        sessionID: owner, ifOwnsTmuxConnection: "fixture-connection-1")
+    }
+    try await peer.answerHandshake()
+    var request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 124)
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 111)
+    #expect(
+      Data(request.bytes)
+        == ITerm2API.ClientOriginatedMessage(
+          id: request.id, request: .setProperty(.buried(true, sessionID: owner))
+        ).encode())
+    try peer.respond(to: request.id, withFixture: "set-property-response-ok")
+    try await owned.value
+
+    let refused = Task {
+      try await harness.client.buryLaunchTab(
+        sessionID: ITerm2Fixture.session(6), ifOwnsTmuxConnection: "fixture-connection-1")
+    }
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    await #expect(throws: ITerm2Error.tmuxConnectionNotOwned) { try await refused.value }
+    // The next frame is the next call's: no bury was written in between.
+    let sessions = Task { try await harness.client.listSessions() }
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 106)
+    try peer.respond(to: request.id, withFixture: "list-sessions-response")
+    _ = try await sessions.value
+
+    let failing = Task {
+      try await harness.client.buryLaunchTab(
+        sessionID: owner, ifOwnsTmuxConnection: "fixture-connection-1")
+    }
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+    request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "set-property-response-invalid-target")
+    await #expect(throws: ITerm2Error.setPropertyFailed(.invalidTarget)) {
+      try await failing.value
+    }
+
+    let lost = Task {
+      try await harness.client.buryLaunchTab(
+        sessionID: owner, ifOwnsTmuxConnection: "fixture-connection-1")
+    }
+    request = try await peer.nextRequest()
+    #expect(request.fieldNumber == 124)
+    stream.deliverEndOfStream()
+    await #expect(throws: ITerm2Error.notSent(.disconnected)) { try await lost.value }
+    #expect(harness.connector.connects == 1)
+  } // End of func boundBury()
+
   /// A response of the wrong type is a protocol error.
   @Test func mismatchedResponseType() async throws {
     let stream = FakeByteStream()

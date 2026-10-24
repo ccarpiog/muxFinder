@@ -1034,6 +1034,11 @@ and read the digest it writes before parsing its arguments (PLAN.md D14):
   child before its first real child, so its tab stays open with nothing running; closing the
   tab ends it as `interrupted` (PLAN.md D14 *Test launch delay*). Outside test mode the field
   is ignored. `e2e-remote`'s `still waiting` step is its only user.
+- In `attach` mode the digest also gets `attachChildProcessID` right after the spawn, and one
+  `tabRestores` record per launch tab restore (`afterChild`, `afterTmuxModeEnd`,
+  `beforeExit`: whether `Disinter` was written, when, and how the status report ended; PLAN.md
+  D14, D29). A request's `testSuppressDisinter` leaves `Disinter` out of every restore.
+  `e2e-bury` uses all three.
 
 ## Real-world checks with iTerm2 (`muxfinder-probe`)
 
@@ -2023,3 +2028,22 @@ ran with the plate, ending with one real `scripts/release.sh`.
 | Release | `scripts/release.sh` (one real run, 10:34–10:36) | exit 0: profile check passed; built and signed by "Developer ID Application: … (CXVKS8ZNCD)", timestamp 10:34:59, verify passed; notarization submission `f2a44f4a-ea99-40ca-9f7d-e1dc734c6fd9` Accepted ("Ready for distribution", `issues: null`, ticket covering both executables); stapled on the first attempt and validated; `spctl`: "accepted, source=Notarized Developer ID"; `build/muxFinder.zip` written (4.9 MB) |
 | Release zip | `ditto -x -k build/muxFinder.zip <scratch folder>`, then `codesign --verify --deep --strict`, `xcrun stapler validate`, `spctl --assess --type execute -vv` on the extracted app | exit 0 each; "The validate action worked!"; "accepted, source=Notarized Developer ID" |
 | Notarization line of `install.sh`, notarized | `mf_notarization_summary build/muxFinder.app` (real mode) after the release | "notarized" |
+
+### Phase 13a — the bury spike (2026-10-24)
+
+`muxfinder-probe e2e-bury` (PLAN.md Phase 13a) against the real iTerm2 3.7.6, locally and on
+Saturno, each run gated before and after: `iterm2 status` connected, iTerm2's thread count,
+no `muxfinder-test-*` session left on either Mac, no tab or buried session of the run in
+`iterm2 list-sessions`, the launch directory empty. iTerm2's "Automatically bury the tmux
+client session after connecting" setting was on (read only), so the harness buried its own
+tab again where the default would have left it buried. The answers to (a)–(e) are in PLAN.md
+*Verified facts*, Phase 13a; D29 is written from them.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Local, run 1 | `swift run muxfinder-probe e2e-bury --local`, `TMUX_TMPDIR` unset, iTerm2 at 16 threads | exit 0, 12 of 12 PASS in 39.1 s. (e): the first restore unanswered, the tab back in a tab only about 2.1 s after the kill, once the explanation ended iTerm2's tmux mode. Fixed in the helper: a line feed before the first restore and a second restore when it goes unanswered (D29). The harness then gained the auto-hide detection, the bury during the hold and the dense sampling |
+| Local, runs 2–3 | the same, after the fixes | exit 0, 12 of 12 PASS each (39.4 s, 36.6 s); run 2's order check counted samples after the hold's bury and was bounded before run 3 |
+| Local, run 4 (final) | the same | exit 0, 12 of 12 PASS in 39.2 s. iTerm2 at 16 threads before, 17 after |
+| Saturno, runs 1–2 | `swift run muxfinder-probe e2e-bury --ssh saturno-m4` (`ssh -G`: no connection sharing, so step 10 killed the local ssh child) | exit 0, 12 of 12 PASS each in 47.8 s (run 2 is the final one). iTerm2 at 17 and 16 threads after |
+| Leftovers after every run | `tmux ls` on Neptuno and Saturno; `iterm2 list-sessions` (summary); `ls` of the launch directory; `pgrep -fl muxfinder-launch` | no tmux server on either Mac; 1 window, 1 tab, 0 buried sessions, as before; the launch directory empty; no helper running |
+| Hermetic | `swift build`; `swift test`; `swift format lint -r Sources Tests` | exit 0, no warnings; exit 0, 705 tests in 70 suites (core) and 162 in 14 suites (UI); exit 0 |

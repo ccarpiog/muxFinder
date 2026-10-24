@@ -61,7 +61,8 @@ struct ITerm2CookieAndFakeTests {
       .connectionFailed(errno: EACCES), .requestFailed("server-text"),
       .createTabFailed(.invalidProfileName), .activateFailed(.badIdentifier),
       .tmuxRequestFailed(.invalidConnectionID), .launchFailed("detail"), .notSent(.timedOut),
-      .tmuxConnectionNotOwned,
+      .tmuxConnectionNotOwned, .setPropertyFailed(.invalidTarget),
+      .getPropertyFailed(.unrecognizedName),
     ]
     #expect(Set(errors.map(\.kind)).count == errors.count)
     for error in errors {
@@ -137,6 +138,39 @@ struct ITerm2CookieAndFakeTests {
           command: "detach-client", connectionID: "c1", owningSessionID: "s1"))
   } // End of func fakeOwnedTmuxCommand()
 
+  /// The fake's bury: `setBuried` is logged with its value and answers from the script; the
+  /// bound `buryLaunchTab` checks the next listing like the real client (another owner is
+  /// `tmuxConnectionNotOwned`, a failed listing `notSent`, both without a bury logged), then
+  /// logs the bury as `setBuried(true, …)` and answers from the same script.
+  @Test func fakeBury() async throws {
+    var script = FakeITerm2Integration.Script()
+    script.listTmuxConnections = .init(
+      .success([.init(connectionID: "c1", owningSessionID: "s1")]),
+      queued: [
+        .success([.init(connectionID: "c1", owningSessionID: "s2")]), .failure(.timedOut),
+      ])
+    script.setBuried = .init(.success(()), queued: [.failure(.setPropertyFailed(.invalidTarget))])
+    let fake = FakeITerm2Integration(script: script)
+    await #expect(throws: ITerm2Error.setPropertyFailed(.invalidTarget)) {
+      try await fake.setBuried(false, sessionID: "s9")
+    }
+    await #expect(throws: ITerm2Error.tmuxConnectionNotOwned) {
+      try await fake.buryLaunchTab(sessionID: "s1", ifOwnsTmuxConnection: "c1")
+    }
+    await #expect(throws: ITerm2Error.notSent(.timedOut)) {
+      try await fake.buryLaunchTab(sessionID: "s1", ifOwnsTmuxConnection: "c1")
+    }
+    try await fake.buryLaunchTab(sessionID: "s1", ifOwnsTmuxConnection: "c1")
+    #expect(
+      await fake.calls == [
+        .setBuried(buried: false, sessionID: "s9"),
+        .buryLaunchTab(sessionID: "s1", connectionID: "c1"),
+        .buryLaunchTab(sessionID: "s1", connectionID: "c1"),
+        .buryLaunchTab(sessionID: "s1", connectionID: "c1"),
+        .setBuried(buried: true, sessionID: "s1"),
+      ])
+  } // End of func fakeBury()
+
   /// Like the real client, the fake refuses requests while iTerm2 is not running or its socket
   /// is missing, and `ensureRunning()` brings it up.
   @Test func fakeMirrorsTheLifecycle() async throws {
@@ -200,6 +234,7 @@ struct ITerm2CookieAndFakeTests {
     let unknownOrAnswered: [ITerm2Error] = [
       .timedOut, .disconnected, .protocolError("x"), .connectionFailed(errno: 1),
       .requestFailed("x"), .tmuxRequestFailed(.invalidConnectionID), .launchFailed("x"),
+      .setPropertyFailed(.failed), .getPropertyFailed(.invalidTarget),
     ]
     #expect(notSent.allSatisfy { $0.isNotSent })
     #expect(!unknownOrAnswered.contains { $0.isNotSent })

@@ -14,7 +14,7 @@ import Foundation
 ///   `notRunning`, `apiDisabled`, `automationDenied`, `cookieUnavailable`, `authRejected`,
 ///   which only ever happen while connecting, and `tmuxConnectionNotOwned`.
 /// - **Answered, definitive:** `requestFailed`, `createTabFailed`, `activateFailed`,
-///   `tmuxRequestFailed`.
+///   `tmuxRequestFailed`, `setPropertyFailed`, `getPropertyFailed`.
 /// - **Sent, outcome unknown:** `timedOut`, `disconnected`, `protocolError` and
 ///   `connectionFailed` on their own (not wrapped in `notSent`): iTerm2 may have acted on the
 ///   request. `CancellationError` (the calling task was cancelled) is unknown too: a frame that
@@ -49,18 +49,26 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
   case activateFailed(ITerm2API.ActivateResponse.Status)
   /// iTerm2 rejected the tmux request.
   case tmuxRequestFailed(ITerm2API.TmuxResponse.Status)
+  /// iTerm2 answered a `SetPropertyRequest` (such as a bury or a restore) with a status other
+  /// than `OK`, for example `INVALID_TARGET` for a session id it does not know.
+  case setPropertyFailed(ITerm2API.SetPropertyResponse.Status)
+  /// iTerm2 answered a `GetPropertyRequest` with a status other than `OK`.
+  case getPropertyFailed(ITerm2API.GetPropertyResponse.Status)
   /// iTerm2 could not be launched; a plain detail without user data.
   case launchFailed(String)
-  /// `sendTmuxCommand(_:connectionID:ownedBy:)` found no connection with that id owned by the
-  /// expected session (the connection closed, or its short id now names another session's
+  /// `sendTmuxCommand(_:connectionID:ownedBy:)` (or another call bound to a launch tab's
+  /// connection: `activateFirstTab(ofTmuxConnection:ownedBy:options:)`,
+  /// `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)`) found no connection with that id owned by
+  /// the expected session (the connection closed, or its short id now names another session's
   /// connection, as after an iTerm2 restart), so the command was not sent.
   case tmuxConnectionNotOwned
   /// The request failed for `reason` (`timedOut`, `disconnected`, `protocolError` or
   /// `connectionFailed`) before its frame was written whole, so iTerm2 never acted on it: it
   /// was withdrawn while still queued (its deadline passed or its connection ended), the writer
-  /// skipped it, its write failed, or no connection could be opened for it. For
-  /// `sendTmuxCommand(_:connectionID:ownedBy:)`, `reason` may also be how the connection
-  /// listing that comes before the command failed (`tmuxRequestFailed`, `requestFailed`, …).
+  /// skipped it, its write failed, or no connection could be opened for it. For the calls bound
+  /// to a launch tab's connection (`sendTmuxCommand(_:connectionID:ownedBy:)` and the others
+  /// named at `tmuxConnectionNotOwned`), `reason` may also be how the connection listing that
+  /// comes before the request failed (`tmuxRequestFailed`, `requestFailed`, …).
   /// Never nested.
   indirect case notSent(ITerm2Error)
 
@@ -81,6 +89,8 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
     case .createTabFailed: return "createTabFailed"
     case .activateFailed: return "activateFailed"
     case .tmuxRequestFailed: return "tmuxRequestFailed"
+    case .setPropertyFailed: return "setPropertyFailed"
+    case .getPropertyFailed: return "getPropertyFailed"
     case .launchFailed: return "launchFailed"
     case .tmuxConnectionNotOwned: return "tmuxConnectionNotOwned"
     }
@@ -129,6 +139,10 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
       return "iTerm2 could not bring the tab forward (\(Self.name(of: status)))."
     case .tmuxRequestFailed(let status):
       return "iTerm2 rejected the tmux request (\(Self.name(of: status)))."
+    case .setPropertyFailed(let status):
+      return "iTerm2 could not change the session (\(Self.name(of: status)))."
+    case .getPropertyFailed(let status):
+      return "iTerm2 could not report the session's state (\(Self.name(of: status)))."
     case .launchFailed(let detail):
       return "iTerm2 could not be launched: \(detail)."
     case .tmuxConnectionNotOwned:
@@ -169,6 +183,30 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
     case .invalidRequest: return "INVALID_REQUEST"
     case .invalidConnectionID: return "INVALID_CONNECTION_ID"
     case .invalidWindowID: return "INVALID_WINDOW_ID"
+    case .unknown(let value): return "status \(value)"
+    }
+  }
+
+  /// The status's name as iTerm2's protocol spells it.
+  static func name(of status: ITerm2API.SetPropertyResponse.Status) -> String {
+    switch status {
+    case .ok: return "OK"
+    case .unrecognizedName: return "UNRECOGNIZED_NAME"
+    case .invalidValue: return "INVALID_VALUE"
+    case .invalidTarget: return "INVALID_TARGET"
+    case .deferred: return "DEFERRED"
+    case .impossible: return "IMPOSSIBLE"
+    case .failed: return "FAILED"
+    case .unknown(let value): return "status \(value)"
+    }
+  } // End of static func name(of:) for set-property statuses
+
+  /// The status's name as iTerm2's protocol spells it.
+  static func name(of status: ITerm2API.GetPropertyResponse.Status) -> String {
+    switch status {
+    case .ok: return "OK"
+    case .unrecognizedName: return "UNRECOGNIZED_NAME"
+    case .invalidTarget: return "INVALID_TARGET"
     case .unknown(let value): return "status \(value)"
     }
   }

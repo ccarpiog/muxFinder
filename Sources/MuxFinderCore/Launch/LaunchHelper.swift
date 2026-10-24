@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import os
 
 /// Where the helper prints its explanation, and how it waits for Return.
 ///
@@ -16,53 +15,20 @@ public protocol LaunchTerminal: Sendable {
   /// Returns once the user pressed Return, the terminal went away, or a SIGINT (Ctrl-C) or
   /// SIGTERM arrived: those finish the wait like Return, so the hold that follows still keeps
   /// the tab until the minimum lifetime. Closing the tab (SIGHUP) ends the helper at once.
+  /// Nothing reads the terminal for it any more once it has returned.
   func waitForReturn() async
   /// Keeps the helper, and so its tab, running for `duration`. Closing the tab (SIGHUP) still
   /// ends it at once; SIGINT (Ctrl-C) and SIGTERM do not end it early.
   func holdOpen(for duration: Duration) async
-}
-
-/// Ends one `StandardLaunchTerminal.waitForReturn()` exactly once, whichever comes first: a
-/// line end or end of file on standard input, or a finishing signal. It also works when the
-/// end comes before the wait's continuation exists.
-final class LaunchWaitGate: Sendable {
-  /// Where the wait stands.
-  private enum State: Sendable {
-    /// No continuation yet, nothing ended the wait.
-    case open
-    /// Waiting with this continuation.
-    case armed(CheckedContinuation<Void, Never>)
-    /// The wait ended; later ends do nothing.
-    case finished
-  }
-
-  /// The shared state.
-  private let state = OSAllocatedUnfairLock<State>(initialState: .open)
-
-  /// Creates an open gate.
-  init() {}
-
-  /// Stores `continuation`, or resumes it at once when the wait already ended. Returns whether
-  /// the wait is still going on.
-  func arm(_ continuation: CheckedContinuation<Void, Never>) -> Bool {
-    let ended = state.withLock { state -> Bool in
-      if case .finished = state { return true }
-      state = .armed(continuation)
-      return false
-    }
-    if ended { continuation.resume() }
-    return !ended
-  }
-
-  /// Ends the wait: resumes the stored continuation the first time, does nothing afterwards.
-  func finish() {
-    let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
-      defer { state = .finished }
-      if case .armed(let continuation) = state { return continuation }
-      return nil
-    }
-    continuation?.resume()
-  }
+  /// Asks the terminal for a device status report, for the launch tab's restore (PLAN.md
+  /// Phase 13 item 4): discards input typed so far, writes `prefix` (the `Disinter` sequence,
+  /// maybe after a line feed, or nothing) and then `ESC [ 5 n` to the terminal, and waits for
+  /// the answer `ESC [ 0 n` in raw mode (non-canonical, no echo), dropping every other byte
+  /// read meanwhile. It ends within `timeout` on every path, writes included (non-blocking
+  /// writes and reads under one deadline, PLAN.md D29), and restores the terminal's modes on
+  /// every path. Writes nothing and returns `.unavailable` unless standard input and standard
+  /// output are both terminals.
+  func requestStatusReport(after prefix: [UInt8], timeout: Duration) async -> TerminalStatusReport
 }
 
 /// The helper's real terminal: standard error for text, standard input for Return.
@@ -113,38 +79,24 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 
   /// Sets the wait dispositions (`setWaitDispositions()`), then waits for the first of: a line
   /// end (Return sends `\r` in raw mode, `\n` in canonical mode), end of file or an error on
-  /// standard input, read on a dedicated thread after discarding input typed earlier; or a
-  /// SIGINT or SIGTERM, seen through dispatch signal sources while ignored. The wait returns
-  /// exactly once; a read thread still blocked after a signal stays blocked until the process
-  /// exits, which the minimum-lifetime hold that follows bounds.
+  /// standard input, read on a dedicated thread after discarding input typed earlier
+  /// (`TerminalReturnReader`); or a SIGINT or SIGTERM, seen through dispatch signal sources
+  /// while ignored, which stops that reader. It returns only once the reader has returned, so
+  /// nothing reads the terminal after the wait (the launch tab's last restore reads its answer
+  /// right after it, PLAN.md D29); the reader never blocks in a read, so a stop ends it at once.
   public func waitForReturn() async {
     Self.setWaitDispositions()
-    let gate = LaunchWaitGate()
+    let reader = TerminalReturnReader(input: STDIN_FILENO)
     let sources = Self.finishingSignalNumbers.map { signalNumber in
       let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global())
-      source.setEventHandler { gate.finish() }
+      source.setEventHandler { reader.stop() }
       source.resume()
       return source
     }
     defer {
       for source in sources { source.cancel() }
     }
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-      guard gate.arm(continuation) else { return }
-      let thread = Thread {
-        tcflush(STDIN_FILENO, TCIFLUSH)
-        var byte: UInt8 = 0
-        while true {
-          let count = read(STDIN_FILENO, &byte, 1)
-          if count == 1, byte != 0x0A, byte != 0x0D { continue }
-          if count < 0, errno == EINTR { continue }
-          break
-        }
-        gate.finish()
-      }
-      thread.name = "cc.carpio.muxfinder.launch-wait"
-      thread.start()
-    }
+    _ = try? await DedicatedThread.run(name: "cc.carpio.muxfinder.launch-wait") { reader.run() }
   } // End of func waitForReturn()
 
   /// Sets the wait dispositions (`setWaitDispositions()`: closing the tab ends the helper at
@@ -153,6 +105,19 @@ public struct StandardLaunchTerminal: LaunchTerminal {
     Self.setWaitDispositions()
     try? await Task.sleep(for: duration)
   }
+
+  /// Runs the status report exchange (`TerminalStatusRequest.perform`) on standard input and
+  /// standard output, on a dedicated thread; see `LaunchTerminal.requestStatusReport`.
+  public func requestStatusReport(
+    after prefix: [UInt8],
+    timeout: Duration
+  ) async -> TerminalStatusReport {
+    let outcome = try? await DedicatedThread.run(name: "cc.carpio.muxfinder.launch-status") {
+      TerminalStatusRequest.perform(
+        input: STDIN_FILENO, output: STDOUT_FILENO, prefix: prefix, timeout: timeout)
+    }
+    return outcome ?? .unavailable
+  } // End of func requestStatusReport(after:timeout:)
 }
 
 /// `muxfinder-launch attach <launch id>` and `muxfinder-launch ssh-setup <launch id>`: the
@@ -203,14 +168,25 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 /// end the hold; only SIGHUP, a closed tab, ends the helper early). The result is written
 /// before that hold, so nobody waits for it.
 ///
+/// An attach whose attach child ran (whatever its end, unless the tab was closed) also restores
+/// its launch tab, in case it was buried (PLAN.md Phase 13 item 4, D14, D29): right after the
+/// result is written and again just before the helper exits, it writes `disinterSequence` and
+/// a status report request and waits at most `tabRestoreTimeout` for the answer
+/// (`LaunchTerminal.requestStatusReport(after:timeout:)`, `restoreTab(_:stage:)`). The first
+/// restore starts with `tmuxModeEndSequence`, and when it goes unanswered (an abnormal end,
+/// iTerm2 still in tmux mode) a second follows at once, before the explanation. `profile` and
+/// `ssh-setup` never do.
+///
 /// Environment variables (development and tests; production sets none):
 /// - `MUXFINDER_LAUNCH_DIRECTORY`: an absolute path used as the launch directory instead of
 ///   `~/Library/Application Support/muxFinder/launch`. A relative or empty value is refused as
 ///   `launchDirectoryUnusable`.
 /// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`, written again
-///   with the attach child, or the ssh setup's ssh child, just before it starts) and honor a
-///   request's `testLaunchDelaySeconds` (`testLaunchDelay(_:child:)`); the `test-mode` marker
-///   file in the launch directory does the same. Outside test mode that field is ignored.
+///   with the attach child, or the ssh setup's ssh child, just before it starts; in `attach`
+///   mode also with the attach child's process id once spawned, and after each launch tab
+///   restore) and honor a request's `testLaunchDelaySeconds` (`testLaunchDelay(_:child:)`) and
+///   `testSuppressDisinter` (no `Disinter` in any restore); the `test-mode` marker file in
+///   the launch directory does the same. Outside test mode those fields are ignored.
 /// - `MUXFINDER_LAUNCH_NO_WAIT=1`: never wait for Return nor hold the tab open
 ///   (`StandardLaunchTerminal`).
 /// - `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS`: the minimum lifetime in milliseconds (1 to 7
@@ -255,6 +231,19 @@ public struct LaunchHelper: Sendable {
   public static let defaultMinimumLifetime: Duration = .seconds(10)
   /// Overrides the minimum lifetime with a whole number of milliseconds (tests only).
   public static let minimumLifetimeVariable = "MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS"
+  /// `OSC 1337 ; Disinter ST`: makes iTerm2 restore the session that prints it when the
+  /// session is buried, and does nothing otherwise (PLAN.md Phase 13, S7).
+  public static let disinterSequence: [UInt8] = Array("\u{1B}]1337;Disinter\u{1B}\\".utf8)
+  /// A line feed, written before the first restore (PLAN.md D29). When the attach child ended
+  /// without tmux's `%exit` (killed, or ssh dropped), iTerm2 still parses the tab as a tmux
+  /// gateway: it reads the pending line as an unrecognized tmux command, ends the tmux
+  /// connection and parses the tab as a terminal again (iTerm2's default; its "tolerate
+  /// unrecognized commands" advanced setting keeps tmux mode instead). The rest of that write
+  /// is lost with the gateway, so the first status report goes unanswered and a second restore
+  /// follows. On a tab already out of tmux mode it only moves the cursor down.
+  public static let tmuxModeEndSequence: [UInt8] = [0x0A]
+  /// How long each launch tab restore waits for the terminal's status report answer.
+  public static let tabRestoreTimeout: Duration = .seconds(2)
 
   /// The launch files, or `nil` when the directory override is unusable.
   public var store: LaunchStore?
@@ -424,16 +413,17 @@ public struct LaunchHelper: Sendable {
   /// detaches the session's other clients), just before that child starts (test mode only, so
   /// a check can tell a move here from a normal attach, PLAN.md D21); failures are only logged.
   /// `startsLoginShell` marks `profile` mode's login shell (PLAN.md D26), recorded instead of
-  /// started in test mode.
+  /// started in test mode. Returns the digest as written (with the child).
+  @discardableResult
   func recordAttachChild(
     in digest: LaunchArgvDigest,
     executable: String,
     arguments: [String],
     detachesOtherClients: Bool,
     startsLoginShell: Bool = false
-  ) async {
-    guard let store else { return }
+  ) async -> LaunchArgvDigest {
     var updated = digest
+    guard let store else { return updated }
     updated.attachChild = LaunchArgvDigest.AttachChild(
       executable: executable, arguments: arguments, detachesOtherClients: detachesOtherClients,
       startsLoginShell: startsLoginShell)
@@ -446,6 +436,7 @@ public struct LaunchHelper: Sendable {
     } catch {
       await log.record(.launch, outcome: .failure, detail: "Argv digest not written: \(error)")
     }
+    return updated
   } // End of func recordAttachChild(in:executable:arguments:detachesOtherClients:…)
 
   /// What the helper knows about its children when it finishes.
@@ -547,10 +538,16 @@ public struct LaunchHelper: Sendable {
       }
       (executable, arguments) = (RemoteLaunch.sshPath, sshArguments)
     }
+    var recorder: LaunchDigestRecorder?
     if let argvDigest {
-      await recordAttachChild(
+      let written = await recordAttachChild(
         in: argvDigest, executable: executable, arguments: arguments,
         detachesOtherClients: request.detachesOtherClients)
+      recorder = LaunchDigestRecorder(store: store, digest: written)
+    }
+    var onSpawn: (@Sendable (Int32) -> Void)?
+    if let recorder {
+      onSpawn = { processID in recorder.update { $0.attachChildProcessID = processID } }
     }
     let outcome: LaunchChildOutcome
     do throws(ProcessRunnerError) {
@@ -558,7 +555,8 @@ public struct LaunchHelper: Sendable {
         executable: executable,
         arguments: arguments,
         environment: childEnvironment,
-        relaysStandardError: request.host.isRemote
+        relaysStandardError: request.host.isRemote,
+        onSpawn: onSpawn
       )
     } catch {
       return await finish(
@@ -574,13 +572,15 @@ public struct LaunchHelper: Sendable {
     child.terminalHungUp = outcome.terminalHungUp
     let failure = LaunchFailure.from(
       outcome.termination, host: request.host, sshStandardError: outcome.capturedStandardError)
+    let suppressesDisinter = request.testSuppressDisinter == true && isTestMode
     return await finish(
       id,
       request: request,
       failure: failure,
       child: child,
       startedAt: startedAt,
-      resultStore: store
+      resultStore: store,
+      tabRestore: TabRestore(writesDisinter: !suppressesDisinter, digest: recorder)
     )
   } // End of func attach(_:startedAt:argvDigest:)
 
@@ -751,24 +751,42 @@ public struct LaunchHelper: Sendable {
     return environment
   }
 
+  /// How a finished attach restores its launch tab (PLAN.md Phase 13 item 4).
+  struct TabRestore: Sendable {
+    /// Whether the `Disinter` sequence goes before each status report request: `false` only for
+    /// a request with `testSuppressDisinter` in test mode (spike (b)).
+    var writesDisinter: Bool
+    /// The test-mode digest each restore is recorded in, if any.
+    var digest: LaunchDigestRecorder?
+  }
+
   /// Finishes an attach of `request` (`nil` when none was taken), worded for its host: see
-  /// `finish(_:hostID:purpose:failure:child:startedAt:resultStore:)`.
+  /// `finish(_:hostID:purpose:failure:child:startedAt:resultStore:tabRestore:)`.
   func finish(
     _ id: LaunchToken,
     request: LaunchRequest?,
     failure: LaunchFailure?,
     child: ChildRecord,
     startedAt: Date,
-    resultStore: LaunchStore?
+    resultStore: LaunchStore?,
+    tabRestore: TabRestore? = nil
   ) async -> Int32 {
     await finish(
       id, hostID: request?.hostID, purpose: .attach(request?.host ?? .local), failure: failure,
-      child: child, startedAt: startedAt, resultStore: resultStore)
-  } // End of func finish(_:request:failure:child:startedAt:resultStore:)
+      child: child, startedAt: startedAt, resultStore: resultStore, tabRestore: tabRestore)
+  } // End of func finish(_:request:failure:child:startedAt:resultStore:tabRestore:)
 
   /// Writes the result (when `resultStore` is set), logs, explains a failure (worded for
   /// `purpose`), holds the tab open until the helper is `minimumLifetime` old, and returns the
   /// exit status. Every way a launch ends goes through here, so the hold is never skipped.
+  ///
+  /// With `tabRestore` (an attach whose attach child ran, PLAN.md Phase 13 item 4, D29) and a
+  /// terminal that was not hung up, the launch tab is restored, in case it was buried: right
+  /// after the result is written (before the explanation; `tmuxModeEndSequence` first), once
+  /// more at once when that went unanswered (iTerm2 was still in tmux mode, which the line feed
+  /// ended), and again just before the helper exits (covering a bury during the hold). Each
+  /// restore writes the `Disinter` sequence and a status report request and waits at most
+  /// `tabRestoreTimeout` for the answer (`restoreTab(_:stage:)`).
   func finish(
     _ id: LaunchToken,
     hostID configuredHostID: UUID?,
@@ -776,7 +794,8 @@ public struct LaunchHelper: Sendable {
     failure: LaunchFailure?,
     child: ChildRecord,
     startedAt: Date,
-    resultStore: LaunchStore?
+    resultStore: LaunchStore?,
+    tabRestore: TabRestore? = nil
   ) async -> Int32 {
     let result = LaunchResult(
       id: id,
@@ -809,7 +828,6 @@ public struct LaunchHelper: Sendable {
         durationMs: durationMs,
         detail: "Launch failed: \(failure.kind), exit status \(result.exitStatus)."
       )
-      await explain(failure, purpose: purpose, terminalHungUp: child.terminalHungUp)
     } else {
       await log.record(
         .launch,
@@ -819,9 +837,53 @@ public struct LaunchHelper: Sendable {
         detail: purpose == .sshSetup ? "ssh ended normally." : "tmux ended normally."
       )
     }
+    let restore = child.terminalHungUp ? nil : tabRestore
+    if let restore, await restoreTab(restore, stage: .afterChild) == .unanswered {
+      await restoreTab(restore, stage: .afterTmuxModeEnd)
+    }
+    if let failure {
+      await explain(failure, purpose: purpose, terminalHungUp: child.terminalHungUp)
+    }
     await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: child.terminalHungUp)
+    if let restore { await restoreTab(restore, stage: .beforeExit) }
     return result.exitStatus
-  } // End of func finish(_:hostID:purpose:failure:child:startedAt:resultStore:)
+  } // End of func finish(_:hostID:purpose:failure:child:startedAt:resultStore:tabRestore:)
+
+  /// One launch tab restore (PLAN.md Phase 13 item 4, D29): asks the terminal for a status
+  /// report after the `Disinter` sequence (unless `plan` suppresses it; at the `afterChild`
+  /// stage after `tmuxModeEndSequence` too) and waits at most `tabRestoreTimeout` for the
+  /// answer. iTerm2 runs the restore before it reads on, so an answer means the restore ran
+  /// (S7, seen in the 13a spike). A missing answer is logged (stage and wait only) and the
+  /// helper goes on; the usual cause is iTerm2 still parsing the tab in tmux mode (at
+  /// `afterChild`, after an abnormal end), or a tab that takes no output. Nothing else reads
+  /// the terminal meanwhile: the wait for Return has stopped its reader before it returned. In
+  /// test mode the outcome is added to the argv digest. Returns the outcome.
+  @discardableResult
+  func restoreTab(
+    _ plan: TabRestore,
+    stage: LaunchArgvDigest.TabRestoreRecord.Stage
+  ) async -> TerminalStatusReport {
+    let requestedAt = now()
+    let lineFeed = stage == .afterChild ? Self.tmuxModeEndSequence : []
+    let report = await terminal.requestStatusReport(
+      after: lineFeed + (plan.writesDisinter ? Self.disinterSequence : []),
+      timeout: Self.tabRestoreTimeout)
+    let endedAt = now()
+    if report == .unanswered {
+      let waited = Int(Self.tabRestoreTimeout / .milliseconds(1))
+      await log.record(
+        .launch, outcome: .failure,
+        detail: "Launch tab restore (\(stage.rawValue)): the terminal did not answer the status "
+          + "report within \(waited) ms.")
+    }
+    let record = LaunchArgvDigest.TabRestoreRecord(
+      stage: stage, wroteDisinter: plan.writesDisinter, requestedAt: requestedAt,
+      endedAt: endedAt, report: report)
+    if let error = plan.digest?.update({ $0.tabRestores = ($0.tabRestores ?? []) + [record] }) {
+      await log.record(.launch, outcome: .failure, detail: "Argv digest not written: \(error)")
+    }
+    return report
+  } // End of func restoreTab(_:stage:)
 
   /// Prints the explanation (worded for `purpose`: an attach on its host, or ssh setup) and
   /// waits for Return when someone can see it.

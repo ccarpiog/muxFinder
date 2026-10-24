@@ -66,16 +66,32 @@ public protocol LaunchChildRunner: Sendable {
   /// `environment` on the helper's terminal, and returns once it has ended and been reaped.
   /// With `relaysStandardError`, the child's standard error is a pipe whose bytes are copied to
   /// the helper's terminal as they arrive, and the first of them are returned in
-  /// `LaunchChildOutcome.capturedStandardError` (the ssh child, PLAN.md D17).
+  /// `LaunchChildOutcome.capturedStandardError` (the ssh child, PLAN.md D17). `onSpawn`, when
+  /// given, gets the child's process id right after the spawn, while the child runs and before
+  /// it can be reaped (the helper's test mode records it, PLAN.md Phase 13a); it runs on the
+  /// thread that supervises the child, so it must not block for long.
   func run(
     executable: String,
     arguments: [String],
     environment: [String: String],
-    relaysStandardError: Bool
+    relaysStandardError: Bool,
+    onSpawn: (@Sendable (Int32) -> Void)?
   ) async throws(ProcessRunnerError) -> LaunchChildOutcome
 }
 
 extension LaunchChildRunner {
+  /// Spawns the attach child without an `onSpawn` callback.
+  public func run(
+    executable: String,
+    arguments: [String],
+    environment: [String: String],
+    relaysStandardError: Bool
+  ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
+    try await run(
+      executable: executable, arguments: arguments, environment: environment,
+      relaysStandardError: relaysStandardError, onSpawn: nil)
+  }
+
   /// Spawns the attach child with all three terminal descriptors inherited (no relay).
   public func run(
     executable: String,
@@ -84,7 +100,7 @@ extension LaunchChildRunner {
   ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
     try await run(
       executable: executable, arguments: arguments, environment: environment,
-      relaysStandardError: false)
+      relaysStandardError: false, onSpawn: nil)
   }
 }
 
@@ -163,23 +179,11 @@ struct StandardErrorRelay {
 
   /// A new write-only descriptor (`O_NONBLOCK`, `O_NOCTTY`, `O_CLOEXEC`) for the terminal
   /// `descriptor` refers to, or `nil` when it is not a terminal or cannot be opened again (or
-  /// the path names another device). Its `O_NONBLOCK` stays on its own open file description.
+  /// the path names another device). Its `O_NONBLOCK` stays on its own open file description
+  /// (`NonBlockingTerminal.reopen(_:access:)`).
   static func openNonBlockingTerminal(like descriptor: Int32) -> Int32? {
-    guard isatty(descriptor) == 1 else { return nil }
-    var name = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-    guard ttyname_r(descriptor, &name, name.count) == 0 else { return nil }
-    let opened = open(name, O_WRONLY | O_NOCTTY | O_NONBLOCK | O_CLOEXEC)
-    guard opened >= 0 else { return nil }
-    var original = stat()
-    var reopened = stat()
-    guard fstat(descriptor, &original) == 0, fstat(opened, &reopened) == 0,
-      original.st_rdev == reopened.st_rdev
-    else {
-      Darwin.close(opened)
-      return nil
-    }
-    return opened
-  } // End of func openNonBlockingTerminal(like:)
+    NonBlockingTerminal.reopen(descriptor, access: O_WRONLY)
+  }
 
   /// Whether the relay reads more: the pipe is open and the pending bytes leave room.
   var wantsInput: Bool { source >= 0 && pending.count < Self.pendingLimit }
@@ -508,12 +512,14 @@ public struct TerminalChildRunner: LaunchChildRunner {
     }
   } // End of func runCheck(_:)
 
-  /// Runs the attach child on a dedicated thread. Cancelling the calling task sends it SIGTERM.
+  /// Runs the attach child on a dedicated thread, calling `onSpawn` with its process id right
+  /// after the spawn. Cancelling the calling task sends it SIGTERM.
   public func run(
     executable: String,
     arguments: [String],
     environment: [String: String],
-    relaysStandardError: Bool
+    relaysStandardError: Bool,
+    onSpawn: (@Sendable (Int32) -> Void)?
   ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
     let request = ProcessRequest(
       executableURL: URL(fileURLWithPath: executable),
@@ -528,7 +534,8 @@ public struct TerminalChildRunner: LaunchChildRunner {
         in
         let thread = Thread {
           continuation.resume(
-            returning: Self.supervise(request, control: control, relayingTo: destination))
+            returning: Self.supervise(
+              request, control: control, relayingTo: destination, onSpawn: onSpawn))
         }
         thread.name = "cc.carpio.muxfinder.launch-child"
         thread.start()
@@ -537,15 +544,17 @@ public struct TerminalChildRunner: LaunchChildRunner {
       control.forward(SIGTERM)
     }
     return try result.get()
-  } // End of func run(executable:arguments:environment:relaysStandardError:)
+  } // End of func run(executable:arguments:environment:relaysStandardError:onSpawn:)
 
   /// Spawns the attach child and waits for it, forwarding signals. With a `destination`, the
-  /// child's standard error is a pipe relayed there (`StandardErrorRelay`). Blocks; runs on its
-  /// own thread.
+  /// child's standard error is a pipe relayed there (`StandardErrorRelay`). `onSpawn` gets the
+  /// child's process id right after the spawn (the child is unreaped until the wait ends, so
+  /// the id cannot name another process meanwhile). Blocks; runs on its own thread.
   static func supervise(
     _ request: ProcessRequest,
     control: TerminalChildControl,
-    relayingTo destination: Int32? = nil
+    relayingTo destination: Int32? = nil,
+    onSpawn: (@Sendable (Int32) -> Void)? = nil
   ) -> Result<LaunchChildOutcome, ProcessRunnerError> {
     let argv: CStringArray
     let envp: CStringArray
@@ -595,6 +604,7 @@ public struct TerminalChildRunner: LaunchChildRunner {
       return .failure(error)
     }
     if let errorPipe { close(errorPipe.writeEnd) }
+    onSpawn?(processID)
     let forwarded = wait(for: processID, queue: queue, control: control, relay: &relay)
     let status: Int32
     switch ProcessSupervisor.reap(processID) {
@@ -615,7 +625,7 @@ public struct TerminalChildRunner: LaunchChildRunner {
         capturedStandardError: relay?.captured ?? Data()
       )
     )
-  } // End of func supervise(_:control:relayingTo:)
+  } // End of func supervise(_:control:relayingTo:onSpawn:)
 
   /// Spawns the child with the terminal descriptors inherited (standard error replaced by
   /// `standardError` when given, the write end of the relay's pipe) and in this process group.

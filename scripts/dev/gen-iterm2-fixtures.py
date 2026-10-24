@@ -35,6 +35,7 @@ code is copied from it (PLAN.md D1).
 """
 
 import asyncio
+import json
 import os
 import sys
 
@@ -244,8 +245,26 @@ def request_fixtures():
             12, lambda c: iterm2.rpc.async_close(c, sessions=[SESSION_1, SESSION_2], force=True)),
         "close-request-windows.bin": module_request(
             13, lambda c: iterm2.rpc.async_close(c, windows=[WINDOW_1], force=False)),
+        "set-property-request-bury.bin": module_request(
+            20, lambda c: buried_session(c).async_set_buried(True)),
+        "set-property-request-unbury.bin": module_request(
+            21, lambda c: buried_session(c).async_set_buried(False)),
+        "get-property-request-buried.bin": module_request(
+            22, lambda c: iterm2.rpc.async_get_property(c, "buried", session_id=SESSION_1)),
+        "set-property-request-window.bin": module_request(
+            23, lambda c: iterm2.rpc.async_set_property(
+                c, "fixture-name", json.dumps("fixture-value"), window_id=WINDOW_1)),
+        "get-property-request-window.bin": module_request(
+            24, lambda c: iterm2.rpc.async_get_property(c, "fixture-name", window_id=WINDOW_1)),
     }
     # End of def request_fixtures()
+
+
+def buried_session(connection):
+    """The module's Session for SESSION_1 built from a buried session's summary (the way the module
+    builds the sessions of ListSessionsResponse.buried_sessions), so its async_set_buried makes
+    exactly the request the module sends."""
+    return iterm2.Session(connection, None, api_pb2.SessionSummary(unique_identifier=SESSION_1))
 
 
 def list_sessions_response():
@@ -371,6 +390,25 @@ def response_fixtures():
     parsed = parse_server(packed)
     check(list(parsed.close_response.statuses) == [0, 1, 2], "packed close statuses parse")
     fixtures["close-response-packed.bin"] = packed
+
+    message = server_message(20)
+    message.set_property_response.status = api_pb2.SetPropertyResponse.Status.Value("OK")
+    fixtures["set-property-response-ok.bin"] = message.SerializeToString()
+
+    message = server_message(21)
+    message.set_property_response.status = (
+        api_pb2.SetPropertyResponse.Status.Value("INVALID_TARGET"))
+    fixtures["set-property-response-invalid-target.bin"] = message.SerializeToString()
+
+    message = server_message(22)
+    message.get_property_response.status = api_pb2.GetPropertyResponse.Status.Value("OK")
+    message.get_property_response.json_value = json.dumps(True)
+    fixtures["get-property-response-buried.bin"] = message.SerializeToString()
+
+    message = server_message(23)
+    message.get_property_response.status = (
+        api_pb2.GetPropertyResponse.Status.Value("INVALID_TARGET"))
+    fixtures["get-property-response-invalid-target.bin"] = message.SerializeToString()
     return fixtures
     # End of def response_fixtures()
 

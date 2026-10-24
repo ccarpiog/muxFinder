@@ -20,6 +20,7 @@ let usage = """
   \(E2ELocalCommand.usage)
   \(E2ERemoteCommand.usage)
   \(E2EProfileCommand.usage)
+  \(E2EBuryCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -56,6 +57,8 @@ case "e2e-remote":
   exit(await E2ERemoteCommand.run(Array(arguments.dropFirst())))
 case "e2e-profile":
   exit(await E2EProfileCommand.run(Array(arguments.dropFirst())))
+case "e2e-bury":
+  exit(await E2EBuryCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

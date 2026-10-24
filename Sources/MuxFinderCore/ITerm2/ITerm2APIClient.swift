@@ -273,6 +273,51 @@ public actor ITerm2APIClient: ITerm2Integration {
     return tabID
   } // End of func activateFirstTab(ofTmuxConnection:ownedBy:options:)
 
+  /// Buries or restores a session; see `ITerm2Integration.setBuried(_:sessionID:)`.
+  public func setBuried(_ buried: Bool, sessionID: String) async throws {
+    try Self.requireSetPropertyOK(
+      try await send(.setProperty(.buried(buried, sessionID: sessionID))))
+  }
+
+  /// Buries a launch tab only while iTerm2 lists `connectionID` as owned by it; see
+  /// `ITerm2Integration.buryLaunchTab(sessionID:ifOwnsTmuxConnection:)`. The listing and the
+  /// bury go out on one API connection: if it ends in between, the call fails
+  /// (`notSent(reason)`) instead of reconnecting.
+  public func buryLaunchTab(
+    sessionID: String,
+    ifOwnsTmuxConnection connectionID: String
+  ) async throws {
+    let connection = try await requestConnection()
+    try await requireTmuxConnection(connectionID, ownedBy: sessionID, on: connection)
+    let answer = try await connection.send(
+      .setProperty(.buried(true, sessionID: sessionID)), timeout: configuration.requestTimeout)
+    try Self.requireSetPropertyOK(answer)
+  } // End of func buryLaunchTab(sessionID:ifOwnsTmuxConnection:)
+
+  /// The JSON value of the session `sessionID`'s property `name` (`GetPropertyRequest`), or
+  /// `nil` when iTerm2 sent none; for example `ITerm2API.SessionProperty.buried`, `true` or
+  /// `false`. Not part of `ITerm2Integration`: only the probe's `e2e-bury` spike reads
+  /// properties (PLAN.md Phase 13a).
+  ///
+  /// - Throws: `getPropertyFailed` unless iTerm2 reports `OK`.
+  public func sessionProperty(_ name: String, sessionID: String) async throws -> String? {
+    let request = ITerm2API.GetPropertyRequest(target: .session(sessionID), name: name)
+    guard case .getProperty(let response) = try await send(.getProperty(request)) else {
+      throw Self.unexpectedResponse
+    }
+    guard response.status == .ok else { throw ITerm2Error.getPropertyFailed(response.status) }
+    return response.jsonValue
+  } // End of func sessionProperty(_:sessionID:)
+
+  /// Throws unless `answer` is a set-property response with status `OK`: `setPropertyFailed`
+  /// for another status, a protocol error for another response type.
+  private static func requireSetPropertyOK(
+    _ answer: ITerm2API.ServerOriginatedMessage.Response
+  ) throws {
+    guard case .setProperty(let response) = answer else { throw unexpectedResponse }
+    guard response.status == .ok else { throw ITerm2Error.setPropertyFailed(response.status) }
+  }
+
   /// Lists the tmux connections on `connection` and throws unless one has the id `connectionID`
   /// and the owner `owningSessionID`: `tmuxConnectionNotOwned`, or `notSent(reason)` when the
   /// listing failed. Either way the request it guards was not sent.

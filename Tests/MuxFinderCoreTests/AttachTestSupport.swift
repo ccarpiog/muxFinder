@@ -555,6 +555,16 @@ final class InstrumentedITerm2: ITerm2Integration {
   }
 
   /// Forwards to the fake.
+  func setBuried(_ buried: Bool, sessionID: String) async throws {
+    try await fake.setBuried(buried, sessionID: sessionID)
+  }
+
+  /// Forwards to the fake.
+  func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws {
+    try await fake.buryLaunchTab(sessionID: sessionID, ifOwnsTmuxConnection: connectionID)
+  }
+
+  /// Forwards to the fake.
   func listProfiles(properties: [String], guids: [String]) async throws -> [ITerm2API.Profile] {
     try await fake.listProfiles(properties: properties, guids: guids)
   }

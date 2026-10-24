@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T07:41:19Z",
+  "updated": "2026-10-24T09:35:12Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -372,21 +372,25 @@
     {
       "id": "13",
       "title": "Hide the launch tab once attached",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
-      "summary": "Split into 13a, 13b and 13c: muxFinder buries its own launch tab after an attach and brings it back when tmux ends.",
+      "summary": "Split into 13a (done), 13b and 13c: muxFinder buries its own launch tab after an attach and brings it back when tmux ends.",
       "added": "2026-10-24T07:22:53Z",
-      "status_since": "2026-10-24T07:22:53Z"
+      "started": "2026-10-24T09:35:12Z",
+      "status_since": "2026-10-24T09:35:12Z"
     },
     {
       "id": "13a",
       "title": "Client, helper and spike",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "13",
-      "summary": "Adds the iTerm2 bury request and the helper's restore order, then proves iTerm2's real bury and restore behavior.",
+      "summary": "Adds the iTerm2 bury request and the helper restore, and proves iTerm2 bury and restore behavior locally and on Saturno (D29).",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-13a.md",
+      "narrative": "docs/progress-archive/13a.md",
       "added": "2026-10-24T07:22:53Z",
-      "status_since": "2026-10-24T07:22:53Z"
+      "started": "2026-10-24T07:47:15Z",
+      "status_since": "2026-10-24T09:35:12Z"
     },
     {
       "id": "13b",

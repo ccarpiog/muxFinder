@@ -256,6 +256,16 @@ actor SimulatedProfileITerm2: ITerm2Integration {
     return nil
   }
 
+  /// Never used by the harness.
+  func setBuried(_ buried: Bool, sessionID: String) async throws {
+    Issue.record("setBuried was called")
+  }
+
+  /// Never used by the harness.
+  func buryLaunchTab(sessionID: String, ifOwnsTmuxConnection connectionID: String) async throws {
+    Issue.record("buryLaunchTab was called")
+  }
+
   /// The installed profiles with the requested GUIDs; the first listing after the file went
   /// takes `listingLagAfterRemoval`.
   func listProfiles(properties: [String], guids: [String]) async throws -> [ITerm2API.Profile] {

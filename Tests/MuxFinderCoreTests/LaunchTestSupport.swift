@@ -317,12 +317,17 @@ final class FakeLaunchChildRunner: LaunchChildRunner {
     }
   } // End of func runCheck(_:)
 
-  /// Records the call and plays the attach behavior.
+  /// The process id the fake "spawns", reported to `onSpawn` and in the outcome.
+  static let childProcessID: Int32 = 777
+
+  /// Records the call and plays the attach behavior; a child that "starts" (any termination)
+  /// is reported to `onSpawn` first.
   func run(
     executable: String,
     arguments: [String],
     environment: [String: String],
-    relaysStandardError: Bool
+    relaysStandardError: Bool,
+    onSpawn: (@Sendable (Int32) -> Void)?
   ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
     recorded.withLock {
       $0.calls.append(
@@ -332,8 +337,9 @@ final class FakeLaunchChildRunner: LaunchChildRunner {
     }
     switch behavior {
     case .termination(let termination, let forwarded, let standardError):
+      onSpawn?(Self.childProcessID)
       return LaunchChildOutcome(
-        processID: 777,
+        processID: Self.childProcessID,
         termination: termination,
         startedAt: LaunchTestSupport.requestTime,
         endedAt: LaunchTestSupport.requestTime,
@@ -343,11 +349,12 @@ final class FakeLaunchChildRunner: LaunchChildRunner {
     case .error(let error):
       throw error
     }
-  } // End of func run(executable:arguments:environment:relaysStandardError:)
+  } // End of func run(executable:arguments:environment:relaysStandardError:onSpawn:)
 }
 
-/// A `LaunchTerminal` that records what was written, and every wait for Return and hold, in
-/// order; both return at once.
+/// A `LaunchTerminal` that records what was written, every wait for Return and hold, and every
+/// status report request, in order; each returns at once, a status report with the next
+/// scripted answer.
 final class FakeLaunchTerminal: LaunchTerminal {
   /// One wait or hold, in the order the helper asked for them.
   enum Pause: Equatable {
@@ -357,14 +364,33 @@ final class FakeLaunchTerminal: LaunchTerminal {
     case hold(Duration)
   }
 
+  /// One call, in the order the helper made them.
+  enum Event: Equatable {
+    /// `write(_:)` with its text.
+    case text(String)
+    /// `waitForReturn()`.
+    case waitForReturn
+    /// `holdOpen(for:)` with its duration.
+    case hold(Duration)
+    /// `requestStatusReport(after:timeout:)` with the bytes written before the request and the
+    /// timeout.
+    case statusReport(prefix: [UInt8], timeout: Duration)
+  }
+
   /// Recorded state.
   private struct State {
     /// Everything written.
     var text = ""
     /// Every wait and hold, in order.
     var pauses: [Pause] = []
+    /// Every call, in order.
+    var events: [Event] = []
     /// Runs at the start of every hold, if set.
     var onHold: (@Sendable () -> Void)?
+    /// Runs at the start of every status report request, if set.
+    var onStatusReport: (@Sendable () -> Void)?
+    /// The answers of the next status report requests, first one next; the last one repeats.
+    var answers: [TerminalStatusReport] = [.answered(after: .milliseconds(3))]
   }
 
   /// See `LaunchTerminal.isInteractive`.
@@ -392,30 +418,74 @@ final class FakeLaunchTerminal: LaunchTerminal {
   }
   /// Every wait and hold, in order.
   var pauses: [Pause] { state.withLock { $0.pauses } }
+  /// Every call, in order.
+  var events: [Event] { state.withLock { $0.events } }
+  /// The status report requests, in order: the bytes written before each and its timeout.
+  var statusReports: [(prefix: [UInt8], timeout: Duration)] {
+    state.withLock { state in
+      state.events.compactMap { event in
+        if case .statusReport(let prefix, let timeout) = event { return (prefix, timeout) }
+        return nil
+      }
+    }
+  } // End of var statusReports
 
   /// Runs `body` at the start of every later hold (to look at what exists by then).
   func onHold(_ body: @escaping @Sendable () -> Void) {
     state.withLock { $0.onHold = body }
   }
 
+  /// Runs `body` at the start of every later status report request.
+  func onStatusReport(_ body: @escaping @Sendable () -> Void) {
+    state.withLock { $0.onStatusReport = body }
+  }
+
+  /// Sets the answers of the next status report requests (the last one repeats).
+  func answerStatusReports(_ answers: [TerminalStatusReport]) {
+    state.withLock { $0.answers = answers }
+  }
+
   /// Records `text`.
   func write(_ text: String) {
-    state.withLock { $0.text += text }
+    state.withLock {
+      $0.text += text
+      $0.events.append(.text(text))
+    }
   }
 
   /// Records a wait and returns at once.
   func waitForReturn() async {
-    state.withLock { $0.pauses.append(.waitForReturn) }
+    state.withLock {
+      $0.pauses.append(.waitForReturn)
+      $0.events.append(.waitForReturn)
+    }
   }
 
   /// Records a hold, runs the `onHold` body, and returns at once.
   func holdOpen(for duration: Duration) async {
     let body = state.withLock { state -> (@Sendable () -> Void)? in
       state.pauses.append(.hold(duration))
+      state.events.append(.hold(duration))
       return state.onHold
     }
     body?()
   }
+
+  /// Records the request, runs the `onStatusReport` body, and returns the next answer.
+  func requestStatusReport(
+    after prefix: [UInt8],
+    timeout: Duration
+  ) async -> TerminalStatusReport {
+    let (body, answer) = state.withLock {
+      state -> ((@Sendable () -> Void)?, TerminalStatusReport) in
+      state.events.append(.statusReport(prefix: prefix, timeout: timeout))
+      let answer = state.answers.first ?? .unavailable
+      if state.answers.count > 1 { state.answers.removeFirst() }
+      return (state.onStatusReport, answer)
+    }
+    body?()
+    return answer
+  } // End of func requestStatusReport(after:timeout:)
 } // End of class FakeLaunchTerminal
 
 /// A built `muxfinder-launch` running in a pseudo-terminal, so it is interactive: its stdin is

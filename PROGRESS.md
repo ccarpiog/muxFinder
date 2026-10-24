@@ -31,15 +31,17 @@ file.
 | 11c | Settings "Persistent profiles" tab, host-editor fields, launch-time and after-save rewrite | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-11c.md` | `docs/progress-archive/11c.md` |
 | 12a | Install and uninstall scripts, hermetic check, README, ARCHITECTURE, testing matrix, manual checklist | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-12a.md` | `docs/progress-archive/12a.md` |
 | 12b | Acceptance run: every unit test, all `e2e-*` locally and on Saturno, both self-tests, clean-`build/` reproduction, recorded | routine | opus (docs worker); real runs by the orchestrator | Codex, ship, `docs/reviews/phase-12b.md` | `docs/progress-archive/12b.md` |
+| 13a | Client, helper and spike: SetProperty/GetProperty, `buryLaunchTab`, helper restore (result → `Disinter` → DSR, bounded), `e2e-bury` spike local and Saturno, D29 | high | opus (impl, spike and review-fix workers) | Codex, ship-with-fixes, `docs/reviews/phase-13a.md` | `docs/progress-archive/13a.md` |
 
 ## Current phase
 
-**Phase 13 — Hide the launch tab once attached (high), added 2026-10-24, not started.** Phases
-1–12b are complete and reviewed. Phase 13 comes from a user report: every attach shows the
-launch tab (the tmux gateway) in a window of its own next to the session's windows. It is
-split into 13a (client, helper and real spike), 13b (coordinator, race and recovery) and 13c
-(real runs and documents) in `PLAN.md` *Phase 13*. That section carries the iTerm2 3.7.6
-source facts S1–S8 and the design a Codex review on 2026-10-24 approved with changes.
+**Phase 13 — Hide the launch tab once attached (high), added 2026-10-24; 13a complete, 13b
+next.** Phases 1–13a are complete and reviewed. Phase 13 comes from a user report: every
+attach shows the launch tab (the tmux gateway) in a window of its own next to the session's
+windows. It is split into 13a (client, helper and real spike, done), 13b (coordinator, race and
+recovery) and 13c (real runs and documents) in `PLAN.md` *Phase 13*. That section carries the
+iTerm2 3.7.6 source facts S1–S8 and the design; the spike's facts are in *Verified facts*
+"Phase 13a spike" and the settled design is **D29**.
 **Phase 14 — Popover readability (routine), added 2026-10-24, queued after 13.** It comes
 from the user's review of the real popover: a bounded section per host, attach state at a
 glance, a readable "Open in iTerm2 here", a muted unreachable host, footer spacing, and an
@@ -59,6 +61,11 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   keep-mode quit check (row 12) exit 0; every brief bullet in `docs/TESTING.md` mapped to
   evidence or to the manual checklist; nothing left behind, `profiles hashes` identical.
   `docs/progress-archive/12b.md`.
+- Phase 13a: all criteria met, 2026-10-24. Client, conformers, golden fixtures, helper restore
+  and `e2e-bury` are in place; spike (a)–(e) answered locally and on Saturno (12/12 each, nothing
+  left behind); D29 written. One deviation: this Mac's iTerm2 has its auto-hide setting on, so
+  the default-preference branch was emulated by the harness (*Open risks*).
+  `docs/progress-archive/13a.md`.
 
 ## Decisions
 
@@ -153,8 +160,27 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   the results. Row 12's keep-mode quit check ran fresh although not in 12b's list. The thread
   gate held after `e2e-local` (33 → 49 for ~2 h 40 min, then 16 in one step); the other runs
   stayed at 16–19 — `docs/progress-archive/12b.md`.
+- Phase 13 planning: the user's uncommitted `PLAN.md`/`PROGRESS.md`/`PROGRESS.json` edits
+  (listed in the runner's preflight file) were the plan for Phases 13 and 14; committed verbatim
+  as `d03e146` before any phase work so the run could checkpoint.
+- Phase 13a: new **D29**: bury after confirmation and `.activated`; the race closed by order
+  (peek at the result, then `setBuried(false)`); the helper's restore with a line feed, a
+  second restore when unanswered and the DSR acknowledgment; the coordinator's list of buried
+  tabs kept **in memory only**, because the helper alone recovered every abnormal end tried.
+  D14 gains *Launch tab restore*; D15 and D25 were edited — `docs/progress-archive/13a.md`.
 
 ## Open risks / deviations
+
+- **13a: iTerm2's "Automatically bury the tmux client session after connecting" is on on
+  Neptuno** (read only, never written). The spike emulated the default (off) by re-burying,
+  and S5's "off" branch rests on iTerm2's source. 13c's acceptance says "with default iTerm2
+  preferences": unless the user turns the setting off for 13c's runs, those runs prove the
+  "on" path plus the harness's emulation. The run may never write iTerm2 preferences.
+- 13a: "Return works" after an abnormal end (spike e) is inferred from an answered DSR, never
+  typed (no synthesized keystrokes); it belongs in `docs/MANUAL-CHECKLIST.md` (13c). A SIGHUP
+  or SIGKILL of the helper in the middle of its exchange cannot restore raw mode (the tab ends
+  with it). iTerm2 sources (`v3.7.6`) were downloaded to `/tmp/mfx-iterm2-src` for reading
+  only.
 
 - Process-runner tests use an armed-timeout helper to survive very high machine load; if they
   flake, look there first.
@@ -296,16 +322,27 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   in `docs/reviews/phase-<phase>.md`.
 - Phase 12b: Codex → `ship`, 0 findings (record matches the run logs, all 13 bullets mapped,
   signing distinguished from notarization); `docs/reviews/phase-12b.md`.
+- Phase 13a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
+  blockers, 1 should-fix: the restore exchange could block past its 2 s bound (a live Return
+  reader taking the reply; blocking writes). A review-fix worker fixed it (one deadline,
+  non-blocking descriptors of its own, `TerminalReturnReader` joined before the final exchange),
+  with two regressions that fail on the old code; re-verified, then `e2e-bury --local` 12/12;
+  `docs/reviews/phase-13a.md`.
 
 ## Next action
 
-1. **Start Phase 13a** (`PLAN.md` *Phase 13*, the 13a bullet): the `SetProperty` client with
-   golden fixtures, `setBuried` on every `ITerm2Integration` conformer, the helper's
-   result → `Disinter` → DSR order with test-mode child PID recording, and the `e2e-bury`
-   spike harness. Then, behind the gate in item 3, the spike's real runs (a)–(e). Record the
-   answers in `PLAN.md` *Verified facts* and write D29 from them before 13b starts. After
-   13c comes Phase 14 (`PLAN.md` *Phase 14*, hermetic UI work, no real run). Since it does not
-   depend on 13, it may run first if 13a ends `BLOCKED` on the iTerm2 gate.
+1. **Start Phase 13b** (`PLAN.md` *Phase 13*, the 13b bullet, built as **D29** settled it,
+   hermetic): design items 2, 3, 5, 6 and 7. The coordinator buries a confirmed, `.activated`
+   launch tab once per launch through `buryLaunchTab`. It closes the race by peeking at the
+   result and sending `setBuried(false)`, and puts the outcome on `AttachResult` and into
+   diagnostics. In-memory recovery of buried tabs runs on a timer and on
+   attach/detach/attachment check. `showLaunchTab` restores before it activates. The `e2e-local`
+   and `e2e-remote` assertions come in (buried after confirmation; gone by itself after each
+   detach). `SimulatedITerm2` gains buried state. Write the unit tests the 13b bullet lists.
+   The client, the helper and the `e2e-bury` harness exist (13a; key paths below). Then 13c
+   (gated real runs and documents; mind the auto-hide deviation under *Open risks*), then
+   Phase 14 (`PLAN.md` *Phase 14*, hermetic UI work, no real run). Phase 14 does not depend on
+   13, so it may run first if 13b or 13c ends `BLOCKED`.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -315,7 +352,8 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
    `ps -M -p <pid> | wc -l` with the pid from `ps -axo pid,comm | rg 'MacOS/iTerm2$'`; real
    runs only at **38 threads or lower**, and leftover checks after each (launch directory,
    `DynamicProfiles/`, `/private/tmp` `mfx.*`, `muxfinder-test-*` sessions on Neptuno and
-   Saturno). iTerm2 was at 17 threads at 12b's close (2026-10-23 ~08:00).
+   Saturno; since 13a also no run session left in tabs or `buried_sessions` of
+   `iterm2 list-sessions`). iTerm2 was at 16 threads at 13a's close (2026-10-24 ~10:45).
 
 ## Key paths
 
@@ -365,6 +403,12 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
   `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
   suggestions`, `refresh --once`; shared harness
   `E2ERun.swift`).
+- Launch tab bury (D29, 13a): client `Sources/MuxFinderCore/ITerm2/ITerm2Property.swift`
+  (`setBuried`, `buryLaunchTab`, `sessionProperty`); helper restore
+  `Sources/MuxFinderCore/Launch/{TerminalStatusRequest,NonBlockingTerminal,
+  TerminalReturnReader}.swift` and `LaunchHelper.swift`; spike harness
+  `Sources/muxfinder-probe/E2EBury{Command,Run,Support}.swift` (`e2e-bury --local | --ssh
+  saturno-m4`); tests `Tests/MuxFinderCoreTests/LaunchTabRestoreTests.swift`.
 - Integration proof (local and over SSH, final): `docs/INTEGRATION-PROOF.md`.
 - Packaging (D27): `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/lib/app-copies.sh`,
   hermetic check `scripts/dev/test-install-scripts.sh`; app flag `--remove-persistent-profiles`
@@ -376,15 +420,12 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 12b (final tree `520b7e3`, orchestrator, 2026-10-23): `swift build -Xswiftc
-  -warnings-as-errors` exit 0; `swift test` exit 0, 680 core tests in 67 suites + 159 UI tests
-  in 13 suites; `swift format lint -r Sources Tests` exit 0; `rm -rf build &&
-  scripts/build-app.sh` exit 0 and `codesign --verify --deep --strict build/muxFinder.app` exit
-  0; `scripts/dev/test-install-scripts.sh` exit 0 (35/35); real runs `e2e-local`, `e2e-remote
-  saturno-m4`, `e2e-profile --local`, `e2e-profile --ssh saturno-m4`, `--selftest attach-local`,
-  `--selftest new-session-local`, keep-mode quit check: exit 0 each; `profiles hashes`
-  identical before and after — `docs/progress-archive/12b.md`.
-- Phases 1–12a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase 13a (final tree, orchestrator, 2026-10-24): `swift build` exit 0, no warnings; `swift
+  test` exit 0, 711 core tests in 71 suites + 162 UI tests in 14 suites; `swift format lint -r
+  Sources Tests` exit 0. Real: `e2e-bury --local` 12/12 (5 runs in all, the last after the
+  review fix), `e2e-bury --ssh saturno-m4` 12/12 (2 runs); nothing left behind; iTerm2 threads
+  15–17 — `docs/progress-archive/13a.md`.
+- Phases 1–12b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -398,5 +439,8 @@ needs no real run. Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 
 - Phase 11b: `a5ca9e0`, pushed (`origin/main` at `a5ca9e0` before Phase 11c).
 - Phase 11c: `930994e`, pushed (`origin/main` at `930994e` before Phase 12a).
 - Phase 12a: `520b7e3`, pushed (`origin/main` at `520b7e3` before Phase 12b).
-- Phase 12b: `docs/TESTING.md` results, review, archive and checkpoint: the commit after
-  `520b7e3`; its SHA and push result are in the final status line of the run.
+- Phase 12b: `6f56399`, pushed; then `92e354a` (app icon, menu bar icon, notarized release
+  flow), pushed.
+- Phase 13 planning (the user's edits, verbatim): `d03e146`, pushed.
+- Phase 13a: the commit after `d03e146` (code, tests, fixtures, D29, docs, review, archive and
+  checkpoint); its SHA and push result are in the run's final status line.

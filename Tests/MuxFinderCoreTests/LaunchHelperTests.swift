@@ -215,31 +215,6 @@ struct LaunchHelperTests {
     }
   } // End of func readsTheMinimumLifetimeOverride()
 
-  /// The wait gate resumes its continuation exactly once: when the end comes after the
-  /// continuation is stored, when it comes before (`arm` resumes at once and reports the wait
-  /// over), and when several ends race (Return against a signal). A second resume would trap.
-  @Test func endsAWaitOnce() async {
-    let late = LaunchWaitGate()
-    await withCheckedContinuation { continuation in
-      #expect(late.arm(continuation))
-      late.finish()
-      late.finish()
-    }
-    let early = LaunchWaitGate()
-    early.finish()
-    await withCheckedContinuation { continuation in
-      #expect(!early.arm(continuation))
-    }
-    early.finish()
-    for _ in 0..<200 {
-      let gate = LaunchWaitGate()
-      await withCheckedContinuation { continuation in
-        #expect(gate.arm(continuation))
-        DispatchQueue.concurrentPerform(iterations: 4) { _ in gate.finish() }
-      }
-    }
-  } // End of func endsAWaitOnce()
-
   /// A guard failure ends the launch before any attach: the typed failure and its exit status,
   /// the check's termination in the result, the explanation, and only on an interactive
   /// terminal a wait for Return followed by a hold for the rest of the minimum lifetime (Return

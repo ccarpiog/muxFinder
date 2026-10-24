@@ -33,6 +33,12 @@ public actor FakeITerm2Integration: ITerm2Integration {
     /// `activateFirstTab(ofTmuxConnection:ownedBy:options:)`, logged whether or not anything
     /// was activated.
     case activateOwnedTmuxTab(connectionID: String, owningSessionID: String)
+    /// `setBuried(_:sessionID:)`, and the bury `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)`
+    /// sends once its check passed.
+    case setBuried(buried: Bool, sessionID: String)
+    /// `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)`, logged whether or not the bury was
+    /// sent.
+    case buryLaunchTab(sessionID: String, connectionID: String)
     /// `listProfiles(properties:guids:)`.
     case listProfiles(properties: [String], guids: [String])
     /// `close(_:)`.
@@ -84,6 +90,9 @@ public actor FakeITerm2Integration: ITerm2Integration {
     public var sendTmuxCommand = Responses(.success(""))
     /// Results of `activate(_:)`.
     public var activate = Responses<Void>(.success(()))
+    /// Results of `setBuried(_:sessionID:)`, and of
+    /// `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)` once its ownership check passed.
+    public var setBuried = Responses<Void>(.success(()))
     /// Results of `listProfiles(properties:guids:)`.
     public var listProfiles = Responses<[ITerm2API.Profile]>(.success([]))
     /// Results of `close(_:)`.
@@ -227,6 +236,29 @@ public actor FakeITerm2Integration: ITerm2Integration {
     try script.activate.next().get()
     return tabID
   } // End of func activateFirstTab(ofTmuxConnection:ownedBy:options:)
+
+  /// Logs `setBuried(_:sessionID:)` and returns the next scripted result.
+  public func setBuried(_ buried: Bool, sessionID: String) async throws {
+    calls.append(.setBuried(buried: buried, sessionID: sessionID))
+    try checkReachable()
+    try script.setBuried.next().get()
+  }
+
+  /// Logs `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)` and checks as the real client does:
+  /// it takes the next `listTmuxConnections` result (a failure becomes `notSent`), throws
+  /// `tmuxConnectionNotOwned` unless a listed connection has that id and is owned by
+  /// `sessionID`, then logs the bury as `setBuried(true, sessionID:)` and takes the next
+  /// `setBuried` result.
+  public func buryLaunchTab(
+    sessionID: String,
+    ifOwnsTmuxConnection connectionID: String
+  ) async throws {
+    calls.append(.buryLaunchTab(sessionID: sessionID, connectionID: connectionID))
+    try checkReachable()
+    try requireTmuxConnection(connectionID, ownedBy: sessionID)
+    calls.append(.setBuried(buried: true, sessionID: sessionID))
+    try script.setBuried.next().get()
+  } // End of func buryLaunchTab(sessionID:ifOwnsTmuxConnection:)
 
   /// Takes the next `listTmuxConnections` result as a bound request's listing: a failure
   /// becomes `notSent`, and a listing without a connection of that id and owner is

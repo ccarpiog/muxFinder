@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import os
 
 @testable import MuxFinderCore
 
@@ -60,6 +61,35 @@ struct TerminalChildRunnerTests {
     #expect(fds.split(separator: "\n") == ["0", "1", "2", "3", "4"])
     #expect(!fds.split(separator: "\n").contains(Substring(String(inheritable))))
   } // End of func keepsTheProcessGroupAndOnlyTheTerminalDescriptors()
+
+  /// `onSpawn` gets the child's process id while the child runs (the child waits for a file the
+  /// callback creates before it exits), and it is the id the outcome reports and the child's own
+  /// `$$`.
+  @Test(.timeLimit(.minutes(1)))
+  func reportsTheSpawnedProcessID() async throws {
+    let directory = try TestSupport.makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let go = directory.appending(path: "go").path(percentEncoded: false)
+    let reported = OSAllocatedUnfairLock<Int32?>(initialState: nil)
+    let outcome = try await TerminalChildRunner().run(
+      executable: "/bin/sh",
+      arguments: [
+        "-c",
+        #"echo $$ > "$1/pid"; i=0; while [ ! -e "$1/go" ] && [ $i -lt 200 ]; do sleep 0.05; "#
+          + #"i=$((i + 1)); done; [ -e "$1/go" ]"#,
+        "muxfinder-test", directory.path(percentEncoded: false),
+      ],
+      environment: TestSupport.environment,
+      relaysStandardError: false,
+      onSpawn: { processID in
+        reported.withLock { $0 = processID }
+        FileManager.default.createFile(atPath: go, contents: nil)
+      })
+    #expect(outcome.termination == .exited(0))
+    #expect(reported.withLock { $0 } == outcome.processID)
+    let pid = try String(contentsOf: directory.appending(path: "pid"), encoding: .utf8)
+    #expect(pid.trimmingCharacters(in: .whitespacesAndNewlines) == String(outcome.processID))
+  } // End of func reportsTheSpawnedProcessID()
 
   /// Signals given to the control reach the running child: queued before the spawn, and sent
   /// while it waits.
