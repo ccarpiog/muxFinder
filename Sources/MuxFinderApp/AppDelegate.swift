@@ -9,6 +9,10 @@ import SwiftUI
 ///   it loads the host list and starts the refresh engine, and in normal mode brings an
 ///   installed, out-of-date persistent profile file up to date (PLAN.md D26; never with
 ///   `--report-menu-bar-item`). Nothing contacts iTerm2.
+/// - **Popover placement diagnostic** (`--report-popover-placement`, PLAN.md Phase I-1): the
+///   same scene over an inert model that is never started (no host list, engine, onboarding or
+///   iTerm2; `AppEnvironment.placementDiagnostic()`); `PopoverPlacementReport` measures the
+///   popover, handles SIGTERM and SIGINT itself and exits.
 /// - **Quitting** (the footer's "Quit", SIGTERM or SIGINT from a shell, logout): the model's
 ///   `shutdown()` cancels the session actions and stops Settings, the engine and the rest at
 ///   the same time, waits for the session actions within its own budget (reporting those still
@@ -25,22 +29,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   let model: AppModel
   /// The SIGTERM and SIGINT sources.
   private var signalSources: [any DispatchSourceSignal] = []
+  /// The popover placement diagnostic, while it runs.
+  private var placementReport: PopoverPlacementReport?
   /// Whether quitting already started.
   private var isTerminating = false
   /// Whether AppKit was told it may terminate.
   private var didReplyToTerminate = false
 
-  /// Builds the model over the real core; nothing runs yet.
+  /// Builds the model over the real core (over an inert environment for the popover placement
+  /// diagnostic); nothing runs yet.
   override init() {
+    let options = AppLaunchOptions.current
     model = AppModel(
-      environment: .production(
-        rewritesProfilesAtLaunch: AppLaunchOptions.current.rewritesProfilesAtLaunch))
+      environment: options.reportsPopoverPlacement
+        ? .placementDiagnostic()
+        : .production(rewritesProfilesAtLaunch: options.rewritesProfilesAtLaunch))
     super.init()
   }
 
-  /// Applies the options and starts the model.
+  /// Applies the options and starts the model, or runs the popover placement diagnostic
+  /// instead (the model is then never started).
   func applicationDidFinishLaunching(_ notification: Notification) {
     let options = AppLaunchOptions.current
+    if options.reportsPopoverPlacement {
+      NSApp.setActivationPolicy(.accessory)
+      QuitSignals.applyAppearance(options.appearance)
+      let report = PopoverPlacementReport(model: model)
+      placementReport = report
+      report.start()
+      return
+    }
     signalSources = QuitSignals.install()
     NSApp.setActivationPolicy(.accessory)
     QuitSignals.applyAppearance(options.appearance)

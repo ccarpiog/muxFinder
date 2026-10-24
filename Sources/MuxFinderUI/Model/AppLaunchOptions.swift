@@ -17,6 +17,16 @@ import Foundation
 /// - `--report-menu-bar-item` (normal mode): a read-only diagnostic; two seconds after launch
 ///   the app prints its own status-bar-level windows (the menu bar item), since on macOS 26 and
 ///   later `CGWindowListCopyWindowInfo` does not list them under the app's process.
+/// - `--report-popover-placement` (PLAN.md Phase I-1): a read-only diagnostic of where the
+///   popover opens. The menu bar scene runs over an inert model (never started: no host list
+///   read, no engine, no iTerm2, no onboarding; `AppEnvironment.placementDiagnostic()`); the
+///   app prints the displays, its status-bar windows and status item button; when that button
+///   has an action or a menu it opens its own popover with the button's `performClick(_:)` for
+///   at most 3 s, prints the popover window's frame and the one `PopoverPlacement` would give,
+///   closes it and exits (0 measured, 1 clicked but the popover never appeared, 3 interrupted
+///   by a signal, the open limit, the 10 s deadline or its watchdog, 4 not openable in process:
+///   no button, or one with no action and no menu, as SwiftUI's `MenuBarExtra` button). Combined
+///   with another mode it is a usage error.
 /// - `--report-login-item-status`: a read-only diagnostic; the app prints
 ///   `SMAppService.mainApp.status` and exits at once, before any window, menu bar item, host
 ///   list or iTerm2 contact. Nothing is registered or unregistered.
@@ -67,6 +77,8 @@ public struct AppLaunchOptions: Sendable, Hashable {
   public var previewSnapshotPath: String?
   /// Whether to print the menu bar item's windows after launch (normal mode only).
   public var reportsMenuBarItem = false
+  /// Whether to run the popover placement diagnostic and exit (`--report-popover-placement`).
+  public var reportsPopoverPlacement = false
   /// Whether to print the login item status and exit.
   public var reportsLoginItemStatus = false
   /// The self-test to run, if any.
@@ -96,6 +108,8 @@ public struct AppLaunchOptions: Sendable, Hashable {
         previewFixtures = true
       } else if argument == "--report-menu-bar-item" {
         reportsMenuBarItem = true
+      } else if argument == "--report-popover-placement" {
+        reportsPopoverPlacement = true
       } else if argument == "--report-login-item-status" {
         reportsLoginItemStatus = true
       } else if argument == "--selftest-keep" {
@@ -118,6 +132,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
     } // End of loop over the arguments
     checkSelfTest(keep: keepsSelfTest)
     checkProfileRemoval()
+    checkPopoverPlacement()
   } // End of init(arguments:)
 
   /// The options that take a value as the next argument.
@@ -138,8 +153,13 @@ public struct AppLaunchOptions: Sendable, Hashable {
     "usage: muxFinder --remove-persistent-profiles [--dry-run] "
     + "[--profiles-directory <folder> --lock-directory <folder>]"
 
+  /// The usage line of the popover placement diagnostic.
+  public static let popoverPlacementUsage =
+    "usage: muxFinder --report-popover-placement [--appearance light|dark]"
+
   /// Every usage line, printed after a usage error.
-  public static let usage = selfTestUsage + "\n" + profileRemovalUsage
+  public static let usage =
+    selfTestUsage + "\n" + profileRemovalUsage + "\n" + popoverPlacementUsage
 
   /// Applies `--selftest-keep` and refuses self-test arguments that cannot run: keep without a
   /// self-test, or a self-test with another mode.
@@ -149,6 +169,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
       usageError = "--selftest-keep needs --selftest."
     } else if selfTest != nil,
       previewFixtures || reportsMenuBarItem || reportsLoginItemStatus || removesPersistentProfiles
+        || reportsPopoverPlacement
     {
       usageError = "--selftest cannot be combined with another mode."
     } else if keep {
@@ -168,7 +189,9 @@ public struct AppLaunchOptions: Sendable, Hashable {
           "--dry-run, --profiles-directory and --lock-directory need "
           + "--remove-persistent-profiles."
       }
-    } else if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus {
+    } else if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus
+      || reportsPopoverPlacement
+    {
       usageError = "--remove-persistent-profiles cannot be combined with another mode."
     } else if hasFolders, profilesDirectory == nil || profilesLockDirectory == nil {
       usageError = "--profiles-directory and --lock-directory go together."
@@ -179,14 +202,24 @@ public struct AppLaunchOptions: Sendable, Hashable {
     }
   } // End of func checkProfileRemoval()
 
+  /// Refuses `--report-popover-placement` with another mode (the preview window, the menu bar
+  /// item report, the login item report; the self-tests and the profile removal refuse it
+  /// themselves).
+  private mutating func checkPopoverPlacement() {
+    guard usageError == nil, reportsPopoverPlacement else { return }
+    if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus {
+      usageError = "--report-popover-placement cannot be combined with another mode."
+    }
+  }
+
   /// Whether this launch may bring an installed, out-of-date persistent profile file up to date
   /// (PLAN.md D26): only the menu bar app in normal mode, never with `--preview-fixtures`,
   /// `--selftest`, `--report-login-item-status`, `--report-menu-bar-item`,
-  /// `--remove-persistent-profiles` or unusable arguments. `--appearance` alone keeps normal
-  /// mode.
+  /// `--report-popover-placement`, `--remove-persistent-profiles` or unusable arguments.
+  /// `--appearance` alone keeps normal mode.
   public var rewritesProfilesAtLaunch: Bool {
     !previewFixtures && !reportsMenuBarItem && !reportsLoginItemStatus && selfTest == nil
-      && !removesPersistentProfiles && usageError == nil
+      && !removesPersistentProfiles && !reportsPopoverPlacement && usageError == nil
   }
 
   /// The options of this process.

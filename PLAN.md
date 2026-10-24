@@ -2174,6 +2174,89 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
 - Signing identities: `Apple Development: Carlos Carpio García (5XHQZ98534)`, plus a Developer
   ID Application identity that is unused here.
 
+Verified in the Phase I-1a placement diagnostic (2026-10-24, macOS 27.2, the bundle binary's
+`--report-popover-placement` run from the shell with an empty private `CFFIXED_USER_HOME`;
+two full runs that clicked, exit 1 both, the same numbers both times, and one SIGTERM run,
+exit 3; after the review fixes it no longer clicks a button with no action and exits 4; runs
+and numbers in `docs/TESTING.md`, *Phase I-1a*). **The screen was locked and both displays
+asleep in the first three runs** (`CGSSessionScreenIsLocked` yes, on console yes,
+`CGDisplayIsAsleep` true); the review-fix worker's two runs reported it unlocked and both
+displays awake, and the orchestrator's re-run on the final tree (about 15:25, exit 4)
+reported it locked and both displays asleep again; all showed the same windows, frames and
+click wiring. What follows is
+AppKit's in-process view only. **The popover's frame before the fix is unmeasured** (see *Not
+measured* below):
+
+- **Displays.** Screen 0 (main, primary): {{0, 0}, {3072, 1728}} at 2x, visible
+  {{63, 0}, {3009, 1698}} (Dock at the left), menu bar 30 pt (bottom 1698). Screen 1
+  (portrait, right of the main one): {{3072, 249}, {1080, 1920}} at 2x, visible
+  {{3072, 249}, {1080, 1890}}, menu bar 30 pt (bottom 2139). "Displays have separate
+  Spaces" on; `NSStatusBar.system.thickness` 22 (not the 30 pt the menu bars reserve).
+- **(a) One real item, six replicas.** `NSApp.windows` holds seven `NSStatusBarWindow`s
+  (level 25, 34 × 30 pt, all `isVisible`), the same seven frames `--report-menu-bar-item`
+  printed in the same session. Only window 0 holds a status item button
+  (`NSStatusBarContentView` › `NSView` › `NSStatusBarButton`, 34 × 22 pt); its window answers
+  AppKit's `statusItem` with the scene's item, at {1413, 1698} on screen 0, inside that
+  menu bar (the button's screen rect {{1413, 1702}, {34, 22}}, middle x 1430). Windows 1–6
+  hold an `NSStatusItemReplicantView` (shadow and image views) and each answers another
+  status item, with no button: four at {0, −30} (below the main display's bottom-left
+  corner) and two at {4152, 2139}, exactly screen 1's right edge (3072 + 1080) at its menu
+  bar's bottom; all six on no screen, so placeholders. Phase 8's "one on the second display"
+  was most likely this pair.
+- **(b) The button takes no click `performClick(_:)` can deliver.** Action none, target none,
+  cell `NSStatusBarButtonCell`, no menu on the button or the item, no gesture recognizer,
+  key-value observed only for `effectiveAppearance`; the item: length −1, visible, behavior
+  6 (removal allowed, termination on removal). `performClick(_:)` (allowed by the
+  orchestrator, see Phase I-1) therefore sends nothing: no popover window appeared within
+  2 s and none was created (SwiftUI makes it only when it opens). So the in-process opening
+  step cannot open the `MenuBarExtra(.window)` popover, locked screen or not; the diagnostic
+  now checks the button for an action or a menu first and, finding neither, exits 4 ("not
+  openable in process") without clicking.
+- **(c) What a placement would give.** The popover's content measured off screen (an
+  `NSHostingView` never put in a window; the never-started model's "Loading hosts…"
+  placeholder) is 360 × 168 pt. `PopoverPlacement` gives {{1250, 1530}, {360, 168}} at the
+  button (centered on x 1430, top 1698); anchored at windows 3 and 4 it gives
+  {{3784, 1971}, {360, 168}}, screen 1's far right (its right edge less the 8 pt inset); at
+  windows 1, 2, 5, 6, {{71, 1530}, …}, beside the Dock.
+- **Not measured: the popover's real frame before the fix.** No run opened it, and none can
+  within the run rules: SwiftUI's status button has no action, so `performClick(_:)` sends
+  nothing, and the only other ways to open the `MenuBarExtra(.window)` popover in process
+  are SwiftUI's private internals or synthesized mouse events (`NSApp.sendEvent`,
+  `mouseDown(with:)`, CGEvent; in process or not), both outside *Unattended-run rules* and
+  `CLAUDE.md` (no private API, no UI scripting or synthesized input); the first three runs
+  also had the screen locked and the displays asleep, and the runs reported with the screen
+  unlocked could not open it either. The only observation of the before state is the user's own
+  report: it opens at the far right. Also not measured: where the system draws muxFinder's
+  icon (outside the app, and `CGWindowListCopyWindowInfo` listed no other process's
+  on-screen status-bar window to compare with, also in the runs reported unlocked, where Phase 8
+  had listed older apps' items; why none now was not checked), so whether window 0's x 1413
+  is the drawn icon's could not be checked; and which window a real click arrives through on
+  each display.
+- **Cause (inferred from the window frames above, not observed: no popover frame was
+  measured).** muxFinder places nothing; SwiftUI places its window from status-item geometry
+  it gets in process, and of the seven candidates only window 0 matches a menu bar, while the
+  second display's replicas sit exactly at its right edge. A window placed below one of those
+  and kept on screen would open at the far right (x 3784–4144 on screen 1), which matches the
+  report; below window 0 it would open under the icon (x
+  1250–1610 on screen 0). So the most likely cause is hypotheses (a) and (b) of the
+  specification together: SwiftUI anchors at a replica item window (the one for the clicked
+  menu bar, or the wrong one of several) whose in-process frame is a placeholder, and the
+  screen clamp pushes it to the right edge. Hypothesis (c), a system-managed area the
+  in-process frame does not describe, is not excluded (the drawn icon could not be seen).
+- **Recommendation for I-1b.** `MenuBarExtra` gives no hook for its window's position, and it
+  does not take the click through the button's action, so muxFinder cannot correct it inside
+  `MenuBarExtra(.window)` without private API: use muxFinder's own `NSStatusItem` (D28's
+  template image) and a borderless `NSPanel`. Anchor at the click, since the replicas'
+  frames cannot be trusted: in the button's action, the current mouse event's location
+  (`NSEvent.mouseLocation`), on the screen that contains it, below that screen's menu bar
+  (`PopoverPlacement.screenIndex(for:in:)` and `frame(contentSize:anchor:screen:)`); use the
+  real button's rectangle (`convertToScreen` of window 0's button) as the anchor when the
+  click falls inside it, so the popover's middle is the icon's exactly where AppKit's frame
+  is real, and when the action comes from no mouse event (`performClick(_:)`, VoiceOver). With
+  muxFinder's own item the button's action is muxFinder's, so the diagnostic's
+  `performClick(_:)` can open the popover in process for the "after the fix" record (anchored
+  at the button by that rule); a click on each display's icon stays a person's check.
+
 Verified in the Phase 13a spike (2026-10-24, iTerm2 3.7.6, tmux 3.8, `muxfinder-probe
 e2e-bury --local` and `--ssh saturno-m4`, the default tmux servers holding only
 `muxfinder-test-*` sessions; 4 local and 2 Saturno runs, all 12 of 12 PASS, the first local
@@ -3383,6 +3466,63 @@ Acceptance:
   screenshots (opaque, readable badge, muted Sirio when offline, footer spacing).
 - Shared verification (`swift build`, `swift test`, `swift format lint -r Sources Tests`)
   passes. No iTerm2 window is opened, and no real run is needed.
+
+### Phase I-1 — Popover under the menu bar icon (high)
+
+From the inbox (2026-10-24). The full specification, with the user's request verbatim, the
+findings, the requirements (diagnose first; placement below the icon, centered, clamped to
+the clicked display's visible frame, no arrow; keep `MenuBarExtra(.window)` if the cause has a
+fix there, else an `NSStatusItem` and a borderless `NSPanel` muxFinder owns; placement as a
+pure function with tests; the unchanged behaviors) and the acceptance, is
+`autoclaude/processed/10-popover-under-menu-bar-icon.md`. It binds both sub-phases.
+
+**Opening step decided (orchestrator, 2026-10-24):** the diagnostic may open muxFinder's own
+popover by calling its own status item button's `performClick(_:)` in its own process. That
+is not UI scripting under `CLAUDE.md` and *Unattended-run rules* 6: no event is posted to the
+system, no Accessibility or AppleScript is used, and no other app's window is touched. It works
+only once muxFinder owns the button's action (I-1b): SwiftUI's `MenuBarExtra` button has none,
+and SwiftUI private internals and synthesized mouse events (in process too) stay out, so the
+diagnostic exits 4 ("not openable in process") on that scene instead of clicking. Bounds:
+the popover stays open at most 3 s, the flag closes it and exits on every way out, it runs at
+most a few times per sub-phase (it may take the key focus from the frontmost app for that
+moment), and it never runs through `open`/LaunchServices. If the screen is locked or the
+display asleep, it reports what it could measure and says so.
+
+Split (recorded before the first worker):
+
+- **I-1a — Diagnose: placement diagnostic, placement function (high).** Deliverables: the
+  read-only launch flag `--report-popover-placement` (in-memory empty host list as the
+  self-tests; no `hosts.json`, refresh engine or iTerm2; no defaults written; the status
+  item's visibility unchanged), printing every status-bar window with its screen, the
+  button's window frame and `convertToScreen`, the popover window's frame and screen, every
+  `NSScreen`'s `frame`, `visibleFrame` and scale, the menu bar's bottom per screen and the
+  frame the placement function would give; the pure placement function (for example
+  `PopoverPlacement.frame(contentSize:anchor:screen:)`) with the specification's five test
+  cases; the diagnostic run on this Mac and its cause recorded in *Verified facts* and in
+  `docs/TESTING.md` ("before the fix"); the `CLAUDE.md` command note for the flag. The app's
+  normal popover is unchanged in I-1a.
+  Acceptance: the placement tests pass; the diagnostic leaves no child, creates no
+  `hosts.json` and leaves no window open, exiting 0 when it measured the popover and
+  otherwise with its documented reason and status; the cause (or what could not be measured,
+  and why) is recorded; `--report-menu-bar-item` unchanged; shared verification and
+  `scripts/build-app.sh` + `codesign --verify --deep --strict` pass. Outcome: nothing within
+  the run rules opens the `MenuBarExtra(.window)` popover in process, so on that scene the
+  diagnostic exits 4 ("not openable in process", reason printed) without clicking, not 0; the
+  before-fix popover frame is recorded as unmeasured (the cause an inference from the window
+  frames, the user's report the only observation of the before state), and measuring the
+  popover moves to I-1b.
+- **I-1b — Place the popover under the icon (high).** Deliverables: the fix the I-1a cause
+  calls for, using the placement function; a new decision **D30** (D22 and D28 edited where
+  they change); the diagnostic re-run ("after the fix": the popover's horizontal middle
+  within 2 pt of the icon's unless clamped, its top at the menu bar's bottom ± 1 pt) in
+  `docs/TESTING.md`; tests over fakes for any new status-item controller (toggle, close,
+  visibility glue); `docs/ARCHITECTURE.md`, `README.md` where they describe the popover;
+  `docs/MANUAL-CHECKLIST.md` item (each display, after ⌘-drag, Esc / click outside / app
+  switch close it, shortcuts, over a full-screen Space). Acceptance: the specification's, and
+  the after-fix diagnostic opens the popover through muxFinder's own button action
+  (`performClick(_:)` in process) and measures it: exit 0. If the screen is locked then, the
+  record says what could and could not be measured, and a by-eye check stays in
+  `docs/MANUAL-CHECKLIST.md`.
 
 ## Deferred (explicitly out of scope for v1)
 

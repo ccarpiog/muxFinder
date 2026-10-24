@@ -44,7 +44,7 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase 14* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-1a* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
 Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
 
@@ -741,6 +741,36 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   arrives and nothing is published. Making `start()` open the popover in the engine makes the
   first two cookie tests fail; undoing the cancellation on close fails the third, and handing
   queued requests to the engine during shutdown fails the shutdown test.
+- **Popover placement** (`Tests/MuxFinderUITests/PopoverPlacementTests`; PLAN.md Phase I-1),
+  pure values, no `NSScreen` or window: `PopoverPlacement.frame(contentSize:anchor:screen:)`
+  centered below the icon (top edge at the menu bar's bottom, the middle on the icon's);
+  clamped 8 pt inside the visible frame at the left and right edges and beside a Dock at the
+  left; a second display left of and above the main one (negative coordinates, its own menu
+  bar's bottom and edges); an auto-hiding menu bar (the system thickness, or a taller camera
+  housing safe area; a menu bar that reserves room is measured, never guessed); a 2x and a
+  1x display (the same size in points, the left edge on half points at 2x and whole points
+  at 1x); content wider or taller than the display (narrowed, or shortened keeping its top);
+  a click point and the icon's rectangle with the same middle; `screenIndex(for:in:)` for an
+  anchor on each display, a pointer on the main display's top row (`y == frame.maxY`, also
+  the bottom of a display above), points on no display (the nearest) and no displays. The
+  `--report-popover-placement` flag: no profile rewrite, a usage error with every other mode,
+  and an environment loading an empty in-memory list with no Settings seams or attach
+  coordinator. The diagnostic's window identification
+  (`Tests/MuxFinderUITests/PopoverWindowIdentificationTests`): a replica status-bar window
+  (level 25, no button, newly visible, also under a key-value observing subclass) is never the
+  popover, nor the real item's window with its button, nor a status-bar window claiming the
+  live popover; a newly visible normal-level window is the fallback candidate, one at or above
+  level 25 is not without the live popover view, hidden windows and windows visible before the
+  click are not; the window holding the live popover view wins at any level;
+  `LivePopoverLookup` finds the tracking view anywhere under a view. Its output
+  (`Tests/MuxFinderUITests/NonblockingLineWriterTests`): with a full blocking pipe (a stalled
+  standard output) 200 lines return at once from another thread, at most the capacity waits,
+  190 are dropped and counted and none is written until the pipe is read; with a full
+  nonblocking pipe every line is dropped and counted at once (`EAGAIN`), and once read a line
+  arrives whole; a line longer than the capacity is dropped. With the old predicate (visible
+  now, not before the click, no button) the replica, fallback-level and live-popover tests
+  fail; with the old synchronous write the stalled-pipe test fails ("write(_:) blocked the
+  caller").
 - **Settings window** (`Tests/MuxFinderUITests/`: `HostDraftValidationTests`,
   `SettingsHostsTests`, `SettingsGeneralTests`; PLAN.md D23). Over fakes for the store,
   discovery, profile list, login item, pasteboard and URL opening, plus a real `HostStore` in a
@@ -2201,3 +2231,60 @@ the window gray per scheme and every fill above it.
 | Sizing and closing | read from the code | `PopoverView` keeps `.frame(width: 360)` and the measured list height capped at 440 pt; the opaque background is a `.background` behind that frame, so it changes no size; the `MenuBarExtra(.window)` scene and `PopoverWindowBridge` (visibility, keys, Esc closing the window) are unchanged |
 | Shell check, safety | `CFFIXED_USER_HOME=<private folder from mktemp -d> .build/debug/muxfinder-probe hosts show`; a scratch program printing `URL.applicationSupportDirectory`, `FileManager.default.homeDirectoryForCurrentUser` and `NSHomeDirectory()` with the same variable | the default `HostStore()` (the app's) read `<folder>/Library/Application Support/muxFinder/hosts.json`: `notSavedYet`, the three onboarding hosts all off; every path under the folder. The user's real `hosts.json` exists now, so the check ran only this way: with no host turned on the engine discovers nothing (no ssh, no tmux), with the popover closed no attachment check runs (D20) so iTerm2 is not contacted, and `--report-menu-bar-item` turns off the profile rewrite (D26) |
 | Shell check | `CFFIXED_USER_HOME=<that folder> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`; after the listing `pgrep -P <pid>`; `kill -TERM <pid>` | 7 status-bar-level windows, all visible, 34 × 30 pt (as in D28's run); no child process; exit 0 after SIGTERM; no copy left. The folder still empty (no `hosts.json` or anything else created); the real `hosts.json` with the same modification time, size and SHA-256 before and after; the user's installed copy, running throughout, untouched |
+
+### Phase I-1a — popover placement diagnostic (2026-10-24)
+
+`--report-popover-placement` (PLAN.md Phase I-1, I-1a; its in-process `performClick(_:)` was
+allowed by the orchestrator) ran from the shell on the bundle binary with `CFFIXED_USER_HOME`
+set to an empty private folder, never through `open`: twice in full (the second time with the
+view trees, the button's click wiring, other processes' status-bar windows and the off-screen
+content size added), once interrupted, all three with the screen locked and both displays
+asleep (`CGSSessionScreenIsLocked` yes, on console yes, `CGDisplayIsAsleep` true on both);
+then, after the review fixes (no click without an action or a menu, exit 4; the popover window
+identified explicitly; nonblocking output and a watchdog), twice more by the review-fix
+worker, which reported the screen unlocked and both displays awake, the same output both
+times; and once more by the orchestrator on the final tree (about 15:25), which reported the
+screen locked and both displays asleep again, with the same windows, frames and click wiring,
+exit 4, the private home left empty and no process left. The user's installed copy ran
+throughout and was not touched.
+
+**Before the fix.** The popover's frame before the fix is **unmeasured**. The only
+observation of where it opens is the user's own report of 2026-10-24: at the far right of the
+screen; no run saw it. No run can open it within the run rules: the status item's button has
+no action and no target, so `performClick(_:)` sends nothing (SwiftUI's `MenuBarExtra` takes
+the click some other way) and no popover window was created; the only other ways to open it
+in process are SwiftUI's private internals or synthesized mouse events (in process or not),
+both outside `CLAUDE.md` and PLAN.md *Unattended-run rules*. The first three runs also had the
+screen locked; in the last two, with the screen unlocked, the button still had no action, so
+the diagnostic said so and exited 4 ("not openable in process") without clicking. Why it opens at the far right is an inference from
+the window frames, not an observation (PLAN.md *Verified facts*, "Phase I-1a placement
+diagnostic"): besides the real item's window, AppKit keeps six replica item windows for the
+other menu bars whose in-process frames are placeholders; the second display's two sit exactly
+at its right edge. A window placed below one of them and kept on screen would open at that
+display's far right (where `PopoverPlacement` itself puts x 3784 of 3072–4152), while the
+real item's frame would put it under the icon (x 1250–1610 on the main display).
+
+| Item | Measured |
+|---|---|
+| Displays | screen 0 (main, primary): frame {{0, 0}, {3072, 1728}}, visible {{63, 0}, {3009, 1698}} (Dock at the left), scale 2, menu bar 30 pt, bottom 1698; screen 1 (portrait, right of the main one): frame {{3072, 249}, {1080, 1920}}, visible {{3072, 249}, {1080, 1890}}, scale 2, menu bar 30 pt, bottom 2139. Separate Spaces on; `NSStatusBar.system.thickness` 22; safe area top 0 on both; neither menu bar hidden |
+| The status item | length −1 (variable), visible, behavior 6 (removal allowed, termination on removal), no menu. Its only button (`NSStatusBarButton`, 34 × 22 pt, in window 0): action none, target none, cell `NSStatusBarButtonCell`, no menu, no gesture recognizer, key-value observed only for `effectiveAppearance` |
+| Window 0, the item | `NSStatusBarWindow`, level 25, 34 × 30 pt at {1413, 1698}, on screen 0 (in its menu bar); the button in screen {{1413, 1702}, {34, 22}}, its middle at x 1430 |
+| Windows 1, 2, 5, 6 | replicas (an `NSStatusItemReplicantView` with shadow and image views; each window's status item is another one; no button), 34 × 30 pt at {0, −30}, below the main display's bottom-left corner, on no screen |
+| Windows 3, 4 | replicas, 34 × 30 pt at {4152, 2139}: x is screen 1's right edge (3072 + 1080), y its menu bar's bottom; on no screen |
+| Other processes' status-bar windows on screen | none listed (Phase 8, also with the screen locked, had listed older apps' items; why none now was not checked), so where the system draws muxFinder's icon could not be compared with window 0 |
+| Popover content, off screen | 360 × 168 pt (`PopoverView` in an `NSHostingView` never put in a window; the never-started model's "Loading hosts…" placeholder) |
+| `PopoverPlacement` frames for it | at the button: {{1250, 1530}, {360, 168}} on screen 0 (middle 1430, top 1698); anchored at windows 3 and 4: {{3784, 1971}, {360, 168}} on screen 1 (its right edge less 8 pt, top 2139); at windows 1, 2, 5, 6: {{71, 1530}, {360, 168}} on screen 0 (beside the Dock) |
+| `performClick(_:)` on the button | first two runs: no new window within 2 s (still the 7 status-bar windows), exit 1 both |
+| The runs after the review fixes (the worker's two reported the screen unlocked and both displays awake; the orchestrator's re-run reported it locked and both asleep) | the same displays (visible frame of screen 0 {{62, 0}, {3010, 1698}}, the Dock 1 pt narrower), the same seven windows and frames (window 0 at {1413, 1698}; four replicas at {0, −30}, two at {4152, 2139}), the button's class now reported as `NSKVONotifying_NSStatusBarButton`, the same click wiring (action none, target none, no menu); still no other process's on-screen status-bar window listed (in the runs reported unlocked too, so their absence seems not to be the lock's doing); then "the popover cannot be opened in process: button 0 has no action (target none) and no menu, …; not clicking" and `exit 4`, 3 s after launch, all three runs |
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build --build-tests`; after the review fixes also `swift build --build-tests -Xswiftc -warnings-as-errors` | exit 0, no warnings, each |
+| Unit tests | `swift test` | exit 0: 745 tests in 74 suites (core), 194 in 18 suites (UI; 9 new in `PopoverPlacementTests`, 4 in `PopoverWindowIdentificationTests`, 3 in `NonblockingLineWriterTests`, and `onlyNormalModeRewritesAtLaunch` gained the new flag). Each review regression fails with the old code put back (the window predicate; the synchronous write) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Placement diagnostic | `CFFIXED_USER_HOME=<private folder from mktemp -d> build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement`, in the background; `pgrep -P <pid>` after 1 s and 3 s; `wait` | first two runs (before the review fixes): the lines above, then "popover window did not appear within 2000 ms", the app's 7 windows and `exit 1`; after the review fixes (two runs): the reason line and exit status 4, nothing clicked; no child process during any run; no copy left |
+| Interrupted | the same, `kill -TERM <pid>` after 1 s (before the review fixes) | "interrupted by SIGTERM", exit 3; no copy left |
+| Usage | `muxFinder --report-popover-placement --report-menu-bar-item` | exit 2 with the usage lines, before any window |
+| Nothing written | `ls -laR` of the private folder after each run; `defaults export cc.carpio.muxfinder -` digested before and after | the folder still empty (no `hosts.json`, no `Library`); the digest unchanged, also for the runs after the review fixes |
+| Shell check | `CFFIXED_USER_HOME=<another private folder> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`; `pgrep -P <pid>`; `kill -TERM <pid>` | the same 7 windows and frames; no child process; exit 0 after SIGTERM; the folder still empty (no `hosts.json`); the same again after the review fixes |

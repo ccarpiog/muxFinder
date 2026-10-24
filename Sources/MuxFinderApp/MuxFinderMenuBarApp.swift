@@ -10,7 +10,8 @@ import SwiftUI
 /// status and exits; `--preview-fixtures` runs the fixture window on a plain `NSApplication`
 /// (no SwiftUI scene, so no menu bar item is ever created and nothing is recorded for one);
 /// `--selftest` runs a self-test on a plain `NSApplication` too; every other launch runs the
-/// menu bar app.
+/// menu bar app (with `--report-popover-placement`, over a model that is never started, to
+/// measure where the popover opens and exit).
 @main
 enum MuxFinderMain {
   /// Picks the mode from the command line and runs it; never returns.

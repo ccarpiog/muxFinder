@@ -35,24 +35,26 @@ file.
 | 13b | Coordinator bury (step 10, `AttachResult.burial`), race by order (`peekResult`), in-memory recovery, Show tab restore, buried fakes, e2e assertions (hermetic) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-13b.md` | `docs/progress-archive/13b.md` |
 | 13c | Real runs and documents: `e2e-bury` through the coordinator, self-tests assert the buried tab, all `e2e-*` and self-tests real, docs | high | opus (code, real-run, documents and review-fix workers) | Codex, ship-with-fixes, `docs/reviews/phase-13c.md` | `docs/progress-archive/13c.md` |
 | 14 | Popover readability: opaque popover, bounded host sections, per-row attach state, readable badge, muted unreachable host, footer spacing | routine | opus (impl + review-fix worker); one inline orchestrator edit | Codex, ship-with-fixes, `docs/reviews/phase-14.md` | `docs/progress-archive/14.md` |
+| I-1a | Diagnose: `--report-popover-placement`, `PopoverPlacement` with tests, cause inferred (pre-fix frame unmeasured) | high | opus (impl + review-fix worker); orchestrator record edits | Codex, ship-with-fixes, `docs/reviews/phase-I-1a.md` | `docs/progress-archive/i-1a.md` |
 
 Queued from the inbox (specification in `autoclaude/processed/`; position after Phase 14, in
 this order):
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-1 | Popover under the menu bar icon (diagnose, then place; suggested risk high) | `autoclaude/processed/10-popover-under-menu-bar-icon.md` | after Phase 14 |
-| I-2 | New session: pick the directory (split I-2a core, high; I-2b UI, routine) | `autoclaude/processed/20-new-session-directory-picker.md` | after I-1 |
+| I-1b | Place the popover under the icon (I-1a done; plan in `PLAN.md` Phase I-1; high) | `autoclaude/processed/10-popover-under-menu-bar-icon.md` | after I-1a |
+| I-2 | New session: pick the directory (split I-2a core, high; I-2b UI, routine) | `autoclaude/processed/20-new-session-directory-picker.md` | after I-1b |
 | I-3 | Global hotkey: session switcher (split I-3a shortcut and Settings; I-3b switcher panel; both routine) | `autoclaude/processed/30-global-hotkey-session-switcher.md` | after I-2 |
 
 ## Current phase
 
-Phases 1–14 are complete and reviewed. **Phase 14 — Popover readability (routine): complete**
-2026-10-24 (`docs/progress-archive/14.md`). **Next: I-1** (popover under the menu bar icon),
-then I-2 and I-3 — the inbox phases in the table above, none yet in `PLAN.md` (add each when
-it is selected). I-1's in-process `performClick(_:)` opening step and I-3's optional
-`--report-hotkey-registration` flag each need the orchestrator's call against the
-no-UI-scripting rule when they run. Phase 13's settled design is **D29**; real facts in
+Phases 1–14 and I-1a are complete and reviewed. I-1 (popover under the menu bar icon) is in
+`PLAN.md` as Phase I-1, split into I-1a and I-1b. **Phase I-1a — Diagnose (high): complete**
+2026-10-24 (`docs/progress-archive/i-1a.md`). **Next: I-1b** (place the popover under the
+icon), then I-2 and I-3 — inbox phases not yet in `PLAN.md` (add each when it is selected).
+I-1's in-process `performClick(_:)` was decided allowed (bounds in `PLAN.md` Phase I-1);
+I-3's optional `--report-hotkey-registration` flag still needs the orchestrator's call against
+the no-UI-scripting rule. Phase 13's settled design is **D29**; real facts in
 `PLAN.md` *Verified facts* "Phase 13a spike" and "Phase 13c real runs". Earlier splits: 6 into
 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13
 into 13a/13b/13c.
@@ -79,6 +81,11 @@ into 13a/13b/13c.
   vs 4 pt; screenshots regenerated and inspected; app shell check under an empty
   `CFFIXED_USER_HOME` exit 0. Real popover by eye owed (`docs/MANUAL-CHECKLIST.md` item 15).
   `docs/progress-archive/14.md`.
+- Phase I-1a: all criteria met, 2026-10-24 — placement tests (five specification cases, 9
+  tests), diagnostic exit 4 "not openable in process" on the current scene (SwiftUI's status
+  button has no action), private home empty, no process left; cause recorded as an inference
+  with the pre-fix popover frame unmeasured (PLAN.md *Verified facts* "Phase I-1a placement
+  diagnostic", `docs/TESTING.md` *Phase I-1a*) — `docs/progress-archive/i-1a.md`.
 
 ## Decisions
 
@@ -109,6 +116,13 @@ into 13a/13b/13c.
   "elsewhere" only on a working check). The app shell check runs under an empty
   `CFFIXED_USER_HOME` now that the user's real `hosts.json` exists (`CLAUDE.md` edited) —
   `docs/progress-archive/14.md`.
+- Phase I-1: split into I-1a/I-1b in `PLAN.md` before the first worker. An in-process
+  `performClick(_:)` on muxFinder's own button is not UI scripting (bounded: ≤ 3 s open, a few
+  runs, never through `open`); SwiftUI private internals and synthesized mouse events stay out.
+  So the current `MenuBarExtra` popover cannot be opened unattended: the before-frame is
+  deferred for good, and I-1b must measure the after-frame through its own button action
+  (exit 0). Recommended for I-1b (*Verified facts*): own `NSStatusItem` + `NSPanel`, anchored
+  at the click point, snapping to the button's rect — `docs/progress-archive/i-1a.md`.
 
 ## Open risks / deviations
 
@@ -135,128 +149,18 @@ into 13a/13b/13c.
   shows briefly on each popover open until the first attachment check ends; a working check
   with unmatched connections (5a `nonUTF8`) can still read "elsewhere" —
   `docs/progress-archive/14.md`.
+- I-1a: the pre-fix popover frame is unmeasured and the cause (SwiftUI anchoring at a replica
+  status-bar window's placeholder frame at the second display's right edge) inferred; where the
+  system draws the icon vs window 0's x 1413 was not checked; the lock state disagreed between
+  the worker's runs (unlocked) and the orchestrator's (locked); the watchdog has no unit test —
+  `docs/progress-archive/i-1a.md`.
 
-- Process-runner tests use an armed-timeout helper to survive very high machine load; if they
-  flake, look there first.
-- Two classifier rows ("No route to host", "Network is unreachable") are standard OpenSSH
-  wording, not real captures (marked in `ErrorClassifierTests`).
-- The "host key changed" real check predates the `ControlMaster=no` / `ControlPath=none`
-  harness options; the "unknown" check was re-run with them (same result).
-- The probe uses `head -c` (POSIX.1-2024, present on macOS); fine for the Mac-only host set.
-- Discovery creates the `tmux-<uid>` socket directory if missing (any tmux command does);
-  recorded in `PLAN.md` *Verified facts*.
-- 3a decoder is more lenient than Python in two spots: invalid UTF-8 → U+FFFD, and a oneof member
-  superseded by a later member is skipped undecoded (corruption inside it goes unreported).
-- iTerm2 Python module 2.11 quirks (Activate sends `ignoring_other_apps=true` with any app
-  option; `rpc.async_create_tab(command=…)` raises) — later phases must not rely on them.
-- 3b: `authRejected` (401) and `notRunning` are covered only by hermetic tests (run rules forbid
-  bogus cookies and quitting iTerm2). What a real tmux tab carries in `ListSessions` is
-  unverified until Phase 4 (ordinary tabs: `tmux_window_id = "-1"`, no connection id). While a
-  LaunchServices Automation prompt shows, the main thread waits on `NSAppleScript`.
-- 3b: a cancelled request throws `CancellationError` without saying whether its frame was sent.
-- 4a: `~/Library/Application Support/muxFinder` itself keeps any inherited ACL (only `launch/`
-  and its files are stripped) — handle when Phase 7 writes `hosts.json` there.
-- 4a: dev build products live in `.build/out/Products/Debug/` (`.build/debug` links there).
-- **iTerm2 modal hazard (all later phases):** any tab the app or a test creates that ends within
-  3 s of opening raises iTerm2's modal "session ended very soon after starting" warning, and
-  the whole iTerm2 API then answers nothing until a person clicks OK (blocked this run once, in
-  4b). The helper now holds every visible launch tab ≥10 s; Phase 5's ssh path must keep that
-  (ssh failing fast must still end through the helper's hold).
-- 4b: `muxfinder-probe detach` needs `--gateway` and always waits 10 s; an identity failure
-  reports ~10 s after the tab opened; the app pays the 10 s wait for tabs opened before a
-  restart. Phase 11's profile could silence the warning (product decision left open).
-- 4c: `swift run muxfinder-probe` does not rebuild `muxfinder-launch`; run `swift build` before
-  any real run or iTerm2 launches a stale helper (documented, no automatic guard).
-- 4c: abort / failed-step / signal cleanup in `e2e-local` and recovery of a session created
-  during cancellation have run only hermetically (an aborted real run was not risked).
-- 4c: a user detach within 10 s of attaching leaves the launch window open until 10 s pass; a
-  Ctrl-C in the instant between the failure prompt appearing and the wait arming is ignored;
-  `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS` is test-only by convention but would also apply to a
-  real launch if present in iTerm2's environment.
-- 5a: probe `attach` and `iterm2 attachments` send the read-only identity `display-message` to
-  every tmux connection, the user's included; unattended, run them only when `iterm2
-  list-connections` shows none of the user's (`e2e-local` filters to its own launch tabs).
-- 5a: a non-UTF-8 control client whose host or socket path contains `_` or `:` stays unmapped
-  (`nonUTF8`), so attaching that session can open a duplicate; a connection silent for 3 s does
-  not block an attach either (duplicate only if it showed the same session).
-- 5a: `focused` is published after activation (up to 5 s late if no tab appears yet); the
-  owned-connection `detach` still counts tab age from the call.
-- **iTerm2 API stall (all later real runs).** It happened in real `e2e-remote` run 3, step 10:
-  GCD worker starvation in iTerm2 (64 workers in `NSAnimation _runBlocking`), no modal dialog
-  as far as the read-only sample shows. It cleared within about two hours without a restart,
-  and the three final-tree runs after it left iTerm2 at 14–18 threads, so no growth was seen.
-  The cause is unknown. Before and after every real run, check `iterm2 status` and the thread
-  count (read-only, `ps -M -p <pid> | wc -l`); stop as `BLOCKED` on a timeout or if the count
-  keeps growing.
-- 5b: the earlier real `e2e-remote` runs used the old still-waiting design. That design made
-  one real login attempt per run to `saturno-m4` as `nonexistent-muxfinder`, three in total.
-  The review flagged it as outside the run rules, and it is gone now.
-- 5b: `withAwaitedTask` has no time limit of its own; it relies on the coordinator's 10 s
-  request timeouts and cancellable sleeps. On macOS, `poll` reports `/dev/null` as unsupported,
-  so the relay writes such devices directly.
-- **iTerm2 thread ratchet (gates every real run).** Each real e2e run adds about 12 iTerm2
-  threads (GCD workers stuck in `-[NSAnimation _runBlocking]`, the 5b stall pattern at 64).
-  They decay with no restart, but slowly and unevenly: during 6a the count sat at 34–35 for
-  over an hour, then was back to 15 about two hours later. The final-tree `e2e-remote` took
-  it from 16 to 26. Restarting iTerm2 is the user's call, never the run's.
-- 6a: name edge cases (`$…`, a client's terminal name, `#[`), the harness-only
-  `NewSessionRequest.command`, the never-run-for-real probe `new-session`, and the
-  "server not responding" class split — `docs/progress-archive/6a.md`.
-- 7a: the 4a ACL risk is only partly closed (a launch request that creates the `muxFinder`
-  directory first leaves its inherited ACL until the next host-list save); saves refuse a
-  symlinked, non-regular or >16 MiB `hosts.json`; no fallback where `RENAME_SWAP` is
-  unsupported; more in `docs/progress-archive/7a.md`.
-- 7a: the 5b test `aSilentRemoteConnectionIsStale()` flaked about once in 18 runs (a wait-
-  condition race); fixed with a cancelled-sleep count on `GatedAttachClock`, 20/20 runs since.
-- 7b: `doesNotBlockTheMainActor` (Phase 1) failed 2 of 12 runs under load and is now a
-  deterministic handshake; `keepsTrailingSemicolonsOnAPrivateServer` (6a) failed about 1 in 20
-  under heavy load in the worker's runs, unseen in the orchestrator's 14 — look there first if
-  the suite flakes. `refresh --once --attachments` never ran for real (it queries the user's
-  iTerm2 tmux connections); remote sessions through the engine were not seen (Saturno had no
-  server); more in `docs/progress-archive/7b.md`.
-- 6b: a launch that never settles (a tab left waiting for a password) makes later conflicting
-  calls for that session fail `earlierLaunchPending` until the tab ends or attaches; an
-  `unknown` connection whose answer names another server or session does not block a move
-  here. Thread growth per real run varies widely: the worker's `e2e-local` took iTerm2 from
-  25 to 42 (it stayed near 40 for hours), the closure runs only 16 → 16 → 19.
-- 8: the real popover (open, keys, Esc) never ran (needs a click; covered by model tests);
-  `screencapture -l` fails while the screen is locked (in-app `--preview-snapshot` used); the
-  worker deleted preference sets its own early preview runs created; a cancelled caller can
-  still let one iTerm2 connection open (no request sent on it); `createsOnAPrivateServer()`
-  (6a) failed once (`pane_current_path` race under load), then passed — look there first if the
-  suite flakes. Details in `docs/progress-archive/8.md`.
-- 9a: owed to a person (needs clicks): the real launch-at-login round trip on an installed
-  bundle, the fix-it buttons opening System Settings, the window coming to the front, ⌘C/⌘V in
-  its fields. Shutdown does not wait for a save already in progress; the changed-file banner
-  has no preview fixture — `docs/progress-archive/9a.md`.
-- 9b: the real ssh-setup round trip (tab, interactive ssh, hold) is **owed to the user**
-  (Phase 10b decision: an interactive login on Saturno is outside the run rules; probe
-  `ssh-setup --ssh <dest>` exists, but cannot close its own tab); a destination saved in
-  Settings does not clear the popover's pending ssh-setup line; clicking through onboarding is
-  owed to a person — `docs/progress-archive/9b.md`.
-- 10a: Show tab is unverified against the real iTerm2 (local attaches never reach "still
-  waiting"); the app's own Open asks every tmux connection (only the self-tests filter to their
-  own tabs); a rename between the fresh listing and the attach is not caught; quit can take up
-  to 15 s with an attach in flight; self-test cleanup kills nothing while an action is still
-  running and prints the `tmux kill-session` to run — `docs/progress-archive/10a.md`.
-- 10b: Show tab is still unverified for real; after keep mode the helper's `*.result.json`
-  stays in the launch directory until the next launch's sweep (D14, 120 s TTL); the keep
-  line's cleanup prints `tmux` without a path — `docs/progress-archive/10b.md`.
-- 11b (11a's owed items, the rest confirmed by the real runs): still unverified — a non-modal
-  "Dynamic Profiles Error" alert during the atomic write (needs a person's glance; the
-  dot-file skip is seen only indirectly), the unknown-parent fallback, `-A` target-syntax
-  cases on a real server, a login shell exiting within 3 s. iTerm2 went 22 → 35 threads over
-  six runs (1–4 per run) — `docs/progress-archive/11b.md`.
-- 11c: the parent-inheritance warning and the second-tab note are copy only (iTerm2 not run);
-  owed to the user: a real Install / Remove from an installed bundle, making a profile the
-  default, a second tab of the same profile, a launch after moving the app; an outside removal
-  in the instant after the locked check reports `fileChanged` (nothing created) —
-  `docs/progress-archive/11c.md`.
-- 12a: `shellcheck` not installed (only `bash -n`); neither script has run on the real
-  `/Applications`, `~/Applications`, `DynamicProfiles/` or support folder (a real install /
-  uninstall is the user's, in `docs/MANUAL-CHECKLIST.md`); the README's Gatekeeper statement
-  for quarantined copies is untried; the no-symlink rule holds in test mode only —
-  `docs/progress-archive/12a.md`.
+- Phases 1–12a: their open risks and deviations moved verbatim to
+  `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
+  **iTerm2 modal hazard** (a tab ending within 3 s blocks the API until a person clicks OK),
+  the **iTerm2 API stall** at 64 workers and the **thread ratchet** (about 12 threads per real
+  e2e run, slow decay) — the gate is in *Next action* 3; and `swift run muxfinder-probe` does
+  not rebuild `muxfinder-launch` (run `swift build` first).
 
 ## Reviews
 
@@ -285,16 +189,25 @@ into 13a/13b/13c.
   read "attached elsewhere". Fixed by a review-fix worker (new "attached, location unknown"
   state; regression fails with the old mapping); re-verified by the orchestrator —
   `docs/reviews/phase-14.md`.
+- Phase I-1a: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 1
+  blocker (the only opening mechanism is a no-op: resolved by the reviewer's "if unavailable,
+  defer" branch — exit 4 without clicking, records say the before-frame is unmeasured, I-1b
+  must measure) + 2 should-fix (replica windows as the popover; blocked stdout), fixed by a
+  review-fix worker with regressions failing on the old code — `docs/reviews/phase-I-1a.md`.
 
 ## Next action
 
-1. **Start I-1** (popover under the menu bar icon; suggested risk high; specification
-   `autoclaude/processed/10-popover-under-menu-bar-icon.md`): poll the inbox first, add I-1 to
-   `PLAN.md` as a phase (after Phase 14) with its acceptance criteria, decide its in-process
-   `performClick(_:)` opening step against the no-UI-scripting rule and record the call, then
-   spawn one worker. Phase 14 just changed the popover's look (D22 *Look*, opaque background in
-   `Views/PopoverView.swift`); I-1 must keep it. Then I-2 (New session directory picker, split
-   I-2a core high / I-2b UI routine), then I-3 (global hotkey session switcher, I-3a / I-3b).
+1. **Start I-1b** (place the popover under the icon; high): poll the inbox first, mark I-1b
+   `in_progress`, then spawn one worker with `PLAN.md` Phase I-1 (I-1b deliverables and
+   acceptance), the specification `autoclaude/processed/10-popover-under-menu-bar-icon.md`,
+   *Verified facts* "Phase I-1a placement diagnostic" (the recommendation: own `NSStatusItem` +
+   borderless `NSPanel` hosting `PopoverView`, anchored at the click point snapping to the
+   button's rect) and `docs/progress-archive/i-1a.md`. It uses `PopoverPlacement`, records
+   **D30** (D22, D28 edited), keeps Phase 14's opaque look and every unchanged behavior of the
+   specification, and re-runs `--report-popover-placement` (its `performClick(_:)` then reaches
+   muxFinder's own action: exit 0 with the frames, or the record says what a locked screen
+   prevented). Then I-2 (New session directory picker, split I-2a core high / I-2b UI routine),
+   then I-3 (global hotkey session switcher, I-3a / I-3b).
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -370,6 +283,11 @@ into 13a/13b/13c.
   13c harness judgements: `Sources/MuxFinderCore/Attach/LaunchTabChecks.swift`
   (`BuryRaceOutcome`, `KilledLaunchTabWatch`, `GatewayPlace`), tests `LaunchTabChecksTests`;
   shared "left by itself" check `checkLaunchTabLeft` in `Sources/muxfinder-probe/E2ESupport.swift`.
+- Popover placement (I-1a): `Sources/MuxFinderUI/Model/{PopoverPlacement,
+  PopoverWindowIdentification,NonblockingLineWriter}.swift`, diagnostic
+  `Sources/MuxFinderApp/PopoverPlacement{Report,Inspection}.swift`; tests
+  `Tests/MuxFinderUITests/{PopoverPlacement,PopoverWindowIdentification,
+  NonblockingLineWriter}Tests.swift`.
 - Popover look (D22 *Look*, 14): palette, contrast helpers and state marks
   `Sources/MuxFinderUI/Views/PopoverStyle.swift`; row-state mapping in
   `Model/PopoverContent.swift`; tests `Tests/MuxFinderUITests/{PopoverStyleTests,
@@ -385,11 +303,13 @@ into 13a/13b/13c.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase 14 (final tree, orchestrator, 2026-10-24): `swift build` exit 0; `swift test` 745
-  core tests in 74 suites + 178 UI tests in 15 suites passed; `swift format lint -r Sources
+- Phase I-1a (final tree, orchestrator, 2026-10-24): `swift build` exit 0; `swift test` 745
+  core tests in 74 suites + 194 UI tests in 18 suites passed; `swift format lint -r Sources
   Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0. No real run (none needed) — `docs/progress-archive/14.md`.
-- Phases 1–13c: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+  build/muxFinder.app` exit 0; `--report-popover-placement` under a private
+  `CFFIXED_USER_HOME` exit 4 (not openable in process), home empty, no process left. No iTerm2
+  contact — `docs/progress-archive/i-1a.md`.
+- Phases 1–14: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -409,5 +329,7 @@ into 13a/13b/13c.
 - Phase 13a: `0284b84`, pushed (`origin/main` at `0284b84` before Phase 13b).
 - Phase 13b: `c3e2948`, pushed. Inbox triage (I-1, I-2): `bd9aed6`.
 - Phase 13c: `d5955ff`, pushed. Inbox triage (I-3): `2fdfc87`; phase summary `a9532fa`.
-- Phase 14: the commit after `a9532fa` (code, tests, screenshots, docs, review, archive and
-  checkpoint); its SHA and push result are in the run's final status line.
+- Phase 14: `6750a1b`, pushed.
+- Phase I-1a: the commit after `6750a1b` (plan split, diagnostic, placement function, tests,
+  records, review, archive and checkpoint); its SHA and push result are in the run's final
+  status line.

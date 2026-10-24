@@ -621,7 +621,7 @@ struct PersistentProfilesSettingsTests {
       ["--selftest", "attach-local"], ["--selftest", "new-session-local", "--selftest-keep"],
       ["--report-login-item-status"], ["--report-menu-bar-item"], ["--selftest-keep"],
       ["--selftest", "nope"], ["--remove-persistent-profiles"],
-      ["--remove-persistent-profiles", "--dry-run"],
+      ["--remove-persistent-profiles", "--dry-run"], ["--report-popover-placement"],
     ] {
       #expect(!AppLaunchOptions(arguments: arguments).rewritesProfilesAtLaunch, "\(arguments)")
     }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T13:02:25Z",
+  "updated": "2026-10-24T13:55:57Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -433,11 +433,35 @@
     {
       "id": "I-1",
       "title": "Popover under the menu bar icon",
+      "status": "in_progress",
+      "risk": "high",
+      "summary": "Opens the popover directly below the menu bar icon instead of at the far right; split into I-1a (diagnose, done) and I-1b (fix).",
+      "added": "2026-10-24T12:24:40Z",
+      "started": "2026-10-24T13:04:30Z",
+      "status_since": "2026-10-24T13:04:30Z"
+    },
+    {
+      "id": "I-1a",
+      "title": "Diagnose: placement diagnostic and placement function",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-1",
+      "summary": "Adds a read-only placement diagnostic and a tested placement function; the far-right cause is inferred, the pre-fix frame unmeasured.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-1a.md",
+      "narrative": "docs/progress-archive/i-1a.md",
+      "added": "2026-10-24T13:04:30Z",
+      "started": "2026-10-24T13:04:30Z",
+      "status_since": "2026-10-24T13:55:57Z"
+    },
+    {
+      "id": "I-1b",
+      "title": "Place the popover under the icon",
       "status": "queued",
       "risk": "high",
-      "summary": "Open the popover directly below the menu bar icon instead of at the far right; diagnose first.",
-      "added": "2026-10-24T12:24:40Z",
-      "status_since": "2026-10-24T12:24:40Z"
+      "parent": "I-1",
+      "summary": "Opens the popover centered below the clicked menu bar icon, clamped to that display, with the after-fix measurement.",
+      "added": "2026-10-24T13:04:30Z",
+      "status_since": "2026-10-24T13:04:30Z"
     },
     {
       "id": "I-2",

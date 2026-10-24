@@ -159,6 +159,22 @@ public struct AppEnvironment: Sendable {
       },
       rewritesProfilesAtLaunch: rewritesProfilesAtLaunch)
   } // End of static func production(rewritesProfilesAtLaunch:)
+
+  /// The popover placement diagnostic's (`--report-popover-placement`, PLAN.md Phase I-1): an
+  /// inert environment for a model the app never starts. Its host list is an empty in-memory
+  /// one, as the self-tests' (`HostStoreLoadResult.inMemory(_:)`: no `hosts.json` read or
+  /// written, no onboarding); an engine built for it would have no host to discover and no
+  /// attachment index, so it could not run a probe or contact iTerm2; no system events, no
+  /// Settings seams (inert Settings and onboarding models), no attach coordinator, and no
+  /// persistent profile rewrite. Quitting goes through `AppTermination` as usual.
+  public static func placementDiagnostic() -> AppEnvironment {
+    AppEnvironment(
+      loadHosts: { .inMemory(HostList()) },
+      makeEngine: { hosts in RefreshCoordinator(hosts: hosts, discovery: DiscoveryProbe()) },
+      makeSystemEvents: { _ in nil },
+      terminate: { AppTermination.request() },
+      rewritesProfilesAtLaunch: false)
+  }
 }
 
 /// Quitting the app safely from any main-thread context.

@@ -102,6 +102,27 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   and no `hosts.json` created. The user's real `hosts.json` exists, so run it only with
   `CFFIXED_USER_HOME=$(mktemp -d)` in front: the app then reads an empty private home (no
   host turned on, nothing refreshed). See `docs/TESTING.md` (Phases 8, 9b and 14).
+- Popover placement check (read-only; the menu bar scene over a model that is never started:
+  no `hosts.json` read or written, no engine, iTerm2, onboarding or profile rewrite, no
+  defaults written, the item's visibility only read; never through `open`/LaunchServices; a
+  few runs per phase at most, PLAN.md Phase I-1): `CFFIXED_USER_HOME=$(mktemp -d)
+  build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement` prints
+  `muxFinder popover placement: …` lines 2 s after launch (the screen lock state, each
+  display with its menu bar's bottom, the app's status-bar windows with their view trees and
+  status items, the button's frames and click wiring, other processes' status-bar window
+  frames, the popover content's size measured off screen and `PopoverPlacement`'s frames for
+  it); then, only when its own status item button has an action or a menu, calls its
+  `performClick(_:)` in process (no posted event), prints the popover window (the one holding
+  the live `PopoverView`, else a newly visible one below the status-bar level; never a
+  status-bar window) and the offsets if it appears within 2 s, closes it (a second
+  `performClick`, else ordered out) and exits: 0 measured, 1 clicked but the popover never
+  appeared, 2 combined with another mode, 3 SIGTERM/SIGINT, the 3 s open limit, the 10 s
+  deadline or the watchdog 1 s after it, 4 not openable in process (no button, or one with
+  no action and no menu). Under `MenuBarExtra` the button has no action, so it says so and
+  exits 4 without clicking; no other in-process opening path is within the safety rules.
+  Output never blocks it (lines that do not fit are dropped and counted). Run it in the
+  background and check `pgrep -P <pid>` lists nothing while it runs and the private home is
+  still empty after it. See `docs/TESTING.md` (Phase I-1a).
 - App self-tests (real runs: they open real iTerm2 windows; run explicitly, never from `swift
   test`, with `TMUX_TMPDIR` unset, after `scripts/build-app.sh`, with the same iTerm2
   thread-count caution as the e2e runs below; never through `open`/LaunchServices):

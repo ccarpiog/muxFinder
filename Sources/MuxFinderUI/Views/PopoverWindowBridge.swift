@@ -138,6 +138,18 @@ final class PopoverWindowTrackingView: NSView {
   } // End of func handle(_:)
 }
 
+/// Finds the live popover in a view tree: the popover placement diagnostic's positive
+/// identification of the popover window (`PopoverWindowIdentification`, PLAN.md Phase I-1).
+public enum LivePopoverLookup {
+  /// Whether `view` or any view under it is a live `PopoverView`'s window tracking view, so the
+  /// window holding `view` holds the live popover. Read-only.
+  @MainActor
+  public static func holdsLivePopover(_ view: NSView?) -> Bool {
+    guard let view else { return false }
+    return view is PopoverWindowTrackingView || view.subviews.contains { holdsLivePopover($0) }
+  }
+}
+
 /// The parts of a key-down event the popover reads (`NSEvent` itself is not `Sendable`).
 struct KeyPress: Sendable {
   /// The event's window number.
