@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-04T17:45:05Z",
+  "updated": "2026-11-04T17:46:06Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -547,6 +547,24 @@
       "added": "2026-11-04T17:12:47Z",
       "started": "2026-11-04T17:12:47Z",
       "status_since": "2026-11-04T17:45:05Z"
+    },
+    {
+      "id": "I-5",
+      "title": "Switcher: one click activates a row",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "A single click on a switcher row opens that session or shows the New session form, as in the popover.",
+      "added": "2026-11-04T17:46:06Z",
+      "status_since": "2026-11-04T17:46:06Z"
+    },
+    {
+      "id": "I-6",
+      "title": "New session: Tab from Name to Directory",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "Tab and Shift-Tab move between the New session form fields in the popover and the switcher.",
+      "added": "2026-11-04T17:46:06Z",
+      "status_since": "2026-11-04T17:46:06Z"
     }
   ]
 }
