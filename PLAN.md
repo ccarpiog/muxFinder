@@ -2157,8 +2157,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `PopoverView` at its natural size whatever the panel's frame, as under `fixedSize()`, but
     no taller than its height limit, `PopoverHeightLimit`; see *Size*) in an `NSHostingView`
     whose `sizingOptions` are `intrinsicContentSize` only, so the view never resizes the
-    window itself. One panel, made at launch and reused. Phase 14's look, width and sizing are
-    unchanged when the content fits; no arrow.
+    window itself. One panel, made at launch and reused. Its key view loop is recalculated as
+    views come and go (`autorecalculatesKeyViewLoop`, Phase I-6): the hosted view swaps whole
+    forms (New session replacing the list), and with AppKit's default the loop computed at the
+    panel's first showing left the form's fields leading nowhere, so Tab stayed in Name
+    (*Verified facts*, Phase I-6; the session switcher's panel is the same class, D32). Phase
+    14's look, width and sizing are unchanged when the content fits; no arrow.
   - **The anchor rule** (`PopoverAnchoring.decide`): when the action comes from a mouse event
     (the current event is a mouse press or release at most 1 s old), the press's location is
     `NSEvent.mouseLocation`; if it is on the button (within the button's column, in the menu
@@ -2388,8 +2392,20 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     review). Esc closes the list and leaves the panel open (a second Esc closes it);
     ⌘F and ⌘N still do nothing and ⌘R and ⌘, act as in any panel. Everywhere else ⌥↓ returns
     the new `PopoverKeyResult.ignored`, and the key goes on to the focused view as before
-    (`PopoverKey` used to return `nil` for it). Tab to the button and Space press it like any
-    button (with macOS's keyboard navigation on). Every other key is unchanged.
+    (`PopoverKey` used to return `nil` for it). **Tab and ⇧Tab** (Phase I-6; decided: AppKit's
+    own key view loop, which the panel recalculates, D30) move between Name and Directory, and
+    with macOS's keyboard navigation on through the host picker, Name, Directory, the list's
+    button (Space presses it like any button), Cancel and Create in reading order, wrapping
+    inside the panel; the session list the form replaces is gone from the view tree, so Tab
+    never reaches it. No `PopoverKey` maps Tab, so the key monitor never takes it and an input
+    method composing text gets it first, as it gets every key. Not routed through the model (a
+    Tab `PopoverKey` and an `@FocusState` field held by `AppModel`): the cause was the panel's
+    stale loop, and once it is recalculated AppKit already gives the reading order, the
+    keyboard navigation rule and the input method's precedence for every control, which a
+    model-held focus would have had to copy. Tab with the directory list open moves on and
+    leaves the list open: its rows are drawn by SwiftUI and are not key views, so Tab never
+    walks into them, and the list's keys are the model's wherever the focus is in the form
+    (Esc, or Space on the button, closes it). Every other key is unchanged.
   - **Store use from the popover (Phase I-2b):** every load and change goes through
     `AppEnvironment.directories` on one queue (`enqueueDirectoryOperation(_:)`; the recording
     above runs on it too, and quitting waits for it within the budget). The lists are read
@@ -2636,8 +2652,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     accessibility action hold nothing. The New session form is the popover's `NewSessionPanelView` over the shared
     `panel` and `NewSessionDraft` (This Mac by default, D31's directory list included; the name
     field takes the focus), with the popover's panel keys (Return creates, ⌥↓ and the list's
-    keys, Esc closes the list, then goes back to the list). Move here and Detach stay in the
-    popover (a failure's own recoveries are the popover row's).
+    keys, Esc closes the list, then goes back to the list) and its Tab order (D31's *Keys*:
+    AppKit's key view loop, which this panel recalculates as the popover's does, D30; never
+    out of the panel or to the session list the form replaced). Move here and Detach stay in
+    the popover (a failure's own recoveries are the popover row's).
   - **Actions and carry-over** (`AppModelSwitcher.swift`): a session row opens through the
     popover's Open (D25: focused when open here, else attached). An Open, or a New session's
     creation and its attach, started while the switcher shows is followed
@@ -3329,6 +3347,45 @@ Verified in Phase I-4 (2026-11-04, macOS 27.3 Build 26C5035r, the signed bundle 
   validated as disabled for a borderless non-activating panel and a borderless status-bar
   window and enabled for a titled, closable one (`MainMenuTests` checks muxFinder's own
   classes).
+
+Verified in Phase I-6 (2026-11-04, macOS 27.3 Build 26C5035r, the debug and the signed bundle
+binary's `--preview-fixtures --preview-key-view-loop popover|switcher` run from the shell,
+before and after the fix; no event made or posted, no key pressed; `docs/TESTING.md`, *Phase
+I-6*):
+
+- **Tab stayed in Name because the panel's key view loop was never recalculated.**
+  `PopoverPanelWindow` had AppKit's default `autorecalculatesKeyViewLoop` (false). AppKit
+  computed the loop once, when the panel was first shown with its list (search field focused;
+  `initialFirstResponder` then the content view, `PopoverPanelContentView`), and nothing
+  recomputed it when the New session form replaced the list. The form's controls kept the links
+  SwiftUI gave them: Name's and Directory's `nextKeyView` their own
+  `AppKitPlatformViewHost<PlatformViewRepresentableAdaptor<PlatformTextFieldAdaptor>>`, which
+  takes no focus, the buttons' none, so `nextValidKeyView` and `previousValidKeyView` from Name
+  were none, and Tab's action message to the field editor (`insertTab(_:)`, through
+  `doCommand(by:)`) and ⇧Tab's (`insertBacktab(_:)`) left the editing in Name. The popover's
+  panel and the switcher's alike (the switcher's form focuses Name itself; the popover's
+  leaves the focus on the window until a click). With the directory list open, the views
+  SwiftUI inserted relinked part of the chain (Name → Directory → the list's button → Cancel →
+  Create → none) and ⇧Tab from Name still went nowhere.
+- **Ruled out:** the key monitor (Tab is no `PopoverKey`, and the steps send no event at all,
+  so it never runs, yet they failed the same); macOS's keyboard navigation setting (on here,
+  `AppleKeyboardUIMode` 2, read only; the chain from Name ended at once, which no setting
+  changes); the hosting setup (the `NSHostingView` a subview of the content view), the
+  non-activating panel and the inactive app: a panel opened with the form already in it had an
+  intact loop, and Tab's action message moved Name to Directory there, once with the panel key
+  and the app active, once with neither.
+- **With the loop recalculated** (the fix), AppKit rebuilds it the next time the window is
+  asked for a key view (links read straight from the views before that are still the stale
+  ones): Tab from Name goes to Directory, the list's button, Cancel, Create, the host picker
+  and back to Name, ⇧Tab the same way backwards, in both panels and with the list open (its
+  rows, drawn by SwiftUI, are no AppKit views, so they are not in the loop; the list stayed
+  open). The order is the controls' reading order by position.
+- **A text input window closes during editing:** the text cursor's indicator
+  (`TUINSWindow`, closed by `TextInputUIMacHelper`'s `TUINSCursorUIController`) is a window of
+  the app's that opens and closes as a field is edited; its close counted as the last window
+  closing, and the preview app,
+  whose delegate then quits, stopped in the middle of the first diagnostic runs (exit 0). The
+  diagnostic's mode no longer quits that way; the gallery mode is unchanged.
 
 ## Unattended-run rules (binding for every phase)
 
@@ -4532,6 +4589,34 @@ panel host showed the held form at the top with the background below. With regre
 fix reverted (the growth test with a hold that freezes the frame instead); the test panel and
 switcher system gained the minimum and the two seams, no other test changed. On the final
 tree 815 core + 350 UI tests pass.
+
+### Phase I-6 — New session: Tab moves from Name to Directory (routine)
+
+From the inbox (2026-11-04). The specification, with the user's report verbatim, the findings,
+the requirements and the acceptance, is
+`autoclaude/processed/60-new-session-tab-between-fields.md`. Its diagnosis is under *Verified
+facts* "Phase I-6"; D30's *Panel*, D31's *Keys* and D32's *Keys* items edited. Not split.
+
+Outcome: the cause was the panels' key view loop, computed once when a panel was first shown
+with its list and never again (`autorecalculatesKeyViewLoop` false, AppKit's default), so the
+New session form that replaces the list had fields linked to SwiftUI's view hosts, and Tab and
+⇧Tab left the focus in Name, in the popover and the switcher alike. The native route was
+taken: `PopoverPanelWindow` (both panels' class) now recalculates its loop, and Tab and ⇧Tab
+move through the form in reading order (Name and Directory; with keyboard navigation on, the
+host picker, the list's button, Cancel and Create too), wrapping inside the panel; no
+`PopoverKey` and no model state were added, since AppKit's loop already gives the order, the
+keyboard navigation rule and the input method's precedence. Tab with the directory list open
+moves on and leaves it open (D31). The diagnosis came from a new read-only preview-fixture
+diagnostic, `--preview-fixtures --preview-key-view-loop popover|switcher`
+(`KeyViewLoopReport`: muxFinder's real panel over a fixture, the list first, then the form;
+it prints the key views, their links, the chains from Name and where each Tab or ⇧Tab step
+takes the focus, a step being the key binding's own action message or the window's own
+`selectNextKeyView(_:)`, never an event); in that mode the preview app no longer quits when the
+text cursor's indicator window closes. New tests in `NewSessionTabOrderTests`:
+`panelsRecalculateTheirKeyViewLoop` and `tabMovesFromNameToDirectoryAndBack` (both panels,
+real but never shown; both fail with the fix reverted, the second on its ⇧Tab step),
+`tabIsNoPanelKey`, `keyViewLoopFlag`; no existing test changed. The galleries are unchanged.
+On the final tree 815 core + 354 UI tests pass.
 
 ## Deferred (explicitly out of scope for v1)
 

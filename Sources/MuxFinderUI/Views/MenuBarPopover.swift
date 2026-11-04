@@ -346,8 +346,9 @@ final class PanelHost<Root: PanelRootView>: PopoverPanelSurface {
 /// borderless, non-activating (it becomes key while the frontmost app stays frontmost), at
 /// its level (the pop-up menu level for the popover, the floating level for the switcher), on
 /// every Space and over full-screen apps, not movable, transparent outside its rounded
-/// content, with a shadow. Closing it asks `closeRequest` (the controller), which orders it
-/// out; it is never released.
+/// content, with a shadow, its key view loop recalculated as the hosted view changes (so Tab
+/// and ⇧Tab move through the form shown, PLAN.md Phase I-6). Closing it asks `closeRequest`
+/// (the controller), which orders it out; it is never released.
 final class PopoverPanelWindow: NSPanel {
   /// Called instead of closing the panel (Esc, or the diagnostic's own close).
   var closeRequest: (() -> Void)?
@@ -371,7 +372,15 @@ final class PopoverPanelWindow: NSPanel {
     animationBehavior = .none
     tabbingMode = .disallowed
     isExcludedFromWindowsMenu = true
+    autorecalculatesKeyViewLoop = Self.recalculatesKeyViewLoop
   } // End of init(contentView:level:)
+
+  /// Whether the panel recalculates its key view loop when views come or go (PLAN.md D30,
+  /// Phase I-6). The hosted view swaps whole forms in and out (the New session form replacing
+  /// the list), and with AppKit's default (`false`) the loop computed when the panel was first
+  /// shown is never redone: the form's fields then link to SwiftUI's view hosts, which take no
+  /// focus, so Tab and ⇧Tab left the focus in the Name field.
+  static let recalculatesKeyViewLoop = true
 
   /// A borderless window cannot become key unless it says so; the search field needs the keys.
   override var canBecomeKey: Bool { true }

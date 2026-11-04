@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-04T18:27:40Z",
+  "updated": "2026-11-04T19:02:29Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -556,6 +556,7 @@
       "summary": "A single click on a switcher row opens that session or shows the New session form, and a quick double click acts once.",
       "review": "Codex, ship-with-fixes, docs/reviews/phase-I-5.md",
       "narrative": "docs/progress-archive/i-5.md",
+      "commit": "8f08b99",
       "added": "2026-11-04T17:46:06Z",
       "started": "2026-11-04T17:47:04Z",
       "status_since": "2026-11-04T18:27:40Z"
@@ -563,11 +564,14 @@
     {
       "id": "I-6",
       "title": "New session: Tab from Name to Directory",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
-      "summary": "Tab and Shift-Tab move between the New session form fields in the popover and the switcher.",
+      "summary": "Tab and Shift-Tab move between the New session form fields in the popover and the switcher, the panels recalculating their key view loop.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-6.md",
+      "narrative": "docs/progress-archive/i-6.md",
       "added": "2026-11-04T17:46:06Z",
-      "status_since": "2026-11-04T17:46:06Z"
+      "started": "2026-11-04T18:28:15Z",
+      "status_since": "2026-11-04T19:02:29Z"
     }
   ]
 }

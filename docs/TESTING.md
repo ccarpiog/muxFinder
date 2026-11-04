@@ -44,9 +44,9 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-5* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-6* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's reports of 2026-10-24 and 2026-11-04, PLAN.md Phases 13, 14 and I-1 to I-4):
+Added after the brief (the user's reports of 2026-10-24 and 2026-11-04, PLAN.md Phases 13, 14 and I-1 to I-6):
 
 | Requirement | Status | Evidence |
 |---|---|---|
@@ -60,6 +60,7 @@ passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the
 | A global shortcut, off until recorded in Settings › General ("Show session switcher"): checked (a modifier besides ⇧ unless F1–F20, macOS's own combinations refused, a warning before ⌘ with one key or only ⌥/⌥⇧), shown with the current layout's key, kept in `preferences.json`, registered at launch, again on a change, unregistered on clear and at quit, suspended while recording, a taken one explained beside the recorder; its press toggles the session switcher (next row; PLAN.md Phase I-3a, D32). | Registration and its refusal of a second registration tested for real in the signed bundle (`--report-hotkey-registration`); the rest hermetically and in the preview renders (both appearances). Recording in the real Settings window, a taken shortcut, "Clear", a relaunch, the label on the user's layout and a press from another app: by a person (checklist 18). | Phase I-3a, 2026-10-24 (*Phase I-3a* below): `--report-hotkey-registration` exit 0, 8 of 8 checks as expected; `GlobalShortcutTests`, `PreferencesStoreTests`, `GlobalShortcutModelTests`, `GlobalShortcutAppTests`; `docs/screenshots/settings-states-*.png` regenerated and inspected. |
 | The session switcher: the shortcut toggles a non-activating panel centered on the display with the keyboard focus, in its upper part, over full-screen apps; a search field focused and empty at each opening; the live sessions in the popover's order (stale ones left out) with Phase 14's row look, filtered by the popover's rule; "New session…" last, naming the session from the filter; muted lines for hosts checking or unreachable; Return or one click opens as the popover does (the rest of that click's sequence is ignored and lands on the panel, held through the double-click interval, so a quick double click opens once and never acts on the form or on the window behind the panel), Return or a click on New session or ⌘N shows the form, ⌘R, ⌘, and Esc; it closes on success, keeps a failure on its row, and carries a failure that arrives once it closed to its next opening and the popover row; only one of it and the popover shows, and the engine hears one opened and one closed per change of "either one is visible" (PLAN.md Phases I-3b and I-5, D32, D22). | Tested hermetically and in the preview renders (both appearances); the app shell check as before. A press over a full-screen app, filtering and opening with iTerm2 coming forward, creating, and Esc giving the focus back: by a person (checklist 18). | Phase I-3b, 2026-10-24 (*Phase I-3b* below): `SwitcherContentTests`, `SwitcherControllerTests`, `SwitcherModelTests`, `GlobalShortcutAppTests.theShortcutTogglesTheSwitcher`; `docs/screenshots/switcher-states-*.png` rendered and inspected. Phase I-5, 2026-11-04 (*Phase I-5* below): `SwitcherClickTests`, and for the review fix the hold tests in `SwitcherControllerTests` and `PopoverHeightLimitTests`; the switcher gallery rendered again in both appearances, unchanged. |
 | A launch shows no window except onboarding (only while there is no `hosts.json`): no empty "muxFinder Settings" window; the Edit shortcuts in every text field, ⌘W in Settings and onboarding, ⌘Q with the orderly shutdown, SIGTERM and SIGINT as before (PLAN.md Phase I-4, D33). | Tested for real from the shell (the app shell check under two private homes, before and after the fix); the main menu hermetically. A launch from Finder and at login, and the keys pressed in the popover and Settings: by a person (checklist 19). | Phase I-4, 2026-11-04 (*Phase I-4* below): before the fix both homes listed a visible `SwiftUI.AppKitWindow` "muxFinder Settings"; after it, the empty home lists only the hidden popover panel and onboarding, the home with every host off only the hidden panel; exit 0 after SIGTERM, no child, nothing written; `MainMenuTests`, `AppShellReportTests`. |
+| New session's Tab order, in the popover and the session switcher: Tab from Name to Directory and ⇧Tab back; with macOS's keyboard navigation on, the Host picker, the directory list's button, Cancel and Create too, in reading order; never out of the panel, never closing it; Tab with the directory list open moves on and leaves it open; an input method's marked text gets Tab first (PLAN.md Phase I-6, D30, D31). | Read in process in the real panels (`--preview-key-view-loop`, before and after the fix: the focus moved by the key bindings' own action messages, no event) and tested hermetically. Real key presses, with keyboard navigation off and on, then a creation: by a person (checklist 20). | Phase I-6, 2026-11-04 (*Phase I-6* below): before the fix the form's fields led nowhere (Name → none) and Tab stayed in Name in both panels; after it Name → Directory → the list's button → Cancel → Create → Host picker → Name, and back; `NewSessionTabOrderTests`. |
 
 ## Unit tests (`swift test`)
 
@@ -1130,6 +1131,14 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   most 32 windows and 80 menu items, the rest counted; titles cut to 80 characters, control
   characters replaced, quotes escaped; key labels (`⇧⌘+z`, `⌃⌘+U+0020`); the real menu's
   description.
+- **New session's Tab order** (`Tests/MuxFinderUITests/NewSessionTabOrderTests.swift`;
+  PLAN.md D30, D31, Phase I-6). Both panels' window class recalculates its key view loop; in
+  the real popover and switcher panels (never shown), after the form replaced the list, Tab's
+  action message to the field editor moves the editing from Name to Directory and ⇧Tab's back
+  (the two cases one after another); Tab and ⇧Tab, alone or with ⌥, ⌃ or ⌥⇧, are no
+  `PopoverKey`, so the key monitor leaves them to the focused view and an input method; the
+  `--preview-key-view-loop popover|switcher` flag (only with `--preview-fixtures`; another
+  name, no name or no `--preview-fixtures` a usage error).
 - **Self-test drivers** (`Tests/MuxFinderUITests/SelfTestDriverTests.swift`, PLAN.md D25).
   `SelfTestDriver` over the real model, engine and coordinator with `SimulatedITerm2`, a
   `SimulatedTmux` (sessions in memory: the driver's tmux, discovery and New session's creator)
@@ -2762,3 +2771,86 @@ checklist 18 (items 9 and 10).
 | Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
 | Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
 | Gallery | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery switcher --appearance light\|dark --preview-snapshot <png in a private folder>`, each image looked at | exit 0 each, 3448 × 2452 px, the 9 states as committed in both appearances (no visible text changed: neither row's accessibility hint mentioned a double click), so `switcher-states-*.png` were not regenerated. After the review fix, again exit 0 each and unchanged (a first light run came out 3448 × 2448 px, the next 3448 × 2452; the gallery uses none of the changed types) |
+
+### Phase I-6 — Tab in New session (2026-11-04)
+
+Tab from New session's Name field now reaches Directory and ⇧Tab comes back, in the popover's
+and the session switcher's form (PLAN.md Phase I-6, D30, D31, D32). The cause was found with a
+new read-only preview-fixture diagnostic, `--preview-fixtures --preview-key-view-loop
+popover|switcher` (`KeyViewLoopReport`): it shows muxFinder's real panel (`PanelHost` with the
+live view and its key monitor) over a synthetic fixture, first with its list, then with the
+form replacing it as ⌘N does; makes it key for about ten seconds (the frontmost app stays
+frontmost); exits 0 (the form's fields found), 1 (not found), 2 (usage) or 3 (its watchdog, 30 s
+after the start, off the main thread; review fix: its lines go through a
+`NonblockingLineWriter`, so a reader that stops reading never holds the panel up); prints the
+panel's key views (numbered in view tree order, with their position from
+the panel's top left and their `nextKeyView`), the `nextValidKeyView` and `previousValidKeyView`
+chains from Name before and after the steps, and where each step takes the focus from Name,
+with the directory list closed and open. A step is what Tab or ⇧Tab does without its event:
+with a field editor first, the key binding's action message (`insertTab(_:)`,
+`insertBacktab(_:)`, sent through `doCommand(by:)`), else the window's own
+`selectNextKeyView(_:)` or `selectPreviousKeyView(_:)`. No event was made or posted, no key
+was pressed, no iTerm2 or engine was contacted, nothing went through LaunchServices, and the
+real `hosts.json`, `directories.json` and `preferences.json` were neither read nor written.
+The creation path did not change, so no self-test or `e2e-*` run was made. Real key presses are
+checklist 20.
+
+Before the fix (the debug binary with `PopoverPanelWindow.recalculatesKeyViewLoop` set to
+`false` for the run, the final diagnostic; the switcher's panel printed the same chains and
+steps, its Name field focused by the form itself):
+
+```
+panel popover key yes app active yes keyboard navigation on autorecalculatesKeyViewLoop no
+with the list: initialFirstResponder PopoverPanelContentView (AXUnknown); first responder field editor of AppKitTextField text field “Search hosts and sessions”
+with the form: initialFirstResponder PopoverPanelContentView (AXUnknown); first responder the panel window
+list closed, before the steps: nextValidKeyView from Name: #3 AppKitTextField text field “work” → none
+list closed: Tab 1 (insertTab): field editor of #3 AppKitTextField text field “work”; list shows no
+list closed: ⇧Tab 1 (insertBacktab): field editor of #3 AppKitTextField text field “work”; list shows no
+list closed: view #1 SwiftUIPopupButton pop-up button at (50, 41) canBecomeKeyView yes next AppKitPlatformViewHost<PlatformViewRepresentableAdaptor<PlatformView>> (AXUnknown)
+list closed: view #3 AppKitTextField text field “work” at (16, 88) canBecomeKeyView yes next AppKitPlatformViewHost<PlatformViewRepresentableAdaptor<PlatformTextFieldAdaptor>> (AXUnknown)
+list closed: view #4 AppKitTextField text field “Home folder on the host” at (16, 136) canBecomeKeyView yes next AppKitPlatformViewHost<PlatformViewRepresentableAdaptor<PlatformTextFieldAdaptor>> (AXUnknown)
+list closed: view #5 SwiftUIAppKitButton button “” at (307, 132) canBecomeKeyView yes next none
+list closed: view #6 SwiftUIAppKitButton button “” (Esc) at (215, 165) canBecomeKeyView yes next none
+list closed: view #7 SwiftUIAppKitButton button “” (Return) at (281, 165) canBecomeKeyView yes next none
+list closed, after the steps: nextValidKeyView from Name: #3 AppKitTextField text field “work” → none
+list open, before the steps: nextValidKeyView from Name: #3 … “work” → #6 … “Home folder on the host” → #7 … button “” → #8 … (Esc) → #9 … (Return) → none
+list open, before the steps: previousValidKeyView from Name: #3 AppKitTextField text field “work” → none
+list open: Tab 1 (insertTab): field editor of #6 AppKitTextField text field “Home folder on the host”; list shows yes
+list open: Tab 4 to 10 (selectNextKeyView): #9 SwiftUIAppKitButton button “” (Return); list shows yes
+list open: ⇧Tab 1 (insertBacktab): field editor of #3 AppKitTextField text field “work”; list shows yes
+```
+
+After the fix (the signed bundle binary of the final tree; the switcher's panel the same, its
+controls at the switcher's 540 pt width):
+
+```
+panel popover key no app active no keyboard navigation on autorecalculatesKeyViewLoop yes
+list closed, before the steps: nextValidKeyView from Name: #3 AppKitTextField text field “work” → none
+list closed: Tab 1 (insertTab): field editor of #4 AppKitTextField text field “Home folder on the host”; list shows no
+list closed: Tab 2 (insertTab): #5 SwiftUIAppKitButton button “”; list shows no
+list closed: Tab 3 (selectNextKeyView): #6 SwiftUIAppKitButton button “” (Esc); list shows no
+list closed: Tab 4 (selectNextKeyView): #7 SwiftUIAppKitButton button “” (Return); list shows no
+list closed: Tab 5 (selectNextKeyView): #1 SwiftUIPopupButton pop-up button; list shows no
+list closed: Tab 6 (selectNextKeyView): field editor of #3 AppKitTextField text field “work”; list shows no
+list closed: ⇧Tab 1 to 6: #1 pop-up button, #7 (Return), #6 (Esc), #5, field editor of #4 “Home folder on the host”, field editor of #3 “work”
+list closed, after the steps: nextValidKeyView from Name: #3 … “work” → #4 … “Home folder on the host” → #5 … button “” → #6 … (Esc) → #7 … (Return) → #1 … pop-up button → back to #3 … “work”
+list open: Tab 1 to 6: field editor of #6 “Home folder on the host”, #7, #8 (Esc), #9 (Return), #1 pop-up button, field editor of #3 “work”; list shows yes at every step
+list open: ⇧Tab 1 to 6: the same order backwards; list shows yes at every step
+```
+
+(`…` stands for the class and kind repeated from the line above.) #5 at (307, 132) is the
+directory list's button, at the Directory field's trailing edge; Cancel and Create carry Esc
+and Return; the order is the reading order. Before the steps the links read straight from the
+views are still the stale ones: AppKit recalculates a loop it was told to only when the window
+is next asked for a key view.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Diagnosis, form shown at once | the first version of the diagnostic, which opened the panel with the form already in it (debug binary, the unchanged panel) | the loop was intact (Name → Directory → the three buttons → the Host picker → Name) and Tab's action message moved Name to Directory, once with the panel key and the app active, once with neither; so the hosting setup, the non-activating panel and the inactive app were ruled out. Those first runs often stopped early with exit 0: the text cursor's indicator window (`TUINSWindow`, closed by `TextInputUIMacHelper`'s `TUINSCursorUIController`) closed, which the preview app took for its last window closing (a temporary trace of `NSWindow.willCloseNotification` and `NSApplication.willTerminateNotification`, removed). The preview app now keeps running through that in this diagnostic |
+| Diagnosis, the app's sequence | `.build/debug/MuxFinderApp --preview-fixtures --preview-key-view-loop popover`, then `switcher` (the unchanged panel) | the record above: the panel's loop, computed when it was first shown with the list (`autorecalculatesKeyViewLoop` no), never recalculated for the form; Name's link is SwiftUI's view host, which takes no focus, so Tab and ⇧Tab stay in Name in both panels. Keyboard navigation was on (`defaults read -g AppleKeyboardUIMode`: 2, read only); the chain from Name ends at once whatever the setting |
+| After the fix | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-key-view-loop popover`, then `switcher` | exit 0 each, the record above: Tab and ⇧Tab move in reading order and wrap inside the panel, the list staying open |
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites and 354 UI tests in 34 suites (4 new in 1 suite: `NewSessionTabOrderTests`). `panelsRecalculateTheirKeyViewLoop` and `tabMovesFromNameToDirectoryAndBack` (both panels, real but never shown) fail with the fix reverted, the latter on its ⇧Tab step (in a panel that is never shown the stale loop still happens to lead Name to Directory); its two cases run one after another, since two hidden panels editing text at once disturbed each other's focus. No existing test changed |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery popover\|attach\|switcher --appearance light\|dark --preview-snapshot <png in a private folder>`, the attach gallery looked at | exit 0 each: popover 4672 × 2200 px, attach 3136 × 5374, switcher 3448 × 2452, as before; no state's look changed (the views only gained the two placeholders as constants), so no screenshot was regenerated |

@@ -4,10 +4,15 @@ import SwiftUI
 /// New session's Directory field (PLAN.md D31): a text field (typing, pasting, `~/…`) with a
 /// pull-down button at its trailing edge that opens the directory list under it, the field's
 /// inline issue, and the list while it is open. ⌥↓ opens the list from the keyboard, as does
-/// Space on the button once Tab reaches it (with macOS's keyboard navigation on).
+/// Space on the button once Tab reaches it (with macOS's keyboard navigation on). Tab with the
+/// list open moves on and leaves it open: its rows take no focus (SwiftUI draws them, so they
+/// are not in the panel's key view loop) and its keys are the model's wherever the focus is
+/// in the form (PLAN.md D31).
 struct DirectoryFieldView: View {
   /// The field's caption, also its accessibility label.
   static let title = "Directory (optional)"
+  /// The field's placeholder.
+  static let prompt = "Home folder on the host"
 
   /// The model whose draft the field edits.
   @Bindable var model: AppModel
@@ -23,7 +28,7 @@ struct DirectoryFieldView: View {
       HStack(spacing: 4) {
         TextField(
           Self.title, text: $model.newSessionDraft.directory,
-          prompt: Text("Home folder on the host")
+          prompt: Text(Self.prompt)
         )
         .textFieldStyle(.roundedBorder)
         .labelsHidden()

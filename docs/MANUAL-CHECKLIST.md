@@ -466,6 +466,31 @@ unit-tested, but no unattended run may launch the app through LaunchServices or 
 - **Undo:** open muxFinder again from `/Applications`; turn launch at login off if you turned
   it on for step 2 (item 4).
 
+## 20. Tab in New session
+
+Owed by Phase I-6 (PLAN.md D30, D31): the panels' key view loop and where each Tab and ⇧Tab
+step takes the focus were read in process (`--preview-key-view-loop`, `docs/TESTING.md`
+*Phase I-6*) and are unit-tested, but no unattended run may press a key.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), first
+  with macOS's keyboard navigation off (System Settings › Keyboard › "Keyboard navigation"),
+  then with it on:
+  1. Open the popover, press ⌘N, click in Name and type `muxfinder-test-tab`. Press Tab, then
+     ⇧Tab, then Tab again and type a directory of yours in Directory; press Return.
+  2. In the same form before Return (or a new one): press Tab several times from Name, then
+     ⇧Tab several times. Then ⌥↓ in Directory to open the directory list and press Tab.
+  3. Open the session switcher (item 18's shortcut), press ⌘N (the cursor is in Name), name
+     `muxfinder-test-tab2`, then steps 1 and 2 there.
+  4. Kill both sessions (`tmux kill-session -t '=muxfinder-test-tab'` and
+     `'=muxfinder-test-tab2'`).
+- **Expect:** 1: Tab puts the cursor in Directory and ⇧Tab back in Name, with no beep; Return
+  creates the session in the directory typed, and it opens. 2: with keyboard navigation off,
+  Tab and ⇧Tab go only between Name and Directory; with it on, Tab goes Name, Directory, the
+  list's button, Cancel, Create, the Host picker, Name (⇧Tab the other way), a focus ring on
+  each. Tab never closes the panel or reaches anything outside the form. With the list open,
+  Tab moves on and the list stays open (Esc closes it). 3: the same in the switcher.
+- **Undo:** step 4; set keyboard navigation back as you had it.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -489,3 +514,4 @@ unit-tested, but no unattended run may launch the app through LaunchServices or 
 | 17 | | | |
 | 18 | | | |
 | 19 | | | |
+| 20 | | | |

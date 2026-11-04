@@ -65,8 +65,14 @@ struct MoveHerePanelView: View {
 /// "New session": the host (enabled hosts), the name with its inline issue, the optional
 /// directory with its directory list (`DirectoryFieldView`, PLAN.md D31), the creation's state
 /// (a collision offers "Open existing"), "Cancel" and "Create". Shown in the popover and in
-/// the session switcher (PLAN.md D32), which asks for the name field to take the focus.
+/// the session switcher (PLAN.md D32), which asks for the name field to take the focus. Tab
+/// and ⇧Tab move between Name and Directory (with macOS's keyboard navigation on, through the
+/// host picker, the directory list button, Cancel and Create too) by AppKit's own key view
+/// loop, which the panel recalculates (`PopoverPanelWindow`, PLAN.md Phase I-6).
 struct NewSessionPanelView: View {
+  /// The Name field's placeholder.
+  static let namePrompt = "work"
+
   /// The model whose draft the fields edit.
   @Bindable var model: AppModel
   /// Whether the name field takes the keyboard focus when the form appears (the live session
@@ -88,7 +94,8 @@ struct NewSessionPanelView: View {
       }
       .disabled(draft.isBusy)
       field(
-        "Name", text: $model.newSessionDraft.name, prompt: "work", issue: draft.nameIssue)
+        "Name", text: $model.newSessionDraft.name, prompt: Self.namePrompt,
+        issue: draft.nameIssue)
       DirectoryFieldView(model: model)
       if let message = draft.stateMessage {
         stateLine(message, state: draft.state)

@@ -155,7 +155,8 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   keeps failing), at most three hosts at a time, so an unreachable host does not hold up the
   others.
 - **Keys:** ↑/↓ select, Return opens, ⌘F search (host or session name), ⌘R refresh, ⌘N new
-  session, ⌘, Settings, Esc closes. In New session, ⌥↓ opens the directory list (below).
+  session, ⌘, Settings, Esc closes. In New session, Tab and ⇧Tab move between Name and
+  Directory, and ⌥↓ opens the directory list (below).
 - **Open a session:** click it (or Return). muxFinder checks the session is still the one
   listed, opens a dedicated iTerm2 tab that runs its helper, which attaches with `tmux -CC`
   (locally, or through `ssh -t` to the host), confirms the new tmux connection through iTerm2's
@@ -185,8 +186,10 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   8 it created sessions in), your saved directories (one list for every host) and the folders
   the host's sessions started in. Click one, or move with ↑/↓ and press Return, to put it in
   the field; Esc closes the list (a second Esc closes New session), and Return with nothing
-  highlighted creates as usual (typing in the field takes the highlight away). With macOS's
-  keyboard navigation on, Tab also reaches the button and Space opens it. "Save this
+  highlighted creates as usual (typing in the field takes the highlight away). Tab and ⇧Tab
+  move between Name and Directory; with macOS's keyboard navigation on (System Settings ›
+  Keyboard) they also reach the Host picker, the list's button (Space opens it), Cancel and
+  Create, in reading order. Tab with the list open moves on and leaves the list open. "Save this
   directory" adds what the field holds to the saved list; "Clear recent directories on
   <host>" forgets that host's recent ones. Settings › Directories edits the saved list: add
   (checked as you type), remove, move up and down, then Save (or Revert); Save keeps any
@@ -216,7 +219,8 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   last row is always "New session…"; when what you typed is a valid session name nobody uses
   yet, it reads "New session “<name>”…" and fills the name in. A click on it, Return on it or
   ⌘N shows the New session form inside the panel, for This Mac by default and with the directory list;
-  Return creates, Esc goes back to the list. ⌘R refreshes and ⌘, opens Settings; Move here and
+  Tab and ⇧Tab move between its fields as in the popover; Return creates, Esc goes back to the
+  list. ⌘R refreshes and ⌘, opens Settings; Move here and
   Detach stay in the popover. The panel shows the row's progress, closes once the session is
   open (or as soon as iTerm2 comes forward), and stays open with the explanation and its
   buttons when something fails. A failure that arrives after the panel closed shows on the

@@ -15,6 +15,13 @@ import Foundation
 ///   the app also draws the preview window's contents into that PNG itself, then quits. For
 ///   when `screencapture -l` cannot capture the window (a locked screen, a sleeping display,
 ///   no Screen Recording permission).
+/// - `--preview-key-view-loop popover|switcher` (or `--preview-key-view-loop=…`; with
+///   `--preview-fixtures`, PLAN.md Phase I-6): a read-only diagnostic of the New session
+///   form's keyboard focus. Instead of the gallery window the app shows muxFinder's real panel
+///   (the popover's or the session switcher's) with the form over synthetic fixtures, prints
+///   its key views, first responder and key view loop (`KeyViewLoopReport`) and quits (0 the
+///   form's fields found, 1 not found, 3 its 30 s watchdog; output never blocks it). Without
+///   `--preview-fixtures`, or with another panel name, it is a usage error (2).
 /// - `--report-menu-bar-item` (normal mode): a read-only diagnostic; two seconds after launch
 ///   the app prints its own status-bar-level windows (the menu bar item), since on macOS 26 and
 ///   later `CGWindowListCopyWindowInfo` does not list them under the app's process, then every
@@ -83,6 +90,14 @@ public struct AppLaunchOptions: Sendable, Hashable {
     case switcher
   }
 
+  /// Which muxFinder panel's New session form `--preview-key-view-loop` inspects.
+  public enum KeyViewLoopPanel: String, Sendable, Hashable, CaseIterable {
+    /// The popover's panel (`PopoverPanelRoot`).
+    case popover
+    /// The session switcher's panel (`SwitcherPanelRoot`).
+    case switcher
+  }
+
   /// Whether to show the fixture gallery instead of the menu bar item.
   public var previewFixtures = false
   /// Which gallery the preview window shows.
@@ -91,6 +106,9 @@ public struct AppLaunchOptions: Sendable, Hashable {
   public var appearance: Appearance?
   /// Where to write the preview window's PNG, if anywhere (preview mode only).
   public var previewSnapshotPath: String?
+  /// The panel whose New session form the key view loop diagnostic inspects, if asked
+  /// (`--preview-key-view-loop`, preview mode only).
+  public var previewKeyViewLoop: KeyViewLoopPanel?
   /// Whether to print the menu bar item's windows after launch (normal mode only).
   public var reportsMenuBarItem = false
   /// Whether to run the popover placement diagnostic and exit (`--report-popover-placement`).
@@ -142,6 +160,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
       } else if Self.valueOptions.contains(argument) {
         guard position < arguments.endIndex else {
           if argument == "--selftest" { usageError = "--selftest needs a self-test name." }
+          if argument == "--preview-key-view-loop" { usageError = Self.keyViewLoopPanelError }
           if Self.folderOptions.contains(argument) { usageError = "\(argument) needs a folder." }
           break
         }
@@ -152,6 +171,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
       }
     } // End of loop over the arguments
     checkSelfTest(keep: keepsSelfTest)
+    checkKeyViewLoop()
     checkProfileRemoval()
     checkPopoverPlacement()
     checkHotkeyRegistration()
@@ -159,9 +179,12 @@ public struct AppLaunchOptions: Sendable, Hashable {
 
   /// The options that take a value as the next argument.
   static let valueOptions: Set = [
-    "--appearance", "--preview-snapshot", "--preview-gallery", "--selftest",
-    "--profiles-directory", "--lock-directory",
+    "--appearance", "--preview-snapshot", "--preview-gallery", "--preview-key-view-loop",
+    "--selftest", "--profiles-directory", "--lock-directory",
   ]
+
+  /// Why a `--preview-key-view-loop` without a usable panel name cannot run.
+  static let keyViewLoopPanelError = "--preview-key-view-loop needs a panel: popover or switcher."
 
   /// The options of `--remove-persistent-profiles` that name a folder.
   static let folderOptions: Set = ["--profiles-directory", "--lock-directory"]
@@ -182,10 +205,15 @@ public struct AppLaunchOptions: Sendable, Hashable {
   /// The usage line of the hotkey registration diagnostic.
   public static let hotkeyRegistrationUsage = "usage: muxFinder --report-hotkey-registration"
 
+  /// The usage line of the key view loop diagnostic.
+  public static let keyViewLoopUsage =
+    "usage: muxFinder --preview-fixtures --preview-key-view-loop popover|switcher "
+    + "[--appearance light|dark]"
+
   /// Every usage line, printed after a usage error.
   public static let usage =
     selfTestUsage + "\n" + profileRemovalUsage + "\n" + popoverPlacementUsage + "\n"
-    + hotkeyRegistrationUsage
+    + hotkeyRegistrationUsage + "\n" + keyViewLoopUsage
 
   /// Applies `--selftest-keep` and refuses self-test arguments that cannot run: keep without a
   /// self-test, or a self-test with another mode.
@@ -202,6 +230,13 @@ public struct AppLaunchOptions: Sendable, Hashable {
       selfTest?.keep = true
     }
   } // End of func checkSelfTest(keep:)
+
+  /// Refuses `--preview-key-view-loop` without `--preview-fixtures` (it runs only in the
+  /// preview app, over synthetic fixtures).
+  private mutating func checkKeyViewLoop() {
+    guard usageError == nil, previewKeyViewLoop != nil, !previewFixtures else { return }
+    usageError = "--preview-key-view-loop needs --preview-fixtures."
+  }
 
   /// Refuses profile removal arguments that cannot run: one of its options without the mode
   /// (so a mistyped removal never starts the menu bar app), the mode with another mode, one
@@ -287,6 +322,12 @@ public struct AppLaunchOptions: Sendable, Hashable {
       if !value.isEmpty { previewSnapshotPath = value }
     case "--preview-gallery":
       if let gallery = PreviewGallery(rawValue: value.lowercased()) { previewGallery = gallery }
+    case "--preview-key-view-loop":
+      if let panel = KeyViewLoopPanel(rawValue: value.lowercased()) {
+        previewKeyViewLoop = panel
+      } else {
+        usageError = Self.keyViewLoopPanelError
+      }
     case "--selftest":
       if let kind = SelfTestKind(rawValue: value) {
         selfTest = SelfTestRequest(kind: kind)

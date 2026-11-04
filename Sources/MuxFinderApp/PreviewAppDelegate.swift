@@ -9,7 +9,10 @@ import SwiftUI
 /// with `--preview-gallery attach` every session-action state, or with `--preview-gallery
 /// switcher` every session switcher state, from synthetic fixtures. No SwiftUI scene, menu bar
 /// item, switcher panel, refresh engine, host list, login item, hotkey or iTerm2 is involved,
-/// and nothing is written except the PNG a `--preview-snapshot` asks for.
+/// and nothing is written except the PNG a `--preview-snapshot` asks for. With
+/// `--preview-key-view-loop popover|switcher` there is no gallery window: muxFinder's real
+/// popover or switcher panel shows the New session form over a fixture while
+/// `KeyViewLoopReport` prints its key view loop, then the app quits (PLAN.md Phase I-6).
 ///
 /// The window is shown without activating the app (the keyboard focus stays where it was),
 /// its window number is printed on standard output for `screencapture -l`, and closing it,
@@ -27,6 +30,8 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
   private var signalSources: [any DispatchSourceSignal] = []
   /// The preview window, kept alive.
   private var window: NSWindow?
+  /// The key view loop diagnostic's watchdog, kept alive while it runs.
+  private var watchdog: (any DispatchSourceTimer)?
 
   /// A delegate for `options`.
   private init(options: AppLaunchOptions) {
@@ -43,10 +48,15 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     withExtendedLifetime(delegate) { app.run() }
   }
 
-  /// Shows the window, and takes the snapshot if asked.
+  /// Shows the window, and takes the snapshot if asked; with `--preview-key-view-loop` runs
+  /// that diagnostic instead (no gallery window).
   func applicationDidFinishLaunching(_ notification: Notification) {
     signalSources = QuitSignals.install()
     QuitSignals.applyAppearance(options.appearance)
+    if let panel = options.previewKeyViewLoop {
+      reportKeyViewLoop(of: panel)
+      return
+    }
     let hosting: NSView
     switch options.previewGallery {
     case .popover: hosting = NSHostingView(rootView: PreviewGallery())
@@ -78,10 +88,40 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     }
   } // End of func applicationDidFinishLaunching(_:)
 
-  /// Closing the window quits.
+  /// Closing the gallery window quits. The key view loop diagnostic quits by itself: the text
+  /// cursor's indicator window (`TUINSWindow`) closes while its panel's fields are edited.
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    true
+    options.previewKeyViewLoop == nil
   }
+
+  /// `--preview-key-view-loop`: prints the New session form's key view loop in `panel`'s real
+  /// panel over a fixture (`KeyViewLoopReport`), then quits: status 0 with the form's fields
+  /// found, 1 without, 3 when the watchdog ends it first. Lines go through
+  /// `keyViewLoopOutput`, so a reader that stops reading never holds the main actor while the
+  /// panel is key (lines that do not fit are dropped), and a watchdog off the main thread ends
+  /// the process `keyViewLoopDeadline` seconds after the start whatever the main thread is
+  /// doing, the panel going with it.
+  private func reportKeyViewLoop(of panel: AppLaunchOptions.KeyViewLoopPanel) {
+    watchdog = PopoverPlacementReport.makeWatchdog(
+      after: Self.keyViewLoopDeadline, exitCode: Self.keyViewLoopWatchdogStatus)
+    let output = Self.keyViewLoopOutput
+    Task {
+      let found = await KeyViewLoopReport.run(panel) { line in _ = output.write(line) }
+      _ = output.flush(timeout: Self.keyViewLoopFlushWait)
+      if found { AppTermination.request() } else { exit(1) }
+    }
+  }
+
+  /// The key view loop diagnostic's standard output, never blocking (`NonblockingLineWriter`).
+  private static let keyViewLoopOutput = NonblockingLineWriter(fileDescriptor: STDOUT_FILENO)
+  /// How long the key view loop diagnostic may run before its watchdog ends it, in seconds
+  /// (its steps take about ten).
+  static let keyViewLoopDeadline: TimeInterval = 30
+  /// The key view loop diagnostic's exit status when its watchdog ends it.
+  static let keyViewLoopWatchdogStatus: Int32 = 3
+  /// How long the key view loop diagnostic waits for its last lines to be read before it
+  /// quits, in seconds.
+  static let keyViewLoopFlushWait: TimeInterval = 0.25
 
   /// Before a snapshot: gives the window exactly the content's natural size, so the PNG shows
   /// every state at full height whatever the display. Showing a titled window taller than the

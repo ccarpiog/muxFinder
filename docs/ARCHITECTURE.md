@@ -76,7 +76,10 @@ over full-screen apps (`MenuBarPopover`, only AppKit wiring). Every decision is
 - **Model glue:** `popoverVisibilityChanged` follows the panel (open and not occluded), so
   attachment checks run only while it (or the session switcher) shows; a key monitor hands the
   popover's shortcuts to `AppModel.handle(_:)` first (one it does not use, such as ⌥↓ outside
-  New session, goes on to the focused view). Opening it closes the session switcher.
+  New session, goes on to the focused view). Tab and ⇧Tab are no shortcut: they follow AppKit's
+  key view loop, which the panel recalculates as SwiftUI swaps the list and the New session
+  form (`autorecalculatesKeyViewLoop`; with AppKit's default the form's fields led nowhere,
+  Phase I-6). Opening it closes the session switcher.
 
 The placement diagnostic `--report-popover-placement` opens it through the button's own action
 and checks the frame against the anchor and the menu bar.
