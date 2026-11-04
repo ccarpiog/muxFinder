@@ -42,7 +42,16 @@ file.
 | I-3a | Global shortcut: `GlobalShortcut`, `preferences.json` store, Carbon registrar, Settings › General recorder, `--report-hotkey-registration`, interim popover toggle (D32) | routine | opus (impl + review-fix worker); one checklist step by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-3a.md` | `docs/progress-archive/i-3a.md` |
 | I-3b | Session switcher panel: 540 pt floating non-activating panel, live sessions with filter and New session row, Open / New session form, failure carry-over, combined engine visibility (D32, D22) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-3b.md` | `docs/progress-archive/i-3b.md` |
 
-No phase is queued: every phase of `PLAN.md` is complete and reviewed.
+Every phase of `PLAN.md` is complete and reviewed. Queued from the inbox:
+
+| Phase | Title | Specification | Position |
+|---|---|---|---|
+| I-4 | No empty "muxFinder Settings" window at launch | `autoclaude/processed/40-empty-settings-window-at-launch.md` | next (the plan has no phase left) |
+
+**Inbox** (2026-11-04 17:12): one item triaged, `40-empty-settings-window-at-launch.md` →
+queued as I-4. Its requirement 4 asks for a `CLAUDE.md` command-note edit, but `CLAUDE.md`
+carries the user's uncommitted edit (named in the runner's preflight file), so the run must not
+commit it; I-4 records the sentence owed instead.
 
 ## Current phase
 
@@ -239,9 +248,9 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 
 ## Next action
 
-1. **None for a run: the plan is finished.** A new iteration polls the inbox
-   (`~/.claude/scripts/autoclaude-inbox.sh list`). If an item is there it is triaged into a new
-   phase; if not, it confirms `DONE`.
+1. **Phase I-4** (queued from the inbox, `autoclaude/processed/40-empty-settings-window-at-launch.md`):
+   select it, write its acceptance criteria and run it. After it, poll the inbox again; with
+   nothing there, confirm `DONE`.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
