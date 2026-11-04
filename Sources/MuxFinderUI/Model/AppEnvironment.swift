@@ -68,6 +68,16 @@ public struct AppEnvironment: Sendable {
   /// preview modes, every `--report-*` flag, the tests of other parts), so those never read
   /// `preferences.json` or register a hotkey.
   public var globalShortcut: GlobalShortcutEnvironment?
+  /// This Mac's home folder, which New session's directory list matches a leading `~` against
+  /// when it filters This Mac's directories (PLAN.md D31, Phase I-7): `NSHomeDirectory()` in
+  /// the app; `nil` (entries matched only as stored, as for an SSH host) everywhere else, so no
+  /// test depends on the real home folder.
+  public var homeDirectory: String?
+  /// Speaks a VoiceOver announcement: New session's directory list says how many directories
+  /// match when the Directory field's filter changes (PLAN.md D31, Phase I-7).
+  /// `postAccessibilityAnnouncement(_:)` in the app; `nil` (nothing said) in the self-tests,
+  /// the placement diagnostic and the tests, which record through `AppModel.announce`.
+  public var announce: (@MainActor @Sendable (String) -> Void)?
 
   /// Creates an environment from its parts.
   public init(
@@ -88,7 +98,9 @@ public struct AppEnvironment: Sendable {
     directories: (any DirectoryStoring)? = nil,
     sessionActionShutdownBudget: Duration = AppModel.sessionActionShutdownBudget,
     rewritesProfilesAtLaunch: Bool = false,
-    globalShortcut: GlobalShortcutEnvironment? = nil
+    globalShortcut: GlobalShortcutEnvironment? = nil,
+    homeDirectory: String? = nil,
+    announce: (@MainActor @Sendable (String) -> Void)? = nil
   ) {
     self.loadHosts = loadHosts
     self.makeEngine = makeEngine
@@ -106,6 +118,8 @@ public struct AppEnvironment: Sendable {
     self.sessionActionShutdownBudget = sessionActionShutdownBudget
     self.rewritesProfilesAtLaunch = rewritesProfilesAtLaunch
     self.globalShortcut = globalShortcut
+    self.homeDirectory = homeDirectory
+    self.announce = announce
   } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
 
   /// The real app: `hosts.json` through one `HostStore` (loading never writes; Settings saves
@@ -122,8 +136,9 @@ public struct AppEnvironment: Sendable {
   /// standard existing-attachment check (PLAN.md D16, D25). New session's directory list and
   /// Settings' Directories tab share one `DirectoryStore` on `directories.json` (PLAN.md D31;
   /// it is read when New session or the Settings window opens, and written only when a session
-  /// is created in a directory or the user saves or clears directories).
-  /// `rewritesProfilesAtLaunch` is the caller's: only the menu bar app in normal mode passes
+  /// is created in a directory or the user saves or clears directories); its filter matches
+  /// `~` against `NSHomeDirectory()` and says the match count through VoiceOver
+  /// (`postAccessibilityAnnouncement(_:)`). `rewritesProfilesAtLaunch` is the caller's: only the menu bar app in normal mode passes
   /// `true`. So is `usesGlobalShortcut` (PLAN.md D32): only normal mode passes `true`, which
   /// adds the session switcher shortcut over `preferences.json` (`PreferencesStore`, read at
   /// launch, written only when the user records or clears a shortcut), Carbon's hotkeys
@@ -192,8 +207,25 @@ public struct AppEnvironment: Sendable {
         ? GlobalShortcutEnvironment(
           store: PreferencesStore(), registrar: CarbonHotkeyRegistrar(),
           layout: SystemKeyboardLayout())
-        : nil)
+        : nil,
+      homeDirectory: NSHomeDirectory(),
+      announce: { postAccessibilityAnnouncement($0) })
   } // End of static func production(rewritesProfilesAtLaunch:usesGlobalShortcut:)
+
+  /// Asks VoiceOver to say `text` (`NSAccessibility` `announcementRequested`, medium priority,
+  /// so it follows the echo of the key just typed), from the key window (the popover's or the
+  /// switcher's panel, which take the key focus without activating the app) or the app.
+  /// Nothing is said while VoiceOver is off.
+  @MainActor
+  public static func postAccessibilityAnnouncement(_ text: String) {
+    let application = NSApplication.shared
+    let element: Any = application.keyWindow ?? application
+    NSAccessibility.post(
+      element: element, notification: .announcementRequested,
+      userInfo: [
+        .announcement: text, .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+      ])
+  } // End of static func postAccessibilityAnnouncement(_:)
 
   /// The popover placement diagnostic's (`--report-popover-placement`, PLAN.md Phase I-1): an
   /// inert environment for a model the app never starts. Its host list is an empty in-memory

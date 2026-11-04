@@ -246,9 +246,19 @@ from the lists, the host's listed sessions and the field: "Recent" (that host's)
 shared list) and "Sessions on <host>" (the distinct start folders of its sessions, sorted, at
 most 10), each only when not empty, else "Nothing to pick yet"; then "Save this directory"
 (off for an empty, invalid or saved value, a full list or an unusable file) and "Clear recent
-directories on <host>". Its keys are `PopoverKey`s: ⌥↓ opens the list, ↑/↓ move inside it,
-Return picks the highlighted row (with none it creates, as in the field) and Esc closes the
-list before the panel; editing the field drops the highlight, so Return then creates. Rows
+directories on <host>". The field is also the list's search: its trimmed text keeps, in each
+section, the entries that contain it (case and diacritics ignored, as the popover's search;
+an entry equal to the field always stays), "No matching directories" when none does; the
+text is never expanded, but on This Mac each entry is also matched with a leading home folder
+written `~` and with a leading `~` spelled out (the home folder is injected,
+`AppEnvironment.homeDirectory`; an SSH host's is unknown, so its entries are matched as
+stored). The actions are never filtered. Its keys are `PopoverKey`s: ⌥↓ opens the list, ↑/↓
+move inside the rows shown, Return picks the highlighted row (with none it creates, as in the
+field) and Esc closes the list before the panel, keeping the text; editing the field drops the
+highlight, so Return then creates. A user edit (not a pick or a host change) opens the list
+while an entry matches and closes it again when none does or the field is emptied, unless the
+button or ⌥↓ opened it (`DirectoryPickerState.opening`); VoiceOver then hears the match count
+through `AppEnvironment.announce`. Rows
 are identified by section and UTF-8 bytes, as the store compares directories, so two
 spellings of one accented name are two rows. Picking only fills the field; the draft checks
 it like typed text before any request. Every load (at each New session opening) and change

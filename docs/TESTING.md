@@ -44,9 +44,9 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-6* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-7* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's reports of 2026-10-24 and 2026-11-04, PLAN.md Phases 13, 14 and I-1 to I-6):
+Added after the brief (the user's reports of 2026-10-24 and 2026-11-04, PLAN.md Phases 13, 14 and I-1 to I-7):
 
 | Requirement | Status | Evidence |
 |---|---|---|
@@ -61,6 +61,7 @@ passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the
 | The session switcher: the shortcut toggles a non-activating panel centered on the display with the keyboard focus, in its upper part, over full-screen apps; a search field focused and empty at each opening; the live sessions in the popover's order (stale ones left out) with Phase 14's row look, filtered by the popover's rule; "New session…" last, naming the session from the filter; muted lines for hosts checking or unreachable; Return or one click opens as the popover does (the rest of that click's sequence is ignored and lands on the panel, held through the double-click interval, so a quick double click opens once and never acts on the form or on the window behind the panel), Return or a click on New session or ⌘N shows the form, ⌘R, ⌘, and Esc; it closes on success, keeps a failure on its row, and carries a failure that arrives once it closed to its next opening and the popover row; only one of it and the popover shows, and the engine hears one opened and one closed per change of "either one is visible" (PLAN.md Phases I-3b and I-5, D32, D22). | Tested hermetically and in the preview renders (both appearances); the app shell check as before. A press over a full-screen app, filtering and opening with iTerm2 coming forward, creating, and Esc giving the focus back: by a person (checklist 18). | Phase I-3b, 2026-10-24 (*Phase I-3b* below): `SwitcherContentTests`, `SwitcherControllerTests`, `SwitcherModelTests`, `GlobalShortcutAppTests.theShortcutTogglesTheSwitcher`; `docs/screenshots/switcher-states-*.png` rendered and inspected. Phase I-5, 2026-11-04 (*Phase I-5* below): `SwitcherClickTests`, and for the review fix the hold tests in `SwitcherControllerTests` and `PopoverHeightLimitTests`; the switcher gallery rendered again in both appearances, unchanged. |
 | A launch shows no window except onboarding (only while there is no `hosts.json`): no empty "muxFinder Settings" window; the Edit shortcuts in every text field, ⌘W in Settings and onboarding, ⌘Q with the orderly shutdown, SIGTERM and SIGINT as before (PLAN.md Phase I-4, D33). | Tested for real from the shell (the app shell check under two private homes, before and after the fix); the main menu hermetically. A launch from Finder and at login, and the keys pressed in the popover and Settings: by a person (checklist 19). | Phase I-4, 2026-11-04 (*Phase I-4* below): before the fix both homes listed a visible `SwiftUI.AppKitWindow` "muxFinder Settings"; after it, the empty home lists only the hidden popover panel and onboarding, the home with every host off only the hidden panel; exit 0 after SIGTERM, no child, nothing written; `MainMenuTests`, `AppShellReportTests`. |
 | New session's Tab order, in the popover and the session switcher: Tab from Name to Directory and ⇧Tab back; with macOS's keyboard navigation on, the Host picker, the directory list's button, Cancel and Create too, in reading order; never out of the panel, never closing it; Tab with the directory list open moves on and leaves it open; an input method's marked text gets Tab first (PLAN.md Phase I-6, D30, D31). | Read in process in the real panels (`--preview-key-view-loop`, before and after the fix: the focus moved by the key bindings' own action messages, no event) and tested hermetically. Real key presses, with keyboard navigation off and on, then a creation: by a person (checklist 20). | Phase I-6, 2026-11-04 (*Phase I-6* below): before the fix the form's fields led nowhere (Name → none) and Tab stayed in Name in both panels; after it Name → Directory → the list's button → Cancel → Create → Host picker → Name, and back; `NewSessionTabOrderTests`. |
+| New session: typing in Directory filters the directory list, combo-box style, in the popover and the session switcher: each section keeps the entries that contain the trimmed text (case and diacritics ignored; an exact match always), on This Mac also with the home folder written `~` or spelled out; "No matching directories" apart from "Nothing to pick yet"; the actions never filtered; typing opens the list while something matches, highlighting nothing, and closes a list it opened when nothing matches or the field is cleared, a list the button or ⌥↓ opened staying; Esc keeps the text; ↓/⌥↓ highlight the first match and the arrows stay in the rows shown; Return with nothing highlighted creates; a pick never reopens it; a host change re-filters; VoiceOver hears the match count (PLAN.md Phase I-7, D31). | Tested hermetically and in the preview renders (both appearances). Typing, the keys, VoiceOver and a creation in the real popover and switcher: by a person (checklist 21). | Phase I-7, 2026-11-04 (*Phase I-7* below): `DirectoryFilterContentTests` and `DirectoryFilterModelTests` (`DirectoryFilterTests.swift`); `docs/screenshots/attach-states-*.png` and `switcher-states-*.png` regenerated and inspected. |
 
 ## Unit tests (`swift test`)
 
@@ -1041,7 +1042,34 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   an unusable file (mode 0644, private folder) shows its notice, offers neither action and
   leaves the file's bytes and mode; a Settings save reaches the list and a save from the list
   reaches Settings. The gallery fixtures cover the open list, nothing to pick, a saved value
-  and an unusable file, with synthetic paths.
+  and an unusable file, with synthetic paths. Five of these tests had their field adjusted in
+  Phase I-7, since the field now filters the list (see *Phase I-7*).
+- **The directory list's filter** (`Tests/MuxFinderUITests/DirectoryFilterTests.swift`,
+  PLAN.md D31, Phase I-7). The content as a pure value: an empty field (or only spaces and
+  line breaks) filters nothing; a query keeps each section's matching entries in order and
+  hides a section left empty, surrounding spaces trimmed; case and diacritics (composed or
+  decomposed) ignored; with entries all hidden, "No matching directories" (`noMatches`) and
+  the actions that are on as the only items, or none; with no entry at all "Nothing to pick
+  yet" whatever the field holds; an entry equal to the field byte for byte always shown, both
+  spellings of an accented name too; the actions never filtered (Clear on for recents the
+  filter hides, Save's rules from the typed text); the `~` rule on This Mac (`~/proj` finds
+  `/Users/me/projects-old`, `/Users/me/pr` finds `~/projects`, `~bob` matched as typed and
+  never spelled out, `/Users/meadow` not in `/Users/me`, the home folder's trailing slash and
+  a root or empty home ignored) and not on an SSH host or without a home; the field's hint.
+  Over fixtures and the attach harness: typing that matches opens the list as the typing's
+  with no highlight, typing that matches nothing opens nothing; no match closes a list the
+  typing opened, not one the button or ⌥↓ opened (which shows "No matching directories" and
+  the actions); clearing the field closes a typing list and opens nothing, a requested list
+  showing every entry again; Esc keeps the text and the next edit reopens; ↓ and ⌥↓ highlight
+  the first match, ↑/↓ visit only the rows shown and stop at the ends; Return with nothing
+  highlighted creates from the field (the request carries the typed text); a pick by Return
+  or click fills the field, closes the list and announces nothing; a host change re-filters,
+  keeps the field and neither opens nor closes the list; a busy draft, no host or an unlisted
+  one opens nothing; the announcements in order (the count when the list opens or its rows
+  change, "No matching directories" when a typing list closes or a requested one empties,
+  the whole count when a requested list is cleared, nothing otherwise); the app's
+  environment injects `NSHomeDirectory()` and the announcer, fixtures the synthetic home and
+  none, tests neither; the gallery states, with synthetic paths.
 - **Settings' Directories tab** (`Tests/MuxFinderUITests/SettingsDirectoriesTests.swift`,
   PLAN.md D31, D23): the window's opening loads the saved list; "Add" is checked inline (a
   line break, a duplicate by exact string, the 50-entry cap) and appends the value as typed;
@@ -2854,3 +2882,23 @@ is next asked for a key view.
 | Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
 | Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
 | Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery popover\|attach\|switcher --appearance light\|dark --preview-snapshot <png in a private folder>`, the attach gallery looked at | exit 0 each: popover 4672 × 2200 px, attach 3136 × 5374, switcher 3448 × 2452, as before; no state's look changed (the views only gained the two placeholders as constants), so no screenshot was regenerated |
+
+### Phase I-7 — typing in Directory filters the directory list (2026-11-04)
+
+New session's Directory field is now the directory list's search (PLAN.md Phase I-7, D31), in
+the popover's and the session switcher's form: the list keeps the entries that contain the
+field's text, with the `~` rule on This Mac, says "No matching directories" when none does, and
+opens and closes by itself as the user types; VoiceOver hears the match count. The creation
+path did not change (Return with nothing highlighted already created), so no self-test or
+`e2e-*` run was made; no key was pressed or event made, VoiceOver was not turned on, nothing
+went through LaunchServices, and the real `hosts.json` and `directories.json` were neither read
+nor written (the tests use fixtures and in-memory stores; their home folder is synthetic).
+Typing, the keys, VoiceOver and a creation in the real panels are checklist 21.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites and 376 UI tests in 36 suites (22 new in 2 suites: `DirectoryFilterContentTests`, `DirectoryFilterModelTests`). Five existing tests had their Directory field changed, since the field now filters the list, with their expectations kept: in `DirectoryPickerContentTests`, `clearRuleAndNotice` (`"~/b"` → `"~/"`) and `itemsAndMoving` (`"~/typed"` → `"/"`), which typed a field only for Save's rule; in `DirectoryPickerModelTests`, `pickingFillsAndChecksTheDraft` (the field emptied before reopening the list and before the pick after a collision, as a picked value now hides the other rows), `hostChangeKeepsTheField` (`"~/typed by hand"` → `"/"`, which every entry contains) and `editingTheFieldDropsTheHighlight` (`"~/typed again"` → `"~/s"`, so ↓ still finds `~/s1`) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery attach\|switcher\|popover --appearance light\|dark --preview-snapshot <png in a private folder>`, the attach and switcher images looked at | exit 0 each. Attach 3136 × 6104 px (was 5374): "typing filters the list" (This Mac with `~/proj`: Recent `~/projects/blog`, Saved `~/projects/site` and `~/projects/api`, "Sessions on Neptuno" `/Users/example/projects/site` through the `~` rule, nothing highlighted) and "no matching directories" (Saturno, the button's list: the note above both actions); "directory saved already" now shows only its saved entry, which the field keeps. Switcher 3448 × 3120 px (was 2452): the form filtered and with no match. Readable in both appearances; `attach-states-*.png` and `switcher-states-*.png` regenerated. The popover gallery holds no New session state: 4672 × 2200 px as in Phase I-6, not regenerated |

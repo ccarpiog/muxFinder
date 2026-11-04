@@ -3,7 +3,8 @@ import MuxFinderCore
 
 /// The session switcher's states for `--preview-fixtures --preview-gallery switcher` (PLAN.md
 /// D32, Phase I-3b): the list, a filtered list, New session with a name from the filter, the
-/// form, an action in progress, a failure while it showed and one carried from a closed
+/// form (also with its directory list filtered by typing, and with no matching directory,
+/// D31), an action in progress, a failure while it showed and one carried from a closed
 /// switcher, no hosts turned on, and hosts checking or unreachable. Synthetic data only
 /// (invented session names, `*.example` destinations, a fake socket path, fixed ids); building
 /// them runs nothing.
@@ -61,6 +62,26 @@ public enum SwitcherFixtures {
     newSessionDraft: NewSessionDraft(hostID: Fixtures.neptuno.id, name: "deploy-docs"),
     directoryStatus: .usable(droppedEntryCount: 0))
 
+  /// The form for This Mac with `~/proj` typed in Directory: the list the typing opened keeps
+  /// the matching recent and saved directories, nothing highlighted.
+  public static let formFiltered = PreviewFixture(
+    id: "switcher-form-filtered", title: "New session form: typing filters the list",
+    state: liveHosts, panel: .newSession,
+    newSessionDraft: NewSessionDraft(
+      hostID: Fixtures.neptuno.id, name: "deploy-docs", directory: "~/proj"),
+    directoryLists: AttachFixtures.filterLists, directoryStatus: .usable(droppedEntryCount: 0),
+    directoryPicker: DirectoryPickerState(opening: .typing))
+
+  /// The form with a directory typed that no entry contains, the list opened with ⌥↓: "No
+  /// matching directories" above the actions.
+  public static let formNoMatches = PreviewFixture(
+    id: "switcher-form-no-matches", title: "New session form: no matching directories",
+    state: liveHosts, panel: .newSession,
+    newSessionDraft: NewSessionDraft(
+      hostID: Fixtures.neptuno.id, name: "deploy-docs", directory: "~/archive/2019"),
+    directoryLists: AttachFixtures.filterLists, directoryStatus: .usable(droppedEntryCount: 0),
+    directoryPicker: DirectoryPickerState(opening: .request))
+
   /// An Open in progress: "Waiting for iTerm2…" on the selected row.
   public static let opening = PreviewFixture(
     id: "switcher-opening", title: "Opening", state: liveHosts,
@@ -103,7 +124,7 @@ public enum SwitcherFixtures {
 
   /// Every fixture, in the gallery's order.
   public static let all = [
-    list, filtered, newSessionName, form, opening, failure, carriedFailure, noHosts,
-    checkingAndUnreachable,
+    list, filtered, newSessionName, form, formFiltered, formNoMatches, opening, failure,
+    carriedFailure, noHosts, checkingAndUnreachable,
   ]
 }

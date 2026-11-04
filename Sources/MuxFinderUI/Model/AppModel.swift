@@ -186,8 +186,10 @@ public final class AppModel {
   /// The Move here confirmation or the New session sheet, while shown.
   public internal(set) var panel: PopoverPanel?
   /// The New session sheet's fields and state. Any change to the Directory field's text (byte
-  /// for byte: typing, pasting, a pick) drops the directory list's highlight
-  /// (`directoryFieldChanged(from:)`), so Return then creates from what the field holds.
+  /// for byte: typing, pasting, a pick) drops the directory list's highlight, so Return then
+  /// creates from what the field holds; a user edit (not a pick, a host change or a reset) also
+  /// opens or closes the list as its filter matches (`directoryFieldChanged(from:)`, PLAN.md
+  /// D31).
   public var newSessionDraft = NewSessionDraft() {
     didSet { directoryFieldChanged(from: oldValue.directory) }
   }
@@ -196,7 +198,8 @@ public final class AppModel {
   public internal(set) var directoryLists = DirectoryLists()
   /// How the directory lists last loaded.
   public internal(set) var directoryStatus = DirectoryListStatus.notLoaded
-  /// New session's directory list: open or closed, the highlighted row, the last problem.
+  /// New session's directory list: open or closed and how it was opened, the highlighted row,
+  /// the last problem.
   public internal(set) var directoryPicker = DirectoryPickerState()
   /// Attachments in this Mac's iTerm2 that muxFinder made or found, by session.
   public internal(set) var attachedHere: [SessionKey: AttachmentRecord] = [:]
@@ -339,12 +342,23 @@ public final class AppModel {
   @ObservationIgnored var directoryOperation: Task<Void, Never>?
   /// Records what the session actions did (kinds only: no names or other user data).
   @ObservationIgnored let logger = Logger(subsystem: "cc.carpio.muxfinder", category: "app")
+  /// This Mac's home folder for the directory list's `~` rule (PLAN.md D31): the environment's
+  /// (`AppEnvironment.homeDirectory`) or the fixture's; `nil` matches entries only as stored.
+  let thisMacHome: String?
+  /// Speaks a VoiceOver announcement (the directory list's match count, PLAN.md D31):
+  /// `AppEnvironment.announce`, `nil` (nothing said) for a fixture; tests record through it.
+  @ObservationIgnored var announce: (@MainActor @Sendable (String) -> Void)?
+  /// Whether the model itself is filling the Directory field (a pick), so the change is not
+  /// taken for the user's edit (`fillDirectoryField(_:)`).
+  @ObservationIgnored var isFillingDirectoryField = false
 
   /// A model over `environment`. Nothing runs until `start()`.
   public init(environment: AppEnvironment) {
     self.environment = environment
     isPreview = false
     now = environment.now()
+    thisMacHome = environment.homeDirectory
+    announce = environment.announce
     settings =
       environment.settings.map { SettingsModel(environment: $0) }
       ?? SettingsModel(fixture: SettingsFixtures.blank)
@@ -374,6 +388,7 @@ public final class AppModel {
     environment = nil
     isPreview = true
     now = fixture.now
+    thisMacHome = fixture.homeDirectory
     refreshState = fixture.state
     hostListStatus = fixture.hostList
     searchText = fixture.searchText

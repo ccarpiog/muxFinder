@@ -3,16 +3,22 @@ import SwiftUI
 
 /// New session's Directory field (PLAN.md D31): a text field (typing, pasting, `~/…`) with a
 /// pull-down button at its trailing edge that opens the directory list under it, the field's
-/// inline issue, and the list while it is open. ⌥↓ opens the list from the keyboard, as does
-/// Space on the button once Tab reaches it (with macOS's keyboard navigation on). Tab with the
-/// list open moves on and leaves it open: its rows take no focus (SwiftUI draws them, so they
-/// are not in the panel's key view loop) and its keys are the model's wherever the focus is
-/// in the form (PLAN.md D31).
+/// inline issue, and the list while it is open. The field is the list's search (Phase I-7):
+/// typing filters the list and opens it while something matches (`AppModel`'s
+/// `directoryFieldChanged(from:)`). ⌥↓ opens the list from the keyboard, as does Space on the
+/// button once Tab reaches it (with macOS's keyboard navigation on). Tab with the list open
+/// moves on and leaves it open: its rows take no focus (SwiftUI draws them, so they are not in
+/// the panel's key view loop) and its keys are the model's wherever the focus is in the form
+/// (PLAN.md D31).
 struct DirectoryFieldView: View {
   /// The field's caption, also its accessibility label.
   static let title = "Directory (optional)"
   /// The field's placeholder.
   static let prompt = "Home folder on the host"
+  /// The field's accessibility hint: typing filters the list.
+  static let hint =
+    "Typing filters the list of recent, saved and session directories. Option-Down Arrow "
+    + "shows the list."
 
   /// The model whose draft the field edits.
   @Bindable var model: AppModel
@@ -34,6 +40,7 @@ struct DirectoryFieldView: View {
         .labelsHidden()
         .disabled(draft.isBusy)
         .accessibilityLabel(Self.title)
+        .accessibilityHint(Self.hint)
         pullDownButton(content)
       }
       if let issue = draft.directoryIssue {
@@ -73,11 +80,13 @@ struct DirectoryFieldView: View {
 }
 
 /// New session's directory list, drawn inside the popover under the Directory field (PLAN.md
-/// D31): the store's notice, the sections (or "Nothing to pick yet"), "Save this directory",
-/// "Clear recent directories on <host>" and the last change's problem. Rows shorten long paths
-/// in the middle and give the full path as help and accessibility label; the highlighted row
-/// (keys or pointer) has the popover's selection look. Rows are identified by
-/// `DirectoryPickerContent.Item` (section and UTF-8 bytes).
+/// D31): the store's notice, the sections the Directory field's filter leaves (or "Nothing to
+/// pick yet", or "No matching directories"), "Save this directory", "Clear recent directories
+/// on <host>" and the last change's problem. Rows shorten long paths in the middle and give the
+/// full path as help and accessibility label; the highlighted row (keys or pointer) has the
+/// popover's selection look. Rows are identified by `DirectoryPickerContent.Item` (section and
+/// UTF-8 bytes). Its accessibility value is the match count, which VoiceOver also hears as an
+/// announcement when an edit changes it (`AppModel.announce`).
 struct DirectoryListView: View {
   /// The tallest the sections grow before they scroll, in points.
   static let maximumHeight: CGFloat = 260
@@ -102,7 +111,13 @@ struct DirectoryListView: View {
         Divider()
       }
       if content.isEmpty {
-        emptyNote
+        placeholderNote(
+          DirectoryPickerContent.nothingToPick,
+          explanation: DirectoryPickerContent.nothingToPickExplanation)
+      } else if content.noMatches {
+        placeholderNote(
+          DirectoryPickerContent.noMatchesTitle,
+          explanation: DirectoryPickerContent.noMatchesExplanation)
       } else {
         sections(highlighted: highlighted, palette: palette)
       }
@@ -129,6 +144,7 @@ struct DirectoryListView: View {
     .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(palette.border))
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Directories")
+    .accessibilityValue(content.matchSummary)
   } // End of var body
 
   /// "Save this directory"'s help: what it does, or why it is off.
@@ -137,12 +153,13 @@ struct DirectoryListView: View {
       ?? "Add the Directory field's value to the saved directories, offered for every host"
   }
 
-  /// What the list says with nothing to pick.
-  private var emptyNote: some View {
+  /// What the list says in place of the sections: with nothing to pick, or with the filter
+  /// hiding every entry.
+  private func placeholderNote(_ title: String, explanation: String) -> some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text(DirectoryPickerContent.nothingToPick)
+      Text(title)
         .font(.callout)
-      Text(DirectoryPickerContent.nothingToPickExplanation)
+      Text(explanation)
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
@@ -150,7 +167,7 @@ struct DirectoryListView: View {
     .padding(8)
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .combine)
-  } // End of var emptyNote
+  } // End of func placeholderNote(_:explanation:)
 
   /// The sections with their rows, scrolling once taller than `maximumHeight` and keeping the
   /// highlighted row in view.

@@ -2237,7 +2237,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Sources/MuxFinderUI/Model/DirectoryPicker.swift`, `AppModelDirectories.swift`,
   `SettingsModelDirectories.swift`, `PopoverKey.swift`, `Views/DirectoryPickerViews.swift`,
   `Views/Settings/DirectoriesSettingsView.swift`; tests `DirectoryPickerTests.swift`,
-  `SettingsDirectoriesTests.swift`).
+  `SettingsDirectoriesTests.swift`; extended in Phase I-7 with the field's filter: the same
+  files and `AppEnvironment.swift` (`homeDirectory`, `announce`); tests
+  `DirectoryFilterTests.swift`).
   - **File:** `directories.json` in muxFinder's folder (`DirectoryStore`; the path is
     injectable), schema 1: `{"schemaVersion": 1, "saved": [ … ], "recent": {"<host id>":
     [ … ]}}`, pretty-printed with sorted keys and a final newline, at most 1 MiB, unknown keys
@@ -2349,7 +2351,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     store (pinned by `DirectoryRecordingTests.eachModeGetsItsOwnStore`).
   - **The picker (Phase I-2b):** the Directory field stays a text field (typing, pasting,
     `~/…`), with a pull-down button at its trailing edge that opens a list **drawn inside the
-    popover panel** under the field (`DirectoryListView`). Decided against a SwiftUI `Menu` or
+    popover panel** under the field (`DirectoryListView`); the field is also the list's search,
+    combo-box style (Phase I-7, below), with no separate search field. Decided against a SwiftUI `Menu` or
     an `NSMenu`: a menu runs its own event tracking loop, so its ↑/↓, Return and Esc would
     never reach the panel's key monitor (`PopoverWindowTrackingView`) or `AppModel.handle(_:)`
     and could not be unit-tested through them; SwiftUI cannot open a `Menu` from a key, so ⌥↓
@@ -2363,11 +2366,30 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `DirectoryLists.check`, distinct by exact string, sorted with `localizedStandardCompare`
     and byte order for ties, at most 10), each only when not empty; a folder may show in two
     sections. With all three empty the list (and the button's help and accessibility value)
-    says "Nothing to pick yet". Below them: "Save this directory" (`addSaved` of the field as
+    says "Nothing to pick yet", whatever the field holds. **The filter (Phase I-7):** with the
+    field's text trimmed of surrounding spaces and line breaks (`query`) empty, nothing is
+    filtered; otherwise each section keeps, in its order, only the entries that match (the
+    session folders' cap applies first), and a section left empty is hidden. An entry matches
+    when it equals the field byte for byte (picking it would change nothing, but hiding it
+    would confuse) or when one of its spellings contains the query, ignoring case and
+    diacritics (`PopoverContent.matches(_:query:)`, the popover's search rule). The query is
+    matched as typed, never expanded; **the `~` rule:** on This Mac, whose home folder is known
+    (`AppEnvironment.homeDirectory`, `NSHomeDirectory()` in the app, `nil` in tests and the
+    self-tests; fixtures `/Users/example`), each entry is matched in three spellings: as stored,
+    with a leading home folder written `~` (`<home>/x` as `~/x`, compared byte for byte and
+    ending at a slash) and with a leading `~` or `~/` spelled out as the home folder; so `~/proj`
+    finds a session folder `/Users/<me>/projects` and `/Users/<me>/pr` a saved `~/projects`. On
+    an SSH host, whose home is unknown (the saved list is shared), each entry is matched only as
+    stored; `~user` forms are never expanded. When the filter hides every entry the list says
+    "No matching directories" above the actions (`noMatches`), distinct from "Nothing to pick
+    yet". Its accessibility value is the match count (`matchSummary`: "3 matching
+    directories", "No matching directories", unfiltered "8 directories"), and the field's
+    accessibility hint says that typing filters the list. Below them, never filtered and with
+    their rules unchanged: "Save this directory" (`addSaved` of the field as
     typed; off while the store takes no change, the field is empty or breaks the entry rules,
     the value is saved already byte for byte, or the list holds 50) and "Clear recent
-    directories on <host>" (`clearRecents` of that host; off with no recent directory or
-    while the store takes no change); an unusable file's or unreadable folder's notice shows
+    directories on <host>" (`clearRecents` of that host; off with no recent directory, shown or
+    not, or while the store takes no change); an unusable file's or unreadable folder's notice shows
     at the top of the list (entries left out are Settings' notice only). Rows shorten long
     paths in the middle, with the full path as help and accessibility label; the highlighted
     row has the popover's selection look and the pointer moves the same highlight. A row's
@@ -2375,21 +2397,39 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     section and the directory's UTF-8 bytes (`DirectoryPickerContent.Item`), and sections
     compare byte for byte, so two spellings of one accented name are two rows the keys pass
     through in turn (Phase I-2b review). Picking a
-    directory only fills the field and closes the list; the draft then checks it like typed
+    directory only fills the field and closes the list (the model's fill is no edit,
+    `fillDirectoryField(_:)`, so it never reopens the list); the draft then checks it like typed
     text (`directoryIssue`, `request(hosts:command:)`, `Validation.workingDirectory`) before
-    any `NewSessionRequest` (D3, D18). Changing the host updates the list and keeps the
-    field; a highlight the new list lacks is dropped. The list closes with the panel, on a
-    creation and when New session opens again.
+    any `NewSessionRequest` (D3, D18). Only a row the list shows (after the filter) can be
+    picked. Changing the host re-filters the list with the new host's entries and keeps the
+    field; it is no edit, so it neither opens nor closes the list; a highlight the new list
+    lacks is dropped. The list closes with the panel, on a creation and when New session opens
+    again.
   - **Keys (Phase I-2b):** `PopoverKey.openList` is ⌥↓ (⌥ alone, the arrows' own flags
     ignored). In New session it opens the list on its first row; while the list is open
-    (`handleDirectoryListKey(_:)`), ↑/↓ and ⌥↓ move the highlight and stop at the ends (the
-    session rows' selection never moves), Return picks the highlighted row (an action runs and
-    the list stays open) or, with none, closes the list and creates (Return in the field still
-    means Create). Any change to the field's text (byte for byte: typing, pasting) ends the
-    list's navigation and drops the highlight, the list staying open (`AppModel`'s
-    `newSessionDraft` observer), so Return then creates from what the field holds instead of
+    (`handleDirectoryListKey(_:)`), ↑/↓ and ⌥↓ move the highlight through the rows shown (the
+    filter's matches, then the actions that are on) and stop at the ends (the session rows'
+    selection never moves), Return picks the highlighted row (an action runs and the list
+    stays open) or, with none, closes the list and creates (Return in the field still means
+    Create). Any change to the field's text (byte for byte: typing, pasting, a pick) ends the
+    list's navigation and drops the highlight (`AppModel`'s `newSessionDraft` observer,
+    `directoryFieldChanged(from:)`), so Return then creates from what the field holds instead of
     picking a row highlighted before the edit; ↓ or the pointer highlights again (Phase I-2b
-    review). Esc closes the list and leaves the panel open (a second Esc closes it);
+    review). **Typing opens and closes the list (Phase I-7):** the list remembers how it was
+    opened (`DirectoryPickerState.opening`: `request` for the button, Space on it or ⌥↓;
+    `typing`). A user edit of the field (`directoryFieldEdited(from:)`; not a pick, a host
+    change or the draft's reset), while New session shows, is not busy and has a host, opens a
+    closed list as `typing` when an entry matches, highlighting nothing (so Return creates from
+    the field; ↓ or ⌥↓ highlights the first match), and closes a `typing` list again when no
+    entry matches or the trimmed text is empty (clearing the field shows the whole list but
+    never opens it); a `request` list stays open, showing "No matching directories" and the
+    actions. After such an edit VoiceOver hears the match count (`AppModel.announce`, from
+    `AppEnvironment.announce`: an `NSAccessibility` announcement in the app, `nil` in tests,
+    which record through the model): `matchSummary` when the edit opened the list or changed
+    its rows (an edit that keeps the same rows says nothing again), "No matching directories"
+    when it closed a `typing` list; nothing when the list stays closed or the field is cleared
+    behind a closing list. Esc closes the list, keeping the field's text (the next edit may
+    open it again), and leaves the panel open (a second Esc closes it);
     ⌘F and ⌘N still do nothing and ⌘R and ⌘, act as in any panel. Everywhere else ⌥↓ returns
     the new `PopoverKeyResult.ignored`, and the key goes on to the focused view as before
     (`PopoverKey` used to return `nil` for it). **Tab and ⇧Tab** (Phase I-6; decided: AppKit's
@@ -4617,6 +4657,64 @@ text cursor's indicator window closes. New tests in `NewSessionTabOrderTests`:
 real but never shown; both fail with the fix reverted, the second on its ⇧Tab step),
 `tabIsNoPanelKey`, `keyViewLoopFlag`; no existing test changed. The galleries are unchanged.
 On the final tree 815 core + 354 UI tests pass.
+
+### Phase I-7 — New session: typing in Directory filters the directory list (routine)
+
+From the inbox (2026-11-04). The specification, with the user's request verbatim, the user's
+decisions (the Directory field is the search, combo-box style; typing opens the list while
+something matches and closes it when nothing does; Esc closes and keeps the text; the button
+and ⌥↓ still open it), the findings, the requirements and the acceptance, is
+`autoclaude/processed/70-new-session-directory-list-filter.md`. D31's list content and keys
+items are edited. Not split.
+
+The orchestrator's calls, made before the worker: **the `~` rule** — the field's text
+(trimmed) is matched as typed, never expanded; on This Mac, whose home folder is known, each
+entry is matched in three spellings (as stored, with a leading home folder written `~`, and
+with a leading `~` or `~/` spelled out as the home folder), so `~/proj` finds a session folder
+`/Users/<me>/projects` and `/Users/<me>/pr` finds a saved `~/projects`; on an SSH host, whose
+home is unknown, each entry is matched only as stored (`~user` forms are never expanded).
+**Clearing the field** is not a search: an edit that leaves the trimmed text empty shows the
+whole list again but never opens it, and closes a list that typing opened (a list opened with
+the button or ⌥↓ stays open).
+
+Outcome: New session's Directory field is the directory list's search in the popover and the
+session switcher (D31's picker and keys items edited). `DirectoryPickerContent` filters each
+section by the field's trimmed text (`query`; `entry(_:matches:field:home:)`, the popover's
+`PopoverContent.matches(_:query:)` rule, an exact byte-for-byte match always kept), applies the
+`~` rule through `spellings(of:home:)` with This Mac's home folder injected (`thisMacHome`,
+used only for a This Mac host; `AppEnvironment.homeDirectory`, `NSHomeDirectory()` in the app,
+`nil` in tests and the self-tests, `/Users/example` in fixtures), and tells "No matching
+directories" (`noMatches`) from "Nothing to pick yet" (`isEmpty`, now counted before the
+filter); the actions are never filtered. The "opened by" state lives in
+`DirectoryPickerState.opening` (`request` for the button, Space and ⌥↓; `typing`; `isOpen` is
+now derived from it). The model's draft observer still drops the highlight on every change,
+then hands a user edit to `directoryFieldEdited(from:)`, which opens a closed list as `typing`
+when an entry matches (nothing highlighted) and closes a `typing` list when none does or the
+field is cleared; a pick fills the field through `fillDirectoryField(_:)`, which is no edit, and
+a host change or the draft's reset never reaches it. Return with nothing highlighted already
+closed the list and created, so the creation path is unchanged. VoiceOver hears the match count
+through a seam: `AppEnvironment.announce` (`postAccessibilityAnnouncement(_:)`, an
+`NSAccessibility` `announcementRequested` at medium priority) becomes `AppModel.announce`,
+which tests set to a recorder; it speaks when an edit opens the list or changes its rows and
+when it closes a `typing` list for lack of matches. The list's accessibility value is the same
+summary, and the field's accessibility hint says typing filters the list. The attach gallery
+gained "typing filters the list" and "no matching directories", the switcher gallery the form
+in both states (the popover gallery holds no New session state); checklist 21 added. New tests
+in `DirectoryFilterTests.swift`: `DirectoryFilterContentTests` (`anEmptyFieldFiltersNothing`,
+`aQueryKeepsTheMatchingEntriesOfEachSection`, `matchingIgnoresCaseAndDiacritics`,
+`noMatchesWithActionsOn`, `noMatchesWithNothingOnAndNothingAtAll`, `anExactMatchStillShows`,
+`actionsAreNeverFiltered`, `theTildeRuleOnThisMac`, `noTildeRuleOnSSHHosts`,
+`theFieldsHintMentionsTheFilter`) and `DirectoryFilterModelTests`
+(`typingThatMatchesOpensTheListWithoutAHighlight`, `noMatchClosesOnlyAListTheTypingOpened`,
+`clearingTheFieldClosesATypingOpenedListAndOpensNothing`, `escKeepsTheTextAndCloses`,
+`theArrowsStayInTheFilteredRows`, `returnWithNoHighlightCreatesFromTheField`,
+`pickingFillsTheFieldAndDoesNotReopen`, `aHostChangeRefilters`,
+`aBusyDraftOrNoHostOpensNothing`, `theMatchCountIsAnnouncedWhenTheFilterChanges`,
+`theHomeFolderAndTheAnnouncerAreInjected`, `galleryFixturesCoverTheFilter`). Five existing
+tests had their Directory field changed, their expectations kept, because the field now filters
+(`docs/TESTING.md` *Phase I-7*): `clearRuleAndNotice`, `itemsAndMoving`,
+`pickingFillsAndChecksTheDraft`, `hostChangeKeepsTheField`, `editingTheFieldDropsTheHighlight`.
+On the final tree 815 core + 376 UI tests pass.
 
 ## Deferred (explicitly out of scope for v1)
 

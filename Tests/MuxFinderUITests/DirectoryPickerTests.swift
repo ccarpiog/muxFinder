@@ -136,7 +136,7 @@ struct DirectoryPickerContentTests {
     #expect(usable.canClearRecents)
     #expect(usable.notice == nil, "entries left out are Settings' notice, not the list's")
     let unusable = DirectoryPickerContent(
-      host: Fixtures.saturno, lists: lists, sessions: [], field: "~/b",
+      host: Fixtures.saturno, lists: lists, sessions: [], field: "~/",
       status: .fileNotUsable(.unsafe(.permissionsTooOpen)))
     #expect(!unusable.canClearRecents)
     #expect(unusable.saveIssue == .storeUnavailable)
@@ -152,7 +152,7 @@ struct DirectoryPickerContentTests {
     let content = DirectoryPickerContent(
       host: Fixtures.saturno,
       lists: DirectoryLists(saved: ["~/s"], recent: [Fixtures.saturno.id: ["~/r"]]),
-      sessions: [Self.session(1, on: Fixtures.saturno, in: "/srv")], field: "~/typed")
+      sessions: [Self.session(1, on: Fixtures.saturno, in: "/srv")], field: "/")
     let items = content.items
     #expect(
       items == [
@@ -272,12 +272,14 @@ struct DirectoryPickerModelTests {
       model.newSessionDraft.request(hosts: model.newSessionHosts)?.workingDirectory == long)
     #expect(!model.directoryPicker.isOpen)
 
+    model.newSessionDraft.directory = "" // the field filters the list (Phase I-7)
     model.openDirectoryList(highlightingFirst: false)
     model.pickDirectoryItem(.entry(.sessions, "/Users/example/projects/site"))
     #expect(model.newSessionDraft.directory == "/Users/example/projects/site")
     model.pickDirectoryItem(.entry(.saved, "~/not-listed"))
     #expect(model.newSessionDraft.directory == "/Users/example/projects/site")
 
+    model.newSessionDraft.directory = ""
     model.newSessionDraft.state = .collision
     model.pickDirectoryItem(.entry(.recent, "~/scratch"))
     #expect(model.newSessionDraft.directory == "~/scratch")
@@ -293,7 +295,8 @@ struct DirectoryPickerModelTests {
   /// Changing the host updates the list (its recents and session folders) and keeps what is
   /// in the field; a highlight the new host's list does not have is dropped.
   @Test func hostChangeKeepsTheField() {
-    let model = Self.fixtureModel(directory: "~/typed by hand")
+    // Every entry holds a slash, so the field's filter (Phase I-7) keeps them all.
+    let model = Self.fixtureModel(directory: "/")
     _ = model.handle(.openList)
     #expect(model.highlightedDirectoryItem == .entry(.recent, "~/projects/experiments"))
     #expect(model.directoryPickerContent?.sections.map(\.kind) == [.recent, .saved, .sessions])
@@ -302,7 +305,7 @@ struct DirectoryPickerModelTests {
     #expect(content?.hostName == "Neptuno")
     #expect(content?.sections.map(\.kind) == [.recent, .saved])
     #expect(content?.sections.first?.entries == ["~/notes"])
-    #expect(model.newSessionDraft.directory == "~/typed by hand")
+    #expect(model.newSessionDraft.directory == "/")
     #expect(model.directoryPicker.isOpen)
     #expect(model.highlightedDirectoryItem == nil)
     _ = model.handle(.down)
@@ -435,7 +438,7 @@ struct DirectoryPickerModelTests {
     #expect(harness.creator.requests.map(\.workingDirectory) == ["~/typed"])
 
     _ = model.handle(.openList)
-    model.newSessionDraft.directory = "~/typed again"
+    model.newSessionDraft.directory = "~/s" // matches both saved rows (Phase I-7's filter)
     #expect(model.highlightedDirectoryItem == nil)
     _ = model.handle(.down)
     #expect(model.highlightedDirectoryItem == .entry(.saved, "~/s1"))

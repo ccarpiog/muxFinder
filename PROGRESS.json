@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-04T19:02:29Z",
+  "updated": "2026-11-04T19:37:20Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -572,6 +572,18 @@
       "added": "2026-11-04T17:46:06Z",
       "started": "2026-11-04T18:28:15Z",
       "status_since": "2026-11-04T19:02:29Z"
+    },
+    {
+      "id": "I-7",
+      "title": "New session: typing in Directory filters the directory list",
+      "status": "done",
+      "risk": "routine",
+      "summary": "Typing in the New session Directory field filters the directory list, opening it while something matches.",
+      "review": "Codex, ship, docs/reviews/phase-I-7.md",
+      "narrative": "docs/progress-archive/i-7.md",
+      "added": "2026-11-04T19:04:26Z",
+      "started": "2026-11-04T19:05:55Z",
+      "status_since": "2026-11-04T19:37:20Z"
     }
   ]
 }

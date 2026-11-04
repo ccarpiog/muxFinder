@@ -156,7 +156,7 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   others.
 - **Keys:** ↑/↓ select, Return opens, ⌘F search (host or session name), ⌘R refresh, ⌘N new
   session, ⌘, Settings, Esc closes. In New session, Tab and ⇧Tab move between Name and
-  Directory, and ⌥↓ opens the directory list (below).
+  Directory, typing in Directory filters the directory list, and ⌥↓ opens it (below).
 - **Open a session:** click it (or Return). muxFinder checks the session is still the one
   listed, opens a dedicated iTerm2 tab that runs its helper, which attaches with `tmux -CC`
   (locally, or through `ssh -t` to the host), confirms the new tmux connection through iTerm2's
@@ -184,9 +184,14 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   Directory field takes any path (`~/…` is in that host's home folder; empty is the home
   folder itself). The button at its end, or ⌥↓, lists that host's recent directories (the last
   8 it created sessions in), your saved directories (one list for every host) and the folders
-  the host's sessions started in. Click one, or move with ↑/↓ and press Return, to put it in
-  the field; Esc closes the list (a second Esc closes New session), and Return with nothing
-  highlighted creates as usual (typing in the field takes the highlight away). Tab and ⇧Tab
+  the host's sessions started in. Typing in Directory filters that list (case and accents
+  ignored) and opens it while something matches, closing it again when nothing does; on This
+  Mac, `~/proj` also finds `/Users/<you>/projects` and the other way round. Click one, or move
+  with ↓ (or ↑) and press Return, to put it in the field; Esc closes the list and keeps what you
+  typed (a second Esc closes New session), and Return with nothing highlighted creates in what
+  the field holds (typing in the field takes the highlight away). Opened with the button or
+  ⌥↓, the list stays open while you type, saying "No matching directories" when nothing
+  matches. Tab and ⇧Tab
   move between Name and Directory; with macOS's keyboard navigation on (System Settings ›
   Keyboard) they also reach the Host picker, the list's button (Space opens it), Cancel and
   Create, in reading order. Tab with the list open moves on and leaves the list open. "Save this

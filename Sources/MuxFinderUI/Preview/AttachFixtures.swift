@@ -4,8 +4,8 @@ import MuxFinderCore
 /// The session actions' states for `--preview-fixtures --preview-gallery attach` (PLAN.md
 /// D25): progress and results, every failure with its recoveries, the Move here dialog, Detach,
 /// the New session sheet (empty, invalid name, creating, collision; its directory list open
-/// with entries, with nothing to pick, with the directory saved already and with an unusable
-/// file, D31) and the banners. Synthetic data only (invented session names and paths,
+/// with entries, with nothing to pick, with the directory saved already, with an unusable
+/// file, filtered by typing and with no matching directory, D31) and the banners. Synthetic data only (invented session names and paths,
 /// `*.example` destinations, a fake socket path, fixed ids); building them runs nothing.
 public enum AttachFixtures {
   /// Shorthand.
@@ -250,6 +250,14 @@ public enum AttachFixtures {
     session("scratch", id: 104, on: Fixtures.saturno, startedIn: nil),
   ]
 
+  /// This Mac's sessions with their start folders, for the filtered list: one in a projects
+  /// folder (which `~/proj` finds through the `~` rule), one elsewhere.
+  static let neptunoFolderSessions = [
+    session("notes", id: 105, on: Fixtures.neptuno, startedIn: "/Users/example/projects/site"),
+    session(
+      "journal", id: 106, on: Fixtures.neptuno, startedIn: "/Users/example/Documents/journal"),
+  ]
+
   /// The directory lists of the picker fixtures: three saved directories (one long enough to
   /// be shortened in the middle), Saturno's two recent ones and This Mac's one.
   static let directoryLists = DirectoryLists(
@@ -262,20 +270,33 @@ public enum AttachFixtures {
       Fixtures.neptuno.id: ["~/notes"],
     ])
 
-  /// A New session fixture with its directory list open.
+  /// The lists of the filter fixtures: the picker fixtures' with a second recent directory for
+  /// This Mac, in a projects folder.
+  static let filterLists = DirectoryLists(
+    saved: directoryLists.saved,
+    recent: [
+      Fixtures.saturno.id: directoryLists.recent(for: Fixtures.saturno.id),
+      Fixtures.neptuno.id: ["~/projects/blog", "~/notes"],
+    ])
+
+  /// A New session fixture with its directory list open (`opening`: by the button, or by
+  /// typing), over Saturno's folder sessions and `neptunoSessions`.
   static func directoryFixture(
     id: String,
     title: String,
     draft: NewSessionDraft,
     lists: DirectoryLists,
     status: DirectoryListStatus = .usable(droppedEntryCount: 0),
-    highlighted: DirectoryPickerContent.Item? = nil
+    highlighted: DirectoryPickerContent.Item? = nil,
+    opening: DirectoryPickerState.Opening = .request,
+    neptunoSessions: [HostSnapshot.Session] = neptuno
   ) -> PreviewFixture {
     PreviewFixture(
-      id: id, title: title, state: hosts(saturno: saturnoFolderSessions, neptuno: neptuno),
+      id: id, title: title,
+      state: hosts(saturno: saturnoFolderSessions, neptuno: neptunoSessions),
       panel: .newSession, newSessionDraft: draft, directoryLists: lists, directoryStatus: status,
-      directoryPicker: DirectoryPickerState(isOpen: true, highlighted: highlighted))
-  } // End of func directoryFixture(id:title:draft:lists:status:highlighted:)
+      directoryPicker: DirectoryPickerState(opening: opening, highlighted: highlighted))
+  } // End of func directoryFixture(id:title:draft:lists:status:highlighted:opening:…)
 
   /// Saturno's list: "Recent", "Saved" and "Sessions on Saturno" (one folder per two
   /// sessions), the first recent directory highlighted, "Save this directory" off (the field is
@@ -293,7 +314,8 @@ public enum AttachFixtures {
       hostID: Fixtures.neptuno.id, name: "new-app", directory: "~/projects/new-app"),
     lists: DirectoryLists(), highlighted: .action(.saveDirectory))
 
-  /// This Mac with the typed directory saved already: "Save this directory" is off.
+  /// This Mac with the typed directory saved already: "Save this directory" is off, and the
+  /// filter keeps that saved entry (an exact match).
   public static let newSessionSavedAlready = directoryFixture(
     id: "new-session-saved-already", title: "New session: directory saved already",
     draft: NewSessionDraft(
@@ -305,6 +327,22 @@ public enum AttachFixtures {
     id: "new-session-unusable-file", title: "New session: unusable directory list",
     draft: NewSessionDraft(hostID: Fixtures.saturno.id, name: "site-preview"),
     lists: DirectoryLists(), status: .fileNotUsable(.unsafe(.permissionsTooOpen)))
+
+  /// This Mac with `~/proj` typed: the list opened by the typing, nothing highlighted, keeps the
+  /// matching recent and saved directories and the session folder `/Users/example/projects/site`
+  /// (the `~` rule; `/Users/example` is the fixtures' home folder).
+  public static let newSessionFiltered = directoryFixture(
+    id: "new-session-filtered", title: "New session: typing filters the list",
+    draft: NewSessionDraft(hostID: Fixtures.neptuno.id, name: "site-preview", directory: "~/proj"),
+    lists: filterLists, opening: .typing, neptunoSessions: neptunoFolderSessions)
+
+  /// Saturno with a directory typed that no entry contains, the list opened with the button:
+  /// "No matching directories" above the actions, both on.
+  public static let newSessionNoMatches = directoryFixture(
+    id: "new-session-no-matches", title: "New session: no matching directories",
+    draft: NewSessionDraft(
+      hostID: Fixtures.saturno.id, name: "site-preview", directory: "~/archive/2019"),
+    lists: directoryLists)
 
   /// A session that vanished and one that changed between the listing and Open.
   public static let banners = PreviewFixture(
@@ -337,6 +375,7 @@ public enum AttachFixtures {
     progress, launchFailures, moreLaunchFailures, checkFailures, moreCheckFailures, hostFailures,
     iTermFailures, moveHere, detach, detachProblems, newSession, newSessionInvalid,
     newSessionCreating, newSessionCollision, newSessionDirectories, newSessionNothingToPick,
-    newSessionSavedAlready, newSessionUnusableFile, banners,
+    newSessionSavedAlready, newSessionUnusableFile, newSessionFiltered, newSessionNoMatches,
+    banners,
   ]
 }

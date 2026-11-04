@@ -62,7 +62,7 @@ public enum DirectoryListStatus: Sendable, Hashable {
 
 /// What New session's directory list shows for one host (PLAN.md D31): a pure value built from
 /// the directory lists, the host's listed sessions and the Directory field, so its sections,
-/// order, caps and rules are unit-tested apart from the view.
+/// order, caps, filter and rules are unit-tested apart from the view.
 ///
 /// - **Sections**, in this order, each only when it is not empty: "Recent" (the host's recent
 ///   directories, newest first), "Saved" (the list shared by every host, in the user's order)
@@ -70,13 +70,19 @@ public enum DirectoryListStatus: Sendable, Hashable {
 ///   ones included, sorted, at most `maximumSessionFolders`). A folder can show in more than one
 ///   section; within a section each shows once (exact string). With all three empty the list
 ///   says there is nothing to pick yet.
-/// - **Actions** below the sections: "Save this directory" (off while the field is empty,
-///   breaks `Validation.workingDirectory` or the entry rules, is saved already, the saved list
-///   is full, or the store takes no change) and "Clear recent directories on <host>" (off with
-///   no recent directory or while the store takes no change).
-/// - **Items** are what the keyboard moves through: every entry, then the actions that are on.
-///   An entry's identity is its section and its UTF-8 bytes, as the store's (`Item`), so two
-///   spellings of one accented name are two rows the keys pass through in turn.
+/// - **The filter** (Phase I-7): the Directory field is the list's search, combo-box style.
+///   With its text (trimmed, `query`) empty nothing is filtered; otherwise each section keeps,
+///   in its order, only the entries that match (`entry(_:matches:field:home:)`), and a section
+///   left empty is hidden. When the filter hides every entry the list says "No matching
+///   directories" (`noMatches`), not "Nothing to pick yet" (`isEmpty`, the host has no entry at
+///   all).
+/// - **Actions** below the sections, never filtered: "Save this directory" (off while the field
+///   is empty, breaks `Validation.workingDirectory` or the entry rules, is saved already, the
+///   saved list is full, or the store takes no change) and "Clear recent directories on
+///   <host>" (off with no recent directory, shown or not, or while the store takes no change).
+/// - **Items** are what the keyboard moves through: every entry shown, then the actions that
+///   are on. An entry's identity is its section and its UTF-8 bytes, as the store's (`Item`),
+///   so two spellings of one accented name are two rows the keys pass through in turn.
 /// - Every entry is display data until picked: picking only fills the Directory field, which
 ///   the draft checks like typed text before any request (D3, D18).
 public struct DirectoryPickerContent: Sendable, Hashable {
@@ -90,6 +96,11 @@ public struct DirectoryPickerContent: Sendable, Hashable {
   public static let nothingToPickExplanation =
     "Directories you create sessions in or save, and those this host's sessions started in, "
     + "appear here."
+  /// What the list says when the filter hides every entry (and what VoiceOver hears then).
+  public static let noMatchesTitle = "No matching directories"
+  /// The explanation under `noMatchesTitle`.
+  public static let noMatchesExplanation =
+    "No directory in the list contains what you typed. Clear the field to see them all."
 
   /// One section of the list.
   public enum SectionKind: Sendable, Hashable, CaseIterable {
@@ -202,7 +213,7 @@ public struct DirectoryPickerContent: Sendable, Hashable {
 
   /// The host's display name.
   public var hostName: String
-  /// The sections that are not empty, in order.
+  /// The sections shown: those with entries left after the filter, in order.
   public var sections: [Section]
   /// Why "Save this directory" is off, or `nil` when it is on.
   public var saveIssue: SaveIssue?
@@ -211,18 +222,27 @@ public struct DirectoryPickerContent: Sendable, Hashable {
   /// Why the lists are empty and nothing can be changed (an unusable file, an unreadable
   /// folder), shown at the top of the list.
   public var notice: String?
+  /// The Directory field's text the entries are filtered by, trimmed of surrounding spaces and
+  /// line breaks; empty when nothing is filtered.
+  public var query: String
+  /// How many entries the sections hold before the filter (a folder in two sections counts
+  /// twice).
+  public var unfilteredEntryCount: Int
 
   /// The list for `host`: its recent directories and the saved ones from `lists`, the start
-  /// folders of `sessions` (the host's listed sessions), "Save this directory" for `field` (the
-  /// Directory field as typed), with `status` the lists' load status and `canChange` whether
-  /// a store takes changes at all.
+  /// folders of `sessions` (the host's listed sessions), filtered by `field` (the Directory
+  /// field as typed), which "Save this directory" would also add, with `status` the lists' load
+  /// status and `canChange` whether a store takes changes at all. `thisMacHome` is This Mac's
+  /// home folder for the filter's `~` rule; it is used only when `host` is This Mac (an SSH
+  /// host's home folder is unknown), and `nil` turns the rule off.
   public init(
     host: HostConfig,
     lists: DirectoryLists,
     sessions: [HostSnapshot.Session],
     field: String,
     status: DirectoryListStatus = .notLoaded,
-    canChange: Bool = true
+    canChange: Bool = true,
+    thisMacHome: String? = nil
   ) {
     hostName = host.displayName
     let recent = lists.recent(for: host.id)
@@ -231,17 +251,48 @@ public struct DirectoryPickerContent: Sendable, Hashable {
       (.saved, "Saved", lists.saved),
       (.sessions, "Sessions on \(host.displayName)", Self.sessionFolders(sessions)),
     ]
+    let query = Self.query(field)
+    let home = host.isThisMac ? Self.homeFolder(thisMacHome) : nil
+    self.query = query
+    unfilteredEntryCount = candidates.reduce(0) { $0 + $1.2.count }
     sections = candidates.compactMap { kind, title, entries in
-      entries.isEmpty ? nil : Section(kind: kind, title: title, entries: entries)
+      let shown =
+        query.isEmpty
+        ? entries
+        : entries.filter { Self.entry($0, matches: query, field: field, home: home) }
+      return shown.isEmpty ? nil : Section(kind: kind, title: title, entries: shown)
     }
     let acceptsChanges = canChange && status.acceptsChanges
     saveIssue = Self.saveIssue(field: field, lists: lists, acceptsChanges: acceptsChanges)
     canClearRecents = acceptsChanges && !recent.isEmpty
     notice = status.acceptsChanges ? nil : status.notice
-  } // End of init(host:lists:sessions:field:status:canChange:)
+  } // End of init(host:lists:sessions:field:status:canChange:thisMacHome:)
 
-  /// Whether every section is empty: the list says there is nothing to pick yet.
-  public var isEmpty: Bool { sections.isEmpty }
+  /// Whether the host has nothing to pick at all (every section empty before the filter): the
+  /// list says "Nothing to pick yet", whatever the field holds.
+  public var isEmpty: Bool { unfilteredEntryCount == 0 }
+
+  /// Whether the filter hides every entry the host has: the list says "No matching
+  /// directories" above the actions.
+  public var noMatches: Bool { !isEmpty && sections.isEmpty }
+
+  /// How many entry rows the list shows (after the filter; actions not counted).
+  public var matchCount: Int { sections.reduce(0) { $0 + $1.entries.count } }
+
+  /// What VoiceOver hears when the filter changes (and the list's accessibility value): "3
+  /// matching directories", "1 matching directory" or "No matching directories" while the
+  /// field filters the list, "8 directories" or "1 directory" while it does not, and "Nothing
+  /// to pick yet" when the host has no entry at all.
+  public var matchSummary: String {
+    if isEmpty { return Self.nothingToPick }
+    let count = matchCount
+    guard !query.isEmpty else { return count == 1 ? "1 directory" : "\(count) directories" }
+    switch count {
+    case 0: return Self.noMatchesTitle
+    case 1: return "1 matching directory"
+    default: return "\(count) matching directories"
+    }
+  } // End of var matchSummary
 
   /// "Clear recent directories on <host>".
   public var clearTitle: String { "Clear recent directories on \(hostName)" }
@@ -257,8 +308,8 @@ public struct DirectoryPickerContent: Sendable, Hashable {
     }
   }
 
-  /// The rows the keyboard moves through, in the list's order: every entry, then the actions
-  /// that are on.
+  /// The rows the keyboard moves through, in the list's order: every entry shown (after the
+  /// filter), then the actions that are on.
   public var items: [Item] {
     let entries = sections.flatMap(\.items)
     let actions = [Action.saveDirectory, .clearRecents].filter(isEnabled).map(Item.action)
@@ -300,6 +351,57 @@ public struct DirectoryPickerContent: Sendable, Hashable {
     return Array(folders.prefix(maximumSessionFolders))
   } // End of static func sessionFolders(_:)
 
+  // MARK: - The filter (Phase I-7)
+
+  /// The text `field` filters by: the field as typed, trimmed of surrounding spaces and line
+  /// breaks (as the popover's search). Never expanded: a `~` in it is matched as typed.
+  public static func query(_ field: String) -> String {
+    field.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// `home` as the `~` rule uses it: without trailing slashes; `nil` for none, an empty one or
+  /// the root folder (which would turn every absolute path into a `~` one).
+  static func homeFolder(_ home: String?) -> String? {
+    guard var home else { return nil }
+    while home.hasSuffix("/") { home.removeLast() }
+    return home.isEmpty ? nil : home
+  }
+
+  /// Whether `entry` shows while the field holds `field` (`query` its trimmed text, not empty):
+  /// it equals the field byte for byte (picking it would change nothing, but hiding it would
+  /// confuse), or one of its spellings (`spellings(of:home:)`) contains `query`, ignoring case
+  /// and diacritics, as the popover's search matches (`PopoverContent.matches(_:query:)`).
+  public static func entry(
+    _ entry: String,
+    matches query: String,
+    field: String,
+    home: String?
+  ) -> Bool {
+    if DirectoryLists.same(entry, field) { return true }
+    return spellings(of: entry, home: home).contains { PopoverContent.matches($0, query: query) }
+  }
+
+  /// The spellings `entry` is matched in: as stored and, with This Mac's `home` folder known
+  /// (`nil` for an SSH host, whose home is unknown), with a leading home folder written `~`
+  /// (`<home>/x` as `~/x`, `<home>` as `~`) or with a leading `~` or `~/` spelled out as the
+  /// home folder (`~/x` as `<home>/x`, `~` as `<home>`). The home folder is compared byte for
+  /// byte and must end at a slash or the entry's end; `~user` forms are never expanded.
+  static func spellings(of entry: String, home: String?) -> [String] {
+    guard let home else { return [entry] }
+    let bytes = Array(entry.utf8)
+    let homeBytes = Array(home.utf8)
+    let slash = UInt8(ascii: "/")
+    if bytes == homeBytes { return [entry, "~"] }
+    if bytes.starts(with: homeBytes + [slash]) {
+      return [entry, "~" + String(decoding: bytes[homeBytes.count...], as: UTF8.self)]
+    }
+    if bytes == [UInt8(ascii: "~")] { return [entry, home] }
+    if bytes.starts(with: [UInt8(ascii: "~"), slash]) {
+      return [entry, home + String(decoding: bytes[1...], as: UTF8.self)]
+    }
+    return [entry]
+  } // End of static func spellings(of:home:)
+
   /// Why "Save this directory" is off for `field`, or `nil`: the store takes no change, the
   /// field is empty, breaks a rule, is saved already, or the saved list is full.
   static func saveIssue(
@@ -320,11 +422,24 @@ public struct DirectoryPickerContent: Sendable, Hashable {
   } // End of static func saveIssue(field:lists:acceptsChanges:)
 }
 
-/// New session's directory list as the popover shows it: open or closed, the row the keyboard
-/// highlights, and what the last save or clear could not do.
+/// New session's directory list as the popover shows it: open or closed and how it was opened,
+/// the row the keyboard highlights, and what the last save or clear could not do.
 public struct DirectoryPickerState: Sendable, Hashable {
-  /// Whether the list shows under the Directory field.
-  public var isOpen: Bool
+  /// How the open list was opened (PLAN.md D31, Phase I-7), which decides whether an edit of
+  /// the Directory field may close it again.
+  public enum Opening: Sendable, Hashable {
+    /// The user asked for it: the pull-down button (or Space on it) or ⌥↓. It stays open
+    /// whatever the field holds, showing "No matching directories" when the filter hides
+    /// every entry, until Esc, the button, a pick, a creation or the panel closing.
+    case request
+    /// An edit of the field that left an entry matching opened it: an edit that matches
+    /// nothing, or leaves the field empty, closes it again.
+    case typing
+  }
+
+  /// How the list was opened while it shows under the Directory field; `nil` while it is
+  /// closed.
+  public var opening: Opening?
   /// The highlighted row, if any: set by ↑/↓, ⌥↓ and the pointer, dropped when the Directory
   /// field's text changes, ignored when the list no longer has it.
   public var highlighted: DirectoryPickerContent.Item?
@@ -332,13 +447,25 @@ public struct DirectoryPickerState: Sendable, Hashable {
   /// the list; never a directory.
   public var problem: String?
 
-  /// A state; closed by default.
+  /// Whether the list shows under the Directory field.
+  public var isOpen: Bool { opening != nil }
+
+  /// A state; closed by default. `isOpen` opens it as the button does (`Opening.request`).
   public init(
     isOpen: Bool = false,
     highlighted: DirectoryPickerContent.Item? = nil,
     problem: String? = nil
   ) {
-    self.isOpen = isOpen
+    self.init(opening: isOpen ? .request : nil, highlighted: highlighted, problem: problem)
+  }
+
+  /// A state opened as `opening` says (`nil`: closed).
+  public init(
+    opening: Opening?,
+    highlighted: DirectoryPickerContent.Item? = nil,
+    problem: String? = nil
+  ) {
+    self.opening = opening
     self.highlighted = highlighted
     self.problem = problem
   }

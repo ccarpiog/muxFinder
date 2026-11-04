@@ -491,6 +491,46 @@ step takes the focus were read in process (`--preview-key-view-loop`, `docs/TEST
   Tab moves on and the list stays open (Esc closes it). 3: the same in the switcher.
 - **Undo:** step 4; set keyboard navigation back as you had it.
 
+## 21. Typing in Directory filters the directory list
+
+Owed by Phase I-7 (PLAN.md D31): the filter, the list opening and closing as you type, its
+keys and the match count announcement are unit-tested over the model, and the filtered and
+"No matching directories" states were rendered in the galleries, but no unattended run may
+press a key, turn VoiceOver on or create a session from the real app, and the real
+`directories.json` is the user's.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
+  This Mac turned on, at least one saved directory and one recent directory (item 17 leaves
+  both), and a tmux session started in a folder of yours (`tmux new-session -d -s
+  muxfinder-test-filter -c <folder>`):
+  1. Open the popover, ⌘N, This Mac. In Directory, type part of a saved directory, then part of
+     a recent one, then part of the session's folder (also as `~/…` when it is under your home
+     folder, and as `/Users/<you>/…` for a saved `~/…` one).
+  2. Press ↓, then ↓ and ↑ a few times, then Return. Then type something no entry contains.
+  3. Clear the field. Type part of a directory again, press Esc, then type one more letter.
+  4. Click the button at the end of Directory (or ⌥↓) and type something no entry contains;
+     then clear the field.
+  5. Name `muxfinder-test-filtered`; in Directory type a folder of yours that contains a
+     listed one (the parent of a saved directory, say), so the list opens, and press Return
+     with nothing highlighted.
+  6. With VoiceOver on (⌘F5), steps 1 to 3 again.
+  7. Open the session switcher (item 18's shortcut), ⌘N, and steps 1 to 4 there.
+  8. Kill the sessions (`tmux kill-session -t '=muxfinder-test-filter'` and
+     `'=muxfinder-test-filtered'`).
+- **Expect:** 1: the list opens by itself as you type, with nothing highlighted, and trims
+  down to the entries that contain what you typed (case and accents ignored), in their
+  sections; a section with none left disappears; `~/…` and `/Users/<you>/…` find each other on
+  This Mac. 2: ↓ highlights the first match and the arrows go only through the rows shown and
+  the actions; Return puts the highlighted directory in the field and the list closes and
+  stays closed; typing something nothing contains closes the list again. 3: clearing the field
+  closes the list and opens nothing; Esc closes it and keeps the text; the next letter opens it
+  again while something still matches. 4: the list stays open, saying "No matching directories" above "Save this directory"
+  and "Clear recent directories on <host>"; clearing the field shows every entry again. 5: the
+  session is created in the folder typed, not in a listed entry. 6: VoiceOver says the field's
+  hint (typing filters the list) and, after the typing, how many directories match ("3
+  matching directories", "No matching directories"). 7: the same in the switcher.
+- **Undo:** step 8.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -515,3 +555,4 @@ step takes the focus were read in process (`--preview-key-view-loop`, `docs/TEST
 | 18 | | | |
 | 19 | | | |
 | 20 | | | |
+| 21 | | | |

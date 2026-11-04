@@ -37,8 +37,10 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var directoryLists: DirectoryLists
   /// How the directory lists loaded.
   public var directoryStatus: DirectoryListStatus
-  /// New session's directory list: open or closed, the highlighted row.
+  /// New session's directory list: open or closed (and how), the highlighted row.
   public var directoryPicker: DirectoryPickerState
+  /// This Mac's home folder for the directory list's `~` rule (a synthetic one).
+  public var homeDirectory: String?
   /// The session switcher's search text (PLAN.md D32).
   public var switcherSearchText: String
   /// The session switcher's selection (`nil`: the first row).
@@ -66,6 +68,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     directoryLists: DirectoryLists = DirectoryLists(),
     directoryStatus: DirectoryListStatus = .notLoaded,
     directoryPicker: DirectoryPickerState = DirectoryPickerState(),
+    homeDirectory: String? = PreviewFixtures.homeDirectory,
     switcherSearchText: String = "",
     switcherSelection: SwitcherContent.Item? = nil,
     switcherCarriedFailures: [SessionKey] = []
@@ -88,6 +91,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.directoryLists = directoryLists
     self.directoryStatus = directoryStatus
     self.directoryPicker = directoryPicker
+    self.homeDirectory = homeDirectory
     self.switcherSearchText = switcherSearchText
     self.switcherSelection = switcherSelection
     self.switcherCarriedFailures = switcherCarriedFailures
@@ -100,6 +104,8 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
 public enum PreviewFixtures {
   /// The fixed "now" of every fixture, so relative times always read the same.
   public static let now = Date(timeIntervalSince1970: 1_790_000_000)
+  /// This Mac's home folder in every fixture: synthetic, like the fixtures' paths.
+  public static let homeDirectory = "/Users/example"
 
   /// Saturno, an SSH host.
   public static let saturno = HostConfig(
