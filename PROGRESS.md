@@ -43,17 +43,25 @@ file.
 | I-3b | Session switcher panel: 540 pt floating non-activating panel, live sessions with filter and New session row, Open / New session form, failure carry-over, combined engine visibility (D32, D22) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-3b.md` | `docs/progress-archive/i-3b.md` |
 | I-4 | No empty "muxFinder Settings" window at launch: plain `NSApplication` with a hand-built main menu (D33), shell check lists every window (spec `autoclaude/processed/40-empty-settings-window-at-launch.md`) | routine | opus (impl worker); review fix inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-4.md` | `docs/progress-archive/i-4.md` |
 
-No phase is queued: every phase of `PLAN.md` and every inbox item is complete and reviewed.
+Every phase of `PLAN.md` is complete and reviewed. Queued from the inbox, in this order:
 
-**Inbox** (2026-11-04 17:12): one item triaged, `40-empty-settings-window-at-launch.md` →
-queued as I-4 (triage commit `3804a78`), now complete.
+| Phase | Title | Specification | Position |
+|---|---|---|---|
+| I-5 | Session switcher: one click activates a row (D32 *Keys* edited) | `autoclaude/processed/50-switcher-single-click-activates.md` | next |
+| I-6 | New session: Tab moves from Name to Directory (popover and switcher forms) | `autoclaude/processed/60-new-session-tab-between-fields.md` | after I-5 |
+
+**Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
+queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
+two items triaged: `50-switcher-single-click-activates.md` → I-5,
+`60-new-session-tab-between-fields.md` → I-6, both queued, routine as proposed.
 
 ## Current phase
 
 Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b) and I-4 are complete and reviewed. **Phase
 I-4 — No empty Settings window at launch (routine): complete** 2026-11-04
 (`docs/progress-archive/i-4.md`; new **D33**, D22 and D30 edited). **The plan is finished**;
-what remains is the user's manual checklist and the `CLAUDE.md` note owed (*Open risks*). Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+two inbox phases are queued (I-5, I-6, below); the user's manual checklist and the `CLAUDE.md`
+note owed (*Open risks*) remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
 I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
@@ -249,10 +257,11 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 
 ## Next action
 
-1. **None for a run: the plan is finished.** A new iteration polls the inbox
-   (`~/.claude/scripts/autoclaude-inbox.sh list`). If an item is there it is triaged into a new
-   phase; if not, it confirms `DONE`. The `CLAUDE.md` note I-4 owes (*Open risks*) is applied
-   only once `CLAUDE.md` holds no uncommitted edit of the user's.
+1. **Phase I-5** (queued, `autoclaude/processed/50-switcher-single-click-activates.md`):
+   select it, write its acceptance criteria and run it; then **Phase I-6**
+   (`autoclaude/processed/60-new-session-tab-between-fields.md`). Poll the inbox at each phase
+   boundary; with nothing left, confirm `DONE`. The `CLAUDE.md` note I-4 owes (*Open risks*) is
+   applied only once `CLAUDE.md` holds no uncommitted edit of the user's.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -396,7 +405,7 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   `a9532fa`), 14 `6750a1b`, I-1a `72e635a`, I-1b `adf79ec`, I-2a `3feab0e`, I-2b `e36e471`,
   I-3a `29bb362`. Inbox triage commits: I-1/I-2 `bd9aed6`, I-3 `2fdfc87`.
 - Phase I-3b: `d5fa941`, pushed. Inbox triage (I-4): `3804a78`.
-- Phase I-4: the commit after `3804a78` (shell, main menu, report, tests, docs, review, archive
-  and checkpoint); its SHA and push result are in the run's final status line.
+- Phase I-4: `d428822`, pushed (`origin/main` at `d428822`). Inbox triage (I-5, I-6): the
+  commit after it.
 - The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
   note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.

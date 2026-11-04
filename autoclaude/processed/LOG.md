@@ -6,3 +6,5 @@ up. The item itself is in this directory, unchanged.
 - 2026-10-24 11:44 · 20-new-session-directory-picker.md · queued · phase I-2 — New session: pick the directory (I-2a core, I-2b UI)
 - 2026-10-24 13:25 · 30-global-hotkey-session-switcher.md · queued · phase I-3 — Global hotkey: session switcher (I-3a shortcut and Settings, I-3b panel)
 - 2026-11-04 17:12 · 40-empty-settings-window-at-launch.md · queued · phase I-4 — No empty Settings window at launch
+- 2026-11-04 17:45 · 50-switcher-single-click-activates.md · queued · phase I-5 — Session switcher: one click activates a row
+- 2026-11-04 17:45 · 60-new-session-tab-between-fields.md · queued · phase I-6 — New session: Tab moves from Name to Directory
