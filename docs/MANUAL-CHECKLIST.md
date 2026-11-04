@@ -427,6 +427,32 @@ open the real switcher panel.
   kill any `muxfinder-test-*` session step 10 left; turn iTerm2's Python API back on and bring
   Saturno back after step 13.
 
+## 19. No window at launch, and the keys of the hand-built main menu
+
+Owed by Phase I-4 (PLAN.md D33): the app shell check, run from a shell, showed that no
+window but onboarding appears and listed the hand-built main menu, and the menu's items are
+unit-tested, but no unattended run may launch the app through LaunchServices or press a key.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
+  your host list saved (onboarding done):
+  1. Quit muxFinder (the popover's Quit), then double-click it in `/Applications`.
+  2. With "Open muxFinder when you log in" on (item 4), log out and in.
+  3. Open the popover, type a few words in the search field, then try ⌘A, ⌘C, ⌘X, ⌘V, ⌘Z and
+     ⇧⌘Z there; also in New session's Name and Directory fields (⌘N) and in the session
+     switcher's field (item 18, if a shortcut is recorded).
+  4. Open Settings (the popover's "Settings", or ⌘, in the popover), and in a host's fields try
+     the same keys and ⌥⇧⌘V (Paste and match style); press ⌘M, click the Dock's minimized
+     window back, then press ⌘W.
+  5. Open the popover and press ⌘W there; then press ⌘Q.
+- **Expect:** 1 and 2: muxFinder's icon appears in the menu bar and no window opens (no empty
+  "muxFinder Settings" window, no other window). 3: each key does what it does in any text
+  field (select all, copy, cut, paste, undo, redo), and the popover stays open. 4: the same,
+  ⌥⇧⌘V pastes without formatting, ⌘M minimizes the window, ⌘W closes it. 5: ⌘W does nothing
+  in the popover (it stays open, perhaps with a beep); ⌘Q quits muxFinder, its icon leaves the
+  menu bar, and every tmux session and iTerm2 tab is still there.
+- **Undo:** open muxFinder again from `/Applications`; turn launch at login off if you turned
+  it on for step 2 (item 4).
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -449,3 +475,4 @@ open the real switcher panel.
 | 16 | | | |
 | 17 | | | |
 | 18 | | | |
+| 19 | | | |

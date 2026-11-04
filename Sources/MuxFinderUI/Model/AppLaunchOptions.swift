@@ -17,7 +17,9 @@ import Foundation
 ///   no Screen Recording permission).
 /// - `--report-menu-bar-item` (normal mode): a read-only diagnostic; two seconds after launch
 ///   the app prints its own status-bar-level windows (the menu bar item), since on macOS 26 and
-///   later `CGWindowListCopyWindowInfo` does not list them under the app's process.
+///   later `CGWindowListCopyWindowInfo` does not list them under the app's process, then every
+///   other window it has, the launch's Apple event and its main menu (`AppShellReport`,
+///   PLAN.md D33).
 /// - `--report-popover-placement` (PLAN.md Phase I-1, D30): a read-only diagnostic of where the
 ///   popover opens. muxFinder's menu bar item and popover panel run over an inert model (never
 ///   started: no host list read, no engine, no iTerm2, no onboarding;

@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D32); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D33); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -24,7 +24,7 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | ├ `Diagnostics/` | Operation log (ring buffer plus `os.Logger`); outcomes and timings, never terminal content. |
 | └ `Concurrency/` | Small helpers for awaited, cancellable tasks. |
 | `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
-| `MuxFinderApp` (executable) | Entry point, the SwiftUI app shell (its standard main menu and an empty `Settings` scene nothing opens) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
+| `MuxFinderApp` (executable) | Entry point, the menu bar app's shell (a plain `NSApplication` with muxFinder's own main menu, `MainMenu`; no SwiftUI `App` or scene, D33) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
 | `muxfinder-launch` (executable) | The helper iTerm2 runs in a launch tab: `attach <id>`, `ssh-setup <id>`, `profile <host id>`. Bundled next to the app. |
 | `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, iTerm2 queries, single attaches and detaches, the `e2e-*` real runs, host list and profile checks. Not bundled. |
 
@@ -80,6 +80,28 @@ over full-screen apps (`MenuBarPopover`, only AppKit wiring). Every decision is
 
 The placement diagnostic `--report-popover-placement` opens it through the button's own action
 and checks the frame against the anchor and the menu bar.
+
+## The app shell (D22, D33)
+
+The menu bar app runs on a plain `NSApplication` (`MuxFinderMenuBarApp.run()`): its delegate is
+`AppDelegate` (accessory policy, menu bar item, model, SIGTERM and SIGINT, the orderly
+shutdown) and its main menu is muxFinder's own (`MainMenu` in `MuxFinderUI`). There is no
+SwiftUI `App` or scene, because SwiftUI (on macOS 27.3) shows its first scene's window when
+launching finishes, even an empty `Settings` scene (the empty "muxFinder Settings" window
+every launch showed before D33). So only muxFinder's code makes windows: the popover and switcher panels, Settings
+and onboarding, the last shown at launch only while there is no `hosts.json`.
+
+The main menu is never shown (an accessory app has no menu bar); it carries the key
+equivalents: the Edit commands every text field uses (Undo, Redo, Cut, Copy, Paste, Paste and
+match style, Delete, Select all), Quit (⌘Q, `terminate:`), Hide, Close (⌘W, disabled for the
+borderless panels) and Minimize, all to the first responder. It has no Settings item: ⌘, is
+the popover's and the switcher's key, taken by their key monitor. Settings and onboarding
+handle the editing keys and ⌘W themselves too (`SettingsWindow`). Preview mode and the
+self-tests run their own plain `NSApplication` with no main menu.
+
+The app shell check (`--report-menu-bar-item`, `AppShellReport`) prints the status item's
+windows, every other window of the app (title, class, visibility, level), the launch's Apple
+event and the main menu, so an unexpected window at launch shows in its output.
 
 ## The session switcher shortcut (D32)
 
@@ -337,3 +359,4 @@ All in `PLAN.md` *Decisions*:
 | | | D30 | muxFinder's own menu bar item and popover panel |
 | | | D31 | New session directories and session start folders |
 | | | D32 | Session switcher shortcut and panel |
+| | | D33 | The menu bar app on a plain `NSApplication` |

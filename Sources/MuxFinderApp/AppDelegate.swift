@@ -3,7 +3,8 @@ import Foundation
 import MuxFinderUI
 import SwiftUI
 
-/// The menu bar app's lifecycle (PLAN.md D22, D30).
+/// The menu bar app's lifecycle (PLAN.md D22, D30, D33): the delegate of its plain
+/// `NSApplication` (`MuxFinderMenuBarApp`), which shows no window of its own.
 ///
 /// - **Launch:** an accessory app (no Dock icon) that puts its menu bar item and popover panel
 ///   in place (`MenuBarPopover`) and starts its model once launching finished: it loads the host
@@ -78,27 +79,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if options.registersGlobalShortcut { sessionSwitcher = SessionSwitcher(model: model) }
     Task { await model.start() }
     if options.reportsMenuBarItem {
+      let launch = AppShellReport.Launch(finishedLaunching: notification)
       Task {
         try? await Task.sleep(for: .seconds(2))
-        Self.reportMenuBarItem()
+        Self.reportMenuBarItem(launch: launch)
       }
     }
   } // End of func applicationDidFinishLaunching(_:)
 
   /// `--report-menu-bar-item`: prints the app's own status-bar-level windows (the menu bar
-  /// item, one per display) with their visibility and frames. Read-only. On macOS 26 and
-  /// later the item is drawn outside the app's process, so `CGWindowListCopyWindowInfo` does
-  /// not list it under the app's pid; AppKit still lists its windows in `NSApp.windows`.
-  private static func reportMenuBarItem() {
-    let items = NSApp.windows.filter { $0.level == .statusBar }
-    var lines = ["muxFinder menu bar item windows: \(items.count)"]
-    for window in items {
-      lines.append(
-        "muxFinder menu bar item: level \(window.level.rawValue) visible \(window.isVisible) "
-          + "frame \(NSStringFromRect(window.frame))")
-    }
-    FileHandle.standardOutput.write(Data((lines.joined(separator: "\n") + "\n").utf8))
-  } // End of func reportMenuBarItem()
+  /// item, one per display) with their visibility and frames, then every other window of the
+  /// app (title, class, visibility, level; never contents), how the launch reached the app and
+  /// the main menu (`AppShellReport`). Read-only. On macOS 26 and later the item is drawn
+  /// outside the app's process, so `CGWindowListCopyWindowInfo` does not list it under the
+  /// app's pid; AppKit still lists its windows in `NSApp.windows`. The lines go through
+  /// `reportOutput`, so a reader that stops reading never blocks the main actor or the orderly
+  /// shutdown after SIGTERM.
+  private static func reportMenuBarItem(launch: AppShellReport.Launch) {
+    for line in AppShellReport.currentLines(launch: launch) { _ = reportOutput.write(line) }
+  }
+
+  /// Standard output for `--report-menu-bar-item`: queued and written off the main actor; a
+  /// line that does not fit is dropped (`NonblockingLineWriter`).
+  private static let reportOutput = NonblockingLineWriter(fileDescriptor: STDOUT_FILENO)
 
   /// Reopening the running app (Finder, `open`) opens no window: the app lives in the menu
   /// bar.

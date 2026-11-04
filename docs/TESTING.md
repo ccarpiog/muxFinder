@@ -44,9 +44,9 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-3b* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-4* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's reports of 2026-10-24, PLAN.md Phases 13 and 14):
+Added after the brief (the user's reports of 2026-10-24 and 2026-11-04, PLAN.md Phases 13, 14 and I-1 to I-4):
 
 | Requirement | Status | Evidence |
 |---|---|---|
@@ -59,6 +59,7 @@ edge and the panel clamped 8 pt inside it, top on the menu bar's bottom, "after-
 passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the toggle bug, occlusion, size) and `PopoverAnchoringTests` (the anchor rule over this Mac's displays, the replica frames never anchors, the after-fix check). |
 | A global shortcut, off until recorded in Settings › General ("Show session switcher"): checked (a modifier besides ⇧ unless F1–F20, macOS's own combinations refused, a warning before ⌘ with one key or only ⌥/⌥⇧), shown with the current layout's key, kept in `preferences.json`, registered at launch, again on a change, unregistered on clear and at quit, suspended while recording, a taken one explained beside the recorder; its press toggles the session switcher (next row; PLAN.md Phase I-3a, D32). | Registration and its refusal of a second registration tested for real in the signed bundle (`--report-hotkey-registration`); the rest hermetically and in the preview renders (both appearances). Recording in the real Settings window, a taken shortcut, "Clear", a relaunch, the label on the user's layout and a press from another app: by a person (checklist 18). | Phase I-3a, 2026-10-24 (*Phase I-3a* below): `--report-hotkey-registration` exit 0, 8 of 8 checks as expected; `GlobalShortcutTests`, `PreferencesStoreTests`, `GlobalShortcutModelTests`, `GlobalShortcutAppTests`; `docs/screenshots/settings-states-*.png` regenerated and inspected. |
 | The session switcher: the shortcut toggles a non-activating panel centered on the display with the keyboard focus, in its upper part, over full-screen apps; a search field focused and empty at each opening; the live sessions in the popover's order (stale ones left out) with Phase 14's row look, filtered by the popover's rule; "New session…" last, naming the session from the filter; muted lines for hosts checking or unreachable; Return or a double-click opens as the popover does, Return on New session or ⌘N shows the form, ⌘R, ⌘, and Esc; it closes on success, keeps a failure on its row, and carries a failure that arrives once it closed to its next opening and the popover row; only one of it and the popover shows, and the engine hears one opened and one closed per change of "either one is visible" (PLAN.md Phase I-3b, D32, D22). | Tested hermetically and in the preview renders (both appearances); the app shell check as before. A press over a full-screen app, filtering and opening with iTerm2 coming forward, creating, and Esc giving the focus back: by a person (checklist 18). | Phase I-3b, 2026-10-24 (*Phase I-3b* below): `SwitcherContentTests`, `SwitcherControllerTests`, `SwitcherModelTests`, `GlobalShortcutAppTests.theShortcutTogglesTheSwitcher`; `docs/screenshots/switcher-states-*.png` rendered and inspected. |
+| A launch shows no window except onboarding (only while there is no `hosts.json`): no empty "muxFinder Settings" window; the Edit shortcuts in every text field, ⌘W in Settings and onboarding, ⌘Q with the orderly shutdown, SIGTERM and SIGINT as before (PLAN.md Phase I-4, D33). | Tested for real from the shell (the app shell check under two private homes, before and after the fix); the main menu hermetically. A launch from Finder and at login, and the keys pressed in the popover and Settings: by a person (checklist 19). | Phase I-4, 2026-11-04 (*Phase I-4* below): before the fix both homes listed a visible `SwiftUI.AppKitWindow` "muxFinder Settings"; after it, the empty home lists only the hidden popover panel and onboarding, the home with every host off only the hidden panel; exit 0 after SIGTERM, no child, nothing written; `MainMenuTests`, `AppShellReportTests`. |
 
 ## Unit tests (`swift test`)
 
@@ -1117,6 +1118,18 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   opened and one closed to the engine with each opening asking the other to close; both real
   controllers over fakes swapping; the fake registrar's press toggling the switcher with an
   empty, focused search field.
+- **App shell and main menu** (`Tests/MuxFinderUITests/MainMenuTests.swift`,
+  `AppShellReportTests.swift`; PLAN.md D33). The hand-built main menu: the app menu, Edit and
+  Window in that order, the Services and Window menus handed to AppKit; every item's title, key
+  equivalent, modifier mask and action (Quit ⌘Q `terminate:`, Redo ⇧⌘Z, Paste and match style
+  ⌥⇧⌘V `pasteAsPlainText:`, Close ⌘W `performClose:`, Minimize ⌘M and the rest); every command
+  to the first responder, no key equivalent twice, no Settings item and no ⌘,; Close enabled
+  for `SettingsWindow` and disabled for `PopoverPanelWindow` (neither shown). The app shell
+  check's listing: the status item lines as before, then the other windows (title, class,
+  visibility, level, with a visible count), the launch's Apple event and the main menu; at
+  most 32 windows and 80 menu items, the rest counted; titles cut to 80 characters, control
+  characters replaced, quotes escaped; key labels (`⇧⌘+z`, `⌃⌘+U+0020`); the real menu's
+  description.
 - **Self-test drivers** (`Tests/MuxFinderUITests/SelfTestDriverTests.swift`, PLAN.md D25).
   `SelfTestDriver` over the real model, engine and coordinator with `SimulatedITerm2`, a
   `SimulatedTmux` (sessions in memory: the driver's tmux, discovery and New session's creator)
@@ -2696,3 +2709,34 @@ were neither read nor written.
 | Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
 | App shell | `CFFIXED_USER_HOME=$(mktemp -d) build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`, then `kill -TERM` | 7 status-bar windows printed as before (the item at {1629, 1698} and {4152, 2139}, the replicas at {0, −30}); no child process while running or after; exit 0; the private home still empty (no `hosts.json`, no `preferences.json`). That mode builds no switcher panel (only normal mode with the shortcut does) |
 | Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery switcher\|settings --appearance light\|dark --preview-snapshot <png>`, each image looked at | `switcher-states-*.png` 3448 × 2452 px, 9 states (sessions, filtered, New session with a name, the form, opening, a failure, a failure since the last opening pinned on top, no hosts, hosts checking or unreachable) readable in both appearances; `settings-states-*.png` regenerated (4528 × 10808 px) for the General tab's new note, otherwise as before |
+
+### Phase I-4 — no window at launch (2026-11-04)
+
+The menu bar app moved from a SwiftUI `App` (one empty `Settings` scene, kept for its standard
+main menu) to a plain `NSApplication` with a hand-built main menu (PLAN.md Phase I-4, D33). The
+app shell check first gained the listing of every other window, the launch's Apple event and
+the main menu, and ran on the unchanged shell before the fix. Both runs used private homes
+from `mktemp -d` through `CFFIXED_USER_HOME`: **home a** empty (no `hosts.json`, so onboarding
+shows), **home b** holding `Library/Application Support/muxFinder/hosts.json` (0600 in a 0700
+folder), a schema 1 list made from `muxfinder-probe hosts show`'s onboarding defaults with
+Neptuno as This Mac and every host off, which `hosts show` reads back as `saved`. Each run:
+in the background, the output read after 6 s (3 s was too early for a freshly signed bundle's
+first launch: nothing printed yet), `pgrep -P <pid>`, `kill -TERM <pid>`, `wait`. The attach
+path did not change, so no `e2e-*` run or self-test was made; no iTerm2 window was opened, no
+key was pressed and nothing went through LaunchServices. The real `hosts.json`,
+`preferences.json` and `DynamicProfiles/` were neither read nor written.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Before, home a | `CFFIXED_USER_HOME=<home a> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` (the unchanged shell, the extended check) | 7 status-bar windows as before; "other windows: 3, 2 visible": **`"muxFinder Settings"` class `SwiftUI.AppKitWindow` visible level 0**, the hidden `PopoverPanelWindow` (level 101) and onboarding's `"Welcome to muxFinder"` `SettingsWindow`; launch: Apple event `oapp`, default launch true; SwiftUI's main menu: 5 menus (app menu, Edit, an empty View, Window listing both windows, Help), no Settings, Close or Paste and Match Style item. No child; exit 0 after SIGTERM; the home still empty |
+| Before, home b | the same with `<home b>` | "other windows: 2, 1 visible": **`"muxFinder Settings"` `SwiftUI.AppKitWindow` visible**, the hidden panel; the same launch line and menu. No child; exit 0; the home holding only its `hosts.json` (555 bytes, unchanged) |
+| What opens it | the debug binary with a temporary trace of `NSWindow.makeKeyAndOrderFront:` and `orderWindow:relativeTo:` (a scratch source, removed before the fix), home b | `SwiftUI.AppWindowsController.showInitialWindow()` from `SwiftUI.AppDelegate.applicationDidFinishLaunching`, inside `-[NSApplication _handleAEOpenEvent:]` for the launch's `oapp` event; `~/Library/Saved Application State/` holds no muxFinder state (PLAN.md *Verified facts*, Phase I-4) |
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites and 336 UI tests in 32 suites (12 new in 2 suites: `MainMenuTests`, `AppShellReportTests`). No existing test changed |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| After, home a | `CFFIXED_USER_HOME=<a new empty home> build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` | 7 status-bar windows; "other windows: 2, 1 visible": the hidden `PopoverPanelWindow` and onboarding's `"Welcome to muxFinder"` only, **no SwiftUI window**; launch: `oapp`, default launch true; main menu: 3 menus, the hand-built items plus AppKit's own (AutoFill, Start Dictation, Emoji & Symbols in Edit; "Close All" ⌥⌘W under Close; the onboarding window in Window's list). No child while running or after; exit 0 after SIGTERM; the home still empty (no `hosts.json`, no `preferences.json`); the same again on the final tree in a third empty home |
+| After, home b | the same with `<home b>` | "other windows: 1, 0 visible": the hidden popover panel only, so no window besides the status item; the same menu. No child; exit 0; the home holding only its unchanged `hosts.json`; the same again on the final tree |
+| Close and the panels | a scratch program (its own off-screen windows, no status item): `validateMenuItem` of a `performClose:` item, `performClose(nil)` on a borderless non-activating panel, `closeAll:` | Close disabled for the borderless panel and the borderless status-bar-level window, enabled for the titled closable one; `performClose` left the panel open; `closeAll:` left all three visible. `MainMenuTests.closeValidation` checks muxFinder's own `PopoverPanelWindow` and `SettingsWindow` |
+| Placement diagnostic | `CFFIXED_USER_HOME=<another empty home> build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement` (it runs on the new shell), once | exit 0: offsets 0 and 0, "after-fix check: passed"; no child; the home still empty |
+| Other modes | `muxFinder --selftest bogus-name`; `muxFinder --preview-fixtures [--preview-gallery settings] --preview-snapshot <png in a private folder>`; `muxFinder --report-login-item-status` | exit 2 with the usage lines, nothing contacted; exit 0 each (the popover gallery 4672 × 2200 px, the Settings gallery 4528 × 10808 px, the size of the committed `settings-states-light.png`; preview mode does not run the changed shell); exit 0, `enabled` (read-only) |

@@ -45,8 +45,8 @@ Sources/
                               window controller), the session switcher shortcut
                               (GlobalShortcutModel, CarbonHotkeyRegistrar, the recorder,
                               D32), preview fixtures (D22, D23, D24); tests import it
-  MuxFinderApp/               SwiftUI app shell (main menu, an empty Settings scene): entry
-                              point, scene and app delegates only
+  MuxFinderApp/               app shell on a plain NSApplication with muxFinder's own main
+                              menu (D33): entry point and app delegates only
 Tests/MuxFinderCoreTests/     Swift Testing, hermetic: no real ssh or iTerm2, never the
                               user's tmux server (one test uses real tmux on a private
                               socket directory and skips when tmux is absent)
@@ -1028,8 +1028,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Sources/MuxFinderApp/`).
   - **Layers:** the `MuxFinderUI` library holds the model, the popover's content and views,
     and the preview fixtures; `Tests/MuxFinderUITests/` imports it. The `MuxFinderApp`
-    executable keeps only the entry point, the SwiftUI app (for its standard main menu; its one
-    scene is an empty `Settings` nothing opens) and the app delegates (the menu bar app's, the
+    executable keeps only the entry point, the menu bar app's shell (a plain `NSApplication`
+    with muxFinder's hand-built main menu, `MainMenu` in `MuxFinderUI`; no SwiftUI `App` or
+    scene, D33) and the app delegates (the menu bar app's, the
     preview window's and the self-tests', D25); the menu bar item and the popover panel are
     `MenuBarPopover` in `MuxFinderUI` (D30; muxFinder's template icon, D28; the SF Symbol
     `terminal` when unbundled). `PopoverContent` is a pure value computed from the
@@ -1182,7 +1183,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     process: `CGWindowListCopyWindowInfo` lists no window under the app's pid (its
     `NSStatusBarWindow`s carry numbers that are not window-server ids), unlike older apps'
     items. So `--report-menu-bar-item` prints, two seconds after launch, the app's own
-    status-bar-level windows with visibility and frames (read-only).
+    status-bar-level windows with visibility and frames, then every other window of the app
+    (title, class, visibility and level, never contents), the Apple event the launch came
+    with and the main menu (`AppShellReport`, D33; read-only), so an unexpected window at
+    launch shows in its output.
   - **The app's own defaults:** AppKit records status-item state in the
     `cc.carpio.muxfinder` defaults domain; a hidden item (as a preview with an un-inserted
     `MenuBarExtra` once made) is stored as `NSStatusItem VisibleCC Item-0 = 0`. That is why
@@ -2135,10 +2139,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     and a borderless `NSPanel` muxFinder owns). `MenuBarExtra` gives no hook for its window's
     position, and its status item button takes no action (no action, target, menu or gesture
     recognizer; it takes the click outside them), so muxFinder could neither correct where the
-    window opens nor open it in process without private API. The SwiftUI app stays for its
-    standard main menu (the Edit commands the text fields use, Quit, Close); its only scene is
-    an empty `Settings` whose menu item is removed (`CommandGroup(replacing: .appSettings)`),
-    so nothing opens it; reopening the running app opens nothing.
+    window opens nor open it in process without private API. The app's main menu (the Edit
+    commands the text fields use, Quit, Close) is muxFinder's own on a plain `NSApplication`,
+    with no SwiftUI scene (D33); reopening the running app opens nothing.
   - **Status item** (`StatusItemButton`): variable length, D28's template image
     (`MenuBarIcon.statusItemImage(in:)`), "muxFinder" as its accessibility label, behavior
     `removalAllowed` and `terminationOnRemoval` (6, as the `MenuBarExtra` item's: ⌘-dragging
@@ -2676,6 +2679,58 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     found pending afterwards, so every registration is undone first), 2 combined with another
     mode. No window, menu bar item, engine, host list, iTerm2 or `preferences.json`; no event
     posted; it proves registration, never a press.
+
+- **D33 — The menu bar app on a plain `NSApplication`** (decided in Phase I-4, 2026-11-04,
+  from `autoclaude/processed/40-empty-settings-window-at-launch.md` and the diagnosis in
+  *Verified facts*, Phase I-4; code in `Sources/MuxFinderApp/MuxFinderMenuBarApp.swift`,
+  `Sources/MuxFinderUI/Views/MainMenu.swift`, `Sources/MuxFinderUI/Model/AppShellReport.swift`,
+  `Sources/MuxFinderApp/AppDelegate.swift`; tests `Tests/MuxFinderUITests/MainMenuTests.swift`
+  and `AppShellReportTests.swift`).
+  - **The choice** (decided: no SwiftUI `App`). `MuxFinderMenuBarApp.run()` takes
+    `NSApplication.shared`, makes `AppDelegate` its delegate, installs `MainMenu` and runs it,
+    as preview mode and the self-tests already ran on a plain `NSApplication`. The SwiftUI
+    `App` was there only for its standard main menu, with one empty `Settings` scene whose
+    menu item was removed; but on macOS 27.3 SwiftUI shows its first scene's window when
+    launching finishes, so every launch showed an empty, resizable "muxFinder Settings" window
+    (*Verified facts*, Phase I-4). With no scene, only muxFinder's own code makes windows: the popover and
+    switcher panels (hidden until asked for), Settings (D23) and onboarding (D24, only while
+    there is no host list), so a launch shows no window but onboarding. Hiding or closing
+    SwiftUI's window once it appeared was not considered: it would depend on SwiftUI's
+    undocumented launch order and still flash the window.
+  - **Considered:** keeping SwiftUI with a scene macOS never opens by itself. A `Window` or
+    `WindowGroup` with `defaultLaunchBehavior(.suppressed)` needs macOS 15 (the target is 14);
+    an empty `MenuBarExtra` would add a second status item; and no documented API keeps a
+    `Settings` scene from showing at launch, the very behavior seen.
+  - **The menu** (`MainMenu.make`): never shown (an accessory app has no menu bar), it is
+    there for its key equivalents, which AppKit offers the key window and the main menu, a
+    non-activating panel being key included. It keeps the items of SwiftUI's menu that act on
+    muxFinder's windows and text fields, as the app shell check read them off it (the rest is
+    under *What differs*): the app menu (About muxFinder, Services,
+    Hide muxFinder ⌘H, Hide others ⌥⌘H, Show all, Quit muxFinder ⌘Q sending `terminate:`, so
+    `applicationShouldTerminate`'s orderly shutdown runs), Edit (Undo ⌘Z, Redo ⇧⌘Z, Cut ⌘X,
+    Copy ⌘C, Paste ⌘V, Paste and match style ⌥⇧⌘V, Delete, Select all ⌘A) and Window (Close
+    ⌘W through `performClose:`, Minimize ⌘M, Zoom, Bring all to front); every item goes to the
+    first responder, and `NSApp.servicesMenu` and `windowsMenu` are its Services and Window
+    menus. AppKit adds AutoFill, Start Dictation and Emoji & Symbols to Edit, as it did to
+    SwiftUI's menu, and an alternate "Close All" (⌥⌘W, `closeAll:`) under Close. Titles are
+    sentence case (D10).
+  - **What differs from SwiftUI's menu:** no Settings item, as before (SwiftUI's was removed):
+    ⌘, opens Settings only from the popover and the session switcher, whose key monitor takes
+    it before any menu (D22, D32). Paste and match style and Close are new (SwiftUI's menu had
+    neither, and no File menu). Close is disabled for muxFinder's borderless panels
+    (`validateMenuItem` is false for `PopoverPanelWindow`), so ⌘W and ⌥⌘W leave the popover
+    and the switcher alone; Settings and onboarding close on ⌘W through `SettingsWindow`
+    itself, as before. Gone: the empty View menu, the Help menu (⌘? only said that help is
+    not available) and SwiftUI's hidden Toggle Sidebar (no window has a sidebar).
+  - **Unchanged:** `AppDelegate` (the accessory policy, SIGTERM and SIGINT through
+    `AppTermination`, `applicationShouldTerminate`, a reopen opening nothing). Preview mode and
+    the self-tests keep their plain `NSApplication` with no main menu;
+    `--report-popover-placement` runs this shell as normal mode does; the login item, hotkey
+    registration and profile removal modes never run an app.
+  - **The check:** `--report-menu-bar-item` also prints every other window of the app (title,
+    class, visibility, level), the launch's Apple event and the main menu (`AppShellReport`;
+    bounded: 32 windows, 80 menu items, titles cut to 80 characters), so an unexpected window
+    at launch shows as a visible window in its output.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -3227,6 +3282,41 @@ Verified in Phase I-3a (2026-10-24, macOS 27.2 Build 26B118, the signed bundle b
   unattended; checklist 18); D32 warns about them instead of refusing them.
 - The run needs no permission and printed no prompt; `NSApplication.shared` was created but no
   window, status item or event was.
+
+Verified in Phase I-4 (2026-11-04, macOS 27.3 Build 26C5035r, the signed bundle binary's
+`--report-menu-bar-item` run from the shell under two private homes, before and after D33;
+`docs/TESTING.md`, *Phase I-4*):
+
+- **The empty window was SwiftUI's `Settings` scene's, and a shell launch showed it too.**
+  Before D33, under an empty `CFFIXED_USER_HOME` and under one holding a saved `hosts.json`
+  with every host off, the app listed a visible `SwiftUI.AppKitWindow` titled "muxFinder
+  Settings" at level 0 (in the first home beside onboarding's "Welcome to muxFinder"). A
+  temporary trace of `makeKeyAndOrderFront:` in the debug binary (removed before the fix)
+  showed what ordered it front: `SwiftUI.AppWindowsController.showInitialWindow()`, called by
+  SwiftUI's `AppDelegate.applicationDidFinishLaunching`, inside AppKit's handling of the
+  launch's `oapp` Apple event (`_handleAEOpenEvent:`, `_sendFinishLaunchingNotification`). So
+  SwiftUI shows its first scene's window at every launch, a `Settings` scene whose menu item
+  is removed included. No saved window state was involved (there is no
+  `cc.carpio.muxfinder.savedState`). Phase 9b's shell check (2026-10-22, macOS 27.2) recorded
+  only the onboarding window on screen, so the window probably came with a later macOS
+  (unverified).
+- **A shell launch gets `oapp` as well:** `applicationDidFinishLaunching` ran with an `oapp`
+  event current and `NSApplicationLaunchIsDefaultLaunchKey` true in both homes, before and
+  after D33, so the app shell check takes the launch path Finder and the login item take
+  (expected; a LaunchServices launch is the user's, checklist 19).
+- **SwiftUI's main menu had no Settings item** (⌘, never reached it), no File menu, no Close
+  and no Paste and Match Style. It had the app menu (About, Services, Hide ⌘H, Hide Others
+  ⌥⌘H, Show All, Quit ⌘Q with `terminate:`), Edit (Undo ⌘Z, Redo ⇧⌘Z, Cut, Copy, Paste,
+  Delete, Select All, then AutoFill, Start Dictation and Emoji & Symbols), an empty View menu,
+  Window (Minimize ⌘M, Zoom, Bring All to Front, the window list) and Help (muxFinder Help
+  ⌘?, a hidden Toggle Sidebar ⌥⌘S); every command went to the first responder.
+- **After D33** no SwiftUI window exists: the first home lists the hidden popover panel and
+  onboarding, the second only the hidden panel. AppKit added AutoFill, Start Dictation and
+  Emoji & Symbols to the hand-built Edit menu and an alternate "Close All" (⌥⌘W, `closeAll:`
+  to `NSApplication`) under Close. In a scratch process, the Close item (`performClose:`)
+  validated as disabled for a borderless non-activating panel and a borderless status-bar
+  window and enabled for a titled, closable one (`MainMenuTests` checks muxFinder's own
+  classes).
 
 ## Unattended-run rules (binding for every phase)
 
@@ -4365,6 +4455,15 @@ Split (recorded before the first worker):
   for the other order) that fail with their fix reverted (the last passes either way), and
   `arrowsMoveWithoutWrapping` now expects the remembered first row instead of `nil`. On the
   final tree 815 core + 324 UI tests pass.
+
+### Phase I-4 — No empty "muxFinder Settings" window at launch (routine)
+
+From the inbox (2026-11-04). The specification, with the user's report verbatim, the findings,
+the requirements and the acceptance, is `autoclaude/processed/40-empty-settings-window-at-launch.md`.
+Its design is recorded as **D33** (D22 and D30 edited), its diagnosis under *Verified facts*
+"Phase I-4". Not split. The orchestrator's one call: the specification's `CLAUDE.md` command-note
+edit (its requirement 4) waits, because `CLAUDE.md` carries the user's uncommitted edit and a run
+never commits the user's paths; the wording owed is in `PROGRESS.md` *Open risks*.
 
 ## Deferred (explicitly out of scope for v1)
 

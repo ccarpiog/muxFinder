@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24T20:15:30Z",
+  "updated": "2026-11-04T17:45:05Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -535,6 +535,18 @@
       "added": "2026-10-24T12:25:35Z",
       "started": "2026-10-24T19:11:01Z",
       "status_since": "2026-10-24T20:15:30Z"
+    },
+    {
+      "id": "I-4",
+      "title": "No empty Settings window at launch",
+      "status": "done",
+      "risk": "routine",
+      "summary": "The app launches with no stray SwiftUI Settings window, on a plain NSApplication with its own main menu; the shell check lists every window.",
+      "review": "docs/reviews/phase-I-4.md",
+      "narrative": "docs/progress-archive/i-4.md",
+      "added": "2026-11-04T17:12:47Z",
+      "started": "2026-11-04T17:12:47Z",
+      "status_since": "2026-11-04T17:45:05Z"
     }
   ]
 }

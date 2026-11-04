@@ -41,24 +41,19 @@ file.
 | I-2b | Directory list in New session (in-popover, ⌥↓/↑/↓/Return/Esc), Settings › Directories with a merging Save, galleries, docs | routine | opus (impl + review-fix worker); self-test and one test-harness fix by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-2b.md` | `docs/progress-archive/i-2b.md` |
 | I-3a | Global shortcut: `GlobalShortcut`, `preferences.json` store, Carbon registrar, Settings › General recorder, `--report-hotkey-registration`, interim popover toggle (D32) | routine | opus (impl + review-fix worker); one checklist step by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-3a.md` | `docs/progress-archive/i-3a.md` |
 | I-3b | Session switcher panel: 540 pt floating non-activating panel, live sessions with filter and New session row, Open / New session form, failure carry-over, combined engine visibility (D32, D22) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-3b.md` | `docs/progress-archive/i-3b.md` |
+| I-4 | No empty "muxFinder Settings" window at launch: plain `NSApplication` with a hand-built main menu (D33), shell check lists every window (spec `autoclaude/processed/40-empty-settings-window-at-launch.md`) | routine | opus (impl worker); review fix inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-4.md` | `docs/progress-archive/i-4.md` |
 
-Every phase of `PLAN.md` is complete and reviewed. Queued from the inbox:
-
-| Phase | Title | Specification | Position |
-|---|---|---|---|
-| I-4 | No empty "muxFinder Settings" window at launch | `autoclaude/processed/40-empty-settings-window-at-launch.md` | next (the plan has no phase left) |
+No phase is queued: every phase of `PLAN.md` and every inbox item is complete and reviewed.
 
 **Inbox** (2026-11-04 17:12): one item triaged, `40-empty-settings-window-at-launch.md` →
-queued as I-4. Its requirement 4 asks for a `CLAUDE.md` command-note edit, but `CLAUDE.md`
-carries the user's uncommitted edit (named in the runner's preflight file), so the run must not
-commit it; I-4 records the sentence owed instead.
+queued as I-4 (triage commit `3804a78`), now complete.
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b) and I-3 (a, b) are complete and reviewed. **Phase I-3b —
-Switcher panel (routine): complete** 2026-10-24 (`docs/progress-archive/i-3b.md`; **D32**
-extended, D22 and D30 edited). **The plan is finished**; what remains is the user's manual
-checklist. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b) and I-4 are complete and reviewed. **Phase
+I-4 — No empty Settings window at launch (routine): complete** 2026-11-04
+(`docs/progress-archive/i-4.md`; new **D33**, D22 and D30 edited). **The plan is finished**;
+what remains is the user's manual checklist and the `CLAUDE.md` note owed (*Open risks*). Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
 I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
@@ -97,6 +92,12 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   light and dark and inspected. `--report-menu-bar-item` behaves as before; bundle and
   `codesign` exit 0. A press, the real panel, opening, creating and Esc are owed (checklist
   18) — `docs/progress-archive/i-3b.md`.
+- Phase I-4: all criteria met, 2026-11-04 — diagnosed (a shell launch shows the window too;
+  SwiftUI's `Settings` scene, opened by `AppWindowsController.showInitialWindow()`); after the
+  fix the shell check under an empty home lists only the hidden popover panel and onboarding,
+  with a hosts-off home no visible window; SIGTERM exit 0, no child, home empty; 12 new UI
+  tests, none changed; checklist 19 added; the `CLAUDE.md` note is owed, not done (the user's
+  uncommitted edit) — `docs/progress-archive/i-4.md`.
 
 ## Decisions
 
@@ -166,6 +167,11 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   new visibility before its panel shows, so a swap is never a close to the engine. The interim
   popover toggle is removed, and `.shortcut` became `.switcherOpened`. D22's visibility rule
   and D30 are edited — `docs/progress-archive/i-3b.md`.
+- Phase I-4: new **D33** — the menu bar app runs on a plain `NSApplication` with a hand-built
+  main menu (`MainMenu`), because SwiftUI opens its `Settings` scene by itself at launch and no
+  documented API keeps a SwiftUI scene closed; D22 and D30 edited. The `CLAUDE.md` command-note
+  edit the item asked for was withheld: that file holds the user's uncommitted edit —
+  `docs/progress-archive/i-4.md`.
 
 ## Open risks / deviations
 
@@ -189,6 +195,13 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   failure that comes during an unconfirmed Move here closes that confirmation when the switcher
   opens. "Detach from this Mac" on a pinned row whose host is gone does nothing. Beyond the spec:
   a key-hint footer — `docs/progress-archive/i-3b.md`.
+- I-4: **`CLAUDE.md` note owed** — once the user has committed their own `CLAUDE.md` edit, its
+  `--report-menu-bar-item` note should say the check also prints every other window, the
+  launch event and the main menu, and that only onboarding may be visible (exact wording in
+  `docs/progress-archive/i-4.md`). Real Finder/login launches and the Edit shortcuts in the real
+  panels are checklist 19. A closed stdout still raises `SIGPIPE` in the shell check (as
+  before; not ignored, since children would inherit it). One worker run named a nonexistent
+  `CFFIXED_USER_HOME`; nothing real was read or written — `docs/progress-archive/i-4.md`.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -224,33 +237,22 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   (resolved by deferring the before-frame) + 2 should-fix. I-1b: 2 should-fix (hardware press
   count; `PopoverHeightLimit`). Review-fix workers fixed all of them, with regressions that
   fail on the old code — `docs/reviews/phase-{14,I-1a,I-1b}.md`.
-- Phase I-2a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
-  blockers, 3 should-fix (recording replaced an unusable file; concurrent writers lost
-  updates; path records could overflow the 1 MiB discovery cap), fixed by a review-fix worker
-  (refusal, `directories.lock`, producer bound and cap) with regressions failing on the old
-  code, re-verified by the orchestrator with real reruns — `docs/reviews/phase-I-2a.md`.
-- Phase I-2b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
-  blocker (Settings Save overwrote picker additions made meanwhile) + 2 should-fix (Return on
-  a stale highlight after a field edit; Unicode spellings collapsed in list identity). A
-  review-fix worker fixed all three (`mergeSaved` under the store's lock; the highlight
-  dropped on edit; byte identity), each with regressions failing with the fix reverted;
-  re-verified by the orchestrator — `docs/reviews/phase-I-2b.md`.
-- Phase I-3a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
-  blockers, 3 should-fix (a failed unregistration lost its handle; an unusable file found by a
-  save blocked recovery; leaving General kept recording). A review-fix worker fixed all three,
-  each regression failing with its fix reverted; re-verified by the orchestrator —
-  `docs/reviews/phase-I-3a.md`.
-- Phase I-3b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
-  blockers, 4 should-fix: a refresh moved the automatic selection; a pinned row the engine did
-  not list could not be retried; a creation failure during Move here was dropped; a status-item
-  handoff sent a closed/opened pair. A review-fix worker fixed all four, each regression failing
-  with its fix reverted; re-verified by the orchestrator — `docs/reviews/phase-I-3b.md`.
+- Phases I-2a, I-2b, I-3a, I-3b: Codex wrote each file (`autoclaude-review.sh`, 20 min), all
+  `ship-with-fixes` (I-2a 3 should-fix, I-2b 1 blocker + 2 should-fix, I-3a 3 should-fix, I-3b
+  4 should-fix). Review-fix workers fixed all of them, each regression failing with its fix
+  reverted; re-verified by the orchestrator — `docs/reviews/phase-I-{2a,2b,3a,3b}.md`, summaries
+  in `docs/progress-archive/i-{2a,2b,3a,3b}.md`.
+- Phase I-4: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
+  blockers, 1 should-fix (the extended shell report wrote stdout synchronously on the main
+  actor). Fixed inline by the orchestrator through `NonblockingLineWriter`; re-verified; the
+  full-pipe regression is not run (the report is ~5 KB) — `docs/reviews/phase-I-4.md`.
 
 ## Next action
 
-1. **Phase I-4** (queued from the inbox, `autoclaude/processed/40-empty-settings-window-at-launch.md`):
-   select it, write its acceptance criteria and run it. After it, poll the inbox again; with
-   nothing there, confirm `DONE`.
+1. **None for a run: the plan is finished.** A new iteration polls the inbox
+   (`~/.claude/scripts/autoclaude-inbox.sh list`). If an item is there it is triaged into a new
+   phase; if not, it confirms `DONE`. The `CLAUDE.md` note I-4 owes (*Open risks*) is applied
+   only once `CLAUDE.md` holds no uncommitted edit of the user's.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -363,18 +365,22 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   `Preview/Switcher{Fixtures,Gallery}.swift` (`--preview-gallery switcher`,
   `docs/screenshots/switcher-states-*.png`); tests
   `Tests/MuxFinderUITests/{SwitcherContent,SwitcherController,SwitcherModel}Tests.swift`.
+- App shell (D33, I-4): main menu `Sources/MuxFinderUI/Views/MainMenu.swift`, shell report
+  `Sources/MuxFinderUI/Model/AppShellReport.swift`, entry `Sources/MuxFinderApp/{MuxFinderMenuBarApp,
+  AppDelegate}.swift`; tests `Tests/MuxFinderUITests/{MainMenu,AppShellReport}Tests.swift`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-3b (final tree, orchestrator, 2026-10-24): `swift build` exit 0, no warnings;
-  `swift test` 815 core tests in 81 suites + 324 UI tests in 30 suites passed; `swift format
+- Phase I-4 (final tree, orchestrator, 2026-11-04): `swift build` exit 0, no warnings;
+  `swift test` 815 core tests in 81 suites + 336 UI tests in 32 suites passed; `swift format
   lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep
   --strict build/muxFinder.app` exit 0; `--report-menu-bar-item` (empty `CFFIXED_USER_HOME`)
-  SIGTERM exit 0, no child, private home empty — `docs/progress-archive/i-3b.md`.
-- Phases 1–I-3a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+  only onboarding visible, SIGTERM exit 0, no child, private home empty —
+  `docs/progress-archive/i-4.md`.
+- Phases 1–I-3b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -384,23 +390,13 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   (closure `cb855c0`, summary `880470f`), 8 `dc1935d`, 9a `ac1b9ee`, 9b `94cc960`, 10a
   `d6fe103`, 10b `ec402ce` (pushed; `origin/main` at `ec402ce` before Phase 11a). From 3b on,
   commit messages carry no AI attribution trailer (user's global rule).
-- Phase 11a: `289b7f4`, pushed (`origin/main` at `289b7f4` before Phase 11b).
-- Phase 11b: `a5ca9e0`, pushed (`origin/main` at `a5ca9e0` before Phase 11c).
-- Phase 11c: `930994e`, pushed (`origin/main` at `930994e` before Phase 12a).
-- Phase 12a: `520b7e3`, pushed (`origin/main` at `520b7e3` before Phase 12b).
-- Phase 12b: `6f56399`, pushed; then `92e354a` (app icon, menu bar icon, notarized release
-  flow), pushed.
-- Phase 13 planning (the user's edits, verbatim): `d03e146`, pushed.
-- Phase 13a: `0284b84`, pushed (`origin/main` at `0284b84` before Phase 13b).
-- Phase 13b: `c3e2948`, pushed. Inbox triage (I-1, I-2): `bd9aed6`.
-- Phase 13c: `d5955ff`, pushed. Inbox triage (I-3): `2fdfc87`; phase summary `a9532fa`.
-- Phase 14: `6750a1b`, pushed.
-- Phase I-1a: `72e635a`, pushed.
-- Phase I-1b: `adf79ec`, pushed (`origin/main` at `adf79ec` before Phase I-2a).
-- Phase I-2a: `3feab0e`, pushed (`origin/main` at `3feab0e` before Phase I-2b).
-- Phase I-2b: `e36e471`, pushed (`origin/main` at `e36e471` before Phase I-3a).
-- Phase I-3a: `29bb362`, pushed (`origin/main` at `29bb362` before Phase I-3b).
-- Phase I-3b: the commit after `29bb362` (switcher, review fixes, gallery, docs, review, archive
+- Later phases, all pushed: 11a `289b7f4`, 11b `a5ca9e0`, 11c `930994e`, 12a `520b7e3`, 12b
+  `6f56399` (then `92e354a`, icons and notarized release flow), Phase 13 planning `d03e146`
+  (the user's edits, verbatim), 13a `0284b84`, 13b `c3e2948`, 13c `d5955ff` (summary
+  `a9532fa`), 14 `6750a1b`, I-1a `72e635a`, I-1b `adf79ec`, I-2a `3feab0e`, I-2b `e36e471`,
+  I-3a `29bb362`. Inbox triage commits: I-1/I-2 `bd9aed6`, I-3 `2fdfc87`.
+- Phase I-3b: `d5fa941`, pushed. Inbox triage (I-4): `3804a78`.
+- Phase I-4: the commit after `3804a78` (shell, main menu, report, tests, docs, review, archive
   and checkpoint); its SHA and push result are in the run's final status line.
-- The runner's preflight file still names `PLAN.md`, `PROGRESS.json` and `PROGRESS.md` (the
-  user's Phase 13 edits, committed as `d03e146`); the tree was clean when I-3b started.
+- The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
+  note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.
