@@ -77,14 +77,23 @@ public struct SwitcherSystem {
   /// The index in those displays of the one with the keyboard focus
   /// (`SwitcherPlacement.screenIndex(focusedWindow:mainScreen:pointer:in:)`), or `nil`.
   public var focusedScreenIndex: @MainActor ([PopoverPlacement.Screen]) -> Int?
+  /// The longest time between two clicks of one click sequence, in seconds
+  /// (`NSEvent.doubleClickInterval`).
+  public var doubleClickInterval: @MainActor () -> TimeInterval
+  /// Runs an action on the main actor once a delay, in seconds, has passed.
+  public var runAfter: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void
 
   /// A system from its parts.
   public init(
     screens: @escaping @MainActor () -> [PopoverPlacement.Screen],
-    focusedScreenIndex: @escaping @MainActor ([PopoverPlacement.Screen]) -> Int?
+    focusedScreenIndex: @escaping @MainActor ([PopoverPlacement.Screen]) -> Int?,
+    doubleClickInterval: @escaping @MainActor () -> TimeInterval,
+    runAfter: @escaping @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void
   ) {
     self.screens = screens
     self.focusedScreenIndex = focusedScreenIndex
+    self.doubleClickInterval = doubleClickInterval
+    self.runAfter = runAfter
   }
 }
 
@@ -103,6 +112,12 @@ public struct SwitcherSystem {
 ///   two effects the handoff never reaches the engine as a close (PLAN.md D22, D32).
 /// - **Size:** the content lays itself out no taller than the room below the switcher's top
 ///   edge; while open, a change of the content's size places it again with the same top edge.
+/// - **A click's hold** (`holdForClick()`, Phase I-5 review): a click that activated a row
+///   keeps the panel at least as tall as it was, and holds back a close for the action's
+///   success, another app becoming active or the panel resigning key, until the system's
+///   double-click interval has passed, so the rest of that click's sequence lands on the panel
+///   (which ignores it, `SwitcherClickSequence`), never on the window behind it. Every other
+///   close is made at once and ends the hold, as does each close.
 /// - **Visibility** (`onVisibilityChange`, the model's `switcherVisibilityChanged(_:)`):
 ///   visible while open and not fully occluded, reported on changes only and, when opening,
 ///   before the panel shows, so the model can close the popover while the engine still sees one
@@ -136,6 +151,25 @@ public final class SwitcherController {
       case .escape, .displaysChanged, .shortcut, .popoverOpened, .actionSucceeded: false
       }
     }
+
+    /// Whether this close waits for the end of a click's hold (`holdForClick()`): the ones the
+    /// clicked row's own action brings, its success and iTerm2 coming forward with it (another
+    /// app active, the panel no longer key). Esc, the shortcut, a press outside, a display
+    /// change and the popover opening never wait.
+    var waitsForClickHold: Bool {
+      switch self {
+      case .actionSucceeded, .appSwitch, .resignedKey: true
+      case .escape, .pressOutside, .displaysChanged, .shortcut, .popoverOpened: false
+      }
+    }
+  }
+
+  /// A click's hold, while it lasts (`holdForClick()`).
+  private struct ClickHold {
+    /// Tells holds apart, so the end of an earlier one changes nothing.
+    let number: Int
+    /// The first close that waits for its end.
+    var pendingClose: CloseReason?
   }
 
   /// Whether the switcher is open.
@@ -148,6 +182,10 @@ public final class SwitcherController {
   public private(set) var isReportedVisible = false
   /// Why it last closed.
   public private(set) var lastCloseReason: CloseReason?
+  /// Whether a click's hold lasts (`holdForClick()`).
+  public var isHoldingForClick: Bool { clickHold != nil }
+  /// The close waiting for the end of the click's hold, if any.
+  public var pendingClose: CloseReason? { clickHold?.pendingClose }
 
   /// The panel.
   private let panel: any PopoverPanelSurface
@@ -162,6 +200,10 @@ public final class SwitcherController {
   private let isStatusItemPress: @MainActor () -> Bool
   /// Whether the open panel is fully occluded.
   private var isOccluded = false
+  /// The click's hold, while it lasts.
+  private var clickHold: ClickHold?
+  /// How many holds were made (numbers them).
+  private var holdCount = 0
 
   /// A controller over its parts; nothing shows until `toggle()` or `open()`.
   /// `isStatusItemPress` says whether a press on muxFinder's status item button is in progress
@@ -183,7 +225,8 @@ public final class SwitcherController {
   /// A controller for `model` (the app's `SessionSwitcher` and the tests share this glue): its
   /// visibility goes to `switcherVisibilityChanged(_:)`, each opening focuses the search
   /// field, the model's `isStatusItemPressHeld` says whether a press on the status item button
-  /// is in progress, and the model's `toggleSwitcher` and `closeSwitcher` reach it.
+  /// is in progress, and the model's `toggleSwitcher`, `closeSwitcher` and
+  /// `holdSwitcherForClick` reach it.
   public static func make(
     for model: AppModel,
     panel: any PopoverPanelSurface,
@@ -198,6 +241,7 @@ public final class SwitcherController {
       isStatusItemPress: { [weak model] in model?.isStatusItemPressHeld?() ?? false })
     model.toggleSwitcher = { [weak controller] in controller?.toggle() }
     model.closeSwitcher = { [weak controller] reason in controller?.close(reason) }
+    model.holdSwitcherForClick = { [weak controller] in controller?.holdForClick() }
     return controller
   } // End of static func make(for:panel:system:)
 
@@ -237,14 +281,60 @@ public final class SwitcherController {
   /// Closes the switcher for `reason`. A close from outside made while a press on muxFinder's
   /// status item button is in progress is left to that press's button action: it opens the
   /// popover, which closes the switcher (`popoverOpened`) after the popover reported visible,
-  /// so the engine never hears the handoff (PLAN.md D22, D32). Does nothing while closed.
+  /// so the engine never hears the handoff (PLAN.md D22, D32). While a click's hold lasts, a
+  /// close that waits for it (`CloseReason.waitsForClickHold`) is made when it ends (the
+  /// first one asked); any other close is made at once and ends the hold. Does nothing while
+  /// closed.
   public func close(_ reason: CloseReason) {
     guard isOpen else { return }
     if reason.isOutside, isStatusItemPress() { return }
+    if var hold = clickHold, reason.waitsForClickHold {
+      if hold.pendingClose == nil { hold.pendingClose = reason }
+      clickHold = hold
+      return
+    }
+    endClickHold()
     isOpen = false
     lastCloseReason = reason
     panel.hide()
     updateVisibility()
+  } // End of func close(_:)
+
+  /// A click activated a row (`AppModel.clickSwitcherItem(_:)` calls this before the row
+  /// acts): until the system's double-click interval has passed, the content lays itself out
+  /// no shorter than the panel is now (`PopoverPanelSurface.minimumContentHeight`; a shrink,
+  /// such as the New session form replacing a taller list, waits; growth does not), and a close
+  /// for the action's success, another app becoming active or the panel resigning key waits
+  /// (`close(_:)`), so the rest of that click's sequence lands on the panel, which ignores it
+  /// (`SwitcherClickSequence`), instead of on the window behind. A click during a hold starts
+  /// a new one from the panel's frame then, keeping a close already waiting. Does nothing while
+  /// closed.
+  public func holdForClick() {
+    guard isOpen, let frame else { return }
+    holdCount += 1
+    let number = holdCount
+    clickHold = ClickHold(number: number, pendingClose: clickHold?.pendingClose)
+    panel.minimumContentHeight = frame.height
+    system.runAfter(system.doubleClickInterval()) { [weak self] in
+      self?.clickHoldEnded(number)
+    }
+  }
+
+  /// Hold number `number`'s interval passed: when it is the one lasting, it ends, the waiting
+  /// close (if any) is made, and the panel takes its content's size. A hold already ended (a
+  /// close, or a later click's) changes nothing.
+  private func clickHoldEnded(_ number: Int) {
+    guard let hold = clickHold, hold.number == number else { return }
+    endClickHold()
+    if let reason = hold.pendingClose { close(reason) }
+    contentSizeChanged()
+  }
+
+  /// Ends the click's hold, if any: the content takes its natural height again.
+  private func endClickHold() {
+    guard clickHold != nil else { return }
+    clickHold = nil
+    panel.minimumContentHeight = nil
   }
 
   /// The content's size changed: while open, places the panel again for the new size on the

@@ -226,6 +226,8 @@ final class StatusItemButton: NSObject, PopoverStatusButton {
 protocol PanelRootView: View {
   /// The tallest the content lays itself out, in points (`nil`: no limit).
   var maximumHeight: CGFloat? { get set }
+  /// The shortest the content lays itself out, in points (`nil`: its natural height).
+  var minimumHeight: CGFloat? { get set }
 }
 
 /// The popover's panel and what it hosts, as `PopoverController` drives it.
@@ -281,8 +283,18 @@ final class PanelHost<Root: PanelRootView>: PopoverPanelSurface {
     }
   }
 
+  /// The shortest the hosted view lays itself out (`PanelRootView.minimumHeight`; only the
+  /// session switcher's hold sets it).
+  var minimumContentHeight: CGFloat? {
+    get { hostingView.rootView.minimumHeight }
+    set {
+      guard newValue != hostingView.rootView.minimumHeight else { return }
+      hostingView.rootView.minimumHeight = newValue
+    }
+  }
+
   /// The hosted view's natural size (no taller than `maximumContentHeight` when it can shrink
-  /// that far).
+  /// that far, no shorter than `minimumContentHeight`).
   var contentSize: CGSize {
     hostingView.fittingSize
   }
@@ -450,12 +462,15 @@ struct PopoverPanelRoot: PanelRootView {
   /// The tallest the popover lays itself out, in points (`nil`: no limit); the controller sets
   /// the display's room below its menu bar.
   var maximumHeight: CGFloat?
+  /// The shortest the popover lays itself out, in points (`nil`: its natural height); the
+  /// popover's controller never sets it.
+  var minimumHeight: CGFloat?
   /// Called when the popover's natural size changed.
   let onSizeChange: @MainActor () -> Void
 
   /// The popover, at its natural size within the limit.
   var body: some View {
-    PopoverHeightLimit(maximumHeight: maximumHeight) {
+    PopoverHeightLimit(maximumHeight: maximumHeight, minimumHeight: minimumHeight) {
       PopoverView(model: model, isLive: true)
     }
     .onGeometryChange(for: CGSize.self) { geometry in
@@ -471,9 +486,14 @@ struct PopoverPanelRoot: PanelRootView {
 /// `maximumHeight` instead, so `PopoverView`'s host list, the only part that gives up height,
 /// shrinks and scrolls while the search field, notices and footer keep theirs. Content that
 /// fits, or any content with no limit, is offered nothing, exactly as under `fixedSize()`.
+/// With a `minimumHeight` (the session switcher's hold after a click, PLAN.md D32) the layout
+/// is never shorter than that, the subview at its top and the rest left to what is behind it
+/// (the switcher's background).
 struct PopoverHeightLimit: Layout {
   /// The tallest the subview may be, in points; `nil` for no limit.
   var maximumHeight: CGFloat?
+  /// The shortest the layout is, in points; `nil` for the subview's height.
+  var minimumHeight: CGFloat?
 
   /// The height offered to content of natural height `natural`: `nil` (its natural height)
   /// when it fits within `maximumHeight` or there is no limit, else `maximumHeight`.
@@ -490,20 +510,26 @@ struct PopoverHeightLimit: Layout {
       height: Self.offeredHeight(natural: natural.height, maximumHeight: maximumHeight))
   }
 
-  /// The subview's size for that offer, whatever this layout is offered.
+  /// The subview's size for that offer, whatever this layout is offered, no shorter than
+  /// `minimumHeight`.
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     guard let subview = subviews.first else { return .zero }
-    return subview.sizeThatFits(self.proposal(for: subview))
+    let size = subview.sizeThatFits(self.proposal(for: subview))
+    return CGSize(width: size.width, height: max(size.height, minimumHeight ?? 0))
   }
 
-  /// Puts the subview in the middle of `bounds`, with that offer.
+  /// Puts the subview in the middle of `bounds` (at its top with a `minimumHeight`), with that
+  /// offer.
   func placeSubviews(
     in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
   ) {
     guard let subview = subviews.first else { return }
-    subview.place(
-      at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center,
-      proposal: self.proposal(for: subview))
+    let offer = self.proposal(for: subview)
+    if minimumHeight != nil {
+      subview.place(at: CGPoint(x: bounds.midX, y: bounds.minY), anchor: .top, proposal: offer)
+    } else {
+      subview.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center, proposal: offer)
+    }
   }
 }
 

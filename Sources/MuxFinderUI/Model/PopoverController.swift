@@ -9,8 +9,14 @@ public protocol PopoverPanelSurface: AnyObject {
   /// than this shrinks its host list, which scrolls, so the search field and the footer stay
   /// in the panel (PLAN.md D30). Set before `contentSize` is read.
   var maximumContentHeight: CGFloat? { get set }
+  /// The shortest the content lays itself out, in points (`nil`: its natural height), its
+  /// natural content at the top and the panel's background below: the session switcher's
+  /// hold after a click (`SwitcherController.holdForClick()`, PLAN.md D32); the popover never
+  /// sets it. Set before `contentSize` is read.
+  var minimumContentHeight: CGFloat? { get set }
   /// The content's natural size, in points (the hosted `PopoverView`'s fitting size), no
-  /// taller than `maximumContentHeight` when the content can shrink that far.
+  /// taller than `maximumContentHeight` when the content can shrink that far and no shorter
+  /// than `minimumContentHeight`.
   var contentSize: CGSize { get }
   /// Puts the panel at `frame`, in front, and makes it key; starts watching for presses
   /// outside it.

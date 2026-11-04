@@ -42,13 +42,13 @@ file.
 | I-3a | Global shortcut: `GlobalShortcut`, `preferences.json` store, Carbon registrar, Settings › General recorder, `--report-hotkey-registration`, interim popover toggle (D32) | routine | opus (impl + review-fix worker); one checklist step by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-3a.md` | `docs/progress-archive/i-3a.md` |
 | I-3b | Session switcher panel: 540 pt floating non-activating panel, live sessions with filter and New session row, Open / New session form, failure carry-over, combined engine visibility (D32, D22) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-3b.md` | `docs/progress-archive/i-3b.md` |
 | I-4 | No empty "muxFinder Settings" window at launch: plain `NSApplication` with a hand-built main menu (D33), shell check lists every window (spec `autoclaude/processed/40-empty-settings-window-at-launch.md`) | routine | opus (impl worker); review fix inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-4.md` | `docs/progress-archive/i-4.md` |
+| I-5 | Session switcher: one click activates a row, the rest of its click sequence dropped, the panel held through the double-click interval (D32 *Keys* edited; spec `autoclaude/processed/50-switcher-single-click-activates.md`) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-5.md` | `docs/progress-archive/i-5.md` |
 
-Every phase of `PLAN.md` is complete and reviewed. Queued from the inbox, in this order:
+Every phase of `PLAN.md` is complete and reviewed. Queued from the inbox:
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-5 | Session switcher: one click activates a row (D32 *Keys* edited) | `autoclaude/processed/50-switcher-single-click-activates.md` | next |
-| I-6 | New session: Tab moves from Name to Directory (popover and switcher forms) | `autoclaude/processed/60-new-session-tab-between-fields.md` | after I-5 |
+| I-6 | New session: Tab moves from Name to Directory (popover and switcher forms) | `autoclaude/processed/60-new-session-tab-between-fields.md` | next |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -57,11 +57,11 @@ two items triaged: `50-switcher-single-click-activates.md` → I-5,
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b) and I-4 are complete and reviewed. **Phase
-I-4 — No empty Settings window at launch (routine): complete** 2026-11-04
-(`docs/progress-archive/i-4.md`; new **D33**, D22 and D30 edited). **The plan is finished**;
-two inbox phases are queued (I-5, I-6, below); the user's manual checklist and the `CLAUDE.md`
-note owed (*Open risks*) remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 and I-5 are complete and reviewed.
+**Phase I-5 — Session switcher: one click activates a row (routine): complete** 2026-11-04
+(`docs/progress-archive/i-5.md`; D32 edited). **The plan is finished**; one inbox phase is
+queued (I-6, below); the user's manual checklist and the `CLAUDE.md` note owed (*Open risks*)
+remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
 I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
@@ -82,30 +82,20 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   hermetic; 13c real runs all PASS: `e2e-local` 16/16, `e2e-remote saturno-m4` 17/17,
   `e2e-bury` 13/13 on both hosts, self-tests 8/8 and 7/7, `e2e-profile --local` 14/14) —
   `docs/progress-archive/13{a,b,c}.md`.
-- Phases 14, I-1a, I-1b: all criteria met, 2026-10-24. 14: the popover's look, with screenshots
-  inspected and the real popover owed (checklist 15). I-1a: the placement diagnostic exits 4
-  "not openable in process" on the old scene; the cause is inferred. I-1b: after the fix,
-  `--report-popover-placement` exit 0 three times; keys and real clicks owed (checklist 16).
-  Evidence in `docs/progress-archive/{14,i-1a,i-1b}.md`.
-- Phases I-2a, I-2b, I-3a: all criteria met, 2026-10-24. I-2a: real `discover` on both hosts
-  parsed every start folder, self-test 7/7 with no `directories.json`. I-2b: galleries
-  inspected, install-script check 35/35, the real keys owed (checklist 17). I-3a:
-  `--report-hotkey-registration` 8/8 in the signed bundle, uninstall removes
-  `preferences.json`, a real press owed (checklist 18). Evidence in
-  `docs/progress-archive/{i-2a,i-2b,i-3a}.md`.
-- Phase I-3b: all criteria met, 2026-10-24 — content, keys, visibility-rule, carry-over and
-  hotkey-glue tests pass (815 core + 324 UI tests; 32 new UI). Three I-3a tests that asserted
-  the interim popover toggle now assert the switcher, and one `arrowsMoveWithoutWrapping` line
-  follows review fix 1; no other test changed. The switcher gallery (9 states) was rendered
-  light and dark and inspected. `--report-menu-bar-item` behaves as before; bundle and
-  `codesign` exit 0. A press, the real panel, opening, creating and Esc are owed (checklist
-  18) — `docs/progress-archive/i-3b.md`.
-- Phase I-4: all criteria met, 2026-11-04 — diagnosed (a shell launch shows the window too;
-  SwiftUI's `Settings` scene, opened by `AppWindowsController.showInitialWindow()`); after the
-  fix the shell check under an empty home lists only the hidden popover panel and onboarding,
-  with a hosts-off home no visible window; SIGTERM exit 0, no child, home empty; 12 new UI
-  tests, none changed; checklist 19 added; the `CLAUDE.md` note is owed, not done (the user's
-  uncommitted edit) — `docs/progress-archive/i-4.md`.
+- Phases 14–I-3b: all criteria met, 2026-10-24 (14 the popover's look; I-1a/I-1b placement,
+  `--report-popover-placement` exit 0 after the fix; I-2a/I-2b directory list; I-3a
+  `--report-hotkey-registration` 8/8; I-3b the switcher, 815 core + 324 UI tests); the real
+  presses, clicks and keys owed (checklist 15–18) — `docs/progress-archive/{14,i-1a,i-1b,
+  i-2a,i-2b,i-3a,i-3b}.md`.
+- Phase I-4: all criteria met, 2026-11-04 — SwiftUI's `Settings` scene was the window; after
+  the fix the shell check under an empty home lists only the hidden popover panel and
+  onboarding; 12 new UI tests; checklist 19; the `CLAUDE.md` note owed — `docs/progress-archive/i-4.md`.
+- Phase I-5: all criteria met, 2026-11-04 — one click on a session row opens it as Return
+  does, on "New session…" shows the form as ⌘N does; a second activation of a row opening
+  starts nothing; the rest of an activating click's sequence is dropped and the panel held
+  (no shrink, success/app-switch/resign-key closes waiting) through the double-click
+  interval; 14 new UI tests (815 core + 350 UI pass), no existing assertion changed; gallery
+  unchanged; a real double click owed (checklist 18) — `docs/progress-archive/i-5.md`.
 
 ## Decisions
 
@@ -180,6 +170,12 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   documented API keeps a SwiftUI scene closed; D22 and D30 edited. The `CLAUDE.md` command-note
   edit the item asked for was withheld: that file holds the user's uncommitted edit —
   `docs/progress-archive/i-4.md`.
+- Phase I-5: **D32** *Keys* edited ("A click activates a row, as in the popover"). Two
+  additions beyond the specification, both needed for its requirement 2: `SwitcherClickSequence`
+  (a local mouse monitor drops the rest of an activating click's sequence in the switcher's
+  window) and, from the review, `SwitcherController.holdForClick()` (the panel keeps its
+  height and waits to close on success, app switch or resign key until
+  `NSEvent.doubleClickInterval` has passed) — `docs/progress-archive/i-5.md`.
 
 ## Open risks / deviations
 
@@ -210,6 +206,10 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   panels are checklist 19. A closed stdout still raises `SIGPIPE` in the shell check (as
   before; not ignored, since children would inherit it). One worker run named a nonexistent
   `CFFIXED_USER_HOME`; nothing real was read or written — `docs/progress-archive/i-4.md`.
+- I-5: a real double click (long and short lists, a session already open here) is checklist
+  18's. A ⌘-Tab right after an activating click leaves the switcher up for the rest of the
+  double-click interval. The popover's panel carries the unused `minimumContentHeight` —
+  `docs/progress-archive/i-5.md`.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -254,12 +254,16 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   blockers, 1 should-fix (the extended shell report wrote stdout synchronously on the main
   actor). Fixed inline by the orchestrator through `NonblockingLineWriter`; re-verified; the
   full-pipe regression is not run (the report is ~5 KB) — `docs/reviews/phase-I-4.md`.
+- Phase I-5: Codex wrote the file (`autoclaude-review.sh`, 12 min) → `ship-with-fixes`, 0
+  blockers, 1 should-fix (the New session form shrinks the panel, so a double click's second
+  click reaches the app behind). Fixed by a review-fix worker (`holdForClick()`, covering a
+  success close too), regressions failing with their fix reverted; re-verified by the
+  orchestrator — `docs/reviews/phase-I-5.md`.
 
 ## Next action
 
-1. **Phase I-5** (queued, `autoclaude/processed/50-switcher-single-click-activates.md`):
-   select it, write its acceptance criteria and run it; then **Phase I-6**
-   (`autoclaude/processed/60-new-session-tab-between-fields.md`). Poll the inbox at each phase
+1. **Phase I-6** (queued, `autoclaude/processed/60-new-session-tab-between-fields.md`):
+   select it, write its acceptance criteria and run it. Poll the inbox at each phase
    boundary; with nothing left, confirm `DONE`. The `CLAUDE.md` note I-4 owes (*Open risks*) is
    applied only once `CLAUDE.md` holds no uncommitted edit of the user's.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
@@ -374,6 +378,10 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   `Preview/Switcher{Fixtures,Gallery}.swift` (`--preview-gallery switcher`,
   `docs/screenshots/switcher-states-*.png`); tests
   `Tests/MuxFinderUITests/{SwitcherContent,SwitcherController,SwitcherModel}Tests.swift`.
+  One click (I-5): `clickSwitcherItem(_:)` and `SwitcherClickSequence` in
+  `Model/AppModelSwitcher.swift`, the mouse monitor in `Views/SessionSwitcher.swift`,
+  `holdForClick()` in `Model/SwitcherController.swift`; tests
+  `Tests/MuxFinderUITests/SwitcherClickTests.swift`.
 - App shell (D33, I-4): main menu `Sources/MuxFinderUI/Views/MainMenu.swift`, shell report
   `Sources/MuxFinderUI/Model/AppShellReport.swift`, entry `Sources/MuxFinderApp/{MuxFinderMenuBarApp,
   AppDelegate}.swift`; tests `Tests/MuxFinderUITests/{MainMenu,AppShellReport}Tests.swift`.
@@ -383,13 +391,12 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-4 (final tree, orchestrator, 2026-11-04): `swift build` exit 0, no warnings;
-  `swift test` 815 core tests in 81 suites + 336 UI tests in 32 suites passed; `swift format
+- Phase I-5 (final tree, orchestrator, 2026-11-04): `swift build` exit 0, no warnings;
+  `swift test` 815 core tests in 81 suites + 350 UI tests in 33 suites passed; `swift format
   lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0, `codesign --verify --deep
-  --strict build/muxFinder.app` exit 0; `--report-menu-bar-item` (empty `CFFIXED_USER_HOME`)
-  only onboarding visible, SIGTERM exit 0, no child, private home empty —
-  `docs/progress-archive/i-4.md`.
-- Phases 1–I-3b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+  --strict build/muxFinder.app` exit 0; `--preview-gallery switcher --appearance dark
+  --preview-snapshot` exit 0 — `docs/progress-archive/i-5.md`.
+- Phases 1–I-4: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -405,7 +412,7 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   `a9532fa`), 14 `6750a1b`, I-1a `72e635a`, I-1b `adf79ec`, I-2a `3feab0e`, I-2b `e36e471`,
   I-3a `29bb362`. Inbox triage commits: I-1/I-2 `bd9aed6`, I-3 `2fdfc87`.
 - Phase I-3b: `d5fa941`, pushed. Inbox triage (I-4): `3804a78`.
-- Phase I-4: `d428822`, pushed (`origin/main` at `d428822`). Inbox triage (I-5, I-6): the
-  commit after it.
+- Phase I-4: `d428822`, pushed. Inbox triage (I-5, I-6): `d1f445a`; phase summary `3b2603d`.
+- Phase I-5: the commit after `3b2603d` (its SHA recorded by the next checkpoint), pushed.
 - The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
   note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.

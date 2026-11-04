@@ -258,6 +258,10 @@ public final class AppModel {
   /// set by `SwitcherController.make`.
   @ObservationIgnored public var closeSwitcher:
     (@MainActor (SwitcherController.CloseReason) -> Void)?
+  /// Holds the switcher's panel through a click's double-click interval
+  /// (`SwitcherController.holdForClick()`), called by `clickSwitcherItem(_:)` before the row
+  /// acts; set by `SwitcherController.make`.
+  @ObservationIgnored public var holdSwitcherForClick: (@MainActor () -> Void)?
   /// Closes the popover when the switcher opens; set by `MenuBarPopover`.
   @ObservationIgnored public var closePopover: (@MainActor () -> Void)?
   /// Whether a mouse press on muxFinder's status item button is in progress now; set by
@@ -270,6 +274,9 @@ public final class AppModel {
   /// Whether the switcher's creation failed while a Move here confirmation held the panel: the
   /// form shows it once that ends or the switcher opens next (`showDeferredCreationFailure()`).
   @ObservationIgnored var switcherCreationFailureDeferred = false
+  /// The rest of the click sequence whose click activated a switcher row, which the switcher's
+  /// panel lets through to no view (`clickSwitcherItem(_:)`, `switcherPasses(_:)`).
+  @ObservationIgnored var switcherClicks = SwitcherClickSequence()
   /// The visibility changes handed to the engine's queue, oldest first (the latest
   /// `visibilityLogLimit`; tests read them).
   @ObservationIgnored private(set) var engineVisibilityChanges: [Bool] = []

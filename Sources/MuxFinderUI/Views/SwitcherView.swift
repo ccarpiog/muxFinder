@@ -223,9 +223,9 @@ struct SwitcherListBox: View {
 
 /// One session in the switcher: Phase 14's attach-state indicator, its name (stronger while
 /// attached) and its host's name, the detail text, the "Open in iTerm2 here" badge, and any
-/// progress, result or failure with the popover row's recoveries. A click selects it; a
-/// double-click (or Return) opens it as the popover's Open does. No Move here or Detach here:
-/// those stay in the popover (PLAN.md D32).
+/// progress, result or failure with the popover row's recoveries. A click (or Return) opens it
+/// as the popover's Open does, as a click on a popover row does (`clickSwitcherItem(_:)`). No
+/// Move here or Detach here: those stay in the popover (PLAN.md D32).
 struct SwitcherRowView: View {
   /// The row's content.
   let row: SessionRow
@@ -289,8 +289,7 @@ struct SwitcherRowView: View {
     }
     .padding(.horizontal, 4)
     .contentShape(Rectangle())
-    .onTapGesture(count: 2) { model.activateSwitcherItem(item) }
-    .onTapGesture { model.selectSwitcherItem(item) }
+    .onTapGesture { model.clickSwitcherItem(item) }
     .onHover { isHovered = $0 }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(row.accessibilityLabel)
@@ -315,7 +314,7 @@ struct SwitcherRowView: View {
 }
 
 /// The switcher's last row: "New session…", or "New session “<name>”…" when the filter text
-/// gives the name. A click selects it; a double-click (or Return, or ⌘N) shows the form.
+/// gives the name. A click (or Return, or ⌘N) shows the form (`clickSwitcherItem(_:)`).
 struct SwitcherNewSessionRowView: View {
   /// The row's content.
   let row: SwitcherContent.NewSessionRow
@@ -359,8 +358,7 @@ struct SwitcherNewSessionRowView: View {
     .padding(.horizontal, 4)
     .padding(.top, 3)
     .contentShape(Rectangle())
-    .onTapGesture(count: 2) { model.activateSwitcherItem(.newSession) }
-    .onTapGesture { model.selectSwitcherItem(.newSession) }
+    .onTapGesture { model.clickSwitcherItem(.newSession) }
     .onHover { isHovered = $0 }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(row.accessibilityLabel)

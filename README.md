@@ -211,11 +211,11 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   ones are left out), each with its state, its host and "2 windows · 1 client" or the "Open in
   iTerm2 here" badge; muted lines such as "Sirio: unreachable" or "Saturno: checking…" explain
   hosts whose sessions are missing. Type to filter by session or host name, move with ↑/↓,
-  and press Return (or double-click) to open the selected session the same way the popover
-  does: a session already open here is brought forward, any other one is attached. The
+  and press Return to open the selected session, or click a session once, the same way the
+  popover does: a session already open here is brought forward, any other one is attached. The
   last row is always "New session…"; when what you typed is a valid session name nobody uses
-  yet, it reads "New session “<name>”…" and fills the name in. Return on it (or ⌘N) shows the
-  New session form inside the panel, for This Mac by default and with the directory list;
+  yet, it reads "New session “<name>”…" and fills the name in. A click on it, Return on it or
+  ⌘N shows the New session form inside the panel, for This Mac by default and with the directory list;
   Return creates, Esc goes back to the list. ⌘R refreshes and ⌘, opens Settings; Move here and
   Detach stay in the popover. The panel shows the row's progress, closes once the session is
   open (or as soon as iTerm2 comes forward), and stays open with the explanation and its

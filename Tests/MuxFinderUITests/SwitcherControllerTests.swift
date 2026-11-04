@@ -8,8 +8,9 @@ import Testing
 /// `SwitcherController` and `SwitcherPlacement` (PLAN.md D32, Phase I-3b) over a fake panel and
 /// a fake system: the shortcut toggles the switcher, which opens centered on the display with
 /// the keyboard focus in its upper part, closes for each reason, reports its visibility once
-/// per change (before the panel shows), and keeps its top edge when its content changes size.
-/// No window, panel or event is involved.
+/// per change (before the panel shows), keeps its top edge when its content changes size, and
+/// through a click's double-click interval keeps its frame and holds back a success close
+/// (Phase I-5 review). No window, panel, event or real time is involved.
 @Suite("Session switcher controller")
 @MainActor
 struct SwitcherControllerTests {
@@ -20,12 +21,35 @@ struct SwitcherControllerTests {
     var screens = PopoverAnchoringTests.screens
     /// The display with the keyboard focus.
     var focused: Int? = 1
+    /// The double-click interval, in seconds.
+    var doubleClickInterval: TimeInterval = 0.42
+    /// The delayed actions not run yet, with their delays, in the order asked.
+    var delayed: [(delay: TimeInterval, action: @MainActor () -> Void)] = []
+
+    /// The delays of the actions not run yet.
+    var delays: [TimeInterval] { delayed.map(\.delay) }
 
     /// The controller's view of it.
     var system: SwitcherSystem {
-      SwitcherSystem(screens: { self.screens }, focusedScreenIndex: { _ in self.focused })
+      SwitcherSystem(
+        screens: { self.screens }, focusedScreenIndex: { _ in self.focused },
+        doubleClickInterval: { self.doubleClickInterval },
+        runAfter: { self.delayed.append((delay: $0, action: $1)) })
     }
-  }
+
+    /// Their time passed: runs every delayed action asked so far, in order.
+    func runDelayed() {
+      let actions = delayed
+      delayed = []
+      for entry in actions { entry.action() }
+    }
+
+    /// The first one's time passed: runs it alone.
+    func runFirstDelayed() {
+      guard !delayed.isEmpty else { return }
+      delayed.removeFirst().action()
+    }
+  } // End of class FakeSystem
 
   /// A controller over fresh fakes, and what it reported.
   @MainActor
@@ -135,6 +159,116 @@ struct SwitcherControllerTests {
     #expect(harness.panel.setFrames == [frame] && harness.controller.frame == frame)
     #expect(frame.maxY == Self.onSecondDisplay.maxY)
   }
+
+  // MARK: - A click's hold (Phase I-5 review)
+
+  /// The switcher on the second display at 180 points, its top kept (the New session form).
+  static let shrunk = CGRect(x: 3342, y: 1619, width: 540, height: 180)
+
+  /// A click's hold keeps the frame from before the click through the double-click interval:
+  /// the content lays itself out no shorter, so a shrink (the New session form replacing a
+  /// taller list) moves nothing until the interval ends, then is applied. Closed, a hold is
+  /// never made.
+  @Test func aClickHoldsAShrinkUntilTheIntervalEnds() {
+    let harness = Harness()
+    harness.controller.holdForClick()
+    #expect(!harness.controller.isHoldingForClick && harness.system.delayed.isEmpty)
+    harness.controller.open()
+    harness.controller.holdForClick()
+    #expect(harness.controller.isHoldingForClick && harness.system.delays == [0.42])
+    #expect(harness.panel.minimumContentHeight == 300)
+    harness.panel.naturalSize.height = 180
+    harness.controller.contentSizeChanged()
+    #expect(harness.panel.setFrames.isEmpty && harness.controller.frame == Self.onSecondDisplay)
+    harness.system.runDelayed()
+    #expect(!harness.controller.isHoldingForClick && harness.panel.minimumContentHeight == nil)
+    #expect(harness.panel.setFrames == [Self.shrunk] && harness.controller.frame == Self.shrunk)
+    #expect(harness.controller.isOpen && harness.visibility == [true])
+  } // End of func aClickHoldsAShrinkUntilTheIntervalEnds()
+
+  /// Growth during a hold is applied at once; a shrink after it goes back only to the frame
+  /// from before the click until the interval ends.
+  @Test func growthDuringAHoldIsAppliedAtOnce() {
+    let harness = Harness()
+    harness.controller.open()
+    harness.controller.holdForClick()
+    harness.panel.naturalSize.height = 420
+    harness.controller.contentSizeChanged()
+    let taller = CGRect(x: 3342, y: 1379, width: 540, height: 420)
+    #expect(harness.panel.setFrames == [taller] && harness.controller.frame == taller)
+    harness.panel.naturalSize.height = 180
+    harness.controller.contentSizeChanged()
+    #expect(harness.panel.setFrames == [taller, Self.onSecondDisplay])
+    harness.system.runDelayed()
+    #expect(harness.panel.setFrames == [taller, Self.onSecondDisplay, Self.shrunk])
+  }
+
+  /// While a hold lasts, a close for the action's success, another app becoming active or the
+  /// panel resigning key waits for its end, which makes the first one asked (one visibility
+  /// change); Esc, the shortcut, a press outside, a display change and the popover opening
+  /// close at once, ending the hold and dropping the close that waited.
+  @Test func aSuccessCloseWaitsForTheHold() {
+    let harness = Harness()
+    harness.controller.open()
+    harness.controller.holdForClick()
+    harness.controller.close(.actionSucceeded)
+    harness.controller.close(.appSwitch)
+    harness.controller.close(.resignedKey)
+    #expect(harness.controller.isOpen && harness.panel.isShown && harness.visibility == [true])
+    #expect(harness.controller.pendingClose == .actionSucceeded)
+    harness.system.runDelayed()
+    #expect(!harness.controller.isOpen && harness.controller.lastCloseReason == .actionSucceeded)
+    #expect(harness.visibility == [true, false] && harness.panel.hideCount == 1)
+    let immediate: [SwitcherController.CloseReason] = [
+      .escape, .shortcut, .pressOutside, .displaysChanged, .popoverOpened,
+    ]
+    for reason in immediate {
+      harness.controller.open()
+      harness.controller.holdForClick()
+      harness.controller.close(.appSwitch)
+      harness.controller.close(reason)
+      #expect(!harness.controller.isOpen && harness.controller.lastCloseReason == reason)
+      #expect(!harness.controller.isHoldingForClick && harness.panel.minimumContentHeight == nil)
+    } // End of loop over the closes made at once
+    harness.system.runDelayed()
+    #expect(!harness.controller.isOpen && harness.panel.setFrames.isEmpty)
+    #expect(
+      harness.visibility
+        == Array(repeating: [true, false], count: immediate.count + 1).flatMap { $0 })
+  } // End of func aSuccessCloseWaitsForTheHold()
+
+  /// A switcher closed during a hold and opened again inherits nothing of it: no close waits,
+  /// a shrink is applied at once, and the old hold's end neither closes it nor resizes it; a
+  /// later click's hold ends at its own interval, not an earlier one's.
+  @Test func aReopenedSwitcherInheritsNoHold() {
+    let harness = Harness()
+    harness.controller.open()
+    harness.controller.holdForClick()
+    harness.controller.close(.actionSucceeded)
+    harness.controller.close(.escape)
+    #expect(harness.controller.lastCloseReason == .escape)
+    harness.controller.open()
+    #expect(!harness.controller.isHoldingForClick && harness.controller.pendingClose == nil)
+    #expect(harness.panel.minimumContentHeight == nil)
+    harness.panel.naturalSize.height = 180
+    harness.controller.contentSizeChanged()
+    #expect(harness.panel.setFrames == [Self.shrunk])
+    harness.system.runDelayed()
+    #expect(harness.controller.isOpen && harness.controller.lastCloseReason == nil)
+    #expect(harness.panel.setFrames == [Self.shrunk] && harness.visibility == [true, false, true])
+    harness.panel.naturalSize.height = 300
+    harness.controller.contentSizeChanged()
+    harness.controller.holdForClick()
+    harness.controller.holdForClick()
+    harness.panel.naturalSize.height = 180
+    harness.controller.contentSizeChanged()
+    harness.system.runFirstDelayed()
+    #expect(harness.controller.isHoldingForClick)
+    #expect(harness.panel.setFrames == [Self.shrunk, Self.onSecondDisplay])
+    harness.system.runFirstDelayed()
+    #expect(!harness.controller.isHoldingForClick)
+    #expect(harness.panel.setFrames == [Self.shrunk, Self.onSecondDisplay, Self.shrunk])
+  } // End of func aReopenedSwitcherInheritsNoHold()
 
   /// The placement: centered and in the upper part, narrowed and shortened to fit a small
   /// display, and the display with the keyboard focus chosen by the focused window's area, then

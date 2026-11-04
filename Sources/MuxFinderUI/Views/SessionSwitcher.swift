@@ -14,7 +14,9 @@ import SwiftUI
 ///   press another process receives, another app becoming active (iTerm2 coming forward), the
 ///   panel resigning key and the displays changing (`PanelObservers`).
 /// - **Size:** the hosted view lays itself out no taller than the controller's limit and
-///   reports changes of its natural size, and the controller places the panel again.
+///   reports changes of its natural size, and the controller places the panel again; through a
+///   click's double-click interval it is no shorter than the panel was
+///   (`SwitcherController.holdForClick()`), the switcher's background below its content.
 ///
 /// Created only by the menu bar app in normal mode with the session switcher shortcut
 /// (`AppLaunchOptions.registersGlobalShortcut`); never in a preview, a self-test or a
@@ -55,9 +57,10 @@ public final class SessionSwitcher {
 }
 
 extension SwitcherSystem {
-  /// AppKit's: `NSScreen.screens`, and the display with the keyboard focus from the frontmost
+  /// AppKit's: `NSScreen.screens`, the display with the keyboard focus from the frontmost
   /// app's frontmost window (`frontmostWindowFrame()`), `NSScreen.main` and the pointer
-  /// (`SwitcherPlacement.screenIndex(focusedWindow:mainScreen:pointer:in:)`).
+  /// (`SwitcherPlacement.screenIndex(focusedWindow:mainScreen:pointer:in:)`),
+  /// `NSEvent.doubleClickInterval`, and the main queue for the delayed actions.
   public static var appKit: SwitcherSystem {
     SwitcherSystem(
       screens: { NSScreen.screens.map { PopoverPlacement.Screen($0) } },
@@ -65,6 +68,12 @@ extension SwitcherSystem {
         SwitcherPlacement.screenIndex(
           focusedWindow: frontmostWindowFrame(), mainScreen: NSScreen.main?.frame,
           pointer: NSEvent.mouseLocation, in: screens)
+      },
+      doubleClickInterval: { NSEvent.doubleClickInterval },
+      runAfter: { delay, action in
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) {
+          MainActor.assumeIsolated { action() }
+        }
       })
   } // End of static var appKit
 
@@ -93,22 +102,30 @@ extension SwitcherSystem {
 }
 
 /// The switcher panel's root view: the live `SwitcherView` at its natural size, but no taller
-/// than `maximumHeight` (`PopoverHeightLimit`; its list shrinks and scrolls), reporting each
-/// change of that size.
+/// than `maximumHeight` (`PopoverHeightLimit`; its list shrinks and scrolls) and no shorter
+/// than `minimumHeight` (the switcher at the top, its background below, so that area is part
+/// of the panel's opaque, clickable surface), reporting each change of that size.
 struct SwitcherPanelRoot: PanelRootView {
   /// The switcher's model.
   let model: AppModel
   /// The tallest the switcher lays itself out, in points (`nil`: no limit); the controller sets
   /// the room below its top edge.
   var maximumHeight: CGFloat?
+  /// The shortest the switcher lays itself out, in points (`nil`: its natural height); the
+  /// controller sets the panel's height through a click's double-click interval
+  /// (`SwitcherController.holdForClick()`).
+  var minimumHeight: CGFloat?
   /// Called when the switcher's natural size changed.
   let onSizeChange: @MainActor () -> Void
+  /// Light or dark, for the background below the switcher.
+  @Environment(\.colorScheme) private var colorScheme
 
-  /// The switcher, at its natural size within the limit.
+  /// The switcher, at its natural size within the limits.
   var body: some View {
-    PopoverHeightLimit(maximumHeight: maximumHeight) {
+    PopoverHeightLimit(maximumHeight: maximumHeight, minimumHeight: minimumHeight) {
       SwitcherView(model: model, isLive: true)
     }
+    .background(PopoverPalette(colorScheme).background)
     .onGeometryChange(for: CGSize.self) { geometry in
       geometry.size
     } action: { _ in
@@ -139,15 +156,83 @@ struct SwitcherWindowBridge: NSViewRepresentable {
   }
 }
 
-/// The switcher's window tracking view: its keys go to `AppModel.handleSwitcherKey(_:)`.
+/// The switcher's window tracking view: its keys go to `AppModel.handleSwitcherKey(_:)`, and
+/// its window's left mouse button events go through `AppModel.switcherPasses(_:)` before any
+/// view sees them, so the rest of a click sequence whose click activated a row reaches none
+/// (`SwitcherClickSequence`, PLAN.md D32); the panel is held through the double-click interval
+/// (`SwitcherController.holdForClick()`), so that rest lands in this window.
 final class SwitcherWindowTrackingView: PanelKeyTrackingView {
+  /// The model deciding which mouse events pass.
+  private weak var model: AppModel?
+  /// The window whose mouse events are followed.
+  private weak var mouseWindow: NSWindow?
+  /// The left mouse button monitor.
+  private var mouseMonitor: Any?
+
   /// Creates the view for `model`.
   init(model: AppModel) {
+    self.model = model
     super.init { [weak model] key in model?.handleSwitcherKey(key) ?? .ignored }
   }
 
   /// Not used: the view is only created in code.
   required init?(coder: NSCoder) {
     return nil
+  }
+
+  /// Follows the new window's keys and left mouse button events, or stops when the view left
+  /// its window.
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    guard window !== mouseWindow else { return }
+    removeMouseMonitor()
+    guard let window else { return }
+    mouseWindow = window
+    mouseMonitor = NSEvent.addLocalMonitorForEvents(
+      matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+    ) { [weak self] event in
+      let click = SwitcherClick(event)
+      let passes = MainActor.assumeIsolated { self?.passes(click) ?? true }
+      return passes ? event : nil
+    }
+  } // End of func viewDidMoveToWindow()
+
+  /// Removes the key and mouse monitors.
+  override func stopTracking() {
+    super.stopTracking()
+    removeMouseMonitor()
+  }
+
+  /// Removes the mouse monitor.
+  private func removeMouseMonitor() {
+    if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+    mouseMonitor = nil
+    mouseWindow = nil
+  }
+
+  /// Whether a left mouse button event goes on: events of other windows always do.
+  private func passes(_ click: SwitcherClick) -> Bool {
+    guard let window = mouseWindow, click.windowNumber == window.windowNumber, let model
+    else { return true }
+    return model.switcherPasses(click.event)
+  }
+}
+
+/// The parts of a left mouse button event the switcher reads (`NSEvent` itself is not
+/// `Sendable`).
+struct SwitcherClick: Sendable {
+  /// The event's window number.
+  let windowNumber: Int
+  /// A press with its click count, a drag or a release.
+  let event: SwitcherClickSequence.Event
+
+  /// The parts of `event`, a left mouse button down, dragged or up event.
+  init(_ event: NSEvent) {
+    windowNumber = event.windowNumber
+    switch event.type {
+    case .leftMouseDown: self.event = .press(clickCount: event.clickCount)
+    case .leftMouseDragged: self.event = .drag
+    default: self.event = .release
+    }
   }
 }

@@ -166,12 +166,17 @@ the popover, the AppKit wiring (`SessionSwitcher`) holds no decisions:
 - **Keys** go through the same local key monitor as the popover's (`PanelKeyTrackingView`,
   not while an input method composes) to `AppModel.handleSwitcherKey(_:)`: the list's keys,
   or in the New session form (`NewSessionPanelView`, shared with the popover) the popover's
-  panel keys.
-- **Actions** (`AppModelSwitcher.swift`): Return opens through the popover's Open (D25); an
-  Open or New session started while the switcher shows is followed (`switcherActions`): its
-  success closes the switcher, a failure stays on its row, and one that arrives after the
-  switcher closed is carried to the top of its next opening (`switcherCarriedFailures`) and
-  stays on the popover row. A pinned row the engine does not list opens through its retained
+  panel keys. A click activates a row as Return does (`AppModel.clickSwitcherItem(_:)`), and
+  the switcher's tracking view also monitors its window's left mouse button events, so the
+  rest of that click's sequence reaches no view (`SwitcherClickSequence`); through the
+  double-click interval the controller keeps the panel no shorter than it was and holds back a
+  success close (`SwitcherController.holdForClick()`), so that rest lands on the panel, never
+  on the window behind it.
+- **Actions** (`AppModelSwitcher.swift`): Return or a click opens through the popover's Open
+  (D25); an Open or New session started while the switcher shows is followed
+  (`switcherActions`): its success closes the switcher, a failure stays on its row, and one
+  that arrives after the switcher closed is carried to the top of its next opening
+  (`switcherCarriedFailures`) and stays on the popover row. A pinned row the engine does not list opens through its retained
   target on its host as enabled now (or says its host is no longer turned on); a creation
   failure held back by the popover's Move here confirmation shows once that ends or at the
   switcher's next opening.

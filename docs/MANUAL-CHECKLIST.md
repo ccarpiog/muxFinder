@@ -351,9 +351,9 @@ the real popover, press keys in it or create a session from the real app, and th
 
 ## 18. The session switcher and its shortcut
 
-Owed by Phases I-3a and I-3b (PLAN.md Phase I-3, D32): the shortcut's checks, storage,
-registration lifecycle and recorder, and the switcher's content, keys, actions and visibility
-rule, are unit-tested over fakes, `--report-hotkey-registration` showed that registration works
+Owed by Phases I-3a, I-3b and I-5 (PLAN.md Phases I-3 and I-5, D32): the shortcut's checks,
+storage, registration lifecycle and recorder, and the switcher's content, keys, clicks, actions
+and visibility rule, are unit-tested over fakes, `--report-hotkey-registration` showed that registration works
 in the signed bundle, and the switcher's states were rendered from fixtures, but no unattended
 run may press a key, record in the real Settings window, write the real `preferences.json` or
 open the real switcher panel.
@@ -380,10 +380,16 @@ open the real switcher panel.
      press the shortcut from another app.
   9. From another app, open the switcher, type part of a session's name (also with an accent
      left out, or a dead-key accent composed in the field), move with ↑/↓ and press Return; then
-     open it again and double-click another session.
-  10. Open the switcher, type a new name such as `muxfinder-test-switcher`, press Return on
-      "New session “muxfinder-test-switcher”…", then Return in the form; afterwards kill that
-      session (`/opt/homebrew/bin/tmux kill-session -t '=muxfinder-test-switcher'`).
+     open it again and click another session once; then open it again and quickly double-click
+     a session; then open it again and quickly double-click a session already open in iTerm2
+     here.
+  10. With more than about three sessions listed (so the list is taller than the New session
+      form), open the switcher over a window of another app (TextEdit, say) and click "New
+      session…" once; press Esc, then quickly double-click "New session…"; press Esc. Type a
+      new name such as `muxfinder-test-switcher`, quickly
+      double-click "New session “muxfinder-test-switcher”…" near its right end, then press
+      Return in the form; afterwards kill that session (`/opt/homebrew/bin/tmux kill-session -t
+      '=muxfinder-test-switcher'`).
   11. Open the switcher from TextEdit (or any app with a text field focused) and press Esc;
       open it again and click outside it; open it again and press ⌘Tab.
   12. Open the popover from the menu bar icon, then press the shortcut; then click the icon
@@ -410,11 +416,18 @@ open the real switcher panel.
   recording (the field shows the shortcut again when you come back), the letter key is not
   captured, and the shortcut opens the switcher. 9: the list narrows as you type (accents and
   case ignored; a host's name keeps all its sessions), the first row is selected after each
-  keystroke, the arrows stop at the ends, the composed accent lands in the field; Return and
-  the double-click show "Opening…", iTerm2 comes forward with the session's windows and the
-  focus in them, and the switcher is gone. 10: the form shows This Mac and the name filled in,
-  with the directory list button; Return creates, the session opens in iTerm2 and the switcher
-  closes. 11: each closes it and the focus is back in the app you were in (TextEdit's cursor
+  keystroke, the arrows stop at the ends, the composed accent lands in the field; Return, the
+  single click and the double click each show "Opening…" at once on the row pressed or
+  clicked, iTerm2 comes forward with the session's windows and the focus in them, and the
+  switcher is gone; the double click opens the session once (one launch, no second tab); on a
+  session already open here it brings iTerm2 forward, the switcher closes a moment later, and
+  its second click selects or clicks nothing in iTerm2's window. 10: one click on "New
+  session…" shows the form at once; a quick double click under the long list shows the form
+  once, and its second click acts on nothing in the form (no directory list opens, Cancel and
+  Create are not pressed) and clicks nothing behind the panel (the window underneath is
+  untouched and the switcher stays open, the panel shrinking to the form a moment later). The
+  form shows This Mac and the name filled in, with the
+  directory list button; Return creates, the session opens in iTerm2 and the switcher closes. 11: each closes it and the focus is back in the app you were in (TextEdit's cursor
   where it was), with no muxFinder window left and muxFinder never in front. 12: only one of
   the popover and the switcher shows at a time; ⌘, opens Settings (the switcher closes), ⌘R
   shows the hosts' spinners in the popover later. 13: Saturno's sessions are missing and a

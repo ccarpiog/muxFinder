@@ -2594,7 +2594,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     app becoming active (iTerm2 coming forward included), the panel resigning key, a display
     change, the popover opening, and an action it started succeeding (a close from outside made
     by a press on muxFinder's status item is left to the popover that press opens; *Visibility*
-    below). Being non-activating,
+    below; after a click on a row, a success, another app becoming active and the panel
+    resigning key wait for the double-click interval, *Keys*). Being non-activating,
     closing it leaves the focus with the app that had it. Built only in normal mode with the
     shortcut (`AppLaunchOptions.registersGlobalShortcut`): no preview, self-test or `--report-*`
     mode has one.
@@ -2620,8 +2621,19 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     key monitor, now `PanelKeyTrackingView`, so an input method's marked text goes to the field):
     in the list, ↑/↓ move without wrapping, Return activates the selected row, ⌘N shows the
     form, ⌘F focuses the search field, ⌘R refreshes, ⌘, opens Settings (which activates the app,
-    so the switcher closes), Esc closes, ⌥↓ goes on. A click selects a row, a double-click
-    activates it. The New session form is the popover's `NewSessionPanelView` over the shared
+    so the switcher closes), Esc closes, ⌥↓ goes on. A click activates a row, as in the popover
+    (`AppModel.clickSwitcherItem(_:)`: selected, then opened or the form shown, at once), and
+    the rest of that click's sequence reaches no view in the panel (`SwitcherClickSequence`),
+    so a quick double click's second click never acts on the form the first one showed (a
+    second Open of a row opening is ignored anyway, D25). That rest always lands on the panel:
+    until the system's double-click interval has passed since the click
+    (`SwitcherController.holdForClick()`), the panel is no shorter than it was (the switcher's
+    background below a shorter content; a shrink, such as the form replacing a taller list,
+    waits, growth does not), and a close for the action's success, another app becoming
+    active or the panel resigning key (iTerm2 coming forward when a session open here is
+    focused) waits for the end; Esc, the shortcut, a press outside, a display change and the
+    popover opening close at once, and each close ends the hold. Return, ⌘N and the
+    accessibility action hold nothing. The New session form is the popover's `NewSessionPanelView` over the shared
     `panel` and `NewSessionDraft` (This Mac by default, D31's directory list included; the name
     field takes the focus), with the popover's panel keys (Return creates, ⌥↓ and the list's
     keys, Esc closes the list, then goes back to the list). Move here and Detach stay in the
@@ -4464,6 +4476,62 @@ Its design is recorded as **D33** (D22 and D30 edited), its diagnosis under *Ver
 "Phase I-4". Not split. The orchestrator's one call: the specification's `CLAUDE.md` command-note
 edit (its requirement 4) waits, because `CLAUDE.md` carries the user's uncommitted edit and a run
 never commits the user's paths; the wording owed is in `PROGRESS.md` *Open risks*.
+
+### Phase I-5 — Session switcher: one click activates a row (routine)
+
+From the inbox (2026-11-04). The specification, with the user's request verbatim, the user's
+decision (one click activates every row, as in the popover and Spotlight), the findings, the
+requirements and the acceptance, is
+`autoclaude/processed/50-switcher-single-click-activates.md`. D32's *Keys* item edited. Not
+split.
+
+Outcome: a session row and the New session row each have one tap gesture, calling
+`AppModel.clickSwitcherItem(_:)`, which selects the row and activates it at once as Return
+does (`activateSwitcherItem(_:)`: the popover's Open, or the form with ⌘N's draft); the
+double-click handler and `selectSwitcherItem(_:)` are gone. Because the first click now
+changes what is under the pointer (the form replaces the list, the panel keeping its top edge
+and resizing, so a double click on "New session…" could land its second click on the form's
+directory list button, Cancel or Create), the click also makes the panel ignore the rest of
+that click sequence: `SwitcherClickSequence`, a pure value applied by
+`SwitcherWindowTrackingView`'s local monitor to the left mouse button's events in the
+switcher's window, drops presses whose click count is above 1 (with their drags and releases)
+until a press starts a sequence of its own; Return and the accessibility action do not arm
+it, and each opening and closing of the switcher forgets it. A second activation of a row
+already opening is ignored by D25's in-flight rule as before, and `newSessionFromSwitcher()`
+now does nothing while the form shows (it used to put the filter's name back over the user's
+edit). Hover, the context menu, Return, ↑/↓, ⌘N, Esc, the
+accessibility actions and hints (neither hint mentioned a double click), pinned rows, the
+failure carry-over and closing on success are unchanged; so is the switcher gallery. New
+tests in `SwitcherClickTests`: `aClickOnASessionOpensItAsReturnDoes`,
+`aClickOnNewSessionShowsTheFormAsCommandNDoes`, `aSecondActivationOfARowOpeningStartsNothing`,
+`aSecondActivationOfNewSessionLeavesTheDraft` (fails with the `newSessionFromSwitcher()` fix
+reverted), `theRestOfAnActivatingClickIsIgnored`, `aRowActivatedOnThePressKeepsItsRelease`,
+`onlyAClickIgnoresTheRestOfItsSequence`; no existing test changed. On the final tree 815
+core + 343 UI tests pass. Review fixes (Phase I-5 review, D32): with a list taller than the
+New session form, a quick double click on "New session…" shrank the panel under the pointer
+(its top edge kept), so the second click reached the window behind it and closed the switcher
+as a press outside; and a click on a session open here could close the switcher, its focus
+succeeding with iTerm2 coming forward, before the second click. Now `clickSwitcherItem(_:)`
+first asks the controller to hold the panel (`AppModel.holdSwitcherForClick`,
+`SwitcherController.holdForClick()`): until `NSEvent.doubleClickInterval` has passed (read
+through `SwitcherSystem.doubleClickInterval`, the end scheduled through
+`SwitcherSystem.runAfter`) the content lays itself out no shorter than the panel was
+(`PopoverPanelSurface.minimumContentHeight`, `PopoverHeightLimit.minimumHeight`: the switcher
+at the top, `SwitcherPanelRoot` painting its opaque background below, so that area is the
+panel's and the click is dropped there by `SwitcherClickSequence`), a shrink waiting and
+growth applied at once, and a close for `actionSucceeded`, `appSwitch` or `resignedKey`
+waits for the end (`CloseReason.waitsForClickHold`), so the engine hears the same one closed,
+later; every other close is made at once, each close ends the hold, and a hold's end
+changes nothing once a close or a later click's hold replaced it. A scratch render of the real
+panel host showed the held form at the top with the background below. With regression tests
+(`aClickHoldsAShrinkUntilTheIntervalEnds`, `growthDuringAHoldIsAppliedAtOnce`,
+`aSuccessCloseWaitsForTheHold`, `aReopenedSwitcherInheritsNoHold` in
+`SwitcherControllerTests`; `onlyAClickHoldsThePanel`,
+`aFocusAfterAClickClosesOnceTheIntervalEnds` in `SwitcherClickTests`;
+`switcherRootIsNoShorterThanItsMinimum` in `PopoverHeightLimitTests`) that fail with their
+fix reverted (the growth test with a hold that freezes the frame instead); the test panel and
+switcher system gained the minimum and the two seams, no other test changed. On the final
+tree 815 core + 350 UI tests pass.
 
 ## Deferred (explicitly out of scope for v1)
 

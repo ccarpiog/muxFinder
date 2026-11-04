@@ -6,8 +6,9 @@ import Testing
 
 /// The popover's height limit (PLAN.md D30): content taller than the display's room below the
 /// menu bar lays itself out no taller than that room, its host list shrinking and scrolling,
-/// so the panel never cuts off the footer; content that fits keeps its natural size. Measured
-/// in hosting views that are never put in a window (no window, panel or status item).
+/// so the panel never cuts off the footer; content that fits keeps its natural size; and the
+/// switcher's root is no shorter than a click's hold asks (D32). Measured in hosting views
+/// that are never put in a window (no window, panel or status item).
 @Suite("Popover height limit")
 @MainActor
 struct PopoverHeightLimitTests {
@@ -82,4 +83,23 @@ struct PopoverHeightLimitTests {
     #expect(abs(changed[0] - natural) <= Self.tolerance)
     #expect(abs(changed[1] - limit) <= Self.tolerance, "natural \(natural), limit \(limit)")
   } // End of func panelRootIsNoTallerThanItsLimit()
+
+  /// The switcher's panel root (PLAN.md D32, Phase I-5 review), measured as
+  /// `PanelHost.contentSize` measures it: its natural height with no minimum or a lower one;
+  /// exactly a taller minimum (a click's hold) when set on the existing root view; its natural
+  /// height again once the minimum is cleared.
+  @Test func switcherRootIsNoShorterThanItsMinimum() {
+    let host = NSHostingView(
+      rootView: SwitcherPanelRoot(model: Self.model(), onSizeChange: {}))
+    host.layoutSubtreeIfNeeded()
+    let natural = host.fittingSize.height
+    #expect(natural > 100, "the fixture's switcher lists sessions")
+    host.rootView.minimumHeight = natural - 50
+    #expect(abs(host.fittingSize.height - natural) <= Self.tolerance)
+    host.rootView.minimumHeight = natural + 200
+    #expect(abs(host.fittingSize.height - (natural + 200)) <= Self.tolerance)
+    #expect(abs(host.fittingSize.width - SwitcherView.width) <= Self.tolerance)
+    host.rootView.minimumHeight = nil
+    #expect(abs(host.fittingSize.height - natural) <= Self.tolerance)
+  } // End of func switcherRootIsNoShorterThanItsMinimum()
 }

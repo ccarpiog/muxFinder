@@ -11,6 +11,57 @@ public enum SwitcherActionState: Sendable, Hashable {
   case failedWhileShown
 }
 
+/// The rest of a click sequence whose click activated a session switcher row (PLAN.md D32,
+/// Phase I-5). A click activates a row at once, so a quick double click's second click lands
+/// on what the first one showed: the New session form (its directory list button, Cancel or
+/// Create may sit under the pointer) or the row now opening. The switcher's panel lets the rest
+/// of that sequence (presses whose click count is above 1, with their drags and releases)
+/// through to no view; the next press starting a sequence of its own (click count 1) ends it.
+/// A pure value over the left mouse button's events; `SwitcherWindowTrackingView` applies it
+/// to those in the switcher's window (`AppModel.switcherPasses(_:)`).
+public struct SwitcherClickSequence: Sendable, Hashable {
+  /// A left mouse button event in the switcher's window.
+  public enum Event: Sendable, Hashable {
+    /// The button went down, the `clickCount`th click of its sequence.
+    case press(clickCount: Int)
+    /// The pointer moved with the button down.
+    case drag
+    /// The button went up.
+    case release
+  }
+
+  /// Whether the rest of the current click sequence is ignored (a click in it activated a row).
+  public private(set) var ignoresRest = false
+  /// Whether the button is down after an ignored press, so its drags and release are ignored.
+  private var holdsIgnoredPress = false
+
+  /// No sequence ignored.
+  public init() {}
+
+  /// A click activated a row: the rest of its sequence is ignored.
+  public mutating func rowActivated() {
+    ignoresRest = true
+  }
+
+  /// Whether `event` goes on to the switcher's views, and its effect on the sequence: a press
+  /// with a click count of 1 starts a new sequence (passed); a later press of an ignored
+  /// sequence is ignored with its drags and its release. Events of a press that was passed
+  /// always pass (a row activated by a press keeps its own release).
+  public mutating func passes(_ event: Event) -> Bool {
+    switch event {
+    case .press(let clickCount):
+      if clickCount <= 1 { ignoresRest = false }
+      holdsIgnoredPress = ignoresRest
+      return !ignoresRest
+    case .drag:
+      return !holdsIgnoredPress
+    case .release:
+      defer { holdsIgnoredPress = false }
+      return !holdsIgnoredPress
+    }
+  } // End of func passes(_:)
+}
+
 /// A New session the switcher started, while its session is being created.
 struct SwitcherCreation: Sendable, Hashable {
   /// The creation's number (`AppModel.PendingCreation.id`).
@@ -35,7 +86,10 @@ struct SwitcherCreation: Sendable, Hashable {
 ///   session form, ⌘N shows the form, ⌘F focuses the search field, ⌘R refreshes, ⌘, opens
 ///   Settings and Esc closes the switcher; in the form, the popover's panel keys (Return
 ///   creates, ⌥↓ opens the directory list, Esc closes the list, then goes back to the list).
-///   Move here and Detach stay in the popover.
+///   A click activates a row as Return does, as in the popover (`clickSwitcherItem(_:)`), and
+///   the rest of that click's sequence is ignored (`SwitcherClickSequence`), the panel held
+///   through the double-click interval so that rest lands on it
+///   (`SwitcherController.holdForClick()`). Move here and Detach stay in the popover.
 /// - **Its actions:** an Open (a New session's attach included) started while the switcher
 ///   shows is the switcher's (`switcherActions`). Its success closes the switcher if it stayed
 ///   open since; a failure while it shows stays on its row with the popover row's text and
@@ -83,7 +137,8 @@ extension AppModel {
   /// back shows in the form (`showDeferredCreationFailure()`), carried failures that are no
   /// longer failures are forgotten, the first row is selected and remembered, the popover
   /// closes, and unless it showed the engine refreshes now and every 15 s with attachment
-  /// checks (PLAN.md D22). A repeated call while open does nothing.
+  /// checks (PLAN.md D22). No click sequence is ignored. A repeated call while open does
+  /// nothing.
   public func switcherDidOpen() {
     guard !isSwitcherVisible else { return }
     let wasListVisible = isSessionListVisible
@@ -91,6 +146,7 @@ extension AppModel {
     openedSessionList()
     switcherSearchText = ""
     switcherSelection = nil
+    switcherClicks = SwitcherClickSequence()
     if switcherShowsNewSession, !newSessionDraft.isBusy, newSessionDraft.state == .editing,
       creation == nil
     {
@@ -105,11 +161,13 @@ extension AppModel {
 
   /// The switcher closed: its running actions no longer close it on success, the failures it
   /// showed are let go (their rows keep them in the popover), an idle New session form leaves
-  /// (so the popover does not open on it), and unless the popover shows the engine goes back to
-  /// the background cadence with no attachment checks.
+  /// (so the popover does not open on it), the click sequence followed is forgotten, and unless
+  /// the popover shows the engine goes back to the background cadence with no attachment
+  /// checks.
   public func switcherDidClose() {
     guard isSwitcherVisible else { return }
     isSwitcherVisible = false
+    switcherClicks = SwitcherClickSequence()
     for (key, state) in switcherActions {
       switch state {
       case .running: switcherActions[key] = .running(closesOnSuccess: false)
@@ -175,14 +233,31 @@ extension AppModel {
     switcherSelection = switcherContent.selection
   }
 
-  /// A click on a row: selects it.
-  public func selectSwitcherItem(_ item: SwitcherContent.Item) {
-    switcherSelection = item
+  /// A click on a row (PLAN.md D32, as a click on a popover row): first holds the panel
+  /// through the double-click interval (`holdSwitcherForClick`: no shorter than it is now, a
+  /// success close waiting), then activates the row at once (`activateSwitcherItem(_:)`, which
+  /// selects it first, so the row showing "Opening…" is the one clicked) and ignores the rest
+  /// of that click's sequence (`SwitcherClickSequence`), so a quick double click's second click
+  /// acts neither on the New session form the first one showed, nor on the row it started
+  /// opening, nor on the window behind the panel.
+  public func clickSwitcherItem(_ item: SwitcherContent.Item) {
+    holdSwitcherForClick?()
+    activateSwitcherItem(item)
+    switcherClicks.rowActivated()
   }
 
-  /// Return or a double-click on a row: a session opens as from the popover (focused when open
-  /// in iTerm2 here, else attached, PLAN.md D25); the New session row shows the form. Does
-  /// nothing for `nil`.
+  /// Whether a left mouse button event in the switcher's window goes on to its views: not
+  /// while it belongs to the rest of a click sequence whose click activated a row
+  /// (`SwitcherClickSequence.passes(_:)`).
+  public func switcherPasses(_ event: SwitcherClickSequence.Event) -> Bool {
+    switcherClicks.passes(event)
+  }
+
+  /// Return, a click or the accessibility action on a row: it is selected, then a session
+  /// opens as from the popover (focused when open in iTerm2 here, else attached, PLAN.md D25;
+  /// ignored while an action on it is pending, so a second activation of a row opening starts
+  /// nothing) and the New session row shows the form (`newSessionFromSwitcher()`; nothing new
+  /// while it shows). Does nothing for `nil`.
   public func activateSwitcherItem(_ item: SwitcherContent.Item?) {
     switch item {
     case .session(let key)?:
@@ -198,8 +273,10 @@ extension AppModel {
 
   /// The New session row or ⌘N: shows the New session form (`newSession()`: This Mac by
   /// default, the directory list loaded), its name filled in from the filter text when the New
-  /// session row offers it. A creation in progress keeps its own draft.
+  /// session row offers it. A creation in progress keeps its own draft. Does nothing while the
+  /// form shows, so its draft stays as the user left it.
   public func newSessionFromSwitcher() {
+    guard !switcherShowsNewSession else { return }
     let prefill = switcherContent.newSession?.prefill
     let wasCreating = creation != nil
     newSession()

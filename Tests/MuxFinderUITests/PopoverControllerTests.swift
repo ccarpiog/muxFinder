@@ -20,6 +20,8 @@ struct PopoverControllerTests {
     var naturalSize = CGSize(width: 360, height: 168)
     /// The limit the controller set.
     var maximumContentHeight: CGFloat?
+    /// The minimum the controller set (the switcher's hold after a click).
+    var minimumContentHeight: CGFloat?
     /// The limit in effect at each read of `contentSize`.
     private(set) var limitsAtSizeReads: [CGFloat?] = []
     /// Whether it shows.
@@ -31,12 +33,12 @@ struct PopoverControllerTests {
     /// How many times it was hidden.
     private(set) var hideCount = 0
 
-    /// The natural size, no taller than the limit (the host list shrinks, down to nothing);
-    /// records the limit in effect.
+    /// The natural size, no taller than the limit (the host list shrinks, down to nothing) and
+    /// no shorter than the minimum; records the limit in effect.
     var contentSize: CGSize {
       limitsAtSizeReads.append(maximumContentHeight)
       let height = min(naturalSize.height, maximumContentHeight ?? .infinity)
-      return CGSize(width: naturalSize.width, height: height)
+      return CGSize(width: naturalSize.width, height: max(height, minimumContentHeight ?? 0))
     }
 
     /// Shows at `frame`.
