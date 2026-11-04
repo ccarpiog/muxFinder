@@ -8,3 +8,4 @@ up. The item itself is in this directory, unchanged.
 - 2026-11-04 17:12 · 40-empty-settings-window-at-launch.md · queued · phase I-4 — No empty Settings window at launch
 - 2026-11-04 17:45 · 50-switcher-single-click-activates.md · queued · phase I-5 — Session switcher: one click activates a row
 - 2026-11-04 17:45 · 60-new-session-tab-between-fields.md · queued · phase I-6 — New session: Tab moves from Name to Directory
+- 2026-11-04 19:03 · 70-new-session-directory-list-filter.md · queued · phase I-7 — New session: typing in Directory filters the directory list

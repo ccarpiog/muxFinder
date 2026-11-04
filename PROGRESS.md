@@ -45,20 +45,27 @@ file.
 | I-5 | Session switcher: one click activates a row, the rest of its click sequence dropped, the panel held through the double-click interval (D32 *Keys* edited; spec `autoclaude/processed/50-switcher-single-click-activates.md`) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-5.md` | `docs/progress-archive/i-5.md` |
 | I-6 | New session: Tab moves from Name to Directory — panels recalculate their key view loop (native fix), read-only `--preview-key-view-loop` diagnostic (spec `autoclaude/processed/60-new-session-tab-between-fields.md`) | routine | opus (impl worker); review fix inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-6.md` | `docs/progress-archive/i-6.md` |
 
-Every phase of `PLAN.md` and every queued inbox phase is complete and reviewed.
+Every phase of `PLAN.md` is complete and reviewed. Queued from the inbox:
+
+| Phase | Title | Specification | Position |
+|---|---|---|---|
+| I-7 | New session: typing in Directory filters the directory list (combo-box style, auto-open while something matches, "No matching directories", D31 edited) | `autoclaude/processed/70-new-session-directory-list-filter.md` | next (after the plan's finished work) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
 two items triaged: `50-switcher-single-click-activates.md` → I-5,
-`60-new-session-tab-between-fields.md` → I-6, both queued, routine as proposed.
+`60-new-session-tab-between-fields.md` → I-6, both queued, routine as proposed, now complete.
+2026-11-04 19:03 (start of the iteration after I-6's commit), one item triaged:
+`70-new-session-directory-list-filter.md` → I-7, queued, routine as proposed (no instruction
+to the run in it; its user decisions are recorded in the item itself).
 
 ## Current phase
 
 Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4, I-5 and I-6 are complete and reviewed.
 **Phase I-6 — New session: Tab moves from Name to Directory (routine): complete** 2026-11-04
-(`docs/progress-archive/i-6.md`; D30, D31, D32 edited). **The plan is finished**, no inbox
-phase is queued; the user's manual checklist and the two `CLAUDE.md` notes owed (*Open risks*)
-remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+(`docs/progress-archive/i-6.md`; D30, D31, D32 edited). **The plan is finished**; one inbox
+phase is queued (I-7, above, not started); the user's manual checklist and the two `CLAUDE.md`
+notes owed (*Open risks*) remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
 I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
@@ -276,9 +283,14 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 
 ## Next action
 
-1. **Nothing queued.** Poll the inbox (`autoclaude-inbox.sh list`); with nothing there,
-   confirm `DONE`. The `CLAUDE.md` notes I-4 and I-6 owe (*Open risks*) are applied only once
-   `CLAUDE.md` holds no uncommitted edit of the user's.
+1. **Phase I-7** (queued, routine, not started;
+   `autoclaude/processed/70-new-session-directory-list-filter.md`): poll the inbox first, then
+   select I-7, record it in `PLAN.md` beside I-5/I-6, write its acceptance criteria from the
+   item's *Acceptance* (incl. deciding and recording the `~` rule), mark it `in_progress` with
+   `autoclaude-progress.sh` and run it with one worker. `PROGRESS.json` was left uncommitted by
+   the triage iteration with I-7 `queued` (record-only, on purpose); the I-7 commit folds it
+   in. With nothing left after I-7, confirm `DONE`. The `CLAUDE.md` notes I-4 and I-6 owe
+   (*Open risks*) are applied only once `CLAUDE.md` holds no uncommitted edit of the user's.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -426,6 +438,8 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   I-3a `29bb362`. Inbox triage commits: I-1/I-2 `bd9aed6`, I-3 `2fdfc87`.
 - Phase I-3b: `d5fa941`, pushed. Inbox triage (I-4): `3804a78`.
 - Phase I-4: `d428822`, pushed. Inbox triage (I-5, I-6): `d1f445a`; phase summary `3b2603d`.
-- Phase I-5: `8f08b99`, pushed. Phase I-6: the commit after it, pushed.
+- Phase I-5: `8f08b99`, pushed. Phase I-6: `26cef52`, pushed. Inbox triage (I-7): the
+  commit after it (`autoclaude-inbox.sh commit`), pushed; `PROGRESS.json` with the I-7 row
+  left uncommitted for I-7's phase commit.
 - The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
   note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.
