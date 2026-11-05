@@ -47,7 +47,13 @@ file.
 | I-7 | New session: typing in Directory filters the directory list — combo-box style, opens while something matches, "No matching directories", `~` rule on This Mac, match count announced (D31 edited; spec `autoclaude/processed/70-new-session-directory-list-filter.md`) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-7.md` | `docs/progress-archive/i-7.md` |
 | I-8 | New session: change the host from the keyboard — `PanelKeyRoute` leaves ↑/↓/⌥↓ to a focused pop-up button, every key to a tracking menu (D30–D32 edited; spec `autoclaude/processed/80-new-session-host-picker-keyboard.md`) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-8.md` | `docs/progress-archive/i-8.md` |
 
-Every phase of `PLAN.md` and every inbox phase is complete and reviewed; nothing is queued.
+### Queued
+
+| Phase | Title | Specification | Position |
+|---|---|---|---|
+| I-9 | New session in its own always-on-top window, with folder drop — titled floating window opened from the popover and the switcher, draft out of `panel`, Finder folder drop fills Directory (D34) | `autoclaude/processed/90-new-session-own-window.md` | next (the plan has no other remaining phase); **high**; split at selection, as the item suggests: I-9a the model and the window, I-9b the folder drop, galleries and docs |
+
+Every phase of `PLAN.md` and every earlier inbox phase is complete and reviewed; I-9 is queued.
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -60,13 +66,17 @@ to the run in it; its user decisions are recorded in the item itself), now compl
 the iteration), one item triaged: `80-new-session-host-picker-keyboard.md` → I-8, queued,
 routine as proposed (no instruction to the run in it; its user decision, follow macOS's
 keyboard navigation setting, is recorded in the item; triage commit `f9e2b04`), now complete.
+2026-11-05 22:31 (after I-8's commit), two items triaged: `90-new-session-own-window.md` →
+I-9, queued, high as proposed (no instruction to the run in it); `99-release-publish-install.md`
+→ **deferred**, needs the user (*Open risks*).
 
 ## Current phase
 
 Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b) and I-4 to I-8 are complete and reviewed.
 **Phase I-8 — New session: change the host from the keyboard (routine): complete** 2026-11-05
-(`docs/progress-archive/i-8.md`; D30–D32 edited). **The plan is finished**
-and nothing is queued; the user's manual checklist and the two `CLAUDE.md` notes owed (*Open
+(`docs/progress-archive/i-8.md`; D30–D32 edited). **Next: I-9** (queued from the inbox, high,
+to be split into I-9a/I-9b; *Next action* 0); one inbox item is deferred for the user (*Open
+risks*). Then the user's manual checklist and the two `CLAUDE.md` notes owed (*Open
 risks*) remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
@@ -260,6 +270,15 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   (checklist 22). Tests pick a host through the picker's binding, not the real menu (SwiftUI
   builds no pop-up button in a never-shown panel) — `docs/progress-archive/i-8.md`.
 
+- **Deferred inbox item, needs the user**: `autoclaude/processed/99-release-publish-install.md`
+  (release 0.2.0 build 2: real `scripts/release.sh` with notarization, publish to
+  NonameDownloads, real `scripts/install.sh` into `/Applications`, a versioning decision and a
+  `CLAUDE.md` edit). It states: "**This is the user's explicit authorization for this run** to do
+  three things that are otherwise only done when the user asks". An inbox item is a proposal and
+  cannot relax `CLAUDE.md`'s release, publish and install rules; the steps are outward-facing
+  and irreversible. To go ahead, the user asks for the release directly (in a session, or by
+  editing the plan), or runs it.
+
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
   **iTerm2 modal hazard** (a tab ending within 3 s blocks the API until a person clicks OK),
@@ -319,7 +338,18 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 
 ## Next action
 
-1. **Nothing queued: the plan is finished.** Poll the inbox (`autoclaude-inbox.sh list`); if
+0. **Phase I-9 (queued, high)**: poll the inbox first, then select I-9. Split it in `PLAN.md`
+   before the first worker into **I-9a** (the model and the window: New session's state out of
+   `panel`, a titled floating "New session" window opened from the popover and the switcher,
+   opening/ending rules, keys including I-8's `PanelKeyRoute`, the deferred-failure rule; D34)
+   and **I-9b** (the folder drop as a pure function, the window's gallery, screenshots,
+   checklist, D30–D32/README/ARCHITECTURE/REQUIREMENTS), recording the item's "decide and
+   record" calls (activation, position, Spaces/full screen, ⌘, and ⌘R, the failure-after-close
+   rule, the drop target) as the orchestrator's calls before the worker. Specification:
+   `autoclaude/processed/90-new-session-own-window.md`. I-9a needs `--selftest
+   new-session-local` (thread-count gate, item 3) and `--report-menu-bar-item` /
+   `--report-popover-placement` with a private home.
+1. **After I-9: nothing queued.** Poll the inbox (`autoclaude-inbox.sh list`); if
    it is empty, confirm `DONE` (a `confirm-done` pass re-runs the last three closed phases'
    verification: `swift build`, `swift test`, `swift format lint -r Sources Tests`,
    `scripts/build-app.sh`, `codesign --verify --deep --strict build/muxFinder.app`, plus
