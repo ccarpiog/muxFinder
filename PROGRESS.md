@@ -46,7 +46,13 @@ file.
 | I-6 | New session: Tab moves from Name to Directory — panels recalculate their key view loop (native fix), read-only `--preview-key-view-loop` diagnostic (spec `autoclaude/processed/60-new-session-tab-between-fields.md`) | routine | opus (impl worker); review fix inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-6.md` | `docs/progress-archive/i-6.md` |
 | I-7 | New session: typing in Directory filters the directory list — combo-box style, opens while something matches, "No matching directories", `~` rule on This Mac, match count announced (D31 edited; spec `autoclaude/processed/70-new-session-directory-list-filter.md`) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-7.md` | `docs/progress-archive/i-7.md` |
 
-Every phase of `PLAN.md` and every inbox phase is complete and reviewed; nothing is queued.
+### Queued
+
+| Phase | Title | Specification | Position |
+|---|---|---|---|
+| I-8 | New session: change the host from the keyboard — with Host focused, the panel's key monitor leaves ↑/↓/⌥↓ to the pop-up button; Space opens the host menu (diagnose first) | `autoclaude/processed/80-new-session-host-picker-keyboard.md` | next (the plan has no other remaining phase) |
+
+Every phase of `PLAN.md` and every earlier inbox phase is complete and reviewed; I-8 is queued.
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -55,7 +61,10 @@ two items triaged: `50-switcher-single-click-activates.md` → I-5,
 2026-11-04 19:03 (start of the iteration after I-6's commit), one item triaged:
 `70-new-session-directory-list-filter.md` → I-7, queued, routine as proposed (no instruction
 to the run in it; its user decisions are recorded in the item itself), now complete.
-2026-11-04 19:05 (I-7's iteration, before selection): `list` empty.
+2026-11-04 19:05 (I-7's iteration, before selection): `list` empty. 2026-11-05 22:01 (start of
+the iteration), one item triaged: `80-new-session-host-picker-keyboard.md` → I-8, queued,
+routine as proposed (no instruction to the run in it; its user decision, follow macOS's
+keyboard navigation setting, is recorded in the item).
 
 ## Current phase
 

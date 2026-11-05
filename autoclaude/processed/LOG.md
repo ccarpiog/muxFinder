@@ -9,3 +9,4 @@ up. The item itself is in this directory, unchanged.
 - 2026-11-04 17:45 · 50-switcher-single-click-activates.md · queued · phase I-5 — Session switcher: one click activates a row
 - 2026-11-04 17:45 · 60-new-session-tab-between-fields.md · queued · phase I-6 — New session: Tab moves from Name to Directory
 - 2026-11-04 19:03 · 70-new-session-directory-list-filter.md · queued · phase I-7 — New session: typing in Directory filters the directory list
+- 2026-11-05 22:00 · 80-new-session-host-picker-keyboard.md · queued · phase I-8 — New session: change the host from the keyboard
