@@ -101,7 +101,9 @@ public struct AttachGallery: View {
 }
 
 #Preview("New session: directory list") {
-  PopoverView(model: AppModel(fixture: AttachFixtures.newSessionDirectories), isLive: false)
+  NewSessionWindowRoot(
+    model: AppModel(fixture: AttachFixtures.newSessionDirectories), isLive: false,
+    onSizeChange: {})
 }
 
 #Preview("Session actions") {

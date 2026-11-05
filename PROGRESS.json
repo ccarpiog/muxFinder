@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-05T22:30:01Z",
+  "updated": "2026-11-05T23:36:05Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -600,11 +600,35 @@
     {
       "id": "I-9",
       "title": "New session in its own always-on-top window, with folder drop",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
-      "summary": "New session opens in its own floating titled window from the popover and the switcher, and accepts a dropped Finder folder.",
+      "summary": "Split into I-9a (the model and the window) and I-9b (the folder drop, galleries and docs).",
       "added": "2026-11-05T22:29:36Z",
-      "status_since": "2026-11-05T22:29:36Z"
+      "started": "2026-11-05T22:33:20Z",
+      "status_since": "2026-11-05T22:33:20Z"
+    },
+    {
+      "id": "I-9a",
+      "title": "New session window: the model and the window",
+      "status": "done",
+      "risk": "high",
+      "summary": "New session opens in its own floating titled window from the popover and the switcher, its state out of the shared panel.",
+      "parent": "I-9",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-9a.md",
+      "narrative": "docs/progress-archive/i-9a.md",
+      "added": "2026-11-05T22:33:20Z",
+      "started": "2026-11-05T22:33:20Z",
+      "status_since": "2026-11-05T23:36:05Z"
+    },
+    {
+      "id": "I-9b",
+      "title": "New session window: folder drop, galleries and docs",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "A Finder folder dropped on Directory fills its path; the window gets a preview gallery, screenshots, checklist and docs.",
+      "parent": "I-9",
+      "added": "2026-11-05T22:33:20Z",
+      "status_since": "2026-11-05T22:33:20Z"
     }
   ]
 }

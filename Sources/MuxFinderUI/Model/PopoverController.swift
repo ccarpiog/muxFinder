@@ -82,8 +82,9 @@ public struct PopoverSystem {
 ///   icon (`PopoverAnchoring` for the anchor, `PopoverPlacement` for the frame, on the anchor's
 ///   display), closes when open, or moves to the press's display when that is another one.
 /// - **Closing:** Esc (the panel's own close), a press outside the panel, another app becoming
-///   active, the panel resigning key, the displays changing and the session switcher opening
-///   (only one of the two shows, PLAN.md D32) close it; a close from outside that is the
+///   active, the panel resigning key, the displays changing, the session switcher opening
+///   (only one of the two shows, PLAN.md D32) and the New session window opening from it
+///   (PLAN.md D34) close it; a close from outside that is the
 ///   button's own press is ignored, and the button's action for a press that already closed it
 ///   from outside does not reopen it.
 /// - **Size:** the content lays itself out no taller than the anchor's display has room for
@@ -113,13 +114,15 @@ public final class PopoverController {
     case displaysChanged
     /// The session switcher opened (only one of the two shows at a time, PLAN.md D32).
     case switcherOpened
+    /// The New session window opened from the popover (PLAN.md D34).
+    case newSessionOpened
 
     /// Whether this close comes from outside the popover, so it may be the button's own press
     /// (`PopoverPressRules`).
     var isOutside: Bool {
       switch self {
       case .pressOutside, .appSwitch, .resignedKey: true
-      case .button, .escape, .displaysChanged, .switcherOpened: false
+      case .button, .escape, .displaysChanged, .switcherOpened, .newSessionOpened: false
       }
     }
   }
@@ -205,6 +208,13 @@ public final class PopoverController {
     let screens = system.screens()
     return PopoverAnchoring.isUsableButtonRect(rect, screens: screens)
       && PopoverAnchoring.isPress(held, onButton: rect, screens: screens)
+  }
+
+  /// Where the open popover is, for placing the New session window it opens (PLAN.md D34): its
+  /// frame and display; `nil` while closed.
+  public var newSessionSource: NewSessionWindowSource? {
+    guard isOpen, let placement else { return nil }
+    return NewSessionWindowSource(frame: placement.frame, screen: placement.screen)
   }
 
   /// Closes the popover for `reason`. A close from outside that is the press the button's

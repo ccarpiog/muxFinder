@@ -58,9 +58,15 @@ import os
 ///   toggles the session switcher through `toggleSwitcher` (`SwitcherController.toggle()`, set
 ///   by `SessionSwitcher`).
 /// - **Session switcher** (PLAN.md D32, Phase I-3b; `AppModelSwitcher.swift`): its search text,
-///   selection and content (`switcherContent`), its keys (`handleSwitcherKey(_:)`), the Open and
-///   New session actions it started (it closes when one succeeds, and a failure that arrives
-///   once it closed shows at the top of its next opening and on the popover row).
+///   selection and content (`switcherContent`), its keys (`handleSwitcherKey(_:)`), the Open
+///   actions it started and the creations of New session drafts it made (it closes when one
+///   succeeds while it shows, and a failure that arrives once it closed shows at the top of its
+///   next opening and on the popover row).
+/// - **New session window** (PLAN.md D34; `AppModelNewSession.swift`): its draft, whether it
+///   shows and the latest request to show it (`newSessionWindow`, which the app shell's
+///   `NewSessionWindowController` follows), its keys (`handleNewSessionKey(_:)`), the creation
+///   and "Open existing". The popover and the switcher open it and close as it opens; opening
+///   and closing them never touches it.
 /// - **Fixtures:** `init(fixture:)` renders a fixed state for previews and screenshots; it
 ///   never starts an engine, reads the host list or contacts iTerm2.
 @MainActor
@@ -183,9 +189,15 @@ public final class AppModel {
   /// Banners for sessions that vanished or changed between the listing and an action, newest
   /// first.
   public internal(set) var banners: [SessionBanner] = []
-  /// The Move here confirmation or the New session sheet, while shown.
+  /// The popover's Move here confirmation, while shown (New session has its own window,
+  /// `newSessionWindow`, PLAN.md D34).
   public internal(set) var panel: PopoverPanel?
-  /// The New session sheet's fields and state. Any change to the Directory field's text (byte
+  /// The New session window as the model has it (PLAN.md D34): whether it shows and the latest
+  /// request to show it or bring it forward. Each change reaches `newSessionWindowChanged`.
+  public internal(set) var newSessionWindow = NewSessionWindowState() {
+    didSet { newSessionWindowChanged?() }
+  }
+  /// The New session form's fields and state. Any change to the Directory field's text (byte
   /// for byte: typing, pasting, a pick) drops the directory list's highlight, so Return then
   /// creates from what the field holds; a user edit (not a pick, a host change or a reset) also
   /// opens or closes the list as its filter matches (`directoryFieldChanged(from:)`, PLAN.md
@@ -193,8 +205,11 @@ public final class AppModel {
   public var newSessionDraft = NewSessionDraft() {
     didSet { directoryFieldChanged(from: oldValue.directory) }
   }
+  /// Increases whenever the New session window's Name field should take the keyboard focus
+  /// (each fresh opening, PLAN.md D34).
+  public internal(set) var newSessionFocusRequests = 0
   /// New session's directory lists as last loaded or changed (PLAN.md D31); empty until the
-  /// sheet first opens.
+  /// window first opens.
   public internal(set) var directoryLists = DirectoryLists()
   /// How the directory lists last loaded.
   public internal(set) var directoryStatus = DirectoryListStatus.notLoaded
@@ -227,11 +242,13 @@ public final class AppModel {
   /// refresh keeps it on its session.
   public var switcherSelection: SwitcherContent.Item?
   /// Increases whenever the switcher's search field should take the keyboard focus (each
-  /// opening, ⌘F, leaving the New session form).
+  /// opening, ⌘F).
   public internal(set) var switcherFocusRequests = 0
-  /// The Open and New session attaches the switcher started, by session: running, or failed
-  /// while it showed (`SwitcherActionState`). Their sessions are pinned at the top while the
-  /// engine does not list them.
+  /// The Open attaches the switcher started and the attaches of sessions created from New
+  /// session drafts it made or opened from them with "Open existing", by session: running, or
+  /// failed while it showed
+  /// (`SwitcherActionState`). Their sessions are pinned at the top while the engine does not
+  /// list them.
   public internal(set) var switcherActions: [SessionKey: SwitcherActionState] = [:]
   /// Sessions whose switcher action failed after the switcher closed, newest first: shown at the
   /// top of its next opening, then forgotten when it closes (the popover row keeps the failure).
@@ -265,21 +282,38 @@ public final class AppModel {
   /// (`SwitcherController.holdForClick()`), called by `clickSwitcherItem(_:)` before the row
   /// acts; set by `SwitcherController.make`.
   @ObservationIgnored public var holdSwitcherForClick: (@MainActor () -> Void)?
-  /// Closes the popover when the switcher opens; set by `MenuBarPopover`.
-  @ObservationIgnored public var closePopover: (@MainActor () -> Void)?
+  /// Closes the popover for a reason (the switcher opened, the New session window opened); set
+  /// by `MenuBarPopover`.
+  @ObservationIgnored public var closePopover: (@MainActor (PopoverController.CloseReason) -> Void)?
+  /// Where the open popover is, for placing the New session window it opens (PLAN.md D34); set
+  /// by `MenuBarPopover` (`PopoverController.newSessionSource`). `nil` answers none.
+  @ObservationIgnored public var popoverSource: (@MainActor () -> NewSessionWindowSource?)?
+  /// Where the open switcher is, for placing the New session window it opens (PLAN.md D34);
+  /// set by `SwitcherController.make` (`SwitcherController.newSessionSource`).
+  @ObservationIgnored public var switcherSource: (@MainActor () -> NewSessionWindowSource?)?
+  /// Told after each change of `newSessionWindow`; set by `NewSessionWindowController.make` (the
+  /// app shell's window). `nil` (the self-tests, previews, tests of the model) shows nothing.
+  @ObservationIgnored public var newSessionWindowChanged: (@MainActor () -> Void)?
   /// Whether a mouse press on muxFinder's status item button is in progress now; set by
   /// `MenuBarPopover` (`PopoverController.isButtonPressHeld`). The switcher leaves a close from
   /// outside made by that press to the popover the press opens, so the handoff keeps one of
   /// the two visible for the engine (PLAN.md D22, D32). `nil` answers no.
   @ObservationIgnored public var isStatusItemPressHeld: (@MainActor () -> Bool)?
-  /// The New session the switcher started, while its session is being created.
+  /// The creation of a New session draft the switcher made, while its session is being created.
   @ObservationIgnored var switcherCreation: SwitcherCreation?
-  /// Whether the switcher's creation failed while a Move here confirmation held the panel: the
-  /// form shows it once that ends or the switcher opens next (`showDeferredCreationFailure()`).
-  @ObservationIgnored var switcherCreationFailureDeferred = false
+  /// Which entry point made the New session draft (PLAN.md D34): a creation from a draft the
+  /// switcher made is the switcher's to follow (`switcherCreationStarted(_:)`), as is the attach
+  /// its "Open existing" starts (`switcherExistingOpened(_:target:)`).
+  @ObservationIgnored var newSessionOrigin: NewSessionOrigin?
+  /// Numbers the New session window's requests (`showNewSessionWindow(_:)`).
+  @ObservationIgnored var nextNewSessionWindowRequest = 0
   /// The rest of the click sequence whose click activated a switcher row, which the switcher's
   /// panel lets through to no view (`clickSwitcherItem(_:)`, `switcherPasses(_:)`).
   @ObservationIgnored var switcherClicks = SwitcherClickSequence()
+  /// The rest of the click sequence in progress when the New session window was last opened
+  /// (a double click on the switcher's New session row or the popover's button, say), which
+  /// the window lets through to no view (`newSessionWindowPasses(_:)`, PLAN.md D34).
+  @ObservationIgnored var newSessionClicks = SwitcherClickSequence()
   /// The visibility changes handed to the engine's queue, oldest first (the latest
   /// `visibilityLogLimit`; tests read them).
   @ObservationIgnored private(set) var engineVisibilityChanges: [Bool] = []
@@ -313,7 +347,7 @@ public final class AppModel {
   /// "Open existing" lookups (`AttachCoordinator.currentSession(named:on:)`) that have not
   /// ended, by number; a cancelled one stays until it ended, so quitting waits for its probe.
   @ObservationIgnored var lookups: [Int: Task<Void, Never>] = [:]
-  /// The lookup the New session sheet waits for, if any.
+  /// The lookup the New session window waits for, if any.
   @ObservationIgnored var currentLookupID: Int?
   /// Numbers New sessions and "Open existing" lookups.
   @ObservationIgnored var nextPanelActionID = 0
@@ -397,6 +431,7 @@ public final class AppModel {
     notes = fixture.notes
     banners = fixture.banners
     panel = fixture.panel
+    newSessionWindow = NewSessionWindowState(isShown: fixture.showsNewSession)
     newSessionDraft = fixture.newSessionDraft
     directoryLists = fixture.directoryLists
     directoryStatus = fixture.directoryStatus
@@ -784,26 +819,22 @@ public final class AppModel {
     selection = keys[down ? min(position + 1, keys.count - 1) : max(position - 1, 0)]
   } // End of func moveSelection(down:)
 
-  /// Carries out a popover key and says whether the popover should close. While a panel
-  /// shows (Move here, New session), Return confirms it, Esc closes it, and the arrows, ⌘F and
-  /// ⌘N do nothing. In New session, ⌥↓ opens the directory list; while it is open, ↑/↓ move
-  /// through it, Return picks the highlighted row (with none, it closes the list and creates)
-  /// and Esc closes the list, not the panel (`handleDirectoryListKey(_:)`, PLAN.md D31). ⌥↓
-  /// anywhere else is left to the focused view (`ignored`). With a pop-up button focused (the
-  /// Host picker) the panel's key monitor never hands ↑, ↓ or ⌥↓ here, and while a menu tracks
-  /// no key at all (`PanelKeyRoute`, PLAN.md Phase I-8).
+  /// Carries out a popover key and says whether the popover should close. While the Move here
+  /// confirmation shows, Return confirms it, Esc closes it, ⌘R and ⌘, act as in the list, the
+  /// arrows, ⌘F and ⌘N do nothing and ⌥↓ is left to the focused view (`ignored`). In the list,
+  /// ⌘N opens the New session window (`newSession()`, PLAN.md D34) and ⌥↓ is left to the
+  /// focused view. While a menu tracks the panel's key monitor hands no key here
+  /// (`PanelKeyRoute`, PLAN.md Phase I-8). The New session window's keys are
+  /// `handleNewSessionKey(_:)`.
   public func handle(_ key: PopoverKey) -> PopoverKeyResult {
-    if let panel {
-      if case .newSession = panel, let result = handleDirectoryListKey(key) { return result }
-      switch (key, panel) {
-      case (.open, .moveHere): confirmMoveHere()
-      case (.open, .newSession): createSession()
-      case (.openList, .newSession): openDirectoryList(highlightingFirst: true)
-      case (.openList, .moveHere): return .ignored
-      case (.close, _): cancelPanel()
-      case (.refresh, _): refresh()
-      case (.settings, _): openSettings()
-      case (.up, _), (.down, _), (.find, _), (.newSession, _): break
+    if case .moveHere? = panel {
+      switch key {
+      case .open: confirmMoveHere()
+      case .openList: return .ignored
+      case .close: cancelPanel()
+      case .refresh: refresh()
+      case .settings: openSettings()
+      case .up, .down, .find, .newSession: break
       }
       return .handled
     }

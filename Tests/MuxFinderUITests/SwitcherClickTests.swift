@@ -7,11 +7,12 @@ import Testing
 /// A click on a session switcher row (PLAN.md D32, Phase I-5): one click activates it as Return
 /// does, as a click on a popover row does, through the real `AppModel`, the real engine and the
 /// real `AttachCoordinator` over fakes (`AttachHarness`); a second activation of a row already
-/// opening, or of New session while its form shows, starts nothing new; the rest of the
-/// clicking sequence is let through to no view (`SwitcherClickSequence`); and only a click
-/// holds the real controller's panel through the double-click interval, a focus's success
-/// close waiting for its end (Phase I-5 review). Nothing runs a process, opens a socket or
-/// contacts iTerm2.
+/// opening, or of New session while its window shows, starts nothing new; the rest of the
+/// clicking sequence is let through to no view of the switcher or of the New session window it
+/// opened (`SwitcherClickSequence`, PLAN.md D34); and only a click holds the real controller's
+/// panel through the double-click interval, a focus's success close and the New session
+/// window's opening close waiting for its end (Phase I-5 review). Nothing runs a process, opens
+/// a socket or contacts iTerm2.
 @Suite("Session switcher clicks")
 @MainActor
 struct SwitcherClickTests {
@@ -77,35 +78,36 @@ struct SwitcherClickTests {
     await model.shutdown()
   } // End of func aClickOnASessionOpensItAsReturnDoes()
 
-  /// A click on the New session row shows the form with the draft ⌘N gives: named from the
-  /// filter when the row offers it, for This Mac, and with no filter an empty name; the row is
-  /// selected first.
-  @Test func aClickOnNewSessionShowsTheFormAsCommandNDoes() async {
+  /// A click on the New session row opens the New session window with the draft ⌘N gives:
+  /// named from the filter when the row offers it, for This Mac, and with no filter an empty
+  /// name; the row is selected first. (Each opening here follows a Cancel, so the draft is a
+  /// fresh one; the switcher stays open in this model, which has no controller.)
+  @Test func aClickOnNewSessionOpensTheWindowAsCommandNDoes() async {
     let harness = await Self.openSwitcher()
     let model = harness.model
     model.switcherSearchText = "deploy-docs"
     #expect(model.handleSwitcherKey(.newSession) == .handled)
-    #expect(model.switcherShowsNewSession)
+    #expect(model.isNewSessionShown)
     let fromCommandN = model.newSessionDraft
     #expect(fromCommandN.name == "deploy-docs" && fromCommandN.hostID == harness.hosts[0].id)
     model.newSessionDraft.name = "edited"
-    _ = model.handleSwitcherKey(.close)
-    #expect(!model.switcherShowsNewSession)
+    model.closeNewSession()
+    #expect(!model.isNewSessionShown)
     model.clickSwitcherItem(.newSession)
     #expect(model.switcherSelection == .newSession)
-    #expect(model.switcherShowsNewSession && model.panel == .newSession)
+    #expect(model.isNewSessionShown && model.panel == nil)
     #expect(model.newSessionDraft == fromCommandN)
-    _ = model.handleSwitcherKey(.close)
+    model.closeNewSession()
     model.switcherSearchText = ""
     _ = model.handleSwitcherKey(.newSession)
     let emptyFromCommandN = model.newSessionDraft
-    _ = model.handleSwitcherKey(.close)
+    model.closeNewSession()
     model.clickSwitcherItem(.newSession)
-    #expect(model.switcherShowsNewSession && model.newSessionDraft == emptyFromCommandN)
+    #expect(model.isNewSessionShown && model.newSessionDraft == emptyFromCommandN)
     #expect(model.newSessionDraft.name.isEmpty)
     #expect(model.runningActions.isEmpty)
     await model.shutdown()
-  } // End of func aClickOnNewSessionShowsTheFormAsCommandNDoes()
+  } // End of func aClickOnNewSessionOpensTheWindowAsCommandNDoes()
 
   // MARK: - A second activation
 
@@ -135,8 +137,8 @@ struct SwitcherClickTests {
     await model.shutdown()
   } // End of func aSecondActivationOfARowOpeningStartsNothing()
 
-  /// Activating New session again while its form shows (a second click, had it reached the
-  /// row) leaves the form and its draft as the user left it.
+  /// Activating New session again while its window shows (a second click, had it reached the
+  /// row) only brings the window forward, its draft as the user left it.
   @Test func aSecondActivationOfNewSessionLeavesTheDraft() async {
     let harness = await Self.openSwitcher()
     let model = harness.model
@@ -147,7 +149,8 @@ struct SwitcherClickTests {
     model.clickSwitcherItem(.newSession)
     model.activateSwitcherItem(.newSession)
     model.newSessionFromSwitcher()
-    #expect(model.switcherShowsNewSession)
+    #expect(model.isNewSessionShown)
+    #expect(model.newSessionWindow.request?.kind == .open(source: nil))
     #expect(model.newSessionDraft.name == "deploy-docs-2")
     #expect(model.newSessionDraft.state == .editing && model.creation == nil)
     await model.shutdown()
@@ -189,7 +192,7 @@ struct SwitcherClickTests {
     events.map { clicks.passes($0) }
   }
 
-  /// Only a click arms the model's filter (Return and the accessibility action do not), and
+  /// Only a click arms the switcher's filter (Return and the accessibility action do not), and
   /// each closing and opening of the switcher forgets it.
   @Test func onlyAClickIgnoresTheRestOfItsSequence() async {
     let harness = await Self.openSwitcher()
@@ -197,12 +200,12 @@ struct SwitcherClickTests {
     let key = harness.key(on: harness.hosts[0])
     model.switcherSearchText = "deploy-docs"
     _ = model.handleSwitcherKey(.open)
-    #expect(model.switcherShowsNewSession)
+    #expect(model.isNewSessionShown)
     #expect(model.switcherPasses(.press(clickCount: 2)) && model.switcherPasses(.release))
-    _ = model.handleSwitcherKey(.close)
+    model.closeNewSession()
     model.activateSwitcherItem(.newSession)
     #expect(model.switcherPasses(.press(clickCount: 2)) && model.switcherPasses(.release))
-    _ = model.handleSwitcherKey(.close)
+    model.closeNewSession()
     model.clickSwitcherItem(.newSession)
     #expect(!model.switcherPasses(.press(clickCount: 2)) && !model.switcherPasses(.release))
     model.switcherVisibilityChanged(false)
@@ -220,8 +223,10 @@ struct SwitcherClickTests {
   // MARK: - The panel held through the double-click interval (Phase I-5 review)
 
   /// Only a click holds the panel: ⌘N, the accessibility action and Return hold nothing (the
-  /// success of Return's Open closes the switcher at once); a click on "New session…" holds
-  /// it at the panel's height for the system's double-click interval, before the form shows.
+  /// New session window's opening and the success of Return's Open close the switcher at
+  /// once); a click on "New session…" opens the window and holds the switcher at its height for
+  /// the system's double-click interval, its close for the window's opening waiting for the
+  /// interval's end (PLAN.md D34).
   @Test func onlyAClickHoldsThePanel() async {
     let harness = await AttachHarness.make(
       hosts: [Support.localHost(), Support.sshHost("Saturno")])
@@ -229,11 +234,16 @@ struct SwitcherClickTests {
     let wired = Wired.make(for: model)
     #expect(model.isSwitcherVisible)
     _ = model.handleSwitcherKey(.newSession)
-    _ = model.handleSwitcherKey(.close)
+    #expect(model.isNewSessionShown && !model.isSwitcherVisible)
+    #expect(wired.switcher.lastCloseReason == .newSessionOpened)
+    model.closeNewSession()
+    wired.switcher.toggle()
     model.activateSwitcherItem(.newSession)
-    _ = model.handleSwitcherKey(.close)
+    #expect(!wired.switcher.isOpen && wired.switcher.lastCloseReason == .newSessionOpened)
+    model.closeNewSession()
     #expect(!wired.switcher.isHoldingForClick && wired.system.delayed.isEmpty)
     #expect(wired.panel.minimumContentHeight == nil)
+    wired.switcher.toggle()
     model.switcherSelection = .session(harness.key(on: harness.hosts[0]))
     _ = model.handleSwitcherKey(.open)
     #expect(await harness.waitForActions(1))
@@ -243,9 +253,15 @@ struct SwitcherClickTests {
     #expect(wired.system.delayed.isEmpty)
     wired.switcher.toggle()
     model.clickSwitcherItem(.newSession)
-    #expect(model.switcherShowsNewSession)
+    #expect(model.isNewSessionShown)
     #expect(wired.switcher.isHoldingForClick && wired.panel.minimumContentHeight == 300)
+    #expect(wired.switcher.isOpen && wired.switcher.pendingClose == .newSessionOpened)
     #expect(wired.system.delays == [0.42])
+    #expect(!model.switcherPasses(.press(clickCount: 2)))
+    #expect(!model.newSessionWindowPasses(.press(clickCount: 2)))
+    wired.system.runDelayed()
+    #expect(!wired.switcher.isOpen && wired.switcher.lastCloseReason == .newSessionOpened)
+    #expect(model.isNewSessionShown)
     await model.shutdown()
   } // End of func onlyAClickHoldsThePanel()
 

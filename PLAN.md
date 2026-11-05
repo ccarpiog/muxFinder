@@ -1126,8 +1126,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     diagnostic's `performClick(_:)`, and the keys and clicks on the real icon are checked by
     hand (`docs/MANUAL-CHECKLIST.md`).
   - **Actions:** a click or Return opens a session, the row's context menu offers "Move
-    here…" and "Detach from this Mac", and "New session" and ⌘N show the New session sheet,
-    all through D25's attach state machine. "Settings" and ⌘, open the Settings window (D23).
+    here…" and "Detach from this Mac", and "New session" and ⌘N open the New session window
+    (D34), all through D25's attach state machine. "Settings" and ⌘, open the Settings window (D23).
     A failure's "Try again" repeats its action. A host's sign-in or host key problem also
     offers "Set up SSH in iTerm2 first" (D24).
   - **Quit:** "Quit", SIGTERM and SIGINT go through `AppTermination.request()`, which calls
@@ -1504,12 +1504,13 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     (the index's badge, or `attachedHere`). It is `detach(session:on:)` (D16: the 10 s tab age,
     the identity re-check, `detach-client`, never a closed tab); the row then says "Detached
     from this Mac — the session keeps running", the record goes and the host is refreshed.
-  - **New session:** a panel with the host (enabled hosts, This Mac first), the name (checked
+  - **New session:** a form (in its own window since D34) with the host (enabled hosts, This
+    Mac first), the name (checked
     inline with `Validation.sessionName`; an empty name is reported once Create was pressed) and
     an optional directory (`Validation.workingDirectory`). Create runs `createAndAttach(_:)`
     with `AppEnvironment.newSessionCommand` (empty, the user's shell; `sleep` in the
     self-tests). As soon as the session is created (`createAndAttach(_:onCreated:)` reports
-    it before its attach publishes anything), the panel closes, the host is refreshed and the
+    it before its attach publishes anything), the window closes, the host is refreshed and the
     attach becomes that session's pending action, like an Open: its row shows "Opening…",
     "Waiting for iTerm2…", "Still connecting — check the iTerm2 tab" with "Show tab", then the
     result; clicks on it are ignored meanwhile, quitting cancels it, and another New session
@@ -1517,12 +1518,13 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     listed session may have been renamed and another given its name, which is why tmux refused
     it): the coordinator lists the host afresh (`currentSession(named:on:)`, read-only) and the
     session with exactly that name there is opened (its attach revalidates it once more); when
-    none has the name any more the panel says it ended or was renamed and opens nothing (the
+    none has the name any more the window says it ended or was renamed and opens nothing (the
     host is refreshed), and a host that cannot be listed says so, opening nothing either. Any
-    other creation failure stays in the panel. Both panels are drawn inside the popover, not
-    as sheets or alerts, so they stay in the menu bar window and render in the fixtures. While
-    one shows, Return confirms it, Esc closes it (which also cancels an "Open existing" lookup),
-    and the arrows, ⌘F and ⌘N do nothing.
+    other creation failure stays in the window. The Move here confirmation is drawn inside the
+    popover, not as a sheet or alert, so it stays in the menu bar window and renders in the
+    fixtures; while it shows, Return confirms it, Esc closes it, and the arrows, ⌘F and ⌘N do
+    nothing. New session's keys and endings are D34's (its Esc also cancels an "Open
+    existing" lookup).
   - **Quit:** `shutdown()` cancels the actions in progress (opens, moves, detaches, New session
     creations and attaches, "Open existing" lookups, "Show tab"; an attach withdraws its
     request, a detach waiting for its tab's age sends nothing), stops everything else at the
@@ -1574,11 +1576,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     once; a New session attach followed on its row with "Show tab"; a focus that did not bring
     its tab forward; "Open existing" resolving the name afresh). The real runs are Phase 10b's.
   - **Preview fixtures:** `--preview-fixtures --preview-gallery attach` shows
-    `AttachFixtures.all` (15 states: progress and results, every failure in six cards, both
+    `AttachFixtures.all` (11 states: progress and results, every failure in six cards, both
     check-failure cards with a focus that did not bring its tab forward, Move here, two detach
-    cards, the New session panel empty, with an invalid name, creating and
-    after a collision, the banners) and the context menu of a session open here and of one
-    attached elsewhere; screenshots `docs/screenshots/attach-states-{light,dark}.png`.
+    cards, the banners; the New session form's states, empty, with an invalid name, creating,
+    after a collision and D31's list states, are `AttachFixtures.newSessionStates`, D34) and
+    the context menu of a session open here and of one attached elsewhere; screenshots
+    `docs/screenshots/attach-states-{light,dark}.png`.
 
 - **D26 — Persistent work profiles** (decided in Phase 11a, 2026-10-23, Settings in Phase 11c;
   code in `Sources/MuxFinderCore/Profiles/`: `PersistentProfiles.swift`,
@@ -2158,19 +2161,21 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     no taller than its height limit, `PopoverHeightLimit`; see *Size*) in an `NSHostingView`
     whose `sizingOptions` are `intrinsicContentSize` only, so the view never resizes the
     window itself. One panel, made at launch and reused. Its key view loop is recalculated as
-    views come and go (`autorecalculatesKeyViewLoop`, Phase I-6): the hosted view swaps whole
-    forms (New session replacing the list), and with AppKit's default the loop computed at the
-    panel's first showing left the form's fields leading nowhere, so Tab stayed in Name
-    (*Verified facts*, Phase I-6; the session switcher's panel is the same class, D32). Its
-    local key monitor (`PanelKeyTrackingView`) routes each key press through a pure decision,
+    views come and go (`autorecalculatesKeyViewLoop`, Phase I-6): when the hosted view swapped
+    whole forms (New session replacing the list, before D34), AppKit's default loop, computed
+    at the panel's first showing, left the form's fields leading nowhere, so Tab stayed in
+    Name (*Verified facts*, Phase I-6; the session switcher's panel is the same class, D32,
+    and the New session window keeps the setting, D34). Its
+    local key monitor (`PanelKeyTrackingView`, also the New session window's, D34) routes each
+    key press through a pure decision,
     `PanelKeyRoute.decide` (Phase I-8), over the key, the panel's first responder at that
     moment, menu tracking, marked text and the directory list's state: while a menu of the app
     tracks (`MenuTrackingObserver`, from `NSMenu.didBeginTrackingNotification` to
     `didEndTrackingNotification`; an end whose begin was never seen forgets every menu) or an
     input method composes text, every key goes on untouched; with an `NSPopUpButton` focused
-    (New session's Host picker), ↑, ↓ and ⌥↓ go on to it as AppKit handles them, while Return
-    and Esc keep the panel's meaning (D31); every other key goes to the panel's handler as
-    before (*Verified facts*, Phase I-8). Phase
+    (New session's Host picker, in the New session window since D34), ↑, ↓ and ⌥↓ go on to it
+    as AppKit handles them, while Return and Esc keep the window's meaning (D31); every other
+    key goes to the handler as before (*Verified facts*, Phase I-8). Phase
     14's look, width and sizing are unchanged when the content fits; no arrow.
   - **The anchor rule** (`PopoverAnchoring.decide`): when the action comes from a mouse event
     (the current event is a mouse press or release at most 1 s old), the press's location is
@@ -2190,7 +2195,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     Esc (the panel's `close()`, routed to the controller), a mouse press another process
     received (a global mouse-down monitor, only while open; mouse monitors need no
     permission), another app becoming active, the panel resigning key, a display change and
-    the session switcher opening (`CloseReason.switcherOpened`, D32) close it. The classic toggle bug (one press seen both as the button's action and as an
+    the session switcher opening (`CloseReason.switcherOpened`, D32) close it, and so does the
+    New session window opening from it (`CloseReason.newSessionOpened`, D34). The classic
+    toggle bug (one press seen both as the button's action and as an
     outside close) is handled in either order: an outside close made while a mouse button is
     held is remembered with the press's count, the pointer and the time, and the button's
     action for the same press leaves the popover closed, or opens it on the press's display if
@@ -2360,11 +2367,14 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     store (pinned by `DirectoryRecordingTests.eachModeGetsItsOwnStore`).
   - **The picker (Phase I-2b):** the Directory field stays a text field (typing, pasting,
     `~/…`), with a pull-down button at its trailing edge that opens a list **drawn inside the
-    popover panel** under the field (`DirectoryListView`); the field is also the list's search,
+    form** under the field (`DirectoryListView`; in the popover's and the switcher's panels
+    until D34, in the New session window since), whose height follows it; the field is also
+    the list's search,
     combo-box style (Phase I-7, below), with no separate search field. Decided against a SwiftUI `Menu` or
     an `NSMenu`: a menu runs its own event tracking loop, so its ↑/↓, Return and Esc would
-    never reach the panel's key monitor (`PopoverWindowTrackingView`) or `AppModel.handle(_:)`
-    and could not be unit-tested through them; SwiftUI cannot open a `Menu` from a key, so ⌥↓
+    never reach the key monitor (then the popover's `PopoverWindowTrackingView`, now the New
+    session window's, D34) or the model's key handler and could not be unit-tested through
+    them; SwiftUI cannot open a `Menu` from a key, so ⌥↓
     in the text field would need an `NSMenu` popped up by hand at a computed position from a
     non-activating panel (D30) whose closing rules (resigning key closes the popover) a menu
     might trip, which was not worth verifying; and `--preview-snapshot` draws the panel's
@@ -2412,8 +2422,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     any `NewSessionRequest` (D3, D18). Only a row the list shows (after the filter) can be
     picked. Changing the host re-filters the list with the new host's entries and keeps the
     field; it is no edit, so it neither opens nor closes the list; a highlight the new list
-    lacks is dropped. The list closes with the panel, on a creation and when New session opens
-    again.
+    lacks is dropped. The list closes with the window, on a creation and at each fresh opening
+    of New session (an opening while the window shows leaves it, D34).
   - **Keys (Phase I-2b):** `PopoverKey.openList` is ⌥↓ (⌥ alone, the arrows' own flags
     ignored). In New session it opens the list on its first row; while the list is open
     (`handleDirectoryListKey(_:)`), ↑/↓ and ⌥↓ move the highlight through the rows shown (the
@@ -2438,17 +2448,18 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     its rows (an edit that keeps the same rows says nothing again), "No matching directories"
     when it closed a `typing` list; nothing when the list stays closed or the field is cleared
     behind a closing list. Esc closes the list, keeping the field's text (the next edit may
-    open it again), and leaves the panel open (a second Esc closes it);
-    ⌘F and ⌘N still do nothing and ⌘R and ⌘, act as in any panel. Everywhere else ⌥↓ returns
+    open it again), and leaves the window open (a second Esc closes it); ⌘N still does nothing,
+    ⌘, opens Settings, and ⌘F and ⌘R go on to the focused view, as without the list (the
+    window's keys, D34). Everywhere else ⌥↓ returns
     the new `PopoverKeyResult.ignored`, and the key goes on to the focused view as before
     (`PopoverKey` used to return `nil` for it). **Tab and ⇧Tab** (Phase I-6; decided: AppKit's
-    own key view loop, which the panel recalculates, D30) move between Name and Directory, and
-    with macOS's keyboard navigation on through the host picker, Name, Directory, the list's
-    button (Space presses it like any button), Cancel and Create in reading order, wrapping
-    inside the panel; the session list the form replaces is gone from the view tree, so Tab
-    never reaches it. No `PopoverKey` maps Tab, so the key monitor never takes it and an input
+    own key view loop, which the window recalculates, D30, D34) move between Name and
+    Directory, and with macOS's keyboard navigation on through the host picker, Name,
+    Directory, the list's button (Space presses it like any button), Cancel and Create in
+    reading order, wrapping inside the window, which holds only the form (no session list for
+    Tab to reach). No `PopoverKey` maps Tab, so the key monitor never takes it and an input
     method composing text gets it first, as it gets every key. Not routed through the model (a
-    Tab `PopoverKey` and an `@FocusState` field held by `AppModel`): the cause was the panel's
+    Tab `PopoverKey` and an `@FocusState` field held by `AppModel`): the cause was the panels'
     stale loop, and once it is recalculated AppKit already gives the reading order, the
     keyboard navigation rule and the input method's precedence for every control, which a
     model-held focus would have had to copy. Tab with the directory list open moves on and
@@ -2463,7 +2474,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     through `moveUp:`/`moveDown:`, which only `NSPopUpButton` answers; ⌥↓'s key binding
     messages it does not answer), and while that menu tracks every key is the menu's (↑/↓,
     Return, Space, Esc, type-to-select; Esc closes only the menu). Return with the menu closed
-    still creates and Esc still closes the panel. **The directory list and Host focus:** the
+    still creates and Esc still closes the window (D34). **The directory list and Host
+    focus:** the
     list keeps its keys wherever the focus is except on the pop-up button (I-6's rule that Tab
     moves on and leaves the list open stands); with the list open and the focus on Host,
     ↑/↓/⌥↓ go to the picker, the list stays open with its highlight unchanged (the model never
@@ -2475,10 +2487,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     and the picker is disabled while the draft is busy. With keyboard navigation off the
     picker is not in the loop and nothing changes (the user's decision: Host is never forced
     in). No host menu was re-implemented in the model.
-  - **Store use from the popover (Phase I-2b):** every load and change goes through
+  - **Store use from New session (Phase I-2b):** every load and change goes through
     `AppEnvironment.directories` on one queue (`enqueueDirectoryOperation(_:)`; the recording
     above runs on it too, and quitting waits for it within the budget). The lists are read
-    afresh each time New session opens (reading never writes; a problem status that is new is
+    afresh at each fresh opening of New session (D34; reading never writes; a problem status
+    that is new is
     logged as `directory list not usable: <code>`); each change's result becomes the lists
     shown, with the recents of hosts no longer in the host list forgotten in the same write.
     A refused save or clear changes nothing else, shows "muxFinder couldn't save this
@@ -2516,10 +2529,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     list hands them to the tab (`directoriesChangedElsewhere(_:)`), whose saved list follows
     and whose working copy follows only while it has no unsaved edits. No recents editor:
     they are cleared per host from New session's list.
-  - **Previews (Phase I-2b):** the attach gallery shows New session with the list open (three
-    sections, a highlighted recent row, a long path shortened), nothing to pick, a value saved
-    already and an unusable file; the Settings gallery the Directories tab with unsaved edits
-    and an inline issue, and with an unusable file; synthetic paths only. `--preview-snapshot`
+  - **Previews (Phase I-2b):** New session's fixtures show the list open (three sections, a
+    highlighted recent row, a long path shortened), nothing to pick, a value saved already and
+    an unusable file (`AttachFixtures.newSessionStates`; out of the attach gallery since D34,
+    the New session window's gallery is Phase I-9b's); the Settings gallery shows the
+    Directories tab with unsaved edits and an inline issue, and with an unusable file;
+    synthetic paths only. `--preview-snapshot`
     sizes the preview window to its content's natural size before drawing, since a titled
     window taller than the screen is shrunk to it and the attach gallery's host lists, which
     can shrink, then rendered squeezed.
@@ -2677,10 +2692,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `NSScreen.main`, else the pointer's, else the first (`SwitcherPlacement.screenIndex`). It
     closes on Esc (its own close), the shortcut, a mouse press another process received, another
     app becoming active (iTerm2 coming forward included), the panel resigning key, a display
-    change, the popover opening, and an action it started succeeding (a close from outside made
-    by a press on muxFinder's status item is left to the popover that press opens; *Visibility*
-    below; after a click on a row, a success, another app becoming active and the panel
-    resigning key wait for the double-click interval, *Keys*). Being non-activating,
+    change, the popover opening, an action it started succeeding, and the New session window
+    opening from it (`CloseReason.newSessionOpened`, D34; a close from outside made by a press
+    on muxFinder's status item is left to the popover that press opens; *Visibility* below;
+    after a click on a row, a success, the New session window opening, another app becoming
+    active and the panel resigning key wait for the double-click interval, *Keys*). Being
+    non-activating,
     closing it leaves the focus with the app that had it. Built only in normal mode with the
     shortcut (`AppLaunchOptions.registersGlobalShortcut`): no preview, self-test or `--report-*`
     mode has one.
@@ -2704,35 +2721,33 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     never moves the selection, or Return's target, to another session.
   - **Keys** (`AppModel.handleSwitcherKey(_:)` over `PopoverKey`, through the popover's local
     key monitor, now `PanelKeyTrackingView`, so an input method's marked text goes to the field):
-    in the list, ↑/↓ move without wrapping, Return activates the selected row, ⌘N shows the
-    form, ⌘F focuses the search field, ⌘R refreshes, ⌘, opens Settings (which activates the app,
-    so the switcher closes), Esc closes, ⌥↓ goes on. A click activates a row, as in the popover
-    (`AppModel.clickSwitcherItem(_:)`: selected, then opened or the form shown, at once), and
-    the rest of that click's sequence reaches no view in the panel (`SwitcherClickSequence`),
-    so a quick double click's second click never acts on the form the first one showed (a
-    second Open of a row opening is ignored anyway, D25). That rest always lands on the panel:
-    until the system's double-click interval has passed since the click
+    ↑/↓ move without wrapping, Return activates the selected row, ⌘N opens the New session
+    window (D34), ⌘F focuses the search field, ⌘R refreshes, ⌘, opens Settings (which activates
+    the app, so the switcher closes), Esc closes, ⌥↓ goes on. A click activates a row, as in
+    the popover (`AppModel.clickSwitcherItem(_:)`: selected, then opened or the New session
+    window opened, at once), and the rest of that click's sequence reaches no view in the panel
+    (`SwitcherClickSequence`), nor in the New session window it opened (D34), so a quick double
+    click's second click never acts on the window the first one opened (a second Open of a row
+    opening is ignored anyway, D25). That rest always lands on the panel or that window: until
+    the system's double-click interval has passed since the click
     (`SwitcherController.holdForClick()`), the panel is no shorter than it was (the switcher's
-    background below a shorter content; a shrink, such as the form replacing a taller list,
-    waits, growth does not), and a close for the action's success, another app becoming
-    active or the panel resigning key (iTerm2 coming forward when a session open here is
-    focused) waits for the end; Esc, the shortcut, a press outside, a display change and the
-    popover opening close at once, and each close ends the hold. Return, ⌘N and the
-    accessibility action hold nothing. The New session form is the popover's `NewSessionPanelView` over the shared
-    `panel` and `NewSessionDraft` (This Mac by default, D31's directory list included; the name
-    field takes the focus), with the popover's panel keys (Return creates, ⌥↓ and the list's
-    keys, Esc closes the list, then goes back to the list), its Tab order (D31's *Keys*:
-    AppKit's key view loop, which this panel recalculates as the popover's does, D30; never
-    out of the panel or to the session list the form replaced) and its Host picker's keys
-    (D31's *Keys*, Phase I-8: the same key monitor leaves ↑, ↓ and ⌥↓ to the focused pop-up
-    button and every key to an open menu, `PanelKeyRoute`). Move here and Detach stay in
-    the popover (a failure's own recoveries are the popover row's).
+    background below a shorter content; a shrink waits, growth does not), and a close for the
+    action's success, the New session window opening, another app becoming active or the panel
+    resigning key (iTerm2 coming forward when a session open here is focused) waits for the
+    end; Esc, the shortcut, a press outside, a display change and the popover opening close at
+    once, and each close ends the hold. Return, ⌘N and the accessibility action hold nothing.
+    New session is its own window (D34), opened with the name prefilled from the filter (for a
+    fresh draft only) and placed from the switcher's frame; its form, keys and Tab order are the
+    window's. Move here and Detach stay in the popover (a failure's own recoveries are the
+    popover row's).
   - **Actions and carry-over** (`AppModelSwitcher.swift`): a session row opens through the
-    popover's Open (D25: focused when open here, else attached). An Open, or a New session's
-    creation and its attach, started while the switcher shows is followed
-    (`switcherActions`, `switcherCreation`): its row shows the activity (pinned while the engine
-    does not list it); its success closes the switcher (`CloseReason.actionSucceeded`) only if
-    it stayed open since; a failure while it shows stays on its row with the popover row's text
+    popover's Open (D25: focused when open here, else attached). An Open started while the
+    switcher shows, and the creation and attach of a New session draft the switcher made (D34)
+    and the attach its "Open existing" starts, are followed (`switcherActions`,
+    `switcherCreation`): the row shows the activity (pinned while the engine does not list
+    it); a success closes the switcher
+    (`CloseReason.actionSucceeded`) only if it showed when the action started and stayed open
+    since (rarely so for a creation: the switcher closes as the New session window opens); a failure while it shows stays on its row with the popover row's text
     and recoveries (the switcher stays open); a failure that arrives once it closed is carried
     (`switcherCarriedFailures`) to the top of its next opening, pinned and selected (Return
     retries), and forgotten when that opening closes, while the popover row keeps it as always;
@@ -2743,12 +2758,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     as always (`AppModel.pinnedSwitcherTarget(for:)`); with that host turned off or removed the
     row shows "This session's host is no longer turned on in muxFinder, so nothing was opened."
     with "Open Settings" and "Try again" (`SessionProblem.hostNotTurnedOn`), never nothing. A
-    creation failure (a collision, say) stays in the form; when the user had left the form, it
-    is put back, so the next opening (or the popover) shows it. While the popover shows a Move
-    here confirmation it is held back (`switcherCreationFailureDeferred`) and the form comes
-    back once that confirmation ends (confirmed or cancelled) or at the switcher's next opening,
-    whichever is first (the unconfirmed Move here then closes; it ran nothing). An idle form
-    leaves at each opening and closing; one creating or showing a result stays.
+    creation failure (a collision, say) stays in the New session window, which comes back with
+    it, not key, when it was closed (D34); opening and closing the switcher never touch that
+    window or its draft.
   - **Visibility** (D22): the model combines the two (`isSessionListVisible`): `.popoverOpened`
     and `.popoverClosed` are each sent once whenever "either one is visible" changes, and each
     opening asks the other to close (`AppModel.closePopover`, set by `MenuBarPopover` to
@@ -2768,8 +2780,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     the activities of actions that succeeded. The engine's visibility changes are kept for tests
     (`engineVisibilityChanges`, the latest 32).
   - **Gallery:** `--preview-gallery switcher` (`SwitcherFixtures`, synthetic): the list, a
-    filtered list, New session with a name, the form, opening, a failure, a failure since the
-    last opening, no hosts, hosts checking or unreachable; `docs/screenshots/switcher-states-*.png`.
+    filtered list, New session with a name, opening, a failure, a failure since the last
+    opening, no hosts, hosts checking or unreachable; `docs/screenshots/switcher-states-*.png`.
+    The New session form as the switcher opens it is `SwitcherFixtures.newSessionStates`, for
+    the New session window's gallery (D34, Phase I-9b).
   - **The diagnostic** (`--report-hotkey-registration`; the orchestrator's call: allowed with
     bounds, not UI scripting): in its own process, through `CarbonHotkeyRegistrar`, it
     registers ⌃⌥⇧⌘F19 (expected registered), again (expected taken), unregisters it, registers
@@ -2794,8 +2808,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     menu item was removed; but on macOS 27.3 SwiftUI shows its first scene's window when
     launching finishes, so every launch showed an empty, resizable "muxFinder Settings" window
     (*Verified facts*, Phase I-4). With no scene, only muxFinder's own code makes windows: the popover and
-    switcher panels (hidden until asked for), Settings (D23) and onboarding (D24, only while
-    there is no host list), so a launch shows no window but onboarding. Hiding or closing
+    switcher panels (hidden until asked for), Settings (D23), onboarding (D24, only while
+    there is no host list) and the New session window (D34, made at its first opening), so a
+    launch shows no window but onboarding. Hiding or closing
     SwiftUI's window once it appeared was not considered: it would depend on SwiftUI's
     undocumented launch order and still flash the window.
   - **Considered:** keeping SwiftUI with a scene macOS never opens by itself. A `Window` or
@@ -2816,12 +2831,13 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     SwiftUI's menu, and an alternate "Close All" (⌥⌘W, `closeAll:`) under Close. Titles are
     sentence case (D10).
   - **What differs from SwiftUI's menu:** no Settings item, as before (SwiftUI's was removed):
-    ⌘, opens Settings only from the popover and the session switcher, whose key monitor takes
-    it before any menu (D22, D32). Paste and match style and Close are new (SwiftUI's menu had
-    neither, and no File menu). Close is disabled for muxFinder's borderless panels
-    (`validateMenuItem` is false for `PopoverPanelWindow`), so ⌘W and ⌥⌘W leave the popover
-    and the switcher alone; Settings and onboarding close on ⌘W through `SettingsWindow`
-    itself, as before. Gone: the empty View menu, the Help menu (⌘? only said that help is
+    ⌘, opens Settings only from the popover, the session switcher and the New session window,
+    whose key monitor takes it before any menu (D22, D32, D34). Paste and match style and
+    Close are new (SwiftUI's menu had neither, and no File menu). Close is disabled for
+    muxFinder's borderless panels (`validateMenuItem` is false for `PopoverPanelWindow`), so
+    ⌘W and ⌥⌘W leave the popover and the switcher alone; it is enabled for the New session
+    window (`NewSessionPanel`, titled and closable, D34), which ⌘W closes like Cancel; Settings
+    and onboarding close on ⌘W through `SettingsWindow` itself, as before. Gone: the empty View menu, the Help menu (⌘? only said that help is
     not available) and SwiftUI's hidden Toggle Sidebar (no window has a sidebar).
   - **Unchanged:** `AppDelegate` (the accessory policy, SIGTERM and SIGINT through
     `AppTermination`, `applicationShouldTerminate`, a reopen opening nothing). Preview mode and
@@ -2832,6 +2848,125 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     class, visibility, level), the launch's Apple event and the main menu (`AppShellReport`;
     bounded: 32 windows, 80 menu items, titles cut to 80 characters), so an unexpected window
     at launch shows as a visible window in its output.
+
+- **D34 — New session in its own window** (decided by the orchestrator for Phase I-9,
+  2026-11-05, from `autoclaude/processed/90-new-session-own-window.md`; code in Phase I-9a:
+  `Sources/MuxFinderUI/Model/NewSessionWindowController.swift` (the request and state types,
+  `NewSessionWindowPlacement`, `NewSessionWindowController`), `AppModelNewSession.swift`,
+  `AppModel.swift` (`newSessionWindow`), `AppModelSwitcher.swift`, `PopoverController.swift`
+  and `SwitcherController.swift` (`newSessionSource`, `CloseReason.newSessionOpened`),
+  `Views/NewSessionWindow.swift`, `Views/PopoverWindowBridge.swift` (`PanelKeyTrackingView`'s
+  mouse filter), `Sources/MuxFinderApp/AppDelegate.swift`; tests
+  `Tests/MuxFinderUITests/NewSessionWindowTests.swift` and the suites listed in
+  `docs/TESTING.md`, *Phase I-9a*. The folder drop, the window's gallery and the user docs are
+  Phase I-9b's).
+  - **The choice** (the user's decisions): New session was a form drawn inside the popover and
+    the session switcher, borderless panels that close on resigning key, a click elsewhere or
+    another app becoming active (D30, D32), so going to Finder for a folder lost it without a
+    trace. It is now one titled, movable, always-on-top window, opened from both entry points
+    (which close as it opens), staying until Create succeeds, Cancel, Esc, ⌘W or its close
+    button; the close button acts like Cancel. No "Choose…" folder picker.
+  - **The window** (`NewSessionPanel`, wired by `NewSessionWindow`): a non-activating `NSPanel`
+    (`.titled`, `.closable`, `.nonactivatingPanel`; a class of its own, not
+    `PopoverPanelWindow`, so the main menu's Close, ⌘W, is enabled for it, D33) titled "New
+    session"; it becomes key without activating muxFinder, as the popover and switcher do, and
+    a click into it makes it key again without taking the frontmost app's place; floating
+    level (above other apps' normal windows, below the popover and switcher panels and menus);
+    `canJoinAllSpaces` and `fullScreenAuxiliary` (the user leaves it to look for a folder,
+    possibly on another Space or beside a full-screen app); `hidesOnDeactivate` false, not
+    released when closed, movable, not resizable by the user; nothing closes it on resigning
+    key, a click elsewhere or another app becoming active. One window, made at the first
+    opening and reused (so the app shell check lists none at launch); its key view loop is
+    recalculated (`PopoverPanelWindow.recalculatesKeyViewLoop`, Phase I-6). It hosts the form
+    (`NewSessionPanelView`, without its old headline: the title says it) at
+    `NewSessionWindowPlacement.width`, 540 pt (the switcher's form width), on Phase 14's
+    opaque background, at its natural height (`PopoverHeightLimit` with no limit), reporting
+    size changes as the panels do.
+  - **The model** (`AppModel.newSessionWindow`, a `NewSessionWindowState`): whether the window
+    shows and the latest `NewSessionWindowRequest`, numbered so it is carried out once:
+    `.open(source:)` (the user's opening: key) or `.outcome` (a comeback: not key). The view
+    layer follows it through `AppModel.newSessionWindowChanged`, which
+    `NewSessionWindowController.make` sets; the controller places and shows the window over a
+    `NewSessionWindowSurface` (a fake in tests). The popover's `panel` now holds only the Move
+    here confirmation (`PopoverPanel.moveHere`), so a Move here confirmation and the window can
+    show at the same time. The controller is installed by the app shell only (`AppDelegate`,
+    normal mode, `--report-menu-bar-item` included; never `--report-popover-placement`): the
+    self-tests drive `newSession()`, `createSession()` and `closeNewSession()` with no window,
+    and preview mode builds the window only for `--preview-key-view-loop` (below) and the
+    window's gallery (Phase I-9b).
+  - **Opening** (`newSession()` from the popover's ⌘N and button, `newSessionFromSwitcher()`
+    from the switcher's ⌘N and New session row; both `openNewSession(from:source:prefill:)`):
+    a fresh opening (the window closed) starts a fresh draft for This Mac (or the first enabled
+    host), named from the switcher's filter when its row offers it, records the draft's origin
+    (`newSessionOrigin`), closes the directory list, asks for the Name field's focus
+    (`newSessionFocusRequests`) and reads the directory lists afresh (D31); while a creation
+    runs its draft shows busy instead, with no prefill. An opening while the window shows only
+    brings it forward, key, its draft, directory list and frame untouched (so the switcher's
+    prefill never overwrites a draft). Either way the popover and the switcher close
+    (`CloseReason.newSessionOpened`), and opening or closing them never touches the window or
+    its draft.
+  - **Position and size** (`NewSessionWindowPlacement`, pure): a fresh opening puts the
+    window's top centre at the top centre of the popover or switcher it came from
+    (`PopoverController.newSessionSource`, `SwitcherController.newSessionSource`, through
+    `AppModel.popoverSource` and `switcherSource`), on that display, clamped into its visible
+    frame; with no source, where the switcher would show on the first display. No frame is
+    remembered across closes, except for a comeback (below). While it shows the user's move
+    stands: an opening only brings it forward. The height follows the content (the directory
+    list included) with the top edge fixed, clamped into the visible frame of the display it is
+    on (moved up when it would reach below it).
+  - **Keys** (`AppModel.handleNewSessionKey(_:)`, through `NewSessionWindowTrackingView`, the
+    panels' `PanelKeyTrackingView` with the same `PanelKeyRoute`): as the form's were in the
+    panels: an open menu and an input method's marked text first, I-8's rule for a focused
+    pop-up button (↑, ↓, ⌥↓ go to the Host picker), then the open directory list's keys (D31),
+    Return creates, ⌥↓ opens the list, Esc closes the list and then the window, Tab and ⇧Tab
+    through the recalculated key view loop. ⌘W and the close button reach
+    `NewSessionPanel.close()`, which is `closeNewSession()`. ⌘, opens Settings (the window
+    stays, above it); ⌘R and ⌘F are not the window's (it lists no sessions) and go on to the
+    focused view; ⌘N and, with the list closed, ↑ and ↓ do nothing.
+  - **Clicks:** each opening makes the window let the rest of the click sequence in progress
+    through to no view (`newSessionClicks`, D32's `SwitcherClickSequence`;
+    `newSessionWindowPasses(_:)`), and the switcher's close for the window's opening waits for
+    a click's hold (`waitsForClickHold`), so a quick double click on the New session row lands
+    its second click on the switcher or on the window, both ignoring it (Phase I-5's guarantee,
+    kept).
+  - **Ending:** Cancel, Esc (the list closed), ⌘W and the close button close the window as
+    `closeNewSession()`: the directory list closes, "Open existing" stops looking (its lookup is
+    cancelled, a `findingExisting` draft goes back to `collision`), a creation in progress goes
+    on with its draft; otherwise the draft is dropped (the next opening starts a fresh one). A
+    success closes the window and the attach goes on on its row; a collision ("Open existing")
+    or a failure stays in it.
+  - **Failure after close** (`newSessionCreationFailed()`): when a creation whose window was
+    closed ends in a collision or a failure, the window comes back with the draft as submitted
+    and that outcome (`.outcome`), whichever entry point started it, ordered front at its last
+    frame on its display (a fresh frame when that display is gone) without being made key, so
+    it never takes typing from the app in front; a Move here confirmation no longer holds it
+    back, and nothing comes back once quitting began. This replaces the switcher-only deferred
+    failure (`switcherCreationFailed(_:)`, `showDeferredCreationFailure()`,
+    `switcherCreationFailureDeferred`, retired), keeping its guarantee for every creation.
+  - **The switcher's following** (D32, what changed): the switcher no longer shows the form
+    (`switcherShowsNewSession` retired) and no longer cancels an idle form at its opening and
+    closing. `switcherCreation` is now the creation of a draft the switcher made
+    (`newSessionOrigin == .switcher`), so its attach is followed as before (pinned while the
+    engine does not list it, a failure carried to the next opening), and so is the attach that
+    draft's "Open existing" starts, though the switcher closed as the window opened
+    (`switcherExistingOpened(_:target:)`, only once the attach started; a draft the popover
+    made is followed only while the switcher shows, as any Open); their `closesOnSuccess`
+    holds only when the switcher shows as the creation (or that attach) starts and stays open,
+    which is rare now that the switcher closes as the window opens.
+  - **Also retired:** `PopoverPanel.newSession` and `PanelView`; `cancelPanel()` closes only Move
+    here; the popover's `handle(_:)` lost the form's keys; `closePopover` takes a reason. The
+    attach and switcher galleries lost their inline form states (kept as
+    `AttachFixtures.newSessionStates` and `SwitcherFixtures.newSessionStates` for the window's
+    gallery, Phase I-9b).
+  - **The diagnostic:** `--preview-fixtures --preview-key-view-loop popover|switcher` (Phase
+    I-6, I-8) now builds the real New session window over that entry point's fixture
+    (`AttachFixtures.newSession`, `SwitcherFixtures.form`) and inspects its form; the step that
+    showed the panel with the list before the form is gone.
+  - **Considered:** a window that activates muxFinder, as Settings does (the frontmost app would
+    lose its menu bar and the focus, for a form the user fills while looking elsewhere);
+    showing a failure after close only on the session's row (there is no row for a session that
+    was never created, and the popover may be closed); remembering the window's frame across
+    closes (the orchestrator's call: a fresh opening appears where the user just looked).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -4842,6 +4977,77 @@ with the two new rules taken out), `MenuTrackingObserverTests` (`beginAndEnd`, `
 `unbalancedEnd`, `onlyItsCenter`) and `HostPickerBindingTests`
 (`aHostPickedThroughThePickersBinding`); no existing test changed. On the final tree 815 core +
 390 UI tests pass.
+
+### Phase I-9 — New session in its own always-on-top window, with folder drop (high)
+
+From the inbox (2026-11-05). The specification, with the user's request verbatim, the user's
+decisions (always on top; both entry points; a dropped Finder folder fills Directory; no
+"Choose…" button; the close button acts like Cancel), the findings, the requirements and the
+acceptance, is `autoclaude/processed/90-new-session-own-window.md`. Recorded as **D34** (D30,
+D31, D32 edited). Split, as the item suggests:
+
+- **I-9a — the model and the window (high).** New session's state out of `panel`; one titled
+  floating "New session" window opened from the popover and the switcher, which close as it
+  opens; the opening, ending and failure-after-close rules; the window's keys (I-6's key view
+  loop, I-7's list keys, I-8's `PanelKeyRoute`, ⌘W); the popover and switcher no longer show
+  the form inline (their galleries lose the inline form states, so they still build); D34
+  recorded, D30–D32 edited; `--selftest new-session-local`, `--report-menu-bar-item` and
+  `--report-popover-placement` pass (requirements 1–5, 7's decision part).
+- **I-9b — the folder drop, galleries and docs (routine).** The drop as a pure function and its
+  wiring on the Directory field (requirement 6), the window's preview gallery
+  (`--preview-gallery new-session`: editing, list open, filtered, busy, collision, failure,
+  drop highlight), screenshots regenerated for every changed gallery, `docs/MANUAL-CHECKLIST.md`
+  (a new item; 20, 21 and 22 updated for the window), `README.md`, `docs/ARCHITECTURE.md`,
+  `docs/REQUIREMENTS.md`.
+
+The orchestrator's calls, made before the first worker (the item's "decide and record"):
+
+- **Activation.** The window is a non-activating `NSPanel` (`.titled`, `.closable`,
+  `.nonactivatingPanel`; not a `PopoverPanelWindow`): opening it makes it key without
+  activating muxFinder, as the popover and switcher are key today, and a click into it makes it
+  key again without taking the frontmost app's place; `hidesOnDeactivate` false, not released
+  when closed, not resizable by the user. It never closes on resigning key, a click elsewhere
+  or another app activating.
+- **Level, Spaces, full screen.** Floating level (above other apps' normal windows, below the
+  popover and switcher panels and menus); `.canJoinAllSpaces` and `.fullScreenAuxiliary`, as
+  the panels: the user leaves it to look for a folder, possibly on another Space or beside a
+  full-screen app, and a window left behind on one Space would be the "disappears without
+  trace" problem again.
+- **Position and size.** A fresh opening puts the window's top centre at the top centre of the
+  popover or switcher it came from (on that screen), clamped into that screen's visible frame;
+  no frame is remembered across closes. While it shows, the user's move stands: opening it
+  again only brings it forward. Fixed width (the switcher's form width); the height follows the
+  content (the directory list included) with the top edge fixed, clamped into the visible
+  frame.
+- **Keys.** As the form's today (Return, Esc closing the list and then the window, ⌥↓, ↑/↓,
+  Tab/⇧Tab through the recalculated key view loop, I-8's routing, marked text first). ⌘W
+  closes it like Cancel. ⌘, opens Settings (the window stays); ⌘R and ⌘F are not the window's
+  (it lists no sessions); ⌘N with the window key does nothing.
+- **Ending.** Cancel, Esc (list closed), ⌘W and the close button all cancel as `cancelPanel()`
+  does for New session today: the window closes, "Open existing" stops looking, a creation in
+  progress goes on; the draft is dropped (the next opening starts a fresh one), except that the
+  draft of a creation still running stays with it for its outcome, and opening the window while
+  it runs shows that draft busy, as today.
+- **Failure after close.** When a creation whose window was closed ends in a collision or a
+  failure, **the window comes back with it** (the draft as submitted, the failure or "Open
+  existing"), whichever entry point started it, ordered front on its last screen and position
+  without being made key, so it never takes typing from the app in front. This replaces the
+  switcher-only deferred-failure path (`switcherCreationFailed(_:)`,
+  `showDeferredCreationFailure()`), keeping its guarantee for every creation; a Move here
+  confirmation no longer holds it back, since the two no longer share `panel`.
+- **Self-tests and previews.** The model never needs the window: the window controller is
+  installed by the app shell only, so `--selftest new-session-local` drives the model with no
+  window shown, and preview mode builds the window only for its gallery (I-9b).
+
+Outcome of I-9a (2026-11-05): as decided above, recorded as D34 (D22, D25, D30–D33 edited).
+The model holds the window's visibility and opening requests (`AppModelNewSession.swift`),
+`NewSessionWindowController` places and sizes it as pure functions over a surface, and the app
+shell alone builds the panel (`Views/NewSessionWindow.swift`). The switcher follows the attach
+of a draft it made, its creation and its "Open existing" alike (the review's one should-fix),
+even while closed. The inline form states left the attach and switcher galleries (kept as
+fixtures for I-9b); `--preview-key-view-loop popover|switcher` now inspects the window over
+that entry point's fixture. Changed and removed tests: `docs/TESTING.md`, *Phase I-9a*. 815
+core + 406 UI tests pass; `--selftest new-session-local` 7/7.
 
 ## Deferred (explicitly out of scope for v1)
 

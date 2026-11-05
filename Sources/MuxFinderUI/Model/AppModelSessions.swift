@@ -3,7 +3,8 @@ import MuxFinderCore
 import os
 
 /// The session actions of the popover (PLAN.md D25): Open, "Move here…", "Detach from this
-/// Mac", New session, "Show tab", the recoveries a failure offers, and the banners.
+/// Mac", "Show tab", the recoveries a failure offers, and the banners (New session, in its own
+/// window, is `AppModelNewSession.swift`, PLAN.md D34).
 ///
 /// - **One action per session:** `runningActions` holds the action in progress for each
 ///   session; a click, Return or menu item for a session with one pending is ignored, so a burst
@@ -75,41 +76,32 @@ extension AppModel {
 
   /// The confirmation's "Move here": the only call that reaches
   /// `AttachCoordinator.moveHere(_:confirmation:)`, with the confirmation naming that session.
-  /// Then a session switcher creation failure the confirmation held back shows
-  /// (`showDeferredCreationFailure()`).
   public func confirmMoveHere() {
     guard case .moveHere(let request) = panel else { return }
     panel = nil
     startAttach(request.target.key, kind: .moveHere, target: request.target)
-    showDeferredCreationFailure()
   }
 
-  /// Closes the panel (Cancel, or Esc): a Move here confirmation runs nothing; a New session
-  /// being created goes on (its result shows on its row) and "Open existing" stops looking (its
-  /// lookup is cancelled and opens nothing). New session's directory list closes with it. A
-  /// session switcher creation failure a Move here confirmation held back shows now
-  /// (`showDeferredCreationFailure()`).
+  /// Closes the Move here confirmation (Cancel, or Esc): it runs nothing. The New session
+  /// window is not the popover's panel and is left as it is (its own Cancel is
+  /// `closeNewSession()`, PLAN.md D34).
   public func cancelPanel() {
-    var endsMoveHere = false
-    if case .moveHere? = panel { endsMoveHere = true }
     panel = nil
-    closeDirectoryList()
-    if let id = currentLookupID { lookups[id]?.cancel() }
-    currentLookupID = nil
-    if newSessionDraft.state == .findingExisting { newSessionDraft.state = .collision }
-    if endsMoveHere { showDeferredCreationFailure() }
   }
 
   /// Starts an open or a confirmed move here of `key` (`given`, or the listed session, or for
   /// a session switcher row the engine does not list its retained target on its host as
-  /// enabled now, `pinnedSwitcherTarget(for:)`).
-  func startAttach(_ key: SessionKey, kind: ActionKind, target given: AttachTarget?) {
+  /// enabled now, `pinnedSwitcherTarget(for:)`). Returns whether it started: not after
+  /// `shutdown()`, while an action on `key` is pending, with no target, or with no coordinator
+  /// (that problem then shows on the row).
+  @discardableResult
+  func startAttach(_ key: SessionKey, kind: ActionKind, target given: AttachTarget?) -> Bool {
     guard lifecycle != .stopped, runningActions[key] == nil,
       let target = given ?? target(for: key) ?? pinnedSwitcherTarget(for: key)
-    else { return }
+    else { return false }
     guard let coordinator = coordinator() else {
       if let attacherProblem { activities[key] = .failed(.unavailable(attacherProblem)) }
-      return
+      return false
     }
     lastActions[key] = kind
     activities[key] = kind == .moveHere ? .movingHere : .opening
@@ -128,6 +120,7 @@ extension AppModel {
     runningActions[key] = RunningAction(kind: kind, target: target, task: task)
     if kind == .open { switcherActionStarted(key, target: target) }
     logger.info("Session action started: \(kind.name, privacy: .public)")
+    return true
   } // End of func startAttach(_:kind:target:)
 
   // MARK: - Detach
@@ -218,154 +211,6 @@ extension AppModel {
   public func dismissBanner(_ id: Int) {
     banners.removeAll { $0.id == id }
   }
-
-  // MARK: - New session
-
-  /// "New session" (⌘N): shows the sheet with a fresh draft for This Mac (or the first enabled
-  /// host), or the draft being created, with its directory list closed, and reads the
-  /// directory lists afresh in the background (`loadDirectoryLists()`, PLAN.md D31). Does
-  /// nothing for a fixture or after `shutdown()`.
-  public func newSession() {
-    guard environment != nil, lifecycle != .stopped else { return }
-    if case .newSession = panel { return }
-    if creation == nil {
-      let hosts = newSessionHosts
-      newSessionDraft = NewSessionDraft(
-        hostID: (hosts.first(where: \.isThisMac) ?? hosts.first)?.id)
-    }
-    directoryPicker = DirectoryPickerState()
-    panel = .newSession
-    loadDirectoryLists()
-  }
-
-  /// The sheet's "Create": checks the fields (the issues show inline), then creates the
-  /// session and attaches it (`AttachCoordinator.createAndAttach(_:onCreated:)`). A collision
-  /// offers "Open existing"; any other creation failure is shown in the sheet. Once the session
-  /// was created, the sheet closes and the attach is the new session's action
-  /// (`sessionCreated(_:_:on:)`), shown on its row from its first state on.
-  public func createSession() {
-    guard case .newSession = panel, creation == nil, !newSessionDraft.isBusy,
-      let environment, lifecycle != .stopped
-    else { return }
-    newSessionDraft.showsIssues = true
-    guard newSessionDraft.nameIssue == nil, newSessionDraft.directoryIssue == nil,
-      let request = newSessionDraft.request(
-        hosts: newSessionHosts, command: environment.newSessionCommand)
-    else { return }
-    guard let coordinator = coordinator() else {
-      newSessionDraft.state = .failed(
-        attacherProblem ?? "muxFinder could not prepare opening sessions in iTerm2.")
-      return
-    }
-    newSessionDraft.state = .creating
-    nextPanelActionID += 1
-    let id = nextPanelActionID
-    let sink = actionSink
-    let host = request.host
-    let directory = request.workingDirectory
-    let task = Task {
-      let result = await coordinator.createAndAttach(request) { created in
-        sink.yield(.sessionCreated(id: id, created, host: host, directory: directory))
-      }
-      sink.yield(.created(id: id, result, host: host))
-    }
-    creation = PendingCreation(id: id, task: task)
-    switcherCreationStarted(id)
-    logger.info("Session action started: new session")
-  } // End of func createSession()
-
-  /// New session `id` created its session on `host` in `directory`, and its attach starts now
-  /// (this comes before any of the attach's states). The directory is recorded as one of the
-  /// host's recent directories (`recordRecentDirectory(_:for:)`), whatever the attach does
-  /// next. From here on the attach is the new session's action, like an Open: its row follows
-  /// the coordinator's states ("Opening…", "Waiting for iTerm2…", "Still connecting — check the
-  /// iTerm2 tab" with "Show tab") and then the result, clicks on it are ignored while it is
-  /// pending, and quitting cancels it. The sheet closes, so the row shows, and the host is
-  /// refreshed, so it is listed; another New session can start.
-  func sessionCreated(
-    _ id: Int, _ created: CreatedSession, on host: HostConfig, directory: String?
-  ) {
-    recordRecentDirectory(directory, for: host.id)
-    guard let pending = creation, pending.id == id else { return }
-    creation = nil
-    let target = created.attachTarget(on: host)
-    let key = target.key
-    runningActions[key] = RunningAction(kind: .open, target: target, task: pending.task)
-    switcherSessionCreated(id, key: key, target: target)
-    lastActions[key] = .open
-    activities[key] = .opening
-    notes[key] = nil
-    if newSessionDraft.state == .creating { newSessionDraft.state = .editing }
-    if case .newSession = panel {
-      panel = nil
-      closeDirectoryList()
-    }
-    refreshHost(host.id)
-  } // End of func sessionCreated(_:_:on:directory:)
-
-  /// "Open existing" after a collision: lists the draft's host afresh through the attach
-  /// coordinator (`currentSession(named:on:)`), never trusting the popover's list, since the
-  /// session tmux reported may be another one than the list shows (the listed one renamed, and
-  /// another one given its name), and opens the session with exactly the draft's name in that
-  /// listing (`existingFound(_:_:name:on:)`). When none has that name, or the host cannot be
-  /// listed, the sheet says so and nothing is opened.
-  public func openExisting() {
-    guard case .newSession = panel, newSessionDraft.state == .collision, lifecycle != .stopped,
-      let hostID = newSessionDraft.hostID, let host = host(withID: hostID),
-      let name = try? Validation.sessionName(newSessionDraft.name)
-    else { return }
-    guard let coordinator = coordinator() else {
-      newSessionDraft.state = .failed(
-        attacherProblem ?? "muxFinder could not prepare opening sessions in iTerm2.")
-      return
-    }
-    newSessionDraft.state = .findingExisting
-    nextPanelActionID += 1
-    let id = nextPanelActionID
-    let sink = actionSink
-    lookups[id] = Task {
-      let found = await coordinator.currentSession(named: name, on: host)
-      sink.yield(.existingFound(id: id, found, name: name, host: host))
-    }
-    currentLookupID = id
-    logger.info("Session action started: open existing")
-  } // End of func openExisting()
-
-  /// "Open existing" number `id` listed `host` afresh: the session named exactly `name` there
-  /// is opened (the sheet closes and its row shows the attach, which revalidates it once more);
-  /// otherwise the sheet says why nothing was opened: no session has that name any more (it
-  /// ended or was renamed; the host is refreshed), or the host could not be listed. A lookup
-  /// the sheet no longer waits for (cancelled, or another draft) changes nothing.
-  func existingFound(
-    _ id: Int,
-    _ found: Result<AttachTarget, AttachFailure>,
-    name: String,
-    on host: HostConfig
-  ) {
-    lookups[id] = nil
-    guard currentLookupID == id else { return }
-    currentLookupID = nil
-    guard newSessionDraft.state == .findingExisting, case .newSession = panel else { return }
-    guard newSessionDraft.hostID == host.id,
-      (try? Validation.sessionName(newSessionDraft.name)) == name
-    else {
-      newSessionDraft.state = .editing
-      return
-    }
-    switch found {
-    case .success(let target):
-      newSessionDraft.state = .editing
-      panel = nil
-      selection = target.key
-      startAttach(target.key, kind: .open, target: target)
-      refreshHost(host.id)
-    case .failure(.sessionGone):
-      newSessionDraft.state = .failed(NewSessionDraft.existingGone)
-      refreshHost(host.id)
-    case .failure(let failure):
-      newSessionDraft.state = .failed(NewSessionDraft.existingNotListed(failure.message))
-    }
-  } // End of func existingFound(_:_:name:on:)
 
   // MARK: - The coordinator and its events
 
@@ -507,35 +352,6 @@ extension AppModel {
       refreshHost(key.hostID)
     }
   } // End of func finishDetach(_:)
-
-  /// New session number `id` on `host` ended: a creation failure stays in the sheet (a
-  /// collision offers "Open existing"); a created session's attach (its session's action since
-  /// `sessionCreated(_:_:on:)`) ends like an Open, on its row.
-  func finishCreation(_ id: Int, _ result: CreateAndAttachResult, on host: HostConfig) {
-    if creation?.id == id { creation = nil }
-    let createdKey = result.created.map {
-      SessionKey(hostID: host.id, server: $0.server, sessionID: $0.sessionID)
-    }
-    record(SessionActionRecord(key: createdKey, outcome: .created(result)))
-    if let failure = result.creationFailure {
-      if case .sessionExists = failure {
-        newSessionDraft.state = .collision
-      } else {
-        newSessionDraft.state = .failed(failure.message)
-      }
-      if failure.triggersRefresh { refreshHost(host.id) }
-      switcherCreationFailed(id)
-      return
-    }
-    guard let created = result.created, let attach = result.attach else {
-      if let createdKey { forgetSwitcherAction(createdKey) }
-      return
-    }
-    let running = runningActions.removeValue(forKey: attach.key)
-    notes[attach.key] = nil
-    lastActions[attach.key] = .open
-    finishAttach(attach, target: running?.target ?? created.attachTarget(on: host))
-  } // End of func finishCreation(_:_:on:)
 
   /// Keeps `record` among the latest finished actions and logs its kind (no ids or names).
   func record(_ record: SessionActionRecord) {

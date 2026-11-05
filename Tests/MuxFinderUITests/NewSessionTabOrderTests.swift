@@ -4,54 +4,43 @@ import Testing
 
 @testable import MuxFinderUI
 
-/// New session's Tab order in muxFinder's panels (PLAN.md D30, D31, Phase I-6): the panel
-/// recalculates its key view loop, so after the form replaces the list, Tab from Name reaches
-/// Directory and ⇧Tab comes back, as the key binding's own action messages
-/// (`insertTab(_:)`, `insertBacktab(_:)`) move them; no event is made. The panels are real
-/// (`PanelHost`) but never shown: no window appears and nothing takes the key focus. The
-/// cases run one after another: two panels editing text at once disturb each other's focus.
+/// New session's Tab order in the New session window (PLAN.md D34, D30, D31, Phase I-6): the
+/// window recalculates its key view loop, so after views come (the directory list opening),
+/// Tab from Name reaches Directory and ⇧Tab comes back, as the key binding's own action
+/// messages (`insertTab(_:)`, `insertBacktab(_:)`) move them; no event is made. The window is
+/// real (`NewSessionWindowHost`) but never shown: no window appears and nothing takes the key
+/// focus. The cases run one after another: two windows editing text at once disturb each
+/// other's focus.
 @Suite("New session tab order", .serialized)
 @MainActor
 struct NewSessionTabOrderTests {
-  /// A panel showing `kind`'s list (its fixture's form taken away), laid out, its key view
-  /// loop computed as AppKit does when a panel is first shown (the window asked for a key
-  /// view); then the form replaces the list as ⌘N makes it. Returns the panel's window, the
-  /// model and the panel's host.
-  static func panelWithForm(
+  /// The New session window over `kind`'s entry point fixture, laid out, its key view loop
+  /// computed as AppKit does when a window is first shown (the window asked for a key view);
+  /// then the directory list opens, so views come and the loop must be recalculated. Returns
+  /// the window, the model and the window's host.
+  static func windowWithForm(
     _ kind: AppLaunchOptions.KeyViewLoopPanel
-  ) async -> (window: NSWindow, model: AppModel, host: any PopoverPanelSurface) {
+  ) async -> (window: NSWindow, model: AppModel, host: NewSessionWindowHost) {
     _ = NSApplication.shared
     let model: AppModel
-    let window: NSWindow
-    let host: any PopoverPanelSurface
     switch kind {
-    case .popover:
-      model = AppModel(fixture: AttachFixtures.newSession)
-      model.panel = nil
-      let panelHost = PopoverPanelHost(model: model)
-      (window, host) = (panelHost.panel, panelHost)
-    case .switcher:
-      model = AppModel(fixture: SwitcherFixtures.form)
-      model.panel = nil
-      let panelHost = PanelHost<SwitcherPanelRoot>(level: .floating) { onSizeChange in
-        SwitcherPanelRoot(model: model, onSizeChange: onSizeChange)
-      }
-      (window, host) = (panelHost.panel, panelHost)
+    case .popover: model = AppModel(fixture: AttachFixtures.newSession)
+    case .switcher: model = AppModel(fixture: SwitcherFixtures.form)
     }
-    await settle(window, host)
-    window.selectNextKeyView(nil)
-    model.panel = .newSession
-    await settle(window, host)
-    return (window, model, host)
-  } // End of static func panelWithForm(_:)
+    let host = NewSessionWindowHost(model: model)
+    await settle(host)
+    host.panel.selectNextKeyView(nil)
+    model.openDirectoryList(highlightingFirst: false)
+    await settle(host)
+    return (host.panel, model, host)
+  } // End of static func windowWithForm(_:)
 
-  /// Gives SwiftUI a moment of the main loop to apply the model's change, then lays the panel
+  /// Gives SwiftUI a moment of the main loop to apply the model's change, then lays the window
   /// out at its content's size (never shown).
-  static func settle(_ window: NSWindow, _ host: any PopoverPanelSurface) async {
+  static func settle(_ host: NewSessionWindowHost) async {
     try? await Task.sleep(for: .milliseconds(50))
-    let size = host.contentSize
-    window.setFrame(CGRect(origin: .zero, size: size), display: false)
-    window.contentView?.layoutSubtreeIfNeeded()
+    host.panel.setFrame(CGRect(origin: .zero, size: host.fittingFrameSize), display: false)
+    host.panel.contentView?.layoutSubtreeIfNeeded()
   }
 
   /// The panel's text field with placeholder `prompt`.
@@ -78,9 +67,10 @@ struct NewSessionTabOrderTests {
     try? await Task.sleep(for: .milliseconds(50))
   }
 
-  /// Tab and ⇧Tab (with or without other modifiers) are no panel key, so the panels' key
-  /// monitor never takes them: they reach the focused view, and an input method composing
-  /// text (marked text) gets them first through AppKit's own text input.
+  /// Tab and ⇧Tab (with or without other modifiers) are no panel key, so the key monitor (the
+  /// panels' and the New session window's) never takes them: they reach the focused view, and
+  /// an input method composing text (marked text) gets them first through AppKit's own text
+  /// input.
   @Test("Tab and ⇧Tab are left to the focused view")
   func tabIsNoPanelKey() {
     let tab: UInt16 = 48
@@ -120,24 +110,26 @@ struct NewSessionTabOrderTests {
     #expect(AppLaunchOptions.usage.contains(AppLaunchOptions.keyViewLoopUsage))
   } // End of func keyViewLoopFlag()
 
-  /// The panel's key view loop setting, for both panels' window class.
-  @Test("The panels recalculate their key view loop")
+  /// The key view loop setting of the panels' window class and the New session window's.
+  @Test("The panels and the New session window recalculate their key view loop")
   func panelsRecalculateTheirKeyViewLoop() {
     #expect(PopoverPanelWindow(contentView: NSView()).autorecalculatesKeyViewLoop)
     #expect(
       PopoverPanelWindow(contentView: NSView(), level: .floating).autorecalculatesKeyViewLoop)
+    #expect(NewSessionPanel(contentView: NSView()).autorecalculatesKeyViewLoop)
   }
 
-  /// In both panels, after the form replaced the list: Tab from Name edits Directory, and
-  /// ⇧Tab from Directory edits Name again.
+  /// In the New session window over both entry points' fixtures, after the directory list
+  /// opened: Tab from Name edits Directory, and ⇧Tab from Directory edits Name again.
   @Test(
     "Tab moves from Name to Directory and back",
     arguments: AppLaunchOptions.KeyViewLoopPanel.allCases)
   func tabMovesFromNameToDirectoryAndBack(
     _ kind: AppLaunchOptions.KeyViewLoopPanel
   ) async throws {
-    let (window, _, host) = await Self.panelWithForm(kind)
+    let (window, model, host) = await Self.windowWithForm(kind)
     defer { host.hide() }
+    #expect(model.directoryPicker.isOpen)
     let name = try Self.field(NewSessionPanelView.namePrompt, in: window)
     let directory = try Self.field(DirectoryFieldView.prompt, in: window)
     #expect(window.makeFirstResponder(name))

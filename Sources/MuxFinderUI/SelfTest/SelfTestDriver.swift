@@ -178,10 +178,10 @@ public final class SelfTestDriver {
       try await step(8, "kill session") { try await self.killTestSession() }
     case .newSessionLocal:
       try await step(1, "listed This Mac") { try await self.startAndWaitForHost() }
-      try await step(2, "new session") { try await self.createThroughSheet() }
+      try await step(2, "new session") { try await self.createThroughWindow() }
       try await step(3, "launch tab buried") { try await self.checkLaunchTabBuried() }
       if request.keep { return keepInfo() }
-      try await step(4, "collision") { try await self.collideThroughSheet() }
+      try await step(4, "collision") { try await self.collideThroughWindow() }
       try await step(5, "detach from this Mac") { try await self.detachHere() }
       try await step(6, "launch tab left") { try await self.checkLaunchTabLeft() }
       try await step(7, "kill session") { try await self.killTestSession() }
@@ -313,16 +313,17 @@ public final class SelfTestDriver {
   } // End of func openFocused()
 
   /// `new-session-local` 2: New session with the test name creates the session and attaches
-  /// it, confirmed by the core; the sheet closes.
-  private func createThroughSheet() async throws -> String {
+  /// it, confirmed by the core; the New session window closes (in the model: the self-test
+  /// shows no window, PLAN.md D34).
+  private func createThroughWindow() async throws -> String {
     guard let model else { throw SelfTestFailure("no model") }
     creationStartedAt = seams.wallClock()
     let mark = model.finishedActions.count
-    try fillSheet(model)
+    try fillWindow(model)
     model.createSession()
     guard model.newSessionDraft.state == .creating else {
       throw SelfTestFailure(
-        "Create did not start: \(model.newSessionDraft.nameIssue ?? "the sheet refused")")
+        "Create did not start: \(model.newSessionDraft.nameIssue ?? "the window refused")")
     }
     let record = try await waitFor("New session to end", seams.timeouts.attach) {
       model.finishedActions.dropFirst(mark).first { record in
@@ -338,23 +339,23 @@ public final class SelfTestDriver {
     guard let attach = result.attach, attach.isConfirmed, let connection = attach.connectionID,
       let gateway = attach.gatewaySessionID
     else { throw SelfTestFailure(result.attach.map(Self.describe) ?? "no attach") }
-    guard model.panel == nil, model.activities[key] == .confirmed,
+    guard !model.isNewSessionShown, model.activities[key] == .confirmed,
       recorder.launchCount(for: key) == 1
-    else { throw SelfTestFailure("the sheet stayed open, or the row or launch count is wrong") }
+    else { throw SelfTestFailure("the window stayed open, or the row or launch count is wrong") }
     confirmed = AttachmentRecord(
       connectionID: connection, gatewaySessionID: gateway, launchID: attach.launchID)
     confirmedBurial = attach.burial
     return "created \(session.sessionID.rawValue) and confirmed: connection \(connection), "
       + "gateway \(gateway)"
-  } // End of func createThroughSheet()
+  } // End of func createThroughWindow()
 
   /// `new-session-local` 3: New session with the same name is refused as a collision and offers
   /// "Open existing"; nothing launches.
-  private func collideThroughSheet() async throws -> String {
+  private func collideThroughWindow() async throws -> String {
     let (model, key) = try current()
     let tabs = recorder.launchTabs.count
     let mark = model.finishedActions.count
-    try fillSheet(model)
+    try fillWindow(model)
     model.createSession()
     let record = try await waitFor("the second New session to end", seams.timeouts.attach) {
       model.finishedActions.dropFirst(mark).first { record in
@@ -367,15 +368,16 @@ public final class SelfTestDriver {
     else { throw SelfTestFailure("not refused as a collision") }
     guard model.newSessionDraft.state == .collision, recorder.launchTabs.count == tabs,
       recorder.launchCount(for: key) == 1
-    else { throw SelfTestFailure("the sheet does not offer “Open existing”, or a tab opened") }
-    model.cancelPanel()
+    else { throw SelfTestFailure("the window does not offer “Open existing”, or a tab opened") }
+    model.closeNewSession()
     return "refused (\(check.rawValue)), “Open existing” offered, nothing launched"
-  } // End of func collideThroughSheet()
+  } // End of func collideThroughWindow()
 
-  /// Opens the New session sheet with This Mac and the test name.
-  private func fillSheet(_ model: AppModel) throws {
+  /// Opens New session (in the model: no window shows, PLAN.md D34) with This Mac and the test
+  /// name.
+  private func fillWindow(_ model: AppModel) throws {
     model.newSession()
-    guard case .newSession = model.panel else { throw SelfTestFailure("the sheet did not open") }
+    guard model.isNewSessionShown else { throw SelfTestFailure("New session did not open") }
     model.newSessionDraft.hostID = host.id
     model.newSessionDraft.name = seams.sessionName
   }

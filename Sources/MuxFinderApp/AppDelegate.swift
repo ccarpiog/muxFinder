@@ -11,8 +11,9 @@ import SwiftUI
 ///   list and starts the refresh engine, and in normal mode brings an installed, out-of-date
 ///   persistent profile file up to date (PLAN.md D26) and builds the session switcher panel
 ///   (`SessionSwitcher`, shown only by its shortcut) and loads and registers the session
-///   switcher shortcut (PLAN.md D32); never with `--report-menu-bar-item`. Nothing contacts
-///   iTerm2.
+///   switcher shortcut (PLAN.md D32); never with `--report-menu-bar-item`. It also connects the
+///   New session window (`NewSessionWindow`, PLAN.md D34), which is made only when New session
+///   first opens. Nothing contacts iTerm2.
 /// - **Popover placement diagnostic** (`--report-popover-placement`, PLAN.md Phase I-1): the
 ///   same menu bar item and panel over an inert model that is never started (no host list,
 ///   engine, onboarding or iTerm2; `AppEnvironment.placementDiagnostic()`);
@@ -36,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var menuBarPopover: MenuBarPopover?
   /// The session switcher panel, in normal mode once launching finished (PLAN.md D32).
   private var sessionSwitcher: SessionSwitcher?
+  /// The New session window's wiring, once launching finished (PLAN.md D34; never for the
+  /// popover placement diagnostic).
+  private var newSessionWindow: NewSessionWindow?
   /// The SIGTERM and SIGINT sources.
   private var signalSources: [any DispatchSourceSignal] = []
   /// The popover placement diagnostic, while it runs.
@@ -76,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.setActivationPolicy(.accessory)
     QuitSignals.applyAppearance(options.appearance)
     menuBarPopover = MenuBarPopover(model: model)
+    newSessionWindow = NewSessionWindow(model: model)
     if options.registersGlobalShortcut { sessionSwitcher = SessionSwitcher(model: model) }
     Task { await model.start() }
     if options.reportsMenuBarItem {

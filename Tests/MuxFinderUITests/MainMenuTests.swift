@@ -128,10 +128,11 @@ struct MainMenuTests {
     #expect(!commands.contains { $0.title.localizedCaseInsensitiveContains("settings") })
   } // End of func targetsAndKeys()
 
-  /// Close (⌘W) is enabled for the Settings and onboarding window's class and disabled for
-  /// muxFinder's borderless panels (the popover's and the switcher's), so neither ⌘W nor
-  /// AppKit's "Close All" alternate can act on a panel. The windows are never shown.
-  @Test("Close is enabled for Settings and onboarding, not for the panels")
+  /// Close (⌘W) is enabled for the Settings and onboarding window's class and for the New
+  /// session window's (a titled, closable panel, PLAN.md D34), and disabled for muxFinder's
+  /// borderless panels (the popover's and the switcher's), so neither ⌘W nor AppKit's "Close
+  /// All" alternate can act on a panel. The windows are never shown.
+  @Test("Close is enabled for Settings, onboarding and New session, not for the panels")
   func closeValidation() throws {
     _ = NSApplication.shared
     let built = MainMenu.make()
@@ -145,5 +146,6 @@ struct MainMenuTests {
     settings.isReleasedWhenClosed = false
     #expect(!panel.validateMenuItem(close))
     #expect(settings.validateMenuItem(close))
+    #expect(NewSessionPanel(contentView: NSView()).validateMenuItem(close))
   } // End of func closeValidation()
 }

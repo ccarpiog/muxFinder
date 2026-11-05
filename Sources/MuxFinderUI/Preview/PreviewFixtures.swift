@@ -27,9 +27,12 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var notes: [SessionKey: String]
   /// Banners for vanished or changed sessions.
   public var banners: [SessionBanner]
-  /// The panel shown (Move here, New session).
+  /// The popover's panel shown (Move here).
   public var panel: PopoverPanel?
-  /// The New session sheet's fields and state.
+  /// Whether the New session window shows (PLAN.md D34); its form renders whatever this says,
+  /// and its keys act only while it is set.
+  public var showsNewSession: Bool
+  /// The New session form's fields and state.
   public var newSessionDraft: NewSessionDraft
   /// Attachments muxFinder made or found here (Detach is offered for them).
   public var attachedHere: [SessionKey: AttachmentRecord]
@@ -63,6 +66,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     notes: [SessionKey: String] = [:],
     banners: [SessionBanner] = [],
     panel: PopoverPanel? = nil,
+    showsNewSession: Bool = false,
     newSessionDraft: NewSessionDraft = NewSessionDraft(),
     attachedHere: [SessionKey: AttachmentRecord] = [:],
     directoryLists: DirectoryLists = DirectoryLists(),
@@ -86,6 +90,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.notes = notes
     self.banners = banners
     self.panel = panel
+    self.showsNewSession = showsNewSession
     self.newSessionDraft = newSessionDraft
     self.attachedHere = attachedHere
     self.directoryLists = directoryLists

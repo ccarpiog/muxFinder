@@ -8,10 +8,12 @@ import SwiftUI
 ///
 /// - **Button:** its action (sent on the left or right mouse press) is the controller's
 ///   `buttonPressed()`.
-/// - **Session switcher** (PLAN.md D32): the model's `closePopover` is the controller's close
-///   (`switcherOpened`), so opening the switcher closes the popover; its
-///   `isStatusItemPressHeld` is the controller's `isButtonPressHeld`, so the switcher leaves a
-///   close from outside made by a press on the button to the popover that press opens.
+/// - **Session switcher and New session** (PLAN.md D32, D34): the model's `closePopover` is the
+///   controller's close, so opening the switcher (`switcherOpened`) or the New session window
+///   (`newSessionOpened`) closes the popover; its `popoverSource` is the controller's
+///   `newSessionSource`, where the window opens; its `isStatusItemPressHeld` is the
+///   controller's `isButtonPressHeld`, so the switcher leaves a close from outside made by a
+///   press on the button to the popover that press opens.
 /// - **Panel:** at the pop-up menu level, on every Space and over full-screen apps; it becomes
 ///   key without activating the app, so the frontmost app stays frontmost and the search field
 ///   takes the keys. Its own close (Esc through the key monitor of `PopoverWindowBridge`) goes
@@ -58,7 +60,8 @@ public final class MenuBarPopover {
     self.host = host
     self.controller = controller
     button.onPress = { [weak controller] in controller?.buttonPressed() }
-    model.closePopover = { [weak controller] in controller?.close(.switcherOpened) }
+    model.closePopover = { [weak controller] reason in controller?.close(reason) }
+    model.popoverSource = { [weak controller] in controller?.newSessionSource }
     model.isStatusItemPressHeld = { [weak controller] in controller?.isButtonPressHeld ?? false }
     host.panel.closeRequest = { [weak controller] in controller?.close(.escape) }
     host.onPressOutside = { [weak controller] in controller?.close(.pressOutside) }
@@ -346,9 +349,11 @@ final class PanelHost<Root: PanelRootView>: PopoverPanelSurface {
 /// borderless, non-activating (it becomes key while the frontmost app stays frontmost), at
 /// its level (the pop-up menu level for the popover, the floating level for the switcher), on
 /// every Space and over full-screen apps, not movable, transparent outside its rounded
-/// content, with a shadow, its key view loop recalculated as the hosted view changes (so Tab
-/// and ⇧Tab move through the form shown, PLAN.md Phase I-6). Closing it asks `closeRequest`
-/// (the controller), which orders it out; it is never released.
+/// content, with a shadow, its key view loop recalculated as the hosted view changes (PLAN.md
+/// Phase I-6). Closing it asks `closeRequest` (the controller), which orders it out; it is
+/// never released. Being borderless it has no close button, so the main menu's Close (⌘W) is
+/// disabled for it (PLAN.md D33); the New session window is a titled panel of its own
+/// (`NewSessionPanel`, D34).
 final class PopoverPanelWindow: NSPanel {
   /// Called instead of closing the panel (Esc, or the diagnostic's own close).
   var closeRequest: (() -> Void)?
@@ -375,11 +380,11 @@ final class PopoverPanelWindow: NSPanel {
     autorecalculatesKeyViewLoop = Self.recalculatesKeyViewLoop
   } // End of init(contentView:level:)
 
-  /// Whether the panel recalculates its key view loop when views come or go (PLAN.md D30,
-  /// Phase I-6). The hosted view swaps whole forms in and out (the New session form replacing
-  /// the list), and with AppKit's default (`false`) the loop computed when the panel was first
-  /// shown is never redone: the form's fields then link to SwiftUI's view hosts, which take no
-  /// focus, so Tab and ⇧Tab left the focus in the Name field.
+  /// Whether a muxFinder panel recalculates its key view loop when views come or go (PLAN.md
+  /// D30, Phase I-6; the New session window's too, D34). With AppKit's default (`false`) the
+  /// loop computed when the panel was first shown is never redone: when the New session form
+  /// replaced the list in these panels (before D34), its fields linked to SwiftUI's view hosts,
+  /// which take no focus, so Tab and ⇧Tab left the focus in the Name field.
   static let recalculatesKeyViewLoop = true
 
   /// A borderless window cannot become key unless it says so; the search field needs the keys.

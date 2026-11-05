@@ -459,25 +459,38 @@ struct AttachFlowTests {
     settingsDiscovery.release()
   } // End of func quitStopsTheRestWithoutWaitingForAnAttach()
 
-  /// While a panel shows, the arrows, ⌘F and ⌘N do nothing and Esc closes the panel.
+  /// While the Move here confirmation shows, the arrows, ⌘F and ⌘N do nothing and Esc closes
+  /// it; in the New session window the arrows and ⌘N do nothing, ⌘F and ⌘R go on to the
+  /// focused view, and Esc closes the window (PLAN.md D34).
   @Test func keysWhileAPanelShows() async {
     let harness = await AttachHarness.make()
     let model = harness.model
-    model.newSession()
-    #expect(model.panel == .newSession)
+    model.requestMoveHere(harness.key(on: harness.hosts[0]))
     let selection = model.selection
     #expect(model.handle(.down) == .handled)
     #expect(model.selection == selection)
     #expect(model.handle(.find) == .handled)
     #expect(model.searchFocusRequests == 0)
     #expect(model.handle(.newSession) == .handled)
+    #expect(!model.isNewSessionShown)
     #expect(model.handle(.close) == .handled)
     #expect(model.panel == nil)
+    model.newSession()
+    #expect(model.isNewSessionShown)
+    #expect(model.handleNewSessionKey(.down) == .handled)
+    #expect(model.selection == selection)
+    #expect(model.handleNewSessionKey(.find) == .ignored)
+    #expect(model.handleNewSessionKey(.refresh) == .ignored)
+    #expect(model.searchFocusRequests == 0)
+    #expect(model.handleNewSessionKey(.newSession) == .handled)
+    #expect(model.handleNewSessionKey(.close) == .handled)
+    #expect(!model.isNewSessionShown)
+    #expect(model.handleNewSessionKey(.open) == .ignored, "no key acts on a closed window")
     await model.shutdown()
-  }
+  } // End of func keysWhileAPanelShows()
 }
 
-/// The New session sheet (PLAN.md D18, D25): inline validation, creation through
+/// New session (PLAN.md D18, D25; in its own window, D34): inline validation, creation through
 /// `createAndAttach`, a collision with "Open existing".
 @Suite("Session actions: new session")
 @MainActor
@@ -496,14 +509,14 @@ struct NewSessionSheetTests {
     return (discovered, record)
   }
 
-  /// The sheet opens for This Mac; an empty or invalid name is reported inline and runs
-  /// nothing; a valid name creates the session and attaches it, closing the sheet.
+  /// The window opens for This Mac; an empty or invalid name is reported inline and runs
+  /// nothing; a valid name creates the session and attaches it, closing the window.
   @Test func validationThenCreation() async {
     let harness = await AttachHarness.make(hosts: [Support.sshHost("Saturno"), Support.localHost()])
     let model = harness.model
     let local = harness.hosts[1]
     model.newSession()
-    #expect(model.panel == .newSession)
+    #expect(model.isNewSessionShown)
     #expect(model.newSessionDraft.hostID == local.id)
     #expect(model.newSessionHosts.map(\.id) == harness.hosts.map(\.id))
     #expect(model.newSessionDraft.nameIssue == nil)
@@ -533,7 +546,7 @@ struct NewSessionSheetTests {
     #expect(harness.creator.requests.map(\.name) == ["fresh"])
     #expect(harness.creator.requests.first?.workingDirectory == "~/projects")
     #expect(harness.creator.requests.first?.command == [])
-    #expect(model.panel == nil)
+    #expect(!model.isNewSessionShown)
     #expect(model.finishedActions[0].key == discovered.key)
     #expect(model.activities[discovered.key] == .confirmed)
     #expect(await harness.iTerm2.createTabCount == 1)
@@ -545,8 +558,8 @@ struct NewSessionSheetTests {
   } // End of func validationThenCreation()
 
   /// A name that exists is refused as a collision, nothing launches, and "Open existing" opens
-  /// the session with that name, once a fresh listing of the host shows it (the sheet looks for
-  /// it meanwhile).
+  /// the session with that name, once a fresh listing of the host shows it (the window looks
+  /// for it meanwhile).
   @Test func collisionOffersOpenExisting() async {
     let harness = await AttachHarness.make()
     let model = harness.model
@@ -558,13 +571,13 @@ struct NewSessionSheetTests {
     model.createSession()
     #expect(await harness.waitForActions(1))
     #expect(model.newSessionDraft.state == .collision)
-    #expect(model.panel == .newSession)
+    #expect(model.isNewSessionShown)
     #expect(model.newSessionDraft.stateMessage?.contains("already exists") == true)
     #expect(await harness.iTerm2.createTabCount == 0)
     model.openExisting()
     #expect(model.newSessionDraft.state == .findingExisting)
     #expect(model.newSessionDraft.isBusy)
-    #expect(await Support.waitUntil { model.panel == nil })
+    #expect(await Support.waitUntil { !model.isNewSessionShown })
     #expect(await harness.waitForActions(2))
     #expect(model.finishedActions[1].key == existing.key)
     #expect(model.activities[existing.key] == .confirmed)
@@ -592,14 +605,14 @@ struct NewSessionSheetTests {
     let (late, _) = Self.created("late", id: 8, on: host)
     harness.discovery.setStatus(.ok([FakeDiscovery.session(on: host), late]), for: host.id)
     model.openExisting()
-    #expect(await Support.waitUntil { model.panel == nil })
+    #expect(await Support.waitUntil { !model.isNewSessionShown })
     #expect(await harness.waitForActions(3))
     #expect(model.finishedActions[2].key == late.key)
     await model.shutdown()
   } // End of func openExistingFindsASessionNotListedYet()
 
   /// A New session's attach is its session's action as soon as the session was created: the
-  /// sheet closes, the row follows the launch ("Still connecting — check the iTerm2 tab" for a
+  /// window closes, the row follows the launch ("Still connecting — check the iTerm2 tab" for a
   /// remote tab still waiting, before the attach has ended), "Show tab" brings that launch tab
   /// forward, a click on the row meanwhile starts nothing, and quitting cancels the attach.
   @Test func newSessionAttachShowsProgressAndShowTab() async {
@@ -620,7 +633,7 @@ struct NewSessionSheetTests {
         model.activities[discovered.key] == .stillConnecting(launchTabID: "gateway-1")
       })
     #expect(model.finishedActions.isEmpty)
-    #expect(model.panel == nil)
+    #expect(!model.isNewSessionShown)
     #expect(model.isPending(discovered.key))
     #expect(
       await Support.waitUntil {
@@ -634,7 +647,7 @@ struct NewSessionSheetTests {
     #expect(await harness.iTerm2.createTabCount == 1)
     model.newSession()
     #expect(model.newSessionDraft.name.isEmpty, "a fresh draft: the creation is over")
-    model.cancelPanel()
+    model.closeNewSession()
     await model.shutdown()
     #expect(model.finishedActions.count == 1)
     #expect(model.finishedActions.first?.outcome.attachResult?.failure == .cancelled)
@@ -642,7 +655,7 @@ struct NewSessionSheetTests {
     #expect(await harness.iTerm2.closeCount == 0)
   } // End of func newSessionAttachShowsProgressAndShowTab()
 
-  /// The collision of `name` on `harness`'s first host, with the sheet left offering "Open
+  /// The collision of `name` on `harness`'s first host, with the window left offering "Open
   /// existing".
   static func collide(_ name: String, in harness: AttachHarness) async {
     harness.creator.script([.failure(.sessionExists(.hasSession))])
@@ -675,14 +688,14 @@ struct NewSessionSheetTests {
     #expect(model.finishedActions[1].key == taker.key)
     #expect(model.finishedActions[1].outcome.attachResult?.isConfirmed == true)
     #expect(harness.store.written.map(\.sessionID) == [taker.key.sessionID])
-    #expect(model.panel == nil)
+    #expect(!model.isNewSessionShown)
     #expect(model.activities[taker.key] == .confirmed)
     #expect(model.activities[listed.key] == nil)
     await model.shutdown()
   } // End of func openExistingResolvesTheNameAfresh()
 
   /// When the fresh listing has no session with that exact name any more (the listed one was
-  /// renamed and none took the name), "Open existing" says so in the sheet and opens, writes
+  /// renamed and none took the name), "Open existing" says so in the window and opens, writes
   /// and launches nothing; a host that cannot be listed says that instead.
   @Test func openExistingOpensNothingWhenTheNameIsGone() async {
     let host = Support.localHost()
@@ -697,7 +710,7 @@ struct NewSessionSheetTests {
     model.openExisting()
     #expect(await Support.waitUntil { model.newSessionDraft.state != .findingExisting })
     #expect(model.newSessionDraft.state == .failed(NewSessionDraft.existingGone))
-    #expect(model.panel == .newSession)
+    #expect(model.isNewSessionShown)
 
     harness.creator.script([.failure(.sessionExists(.hasSession))])
     model.createSession()
@@ -715,8 +728,8 @@ struct NewSessionSheetTests {
     await model.shutdown()
   } // End of func openExistingOpensNothingWhenTheNameIsGone()
 
-  /// A creation failure other than a collision stays in the sheet with its message.
-  @Test func creationFailureStaysInTheSheet() async {
+  /// A creation failure other than a collision stays in the window with its message.
+  @Test func creationFailureStaysInTheWindow() async {
     let harness = await AttachHarness.make()
     let model = harness.model
     harness.creator.script([.failure(.directoryMissing)])
@@ -726,7 +739,7 @@ struct NewSessionSheetTests {
     model.createSession()
     #expect(await harness.waitForActions(1))
     #expect(model.newSessionDraft.state == .failed(SessionCreationError.directoryMissing.message))
-    #expect(model.panel == .newSession)
+    #expect(model.isNewSessionShown)
     model.newSessionDraft.directory = ""
     #expect(model.newSessionDraft.state == .editing)
     await model.shutdown()
@@ -825,8 +838,8 @@ struct FailureMessageTests {
 
   /// The session-action fixtures show every state: each progress and result, every attach
   /// failure but the three a banner covers, every detach problem, both focuses that did not
-  /// bring the tab forward, both panels with the sheet's states, and both banners; all from
-  /// synthetic data.
+  /// bring the tab forward, the Move here panel and both banners; the New session form's states
+  /// are apart (`newSessionStates`, the window's, PLAN.md D34); all from synthetic data.
   @Test func attachFixturesCoverEveryState() {
     let fixtures = AttachFixtures.all
     let activities = fixtures.flatMap { $0.activities.values }
@@ -841,9 +854,13 @@ struct FailureMessageTests {
     for activity in shown { #expect(activities.contains(activity), "\(activity)") }
     #expect(activities.contains { if case .stillConnecting = $0 { true } else { false } })
     #expect(fixtures.contains { if case .moveHere = $0.panel { true } else { false } })
-    let sheets = fixtures.filter { $0.panel == .newSession }.map(\.newSessionDraft)
+    #expect(!fixtures.contains { $0.showsNewSession })
+    let forms = AttachFixtures.newSessionStates
+    #expect(forms.allSatisfy { $0.showsNewSession })
+    let sheets = forms.map(\.newSessionDraft)
     #expect(Set(sheets.map(\.state)) == [.editing, .creating, .collision])
     #expect(sheets.contains { $0.nameIssue != nil })
+    #expect(Set((fixtures + forms).map(\.id)).count == fixtures.count + forms.count)
     #expect(Set(fixtures.flatMap(\.banners).map(\.kind)) == [.vanished, .changed])
     #expect(Set(fixtures.map(\.id)).count == fixtures.count)
     let hosts = fixtures.compactMap(\.state).flatMap(\.hosts).map(\.host)

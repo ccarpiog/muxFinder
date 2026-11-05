@@ -430,7 +430,7 @@ public struct DirectoryPickerState: Sendable, Hashable {
   public enum Opening: Sendable, Hashable {
     /// The user asked for it: the pull-down button (or Space on it) or ⌥↓. It stays open
     /// whatever the field holds, showing "No matching directories" when the filter hides
-    /// every entry, until Esc, the button, a pick, a creation or the panel closing.
+    /// every entry, until Esc, the button, a pick, a creation or the window closing.
     case request
     /// An edit of the field that left an entry matching opened it: an edit that matches
     /// nothing, or leaves the field empty, closes it again.

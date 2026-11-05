@@ -17,11 +17,12 @@ import Foundation
 ///   no Screen Recording permission).
 /// - `--preview-key-view-loop popover|switcher` (or `--preview-key-view-loop=…`; with
 ///   `--preview-fixtures`, PLAN.md Phase I-6): a read-only diagnostic of the New session
-///   form's keyboard focus. Instead of the gallery window the app shows muxFinder's real panel
-///   (the popover's or the session switcher's) with the form over synthetic fixtures, prints
-///   its key views, first responder and key view loop (`KeyViewLoopReport`) and quits (0 the
-///   form's fields found, 1 not found, 3 its 30 s watchdog; output never blocks it). Without
-///   `--preview-fixtures`, or with another panel name, it is a usage error (2).
+///   form's keyboard focus. Instead of the gallery window the app shows muxFinder's real New
+///   session window (PLAN.md D34) with the form over the synthetic fixture of that entry point
+///   (the popover's or the session switcher's), prints its key views, first responder and key
+///   view loop (`KeyViewLoopReport`) and quits (0 the form's fields found, 1 not found, 3 its
+///   30 s watchdog; output never blocks it). Without `--preview-fixtures`, or with another
+///   name, it is a usage error (2).
 /// - `--report-menu-bar-item` (normal mode): a read-only diagnostic; two seconds after launch
 ///   the app prints its own status-bar-level windows (the menu bar item), since on macOS 26 and
 ///   later `CGWindowListCopyWindowInfo` does not list them under the app's process, then every
@@ -90,11 +91,12 @@ public struct AppLaunchOptions: Sendable, Hashable {
     case switcher
   }
 
-  /// Which muxFinder panel's New session form `--preview-key-view-loop` inspects.
+  /// Which entry point's New session form `--preview-key-view-loop` inspects in the New
+  /// session window (PLAN.md D34; before D34 the form was in these panels).
   public enum KeyViewLoopPanel: String, Sendable, Hashable, CaseIterable {
-    /// The popover's panel (`PopoverPanelRoot`).
+    /// Opened as from the popover (`AttachFixtures.newSession`).
     case popover
-    /// The session switcher's panel (`SwitcherPanelRoot`).
+    /// Opened as from the session switcher (`SwitcherFixtures.form`, a name prefilled).
     case switcher
   }
 
@@ -106,7 +108,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
   public var appearance: Appearance?
   /// Where to write the preview window's PNG, if anywhere (preview mode only).
   public var previewSnapshotPath: String?
-  /// The panel whose New session form the key view loop diagnostic inspects, if asked
+  /// The entry point whose New session form the key view loop diagnostic inspects, if asked
   /// (`--preview-key-view-loop`, preview mode only).
   public var previewKeyViewLoop: KeyViewLoopPanel?
   /// Whether to print the menu bar item's windows after launch (normal mode only).

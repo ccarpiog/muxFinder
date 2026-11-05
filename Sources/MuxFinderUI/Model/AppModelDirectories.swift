@@ -2,18 +2,19 @@ import Foundation
 import MuxFinderCore
 import os
 
-/// New session's directories in the popover (PLAN.md D31): the directory list under the
-/// Directory field, its keys, "Save this directory", "Clear recent directories on <host>", and
-/// the recording of a recent directory when a creation made a session.
+/// New session's directories (PLAN.md D31; in the New session window, D34): the directory list
+/// under the Directory field, its keys, "Save this directory", "Clear recent directories on
+/// <host>", and the recording of a recent directory when a creation made a session.
 ///
 /// - **One store, one queue:** every load and change goes through `AppEnvironment.directories`
 ///   (`DirectoryStore` on `directories.json` in the app, an `InMemoryDirectoryStore` in the
 ///   self-tests, none in fixtures and the tests of other parts), one operation after another
 ///   (`enqueueDirectoryOperation(_:)`), in the background. The lists are read afresh each time
 ///   New session opens; each change's result becomes the lists shown.
-/// - **An in-popover list, not a menu:** the list is drawn inside the popover panel, so its keys
-///   go through `PopoverKey` and `handle(_:)` like the popover's others, and the preview
-///   galleries render it (D31 records why a SwiftUI `Menu` or `NSMenu` was not used).
+/// - **An in-window list, not a menu:** the list is drawn inside the New session window, so its
+///   keys go through `PopoverKey` and `handleNewSessionKey(_:)` like the window's others, and
+///   the preview galleries render it (D31 records why a SwiftUI `Menu` or `NSMenu` was not
+///   used).
 /// - **Picking only fills the field:** the Directory field then holds the entry as typed text
 ///   would, and the draft checks it (`NewSessionDraft.directoryIssue`, `request(hosts:command:)`)
 ///   before any request, whatever its source (D3, D18).
@@ -68,14 +69,14 @@ extension AppModel {
   /// highlights its first row), so it stays open whatever the field holds. Only while New
   /// session shows and is not busy, with a host chosen.
   public func openDirectoryList(highlightingFirst: Bool) {
-    guard case .newSession = panel, !newSessionDraft.isBusy,
+    guard isNewSessionShown, !newSessionDraft.isBusy,
       let content = directoryPickerContent
     else { return }
     directoryPicker = DirectoryPickerState(
       opening: .request, highlighted: highlightingFirst ? content.items.first : nil)
   }
 
-  /// Closes the list (Esc, picking an entry, the button, the panel closing) and forgets its
+  /// Closes the list (Esc, picking an entry, the button, the window closing) and forgets its
   /// highlight and problem.
   public func closeDirectoryList() {
     directoryPicker = DirectoryPickerState()
@@ -119,7 +120,7 @@ extension AppModel {
   /// button or ⌥↓ opened stays. Then the match count is announced
   /// (`announceDirectoryMatches(_:previous:wasOpen:)`).
   func directoryFieldEdited(from previous: String) {
-    guard case .newSession = panel, !newSessionDraft.isBusy,
+    guard isNewSessionShown, !newSessionDraft.isBusy,
       let content = directoryPickerContent
     else { return }
     let wasOpen = directoryPicker.isOpen
@@ -162,11 +163,11 @@ extension AppModel {
     newSessionDraft.directory = directory
   }
 
-  /// The open list's keys (`handle(_:)` asks first while New session shows): ↑/↓ (and ⌥↓) move
+  /// The open list's keys (`handleNewSessionKey(_:)` asks first): ↑/↓ (and ⌥↓) move
   /// the highlight through the rows shown (the filter's), Return picks it (with none, as after
   /// the typing opened the list, closes the list and creates, as Return in the field does;
   /// editing the field drops the highlight, `directoryFieldChanged(from:)`), Esc closes the
-  /// list, keeping the field's text, and leaves the panel open. `nil` while the list is closed
+  /// list, keeping the field's text, and leaves the window open. `nil` while the list is closed
   /// and for every other key, which then behave as without the list.
   func handleDirectoryListKey(_ key: PopoverKey) -> PopoverKeyResult? {
     guard directoryPicker.isOpen else { return nil }
@@ -198,7 +199,7 @@ extension AppModel {
   /// "Clear recent directories on <host>"), the list staying open. Only a row the list shows
   /// (after the filter) and has on, while New session shows and is not busy.
   public func pickDirectoryItem(_ item: DirectoryPickerContent.Item) {
-    guard case .newSession = panel, !newSessionDraft.isBusy,
+    guard isNewSessionShown, !newSessionDraft.isBusy,
       directoryPickerContent?.items.contains(item) == true
     else { return }
     switch item {

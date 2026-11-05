@@ -209,7 +209,7 @@ struct DirectoryPickerContentTests {
     ]
     let contents = fixtures.compactMap { AppModel(fixture: $0).directoryPickerContent }
     #expect(contents.count == 4)
-    #expect(fixtures.allSatisfy { $0.directoryPicker.isOpen && $0.panel == .newSession })
+    #expect(fixtures.allSatisfy { $0.directoryPicker.isOpen && $0.showsNewSession })
     #expect(contents[0].sections.map(\.kind) == [.recent, .saved, .sessions])
     #expect(contents[1].isEmpty && contents[1].canSaveDirectory)
     #expect(contents[2].saveIssue == .alreadySaved)
@@ -297,7 +297,7 @@ struct DirectoryPickerModelTests {
   @Test func hostChangeKeepsTheField() {
     // Every entry holds a slash, so the field's filter (Phase I-7) keeps them all.
     let model = Self.fixtureModel(directory: "/")
-    _ = model.handle(.openList)
+    _ = model.handleNewSessionKey(.openList)
     #expect(model.highlightedDirectoryItem == .entry(.recent, "~/projects/experiments"))
     #expect(model.directoryPickerContent?.sections.map(\.kind) == [.recent, .saved, .sessions])
     model.newSessionDraft.hostID = Fixtures.neptuno.id
@@ -308,52 +308,53 @@ struct DirectoryPickerModelTests {
     #expect(model.newSessionDraft.directory == "/")
     #expect(model.directoryPicker.isOpen)
     #expect(model.highlightedDirectoryItem == nil)
-    _ = model.handle(.down)
+    _ = model.handleNewSessionKey(.down)
     #expect(model.highlightedDirectoryItem == .entry(.recent, "~/notes"))
   } // End of func hostChangeKeepsTheField()
 
   /// ⌥↓ opens the list on its first row; ↑/↓ move inside it and stop at the ends; Return picks
-  /// the highlighted row; Esc closes the list first and the panel second; ⌘F, ⌘N, ⌘R and ⌘,
-  /// keep their panel behavior while it is open.
+  /// the highlighted row; Esc closes the list first and the New session window second; ⌘N and
+  /// ⌘, keep the window's behavior while it is open (nothing, Settings) and ⌘F and ⌘R go on to
+  /// the focused view, as without the list (PLAN.md D34).
   @Test func keysInsideTheList() {
     let model = Self.fixtureModel()
-    #expect(model.handle(.openList) == .handled)
+    #expect(model.handleNewSessionKey(.openList) == .handled)
     let items = model.directoryPickerContent?.items ?? []
     #expect(items.count == 2 + 3 + 2 + 1, "2 recent, 3 saved, 2 folders, Clear")
     #expect(model.highlightedDirectoryItem == items.first)
-    #expect(model.handle(.down) == .handled)
+    #expect(model.handleNewSessionKey(.down) == .handled)
     #expect(model.highlightedDirectoryItem == items[1])
-    #expect(model.handle(.openList) == .handled)
+    #expect(model.handleNewSessionKey(.openList) == .handled)
     #expect(model.highlightedDirectoryItem == items[2])
-    _ = model.handle(.up)
-    _ = model.handle(.up)
-    _ = model.handle(.up)
+    _ = model.handleNewSessionKey(.up)
+    _ = model.handleNewSessionKey(.up)
+    _ = model.handleNewSessionKey(.up)
     #expect(model.highlightedDirectoryItem == items[0])
-    for _ in 0..<20 { _ = model.handle(.down) }
+    for _ in 0..<20 { _ = model.handleNewSessionKey(.down) }
     #expect(model.highlightedDirectoryItem == .action(.clearRecents))
     #expect(model.selection == nil, "the session rows' selection never moves")
 
-    #expect(model.handle(.find) == .handled)
+    #expect(model.handleNewSessionKey(.find) == .ignored)
     #expect(model.searchFocusRequests == 0)
-    #expect(model.handle(.newSession) == .handled)
-    #expect(model.handle(.settings) == .handled)
-    #expect(model.handle(.refresh) == .handled)
+    #expect(model.handleNewSessionKey(.newSession) == .handled)
+    #expect(model.handleNewSessionKey(.settings) == .handled)
+    #expect(model.handleNewSessionKey(.refresh) == .ignored)
     #expect(model.directoryPicker.isOpen)
 
-    _ = model.handle(.up)
+    _ = model.handleNewSessionKey(.up)
     let folder = model.highlightedDirectoryItem
     #expect(folder == .entry(.sessions, "/Users/example/projects/site"))
-    #expect(model.handle(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(model.newSessionDraft.directory == "/Users/example/projects/site")
     #expect(!model.directoryPicker.isOpen)
-    #expect(model.panel == .newSession)
+    #expect(model.isNewSessionShown)
 
-    _ = model.handle(.openList)
-    #expect(model.handle(.close) == .handled)
+    _ = model.handleNewSessionKey(.openList)
+    #expect(model.handleNewSessionKey(.close) == .handled)
     #expect(!model.directoryPicker.isOpen)
-    #expect(model.panel == .newSession)
-    #expect(model.handle(.close) == .handled)
-    #expect(model.panel == nil)
+    #expect(model.isNewSessionShown)
+    #expect(model.handleNewSessionKey(.close) == .handled)
+    #expect(!model.isNewSessionShown)
   } // End of func keysInsideTheList()
 
   /// Without New session, ⌥↓ is left to the focused view (the search field), in the host list
@@ -400,18 +401,18 @@ struct DirectoryPickerModelTests {
     model.newSessionDraft.name = "taken"
     model.toggleDirectoryList()
     #expect(model.directoryPicker.isOpen && model.highlightedDirectoryItem == nil)
-    #expect(model.handle(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(!model.directoryPicker.isOpen)
     #expect(model.newSessionDraft.state == .creating)
     #expect(await Support.waitUntil { model.newSessionDraft.state == .collision })
 
     harness.creator.script([.failure(.sessionExists(.hasSession))])
     let before = model.finishedActions.count
-    #expect(model.handle(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(model.newSessionDraft.state == .creating)
     #expect(await Support.waitUntil { model.finishedActions.count > before })
-    #expect(model.handle(.close) == .handled)
-    #expect(model.panel == nil)
+    #expect(model.handleNewSessionKey(.close) == .handled)
+    #expect(!model.isNewSessionShown)
     await model.shutdown()
   } // End of func returnStillCreates()
 
@@ -425,24 +426,24 @@ struct DirectoryPickerModelTests {
     let model = harness.model
     harness.creator.script([.failure(.sessionExists(.hasSession))])
     model.newSessionDraft.name = "taken"
-    #expect(model.handle(.openList) == .handled)
+    #expect(model.handleNewSessionKey(.openList) == .handled)
     #expect(model.highlightedDirectoryItem == .entry(.saved, "~/s1"))
     model.newSessionDraft.directory = "~/typed"
     #expect(model.directoryPicker.isOpen)
     #expect(model.highlightedDirectoryItem == nil)
-    #expect(model.handle(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(!model.directoryPicker.isOpen)
     #expect(model.newSessionDraft.directory == "~/typed")
     #expect(model.newSessionDraft.state == .creating)
     #expect(await Support.waitUntil { model.newSessionDraft.state == .collision })
     #expect(harness.creator.requests.map(\.workingDirectory) == ["~/typed"])
 
-    _ = model.handle(.openList)
+    _ = model.handleNewSessionKey(.openList)
     model.newSessionDraft.directory = "~/s" // matches both saved rows (Phase I-7's filter)
     #expect(model.highlightedDirectoryItem == nil)
-    _ = model.handle(.down)
+    _ = model.handleNewSessionKey(.down)
     #expect(model.highlightedDirectoryItem == .entry(.saved, "~/s1"))
-    #expect(model.handle(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(model.newSessionDraft.directory == "~/s1")
     #expect(!model.directoryPicker.isOpen)
     #expect(harness.creator.requests.count == 1, "picking a row creates nothing")
@@ -461,14 +462,14 @@ struct DirectoryPickerModelTests {
     fixture.directoryPicker = DirectoryPickerState()
     let model = AppModel(fixture: fixture)
     #expect(model.directoryPickerContent?.items.count == 3)
-    _ = model.handle(.openList)
+    _ = model.handleNewSessionKey(.openList)
     #expect(model.highlightedDirectoryItem == .entry(.saved, composed))
-    _ = model.handle(.down)
+    _ = model.handleNewSessionKey(.down)
     #expect(model.highlightedDirectoryItem == .entry(.saved, decomposed))
-    _ = model.handle(.down)
+    _ = model.handleNewSessionKey(.down)
     #expect(model.highlightedDirectoryItem == .entry(.saved, "~/projects/next"))
-    _ = model.handle(.up)
-    #expect(model.handle(.open) == .handled)
+    _ = model.handleNewSessionKey(.up)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(DirectoryLists.same(model.newSessionDraft.directory, decomposed))
     #expect(!model.directoryPicker.isOpen)
   } // End of func keysMoveThroughBothSpellings()
@@ -513,7 +514,7 @@ struct DirectoryPickerModelTests {
     #expect(model.directoryStatus == .usable(droppedEntryCount: 0))
 
     model.newSessionDraft.directory = "~/projects/new ü #1;"
-    _ = model.handle(.openList)
+    _ = model.handleNewSessionKey(.openList)
     #expect(model.directoryPickerContent?.canSaveDirectory == true)
     model.pickDirectoryItem(.action(.saveDirectory))
     await model.directoryRecordingsHandled()
@@ -548,7 +549,7 @@ struct DirectoryPickerModelTests {
       model.directoryPicker.problem?.hasPrefix("muxFinder couldn't save this directory.") == true)
     #expect(model.newSessionDraft.directory == "/Users/example/secret project")
     #expect(model.directoryLists.isEmpty)
-    #expect(model.panel == .newSession)
+    #expect(model.isNewSessionShown)
     let events = await diagnostics.events().filter { $0.detail.hasPrefix("directory list") }
     #expect(
       events.map(\.detail) == [

@@ -136,7 +136,8 @@ struct SwitcherPanelRoot: PanelRootView {
 
 /// Connects the real switcher to its window: its keys (`PopoverKey`) go to
 /// `AppModel.handleSwitcherKey(_:)` before the focused view (the search field) sees them, as
-/// the popover's do (`PanelKeyTrackingView`). Whether the switcher shows is
+/// the popover's do (`PanelKeyTrackingView`), and its left mouse button events through
+/// `AppModel.switcherPasses(_:)` (`PanelKeyTrackingView`). Whether the switcher shows is
 /// `SwitcherController`'s to report.
 struct SwitcherWindowBridge: NSViewRepresentable {
   /// The model told about keys.
@@ -160,68 +161,25 @@ struct SwitcherWindowBridge: NSViewRepresentable {
 /// its window's left mouse button events go through `AppModel.switcherPasses(_:)` before any
 /// view sees them, so the rest of a click sequence whose click activated a row reaches none
 /// (`SwitcherClickSequence`, PLAN.md D32); the panel is held through the double-click interval
-/// (`SwitcherController.holdForClick()`), so that rest lands in this window.
+/// (`SwitcherController.holdForClick()`), so that rest lands in this window (or in the New
+/// session window the click opened, which ignores it too, D34).
 final class SwitcherWindowTrackingView: PanelKeyTrackingView {
-  /// The model deciding which mouse events pass.
-  private weak var model: AppModel?
-  /// The window whose mouse events are followed.
-  private weak var mouseWindow: NSWindow?
-  /// The left mouse button monitor.
-  private var mouseMonitor: Any?
-
   /// Creates the view for `model`.
   init(model: AppModel) {
-    self.model = model
     super.init(
       route: { [weak model] key in model?.handleSwitcherKey(key) ?? .ignored },
-      isDirectoryListOpen: { [weak model] in model?.directoryPicker.isOpen ?? false })
+      isDirectoryListOpen: { [weak model] in model?.directoryPicker.isOpen ?? false },
+      passes: { [weak model] event in model?.switcherPasses(event) ?? true })
   }
 
   /// Not used: the view is only created in code.
   required init?(coder: NSCoder) {
     return nil
   }
-
-  /// Follows the new window's keys and left mouse button events, or stops when the view left
-  /// its window.
-  override func viewDidMoveToWindow() {
-    super.viewDidMoveToWindow()
-    guard window !== mouseWindow else { return }
-    removeMouseMonitor()
-    guard let window else { return }
-    mouseWindow = window
-    mouseMonitor = NSEvent.addLocalMonitorForEvents(
-      matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-    ) { [weak self] event in
-      let click = SwitcherClick(event)
-      let passes = MainActor.assumeIsolated { self?.passes(click) ?? true }
-      return passes ? event : nil
-    }
-  } // End of func viewDidMoveToWindow()
-
-  /// Removes the key and mouse monitors.
-  override func stopTracking() {
-    super.stopTracking()
-    removeMouseMonitor()
-  }
-
-  /// Removes the mouse monitor.
-  private func removeMouseMonitor() {
-    if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
-    mouseMonitor = nil
-    mouseWindow = nil
-  }
-
-  /// Whether a left mouse button event goes on: events of other windows always do.
-  private func passes(_ click: SwitcherClick) -> Bool {
-    guard let window = mouseWindow, click.windowNumber == window.windowNumber, let model
-    else { return true }
-    return model.switcherPasses(click.event)
-  }
 }
 
-/// The parts of a left mouse button event the switcher reads (`NSEvent` itself is not
-/// `Sendable`).
+/// The parts of a left mouse button event the switcher and the New session window read
+/// (`NSEvent` itself is not `Sendable`).
 struct SwitcherClick: Sendable {
   /// The event's window number.
   let windowNumber: Int

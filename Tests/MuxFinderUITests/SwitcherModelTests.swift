@@ -8,9 +8,9 @@ import Testing
 /// `AppModel`, the real engine and the real `AttachCoordinator` over fakes (`AttachHarness`):
 /// its keys, its selection across refreshes, the actions it starts (success closes it, a
 /// failure stays or is carried to its next opening and the popover row, a pinned row the engine
-/// does not list opens through its retained target, a creation failure Move here held back
-/// shows later), the visibility rule shared with the popover (the status item handoff in either
-/// order included), and the glue from the fake registrar's press to the switcher's toggle.
+/// does not list opens through its retained target, New session opens its own window, PLAN.md
+/// D34), the visibility rule shared with the popover (the status item handoff in either order
+/// included), and the glue from the fake registrar's press to the switcher's toggle.
 /// Nothing runs a process,
 /// opens a socket, registers a hotkey or contacts iTerm2.
 @Suite("Session switcher in the app")
@@ -49,36 +49,11 @@ struct SwitcherModelTests {
     model.switcherVisibilityChanged(true)
     model.switcherSearchText = "x1"
     _ = model.handleSwitcherKey(.newSession)
-    _ = model.handleSwitcherKey(.open)
+    _ = model.handleNewSessionKey(.open)
     _ = await harness.waitForActions(1)
     await model.sessionEventsHandled()
     return (harness, attachDiscovery, discovered)
   } // End of static func failedPinnedCreation()
-
-  /// The model's switcher after the user started a New session in it that will fail with a
-  /// collision, went back to the list, closed the switcher, opened the popover and asked to
-  /// move This Mac's session here; returns once the creation failed, the Move here
-  /// confirmation still showing.
-  static func creationFailedDuringMoveHere(_ harness: AttachHarness) async {
-    let model = harness.model
-    harness.creator.script([.failure(.sessionExists(.hasSession))])
-    model.switcherVisibilityChanged(true)
-    model.switcherSearchText = "taken-name"
-    _ = model.handleSwitcherKey(.newSession)
-    _ = model.handleSwitcherKey(.open)
-    _ = model.handleSwitcherKey(.close)
-    model.switcherVisibilityChanged(false)
-    model.popoverVisibilityChanged(true)
-    model.requestMoveHere(harness.key(on: harness.hosts[0]))
-    _ = await harness.waitForActions(1)
-    await model.sessionEventsHandled()
-  } // End of static func creationFailedDuringMoveHere(_:)
-
-  /// Whether `model`'s panel is a Move here confirmation.
-  static func showsMoveHere(_ model: AppModel) -> Bool {
-    if case .moveHere? = model.panel { return true }
-    return false
-  }
 
   /// Both real controllers over fakes, wired to one started model as `MenuBarPopover` and
   /// `SessionSwitcher` wire them (the popover's close and its status item press check).
@@ -102,7 +77,7 @@ struct SwitcherModelTests {
         panel: PopoverControllerTests.FakePanel(), button: PopoverControllerTests.FakeButton(),
         system: system.system,
         onVisibilityChange: { [weak model] in model?.popoverVisibilityChanged($0) })
-      model.closePopover = { [weak popover] in popover?.close(.switcherOpened) }
+      model.closePopover = { [weak popover] reason in popover?.close(reason) }
       model.isStatusItemPressHeld = { [weak popover] in popover?.isButtonPressHeld ?? false }
       let switcher = SwitcherController.make(
         for: model, panel: PopoverControllerTests.FakePanel(),
@@ -194,41 +169,43 @@ struct SwitcherModelTests {
     await model.shutdown()
   } // End of func returnOpensTheSessionAndSuccessCloses()
 
-  /// Return on the New session row shows the form with the filter's name, for This Mac; Esc
-  /// goes back to the list (the search field asked for the focus), and Esc in the list closes
-  /// the switcher.
-  @Test func returnOnNewSessionShowsTheFormAndEscGoesBack() async {
+  /// Return on the New session row opens the New session window with the filter's name, for
+  /// This Mac, and asks the switcher to close (PLAN.md D34); Esc in the list closes the
+  /// switcher.
+  @Test func returnOnNewSessionOpensTheWindow() async {
     let harness = await Self.harness()
     let model = harness.model
+    var closes: [SwitcherController.CloseReason] = []
+    model.closeSwitcher = { closes.append($0) }
     model.switcherVisibilityChanged(true)
     model.switcherSearchText = "deploy-docs"
     #expect(model.switcherContent.items == [.newSession])
     #expect(model.handleSwitcherKey(.open) == .handled)
-    #expect(model.switcherShowsNewSession)
+    #expect(model.isNewSessionShown && closes == [.newSessionOpened])
     #expect(model.newSessionDraft.name == "deploy-docs")
     #expect(model.newSessionDraft.hostID == harness.hosts[0].id)
-    let focus = model.switcherFocusRequests
-    #expect(model.handleSwitcherKey(.close) == .handled)
-    #expect(!model.switcherShowsNewSession && model.switcherFocusRequests == focus + 1)
     #expect(model.handleSwitcherKey(.close) == .closePopover)
+    #expect(model.isNewSessionShown, "the switcher's keys never touch the window")
     await model.shutdown()
-  } // End of func returnOnNewSessionShowsTheFormAndEscGoesBack()
+  } // End of func returnOnNewSessionOpensTheWindow()
 
-  /// ⌘N shows the form (empty without a filter, named from it with one); in the form ⌥↓ opens
-  /// the directory list and Esc closes the list before the form; Return creates, the creation
-  /// is the switcher's, and its attach's success closes the switcher.
-  @Test func commandNAndTheFormsKeys() async {
+  /// ⌘N opens the window (empty without a filter, named from it with one, once a fresh draft
+  /// is due); in the window ⌥↓ opens the directory list and Esc closes the list before the
+  /// window; Return creates, the creation is the switcher's (it made the draft), and its
+  /// attach's success closes the switcher while it still shows.
+  @Test func commandNAndTheWindowsKeys() async {
     let harness = await Self.harness()
     let model = harness.model
     model.switcherVisibilityChanged(true)
     #expect(model.handleSwitcherKey(.newSession) == .handled)
-    #expect(model.switcherShowsNewSession && model.newSessionDraft.name.isEmpty)
-    #expect(model.handleSwitcherKey(.openList) == .handled)
+    #expect(model.isNewSessionShown && model.newSessionDraft.name.isEmpty)
+    #expect(model.handleNewSessionKey(.openList) == .handled)
     #expect(model.directoryPicker.isOpen)
-    #expect(model.handleSwitcherKey(.close) == .handled)
-    #expect(!model.directoryPicker.isOpen && model.switcherShowsNewSession)
-    #expect(model.handleSwitcherKey(.newSession) == .handled)
-    _ = model.handleSwitcherKey(.close)
+    #expect(model.handleNewSessionKey(.close) == .handled)
+    #expect(!model.directoryPicker.isOpen && model.isNewSessionShown)
+    #expect(model.handleNewSessionKey(.newSession) == .handled)
+    #expect(model.handleNewSessionKey(.close) == .handled)
+    #expect(!model.isNewSessionShown)
     model.switcherSearchText = "x1"
     _ = model.handleSwitcherKey(.newSession)
     #expect(model.newSessionDraft.name == "x1")
@@ -238,15 +215,15 @@ struct SwitcherModelTests {
     let (discovered, record) = NewSessionSheetTests.created("x1", id: 7, on: local)
     harness.discovery.setStatus(.ok([FakeDiscovery.session(on: local), discovered]), for: local.id)
     harness.creator.script([.success(record)])
-    #expect(model.handleSwitcherKey(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(model.newSessionDraft.state == .creating)
     #expect(await harness.waitForActions(1))
     await model.sessionEventsHandled()
     #expect(model.activities[discovered.key] == .confirmed)
-    #expect(!model.switcherShowsNewSession)
+    #expect(!model.isNewSessionShown)
     #expect(closes == [.actionSucceeded])
     await model.shutdown()
-  } // End of func commandNAndTheFormsKeys()
+  } // End of func commandNAndTheWindowsKeys()
 
   /// ⌘R refreshes every host, ⌘, opens Settings, ⌘F asks for the search field's focus.
   @Test func refreshSettingsAndFind() async throws {
@@ -333,60 +310,34 @@ struct SwitcherModelTests {
     await model.shutdown()
   } // End of func aFailureWhileShownStaysOnItsRow()
 
-  /// A creation that fails after the user left the form (and closed the switcher) puts the
-  /// form back with its failure, so the next opening shows it.
-  @Test func aCreationFailureBringsTheFormBack() async {
+  /// A creation from a draft the switcher made that fails after the user closed the window
+  /// (and the switcher closed): the window comes back with its failure, not key, and the
+  /// switcher's opening and closing leave it as it is (PLAN.md D34, replacing Phase I-3b's
+  /// deferred failure).
+  @Test func aCreationFailureBringsTheWindowBack() async {
     let harness = await AttachHarness.make()
     let model = harness.model
     harness.creator.script([.failure(.sessionExists(.hasSession))])
     model.switcherVisibilityChanged(true)
     model.switcherSearchText = "taken-name"
     _ = model.handleSwitcherKey(.newSession)
-    #expect(model.handleSwitcherKey(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(model.newSessionDraft.state == .creating)
-    _ = model.handleSwitcherKey(.close)
+    #expect(model.switcherCreation != nil)
+    #expect(model.handleNewSessionKey(.close) == .handled)
     model.switcherVisibilityChanged(false)
-    #expect(!model.switcherShowsNewSession)
+    #expect(!model.isNewSessionShown)
     #expect(await harness.waitForActions(1))
     await model.sessionEventsHandled()
-    #expect(model.switcherShowsNewSession && model.newSessionDraft.state == .collision)
+    #expect(model.isNewSessionShown && model.newSessionDraft.state == .collision)
+    #expect(model.newSessionWindow.request?.kind == .outcome)
+    #expect(model.switcherCreation == nil)
     model.switcherVisibilityChanged(true)
-    #expect(model.switcherShowsNewSession && model.newSessionDraft.name == "taken-name")
+    #expect(model.isNewSessionShown && model.newSessionDraft.name == "taken-name")
+    model.switcherVisibilityChanged(false)
+    #expect(model.isNewSessionShown && model.newSessionDraft.state == .collision)
     await model.shutdown()
-  } // End of func aCreationFailureBringsTheFormBack()
-
-  /// A switcher creation that fails while the popover shows Move here: the confirmation stays
-  /// as it is, and once it ends (Cancel) the form comes back with the failure (Phase I-3b
-  /// review).
-  @Test func aCreationFailureHeldBackByMoveHereShowsOnceItEnds() async {
-    let harness = await AttachHarness.make()
-    let model = harness.model
-    await Self.creationFailedDuringMoveHere(harness)
-    #expect(model.finishedActions.count == 1)
-    #expect(Self.showsMoveHere(model) && model.newSessionDraft.state == .collision)
-    model.cancelPanel()
-    #expect(model.panel == .newSession)
-    #expect(model.newSessionDraft.name == "taken-name")
-    #expect(model.newSessionDraft.state == .collision)
-    await model.shutdown()
-  } // End of func aCreationFailureHeldBackByMoveHereShowsOnceItEnds()
-
-  /// The same failure while the Move here confirmation still waits when the switcher opens
-  /// next (the popover closed meanwhile): the switcher shows the form with the failure, and the
-  /// unconfirmed Move here closes having run nothing (Phase I-3b review).
-  @Test func aCreationFailureHeldBackByMoveHereShowsAtTheNextOpening() async {
-    let harness = await AttachHarness.make()
-    let model = harness.model
-    await Self.creationFailedDuringMoveHere(harness)
-    #expect(Self.showsMoveHere(model))
-    model.popoverVisibilityChanged(false)
-    model.switcherVisibilityChanged(true)
-    #expect(model.switcherShowsNewSession)
-    #expect(model.newSessionDraft.name == "taken-name")
-    #expect(model.newSessionDraft.state == .collision)
-    #expect(model.finishedActions.count == 1 && model.runningActions.isEmpty)
-    await model.shutdown()
-  } // End of func aCreationFailureHeldBackByMoveHereShowsAtTheNextOpening()
+  } // End of func aCreationFailureBringsTheWindowBack()
 
   /// A session New session created whose attach failed before the engine listed it (This Mac
   /// stopped answering): its pinned row's "Try again" attaches it through its retained target
@@ -449,7 +400,7 @@ struct SwitcherModelTests {
       environment: Support.environment(load: { Support.loaded([Support.localHost()]) }))
     var popoverCloses = 0
     var switcherCloses: [SwitcherController.CloseReason] = []
-    model.closePopover = { popoverCloses += 1 }
+    model.closePopover = { _ in popoverCloses += 1 }
     model.closeSwitcher = { switcherCloses.append($0) }
     await model.start()
     model.popoverVisibilityChanged(true)
@@ -487,7 +438,7 @@ struct SwitcherModelTests {
       panel: PopoverControllerTests.FakePanel(), button: PopoverControllerTests.FakeButton(),
       system: popoverSystem.system,
       onVisibilityChange: { [weak model] in model?.popoverVisibilityChanged($0) })
-    model.closePopover = { [weak popover] in popover?.close(.switcherOpened) }
+    model.closePopover = { [weak popover] reason in popover?.close(reason) }
     let switcher = SwitcherController.make(
       for: model, panel: PopoverControllerTests.FakePanel(),
       system: SwitcherControllerTests.FakeSystem().system)

@@ -33,13 +33,13 @@ public struct PopoverView: View {
     self.isLive = isLive
   }
 
-  /// The popover's layout: the panel (Move here, New session) while one shows, otherwise the
-  /// search field, banners, notices, hosts and footer.
+  /// The popover's layout: the Move here confirmation while it shows, otherwise the search
+  /// field, banners, notices, hosts and footer. New session has its own window (PLAN.md D34).
   public var body: some View {
     let content = model.content
     VStack(spacing: 0) {
-      if let panel = model.panel {
-        PanelView(panel: panel, model: model)
+      if case .moveHere(let request)? = model.panel {
+        MoveHerePanelView(request: request, model: model)
       } else {
         searchField
           .padding(10)

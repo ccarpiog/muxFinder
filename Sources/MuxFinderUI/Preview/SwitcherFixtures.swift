@@ -2,12 +2,13 @@ import Foundation
 import MuxFinderCore
 
 /// The session switcher's states for `--preview-fixtures --preview-gallery switcher` (PLAN.md
-/// D32, Phase I-3b): the list, a filtered list, New session with a name from the filter, the
-/// form (also with its directory list filtered by typing, and with no matching directory,
-/// D31), an action in progress, a failure while it showed and one carried from a closed
-/// switcher, no hosts turned on, and hosts checking or unreachable. Synthetic data only
-/// (invented session names, `*.example` destinations, a fake socket path, fixed ids); building
-/// them runs nothing.
+/// D32, Phase I-3b): the list, a filtered list, New session with a name from the filter, an
+/// action in progress, a failure while it showed and one carried from a closed switcher, no
+/// hosts turned on, and hosts checking or unreachable. The New session form as the switcher
+/// opens it (also with its directory list filtered by typing, and with no matching directory,
+/// D31) is in `newSessionStates`: it shows in its own window now (D34), not in the switcher,
+/// so the gallery leaves it out. Synthetic data only (invented session names, `*.example`
+/// destinations, a fake socket path, fixed ids); building them runs nothing.
 public enum SwitcherFixtures {
   /// Shorthand.
   typealias Fixtures = PreviewFixtures
@@ -58,7 +59,7 @@ public enum SwitcherFixtures {
 
   /// The New session form, its name filled in from the filter, for This Mac.
   public static let form = PreviewFixture(
-    id: "switcher-form", title: "New session form", state: liveHosts, panel: .newSession,
+    id: "switcher-form", title: "New session form", state: liveHosts, showsNewSession: true,
     newSessionDraft: NewSessionDraft(hostID: Fixtures.neptuno.id, name: "deploy-docs"),
     directoryStatus: .usable(droppedEntryCount: 0))
 
@@ -66,7 +67,7 @@ public enum SwitcherFixtures {
   /// the matching recent and saved directories, nothing highlighted.
   public static let formFiltered = PreviewFixture(
     id: "switcher-form-filtered", title: "New session form: typing filters the list",
-    state: liveHosts, panel: .newSession,
+    state: liveHosts, showsNewSession: true,
     newSessionDraft: NewSessionDraft(
       hostID: Fixtures.neptuno.id, name: "deploy-docs", directory: "~/proj"),
     directoryLists: AttachFixtures.filterLists, directoryStatus: .usable(droppedEntryCount: 0),
@@ -76,7 +77,7 @@ public enum SwitcherFixtures {
   /// matching directories" above the actions.
   public static let formNoMatches = PreviewFixture(
     id: "switcher-form-no-matches", title: "New session form: no matching directories",
-    state: liveHosts, panel: .newSession,
+    state: liveHosts, showsNewSession: true,
     newSessionDraft: NewSessionDraft(
       hostID: Fixtures.neptuno.id, name: "deploy-docs", directory: "~/archive/2019"),
     directoryLists: AttachFixtures.filterLists, directoryStatus: .usable(droppedEntryCount: 0),
@@ -122,9 +123,13 @@ public enum SwitcherFixtures {
         lastSuccessAgo: 3_600, lastAttemptAgo: 20),
     ]))
 
-  /// Every fixture, in the gallery's order.
+  /// Every fixture of the switcher's panel, in the gallery's order.
   public static let all = [
-    list, filtered, newSessionName, form, formFiltered, formNoMatches, opening, failure,
-    carriedFailure, noHosts, checkingAndUnreachable,
+    list, filtered, newSessionName, opening, failure, carriedFailure, noHosts,
+    checkingAndUnreachable,
   ]
+
+  /// The New session form as the switcher opens it (the New session window's, PLAN.md D34), in
+  /// order; not in the switcher gallery, whose panels no longer show the form.
+  public static let newSessionStates = [form, formFiltered, formNoMatches]
 }

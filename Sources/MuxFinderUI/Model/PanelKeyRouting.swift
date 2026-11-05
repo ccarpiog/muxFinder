@@ -16,9 +16,10 @@ public enum PanelFirstResponder: Sendable, Hashable {
   }
 }
 
-/// Where a muxFinder panel's key monitor (`PanelKeyTrackingView`, the popover's and the session
-/// switcher's) sends a key press: a pure decision (`decide(_:firstResponder:menuTracking:
-/// hasMarkedText:directoryListOpen:)`) over the key, the kind of the panel's first responder,
+/// Where a muxFinder panel's key monitor (`PanelKeyTrackingView`, the popover's, the session
+/// switcher's and the New session window's, PLAN.md D34) sends a key press: a pure decision
+/// (`decide(_:firstResponder:menuTracking:hasMarkedText:directoryListOpen:)`) over the key,
+/// the kind of the panel's first responder,
 /// whether a menu of the app is tracking, whether an input method is composing text and
 /// whether New session's directory list is open (PLAN.md Phase I-8, D30, D31, D32).
 public enum PanelKeyRoute: Sendable, Hashable {
@@ -35,8 +36,8 @@ public enum PanelKeyRoute: Sendable, Hashable {
   /// picks it or creates, Esc closes the list).
   case directoryList(PopoverKey)
   /// The panel's key: its handler gets it (`AppModel.handle(_:)` in the popover,
-  /// `handleSwitcherKey(_:)` in the switcher), which may still leave it to the focused view
-  /// (`PopoverKeyResult.ignored`).
+  /// `handleSwitcherKey(_:)` in the switcher, `handleNewSessionKey(_:)` in the New session
+  /// window), which may still leave it to the focused view (`PopoverKeyResult.ignored`).
   case model(PopoverKey)
 
   /// The keys a focused pop-up button keeps: ↑ and ↓ (AppKit's standard key bindings send it

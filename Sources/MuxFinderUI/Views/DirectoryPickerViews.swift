@@ -8,7 +8,7 @@ import SwiftUI
 /// `directoryFieldChanged(from:)`). ⌥↓ opens the list from the keyboard, as does Space on the
 /// button once Tab reaches it (with macOS's keyboard navigation on). Tab with the list open
 /// moves on and leaves it open: its rows take no focus (SwiftUI draws them, so they are not in
-/// the panel's key view loop) and its keys are the model's wherever the focus is in the form
+/// the window's key view loop) and its keys are the model's wherever the focus is in the form
 /// (PLAN.md D31).
 struct DirectoryFieldView: View {
   /// The field's caption, also its accessibility label.

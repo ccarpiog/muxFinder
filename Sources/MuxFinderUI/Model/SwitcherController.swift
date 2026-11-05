@@ -105,7 +105,8 @@ public struct SwitcherSystem {
 ///   (`SwitcherPlacement`) and closes it when open.
 /// - **Closing:** Esc (the panel's own close), a mouse press another process received, another
 ///   app becoming active, the panel resigning key, the displays changing, the popover opening
-///   (only one of the two shows) and an Open or New session it started succeeding. A close from
+///   (only one of the two shows), an Open (or a creation's attach) it started succeeding and
+///   the New session window opening from it (PLAN.md D34). A close from
 ///   outside made by a press on muxFinder's status item button (`isStatusItemPress`) is left
 ///   to that press's button action, which opens the popover, which closes the switcher
 ///   (`popoverOpened`) once the popover is reported visible; so in either order of the press's
@@ -114,10 +115,11 @@ public struct SwitcherSystem {
 ///   edge; while open, a change of the content's size places it again with the same top edge.
 /// - **A click's hold** (`holdForClick()`, Phase I-5 review): a click that activated a row
 ///   keeps the panel at least as tall as it was, and holds back a close for the action's
-///   success, another app becoming active or the panel resigning key, until the system's
-///   double-click interval has passed, so the rest of that click's sequence lands on the panel
-///   (which ignores it, `SwitcherClickSequence`), never on the window behind it. Every other
-///   close is made at once and ends the hold, as does each close.
+///   success, the New session window opening, another app becoming active or the panel
+///   resigning key, until the system's double-click interval has passed, so the rest of that
+///   click's sequence lands on the panel or on the New session window (which both ignore it,
+///   `SwitcherClickSequence`), never on the window behind. Every other close is made at once
+///   and ends the hold, as does each close.
 /// - **Visibility** (`onVisibilityChange`, the model's `switcherVisibilityChanged(_:)`):
 ///   visible while open and not fully occluded, reported on changes only and, when opening,
 ///   before the panel shows, so the model can close the popover while the engine still sees one
@@ -140,25 +142,31 @@ public final class SwitcherController {
     case shortcut
     /// The popover opened (only one of the two shows at a time).
     case popoverOpened
-    /// An Open or New session started in the switcher succeeded.
+    /// An Open started in the switcher, or the attach of a session created from a New session
+    /// draft it made or opened from one with "Open existing", succeeded.
     case actionSucceeded
+    /// The New session window opened from the switcher (PLAN.md D34).
+    case newSessionOpened
 
     /// Whether this close comes from outside the switcher, so it may be a press on muxFinder's
     /// status item button (left to the popover that press opens).
     var isOutside: Bool {
       switch self {
       case .pressOutside, .appSwitch, .resignedKey: true
-      case .escape, .displaysChanged, .shortcut, .popoverOpened, .actionSucceeded: false
+      case .escape, .displaysChanged, .shortcut, .popoverOpened, .actionSucceeded,
+        .newSessionOpened:
+        false
       }
     }
 
     /// Whether this close waits for the end of a click's hold (`holdForClick()`): the ones the
-    /// clicked row's own action brings, its success and iTerm2 coming forward with it (another
-    /// app active, the panel no longer key). Esc, the shortcut, a press outside, a display
-    /// change and the popover opening never wait.
+    /// clicked row's own action brings, its success, the New session window it opened, and
+    /// iTerm2 or that window coming forward with it (another app active, the panel no longer
+    /// key). Esc, the shortcut, a press outside, a display change and the popover opening never
+    /// wait.
     var waitsForClickHold: Bool {
       switch self {
-      case .actionSucceeded, .appSwitch, .resignedKey: true
+      case .actionSucceeded, .newSessionOpened, .appSwitch, .resignedKey: true
       case .escape, .pressOutside, .displaysChanged, .shortcut, .popoverOpened: false
       }
     }
@@ -225,8 +233,8 @@ public final class SwitcherController {
   /// A controller for `model` (the app's `SessionSwitcher` and the tests share this glue): its
   /// visibility goes to `switcherVisibilityChanged(_:)`, each opening focuses the search
   /// field, the model's `isStatusItemPressHeld` says whether a press on the status item button
-  /// is in progress, and the model's `toggleSwitcher`, `closeSwitcher` and
-  /// `holdSwitcherForClick` reach it.
+  /// is in progress, the model's `toggleSwitcher`, `closeSwitcher` and `holdSwitcherForClick`
+  /// reach it, and its `switcherSource` is `newSessionSource`.
   public static func make(
     for model: AppModel,
     panel: any PopoverPanelSurface,
@@ -242,8 +250,16 @@ public final class SwitcherController {
     model.toggleSwitcher = { [weak controller] in controller?.toggle() }
     model.closeSwitcher = { [weak controller] reason in controller?.close(reason) }
     model.holdSwitcherForClick = { [weak controller] in controller?.holdForClick() }
+    model.switcherSource = { [weak controller] in controller?.newSessionSource }
     return controller
   } // End of static func make(for:panel:system:)
+
+  /// Where the open switcher is, for placing the New session window it opens (PLAN.md D34):
+  /// its frame and display; `nil` while closed.
+  public var newSessionSource: NewSessionWindowSource? {
+    guard isOpen, let frame, let screen else { return nil }
+    return NewSessionWindowSource(frame: frame, screen: screen)
+  }
 
   /// The session switcher shortcut: closes the open switcher, or opens it.
   public func toggle() {
@@ -302,10 +318,10 @@ public final class SwitcherController {
 
   /// A click activated a row (`AppModel.clickSwitcherItem(_:)` calls this before the row
   /// acts): until the system's double-click interval has passed, the content lays itself out
-  /// no shorter than the panel is now (`PopoverPanelSurface.minimumContentHeight`; a shrink,
-  /// such as the New session form replacing a taller list, waits; growth does not), and a close
-  /// for the action's success, another app becoming active or the panel resigning key waits
-  /// (`close(_:)`), so the rest of that click's sequence lands on the panel, which ignores it
+  /// no shorter than the panel is now (`PopoverPanelSurface.minimumContentHeight`; a shrink
+  /// waits, growth does not), and a close for the action's success, the New session window
+  /// opening, another app becoming active or the panel resigning key waits (`close(_:)`), so
+  /// the rest of that click's sequence lands on the panel, which ignores it
   /// (`SwitcherClickSequence`), instead of on the window behind. A click during a hold starts
   /// a new one from the panel's frame then, keeping a close already waiting. Does nothing while
   /// closed.

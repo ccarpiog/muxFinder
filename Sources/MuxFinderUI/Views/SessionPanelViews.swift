@@ -1,29 +1,10 @@
 import MuxFinderCore
 import SwiftUI
 
-/// The panel the popover shows in place of its host list (PLAN.md D25): the Move here
-/// confirmation or the New session sheet. Drawn inside the popover, so it stays in the menu bar
-/// window and renders in the preview fixtures.
-struct PanelView: View {
-  /// Which panel.
-  let panel: PopoverPanel
-  /// The model the buttons talk to.
-  @Bindable var model: AppModel
-
-  /// The panel's content.
-  var body: some View {
-    switch panel {
-    case .moveHere(let request):
-      MoveHerePanelView(request: request, model: model)
-    case .newSession:
-      NewSessionPanelView(model: model)
-    }
-  }
-}
-
-/// "Move “name” here?": what moving does (every other client is disconnected, including other
-/// Macs; the session keeps running), "Cancel" and "Move here". Only "Move here" reaches the
-/// core's move.
+/// "Move “name” here?", the panel the popover shows in place of its host list (PLAN.md D25):
+/// what moving does (every other client is disconnected, including other Macs; the session
+/// keeps running), "Cancel" and "Move here". Only "Move here" reaches the core's move. Drawn
+/// inside the popover, so it stays in the menu bar window and renders in the preview fixtures.
 struct MoveHerePanelView: View {
   /// The session.
   let request: MoveHereRequest
@@ -62,35 +43,34 @@ struct MoveHerePanelView: View {
   } // End of var body
 }
 
-/// "New session": the host (enabled hosts), the name with its inline issue, the optional
+/// The New session form, the content of the New session window (PLAN.md D34, whose title says
+/// "New session"): the host (enabled hosts), the name with its inline issue, the optional
 /// directory with its directory list (`DirectoryFieldView`, PLAN.md D31), the creation's state
-/// (a collision offers "Open existing"), "Cancel" and "Create". Shown in the popover and in
-/// the session switcher (PLAN.md D32), which asks for the name field to take the focus. Tab
-/// and ⇧Tab move between Name and Directory (with macOS's keyboard navigation on, through the
-/// host picker, the directory list button, Cancel and Create too) by AppKit's own key view
-/// loop, which the panel recalculates (`PopoverPanelWindow`, PLAN.md Phase I-6). The host
-/// picker is AppKit's pop-up button: focused, it gets Space, ↑, ↓ and ⌥↓ as AppKit handles
-/// them, and its open menu every key (the panels' key monitor leaves them, `PanelKeyRoute`,
-/// PLAN.md Phase I-8); a host picked by keyboard, click or VoiceOver comes through the same
-/// binding.
+/// (a collision offers "Open existing"), "Cancel" (`AppModel.closeNewSession()`) and "Create".
+/// The live window asks for the name field to take the focus at each fresh opening
+/// (`AppModel.newSessionFocusRequests`). Tab and ⇧Tab move between Name and Directory (with
+/// macOS's keyboard navigation on, through the host picker, the directory list button, Cancel
+/// and Create too) by AppKit's own key view loop, which the window recalculates
+/// (`NewSessionPanel`, PLAN.md Phase I-6). The host picker is AppKit's pop-up button: focused,
+/// it gets Space, ↑, ↓ and ⌥↓ as AppKit handles them, and its open menu every key (the
+/// window's key monitor leaves them, `PanelKeyRoute`, PLAN.md Phase I-8); a host picked by
+/// keyboard, click or VoiceOver comes through the same binding.
 struct NewSessionPanelView: View {
   /// The Name field's placeholder.
   static let namePrompt = "work"
 
   /// The model whose draft the fields edit.
   @Bindable var model: AppModel
-  /// Whether the name field takes the keyboard focus when the form appears (the live session
-  /// switcher, which is keyboard-first).
+  /// Whether the name field takes the keyboard focus when the form appears and at each fresh
+  /// opening (the live window).
   var focusesName = false
   /// Whether the name field has the keyboard focus.
   @FocusState private var isNameFocused: Bool
 
-  /// The sheet.
+  /// The form.
   var body: some View {
     let draft = model.newSessionDraft
     VStack(alignment: .leading, spacing: 10) {
-      Text("New session")
-        .font(.headline)
       Picker("Host", selection: $model.newSessionDraft.hostID) {
         ForEach(model.newSessionHosts) { host in
           Text(host.displayName).tag(Optional(host.id))
@@ -106,17 +86,20 @@ struct NewSessionPanelView: View {
       }
       HStack {
         Spacer()
-        Button("Cancel") { model.cancelPanel() }
+        Button("Cancel") { model.closeNewSession() }
           .keyboardShortcut(.cancelAction)
         Button("Create") { model.createSession() }
           .keyboardShortcut(.defaultAction)
           .disabled(draft.isBusy || model.newSessionHosts.isEmpty)
       }
       .padding(.top, 2)
-    } // End of VStack holding the sheet
+    } // End of VStack holding the form
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)
     .task {
+      if focusesName { isNameFocused = true }
+    }
+    .onChange(of: model.newSessionFocusRequests) {
       if focusesName { isNameFocused = true }
     }
   } // End of var body

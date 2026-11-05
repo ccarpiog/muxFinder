@@ -2,11 +2,13 @@ import Foundation
 import MuxFinderCore
 
 /// The session actions' states for `--preview-fixtures --preview-gallery attach` (PLAN.md
-/// D25): progress and results, every failure with its recoveries, the Move here dialog, Detach,
-/// the New session sheet (empty, invalid name, creating, collision; its directory list open
-/// with entries, with nothing to pick, with the directory saved already, with an unusable
-/// file, filtered by typing and with no matching directory, D31) and the banners. Synthetic data only (invented session names and paths,
-/// `*.example` destinations, a fake socket path, fixed ids); building them runs nothing.
+/// D25): progress and results, every failure with its recoveries, the Move here dialog, Detach
+/// and the banners. The New session form's states (empty, invalid name, creating, collision;
+/// its directory list open with entries, with nothing to pick, with the directory saved
+/// already, with an unusable file, filtered by typing and with no matching directory, D31) are
+/// `newSessionStates`: the form is in its own window now (D34), not in the popover, so the
+/// gallery leaves them out. Synthetic data only (invented session names and paths, `*.example`
+/// destinations, a fake socket path, fixed ids); building them runs nothing.
 public enum AttachFixtures {
   /// Shorthand.
   typealias Fixtures = PreviewFixtures
@@ -201,34 +203,34 @@ public enum AttachFixtures {
     ]
   }
 
-  /// The New session sheet, empty, for This Mac.
+  /// The New session form, empty, for This Mac.
   public static let newSession = PreviewFixture(
     id: "new-session", title: "New session", state: hosts(saturno: [], neptuno: neptuno),
-    panel: .newSession, newSessionDraft: NewSessionDraft(hostID: Fixtures.neptuno.id))
+    showsNewSession: true, newSessionDraft: NewSessionDraft(hostID: Fixtures.neptuno.id))
 
-  /// The sheet with a name tmux would change, shown inline.
+  /// The form with a name tmux would change, shown inline.
   public static let newSessionInvalid = PreviewFixture(
     id: "new-session-invalid", title: "New session: invalid name",
-    state: hosts(saturno: [], neptuno: neptuno), panel: .newSession,
+    state: hosts(saturno: [], neptuno: neptuno), showsNewSession: true,
     newSessionDraft: NewSessionDraft(
       hostID: Fixtures.neptuno.id, name: "logs:old", directory: "~/projects"))
 
-  /// The sheet while the session is created and opened.
+  /// The form while the session is created and opened.
   public static let newSessionCreating: PreviewFixture = {
     var draft = NewSessionDraft(hostID: Fixtures.saturno.id, name: "experiments-2")
     draft.state = .creating
     return PreviewFixture(
       id: "new-session-creating", title: "New session: creating",
-      state: hosts(saturno: [], neptuno: neptuno), panel: .newSession, newSessionDraft: draft)
+      state: hosts(saturno: [], neptuno: neptuno), showsNewSession: true, newSessionDraft: draft)
   }()
 
-  /// The sheet after a collision, offering "Open existing".
+  /// The form after a collision, offering "Open existing".
   public static let newSessionCollision: PreviewFixture = {
     var draft = NewSessionDraft(hostID: Fixtures.neptuno.id, name: "notes")
     draft.state = .collision
     return PreviewFixture(
       id: "new-session-collision", title: "New session: name taken",
-      state: hosts(saturno: [], neptuno: neptuno), panel: .newSession, newSessionDraft: draft)
+      state: hosts(saturno: [], neptuno: neptuno), showsNewSession: true, newSessionDraft: draft)
   }()
 
   // MARK: - New session's directory list (PLAN.md D31)
@@ -294,7 +296,8 @@ public enum AttachFixtures {
     PreviewFixture(
       id: id, title: title,
       state: hosts(saturno: saturnoFolderSessions, neptuno: neptunoSessions),
-      panel: .newSession, newSessionDraft: draft, directoryLists: lists, directoryStatus: status,
+      showsNewSession: true, newSessionDraft: draft, directoryLists: lists,
+      directoryStatus: status,
       directoryPicker: DirectoryPickerState(opening: opening, highlighted: highlighted))
   } // End of func directoryFixture(id:title:draft:lists:status:highlighted:opening:…)
 
@@ -353,7 +356,7 @@ public enum AttachFixtures {
       SessionBanner(id: 1, kind: .vanished, sessionName: "scratch", hostName: "Saturno"),
     ])
 
-  /// This Mac's sessions in the sheet fixtures.
+  /// This Mac's sessions in the New session fixtures.
   static let neptuno = [Fixtures.session("notes", id: 95, on: Fixtures.neptuno, windows: 1)]
 
   /// Two rows for the context menu's card: one open in iTerm2 here (Detach offered, Move here
@@ -370,12 +373,17 @@ public enum AttachFixtures {
     return content.sections.flatMap(\.rows)
   }()
 
-  /// Every fixture, in the gallery's order.
+  /// Every fixture of the popover's session actions, in the gallery's order.
   public static let all = [
     progress, launchFailures, moreLaunchFailures, checkFailures, moreCheckFailures, hostFailures,
-    iTermFailures, moveHere, detach, detachProblems, newSession, newSessionInvalid,
-    newSessionCreating, newSessionCollision, newSessionDirectories, newSessionNothingToPick,
-    newSessionSavedAlready, newSessionUnusableFile, newSessionFiltered, newSessionNoMatches,
-    banners,
+    iTermFailures, moveHere, detach, detachProblems, banners,
+  ]
+
+  /// The New session form's states (the New session window's, PLAN.md D34), in order; not in
+  /// the attach gallery, whose popovers no longer show the form.
+  public static let newSessionStates = [
+    newSession, newSessionInvalid, newSessionCreating, newSessionCollision,
+    newSessionDirectories, newSessionNothingToPick, newSessionSavedAlready,
+    newSessionUnusableFile, newSessionFiltered, newSessionNoMatches,
   ]
 }

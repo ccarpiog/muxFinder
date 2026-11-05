@@ -39,8 +39,10 @@ final class PopoverWindowTrackingView: PanelKeyTrackingView {
   }
 }
 
-/// An invisible view that follows the window it is in (a muxFinder panel: the popover's, or
-/// the session switcher's, PLAN.md D32) for its keys.
+/// An invisible view that follows the window it is in (a muxFinder panel: the popover's, the
+/// session switcher's, PLAN.md D32, or the New session window, D34) for its keys and, when
+/// given a `passes` filter (the switcher, the New session window), its left mouse button
+/// events.
 ///
 /// A local key-down monitor sees the window's key events first. Where each goes is
 /// `PanelKeyRoute.decide(_:firstResponder:menuTracking:hasMarkedText:directoryListOpen:)`
@@ -50,32 +52,41 @@ final class PopoverWindowTrackingView: PanelKeyTrackingView {
 /// or an input method is composing text (marked text), every key goes on untouched; while a
 /// pop-up button has the focus (New session's Host picker), ↑, ↓ and ⌥↓ go on to it. Esc
 /// (`PopoverKeyResult.closePopover`) closes the window, which the panel turns into its
-/// controller's close.
+/// controller's close. With `passes`, a local monitor sees the window's left mouse button
+/// events first and lets each go on to the views only when `passes` says so
+/// (`SwitcherClickSequence`); events of other windows always go on.
 class PanelKeyTrackingView: NSView {
   /// Carries out a key and says what the window does next.
   private let route: @MainActor (PopoverKey) -> PopoverKeyResult
   /// Whether New session's directory list is open (the route's input; the handler asks the
   /// list itself).
   private let isDirectoryListOpen: @MainActor () -> Bool
+  /// Whether a left mouse button event in the window goes on; `nil` follows no mouse event.
+  private let passes: (@MainActor (SwitcherClickSequence.Event) -> Bool)?
   /// Whether a menu of the app is tracking.
   private let menuTracking: MenuTrackingObserver
   /// The window followed.
   private weak var trackedWindow: NSWindow?
   /// The key-down monitor.
   private var keyMonitor: Any?
+  /// The left mouse button monitor, with `passes`.
+  private var mouseMonitor: Any?
 
   /// Creates the view; its window's keys go to `route`, `isDirectoryListOpen` says whether the
-  /// directory list is open, and `menuTracking` whether a menu is tracking.
+  /// directory list is open, `passes` (if any) which left mouse button events go on, and
+  /// `menuTracking` whether a menu is tracking.
   init(
     route: @escaping @MainActor (PopoverKey) -> PopoverKeyResult,
     isDirectoryListOpen: @escaping @MainActor () -> Bool,
+    passes: (@MainActor (SwitcherClickSequence.Event) -> Bool)? = nil,
     menuTracking: MenuTrackingObserver = .shared
   ) {
     self.route = route
     self.isDirectoryListOpen = isDirectoryListOpen
+    self.passes = passes
     self.menuTracking = menuTracking
     super.init(frame: .zero)
-  }
+  } // End of init(route:isDirectoryListOpen:passes:menuTracking:)
 
   /// Not used: the view is only created in code.
   required init?(coder: NSCoder) {
@@ -91,7 +102,7 @@ class PanelKeyTrackingView: NSView {
     track(window)
   }
 
-  /// Installs the key monitor for `window`.
+  /// Installs the key monitor for `window`, and the left mouse button monitor with `passes`.
   private func track(_ window: NSWindow) {
     trackedWindow = window
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -99,13 +110,30 @@ class PanelKeyTrackingView: NSView {
       let used = MainActor.assumeIsolated { self?.handle(press) ?? false }
       return used ? nil : event
     }
-  }
+    guard passes != nil else { return }
+    mouseMonitor = NSEvent.addLocalMonitorForEvents(
+      matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+    ) { [weak self] event in
+      let click = SwitcherClick(event)
+      let goesOn = MainActor.assumeIsolated { self?.letsThrough(click) ?? true }
+      return goesOn ? event : nil
+    }
+  } // End of func track(_:)
 
-  /// Removes the key monitor.
+  /// Removes the key and mouse monitors.
   func stopTracking() {
     if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+    if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
     keyMonitor = nil
+    mouseMonitor = nil
     trackedWindow = nil
+  }
+
+  /// Whether a left mouse button event goes on: events of other windows always do.
+  private func letsThrough(_ click: SwitcherClick) -> Bool {
+    guard let passes, let window = trackedWindow, click.windowNumber == window.windowNumber
+    else { return true }
+    return passes(click.event)
   }
 
   /// Hands a key press in the followed window to the handler when its route says so

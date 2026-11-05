@@ -115,7 +115,7 @@ struct DirectoryRecordingTests {
         harness.model.finishedActions.last?.outcome
           == .created(
             CreateAndAttachResult(creationFailure: failure)), "\(failure.kind)")
-      harness.model.cancelPanel()
+      harness.model.closeNewSession()
     } // End of loop over creation failures
     #expect(await store.changeCount == 0)
     #expect(await store.lists.isEmpty)
@@ -136,7 +136,7 @@ struct DirectoryRecordingTests {
     let model = harness.model
     #expect(model.activities[discovered.key] == .confirmed)
     #expect(model.finishedActions.last?.outcome.attachResult?.isConfirmed == true)
-    #expect(model.panel == nil)
+    #expect(!model.isNewSessionShown)
     #expect(await store.attempts == 1)
     let events = await diagnostics.events().filter { $0.detail.hasPrefix("recent directory") }
     #expect(
@@ -248,7 +248,7 @@ struct DirectoryRecordingTests {
     #expect(!(run.driver.makeEnvironment().directories is DirectoryStore))
 
     #expect(AppEnvironment.placementDiagnostic().directories == nil)
-    for fixture in PreviewFixtures.all + AttachFixtures.all {
+    for fixture in PreviewFixtures.all + AttachFixtures.all + AttachFixtures.newSessionStates {
       #expect(AppModel(fixture: fixture).environment == nil)
     }
   } // End of func eachModeGetsItsOwnStore()

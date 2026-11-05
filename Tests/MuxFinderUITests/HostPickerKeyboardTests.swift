@@ -240,7 +240,7 @@ struct MenuTrackingObserverTests {
 /// click, the keyboard (Space or an arrow, then Return in the open menu) and VoiceOver all pick
 /// through AppKit's own pop-up menu, which sets the pop-up button's selection; SwiftUI then
 /// writes it through the picker's binding, `$model.newSessionDraft.hostID`, so a pick acts the
-/// same whatever made it. (A panel that is never shown gets no AppKit pop-up button from
+/// same whatever made it. (A window that is never shown gets no AppKit pop-up button from
 /// SwiftUI, so the binding is driven here as the picker drives it; the real picker's class is
 /// read by `--preview-key-view-loop`.)
 @Suite("New session: the Host picker's binding")
@@ -267,7 +267,7 @@ struct HostPickerBindingTests {
     #expect(model.directoryPickerContent?.hostName == "Neptuno")
     #expect(model.directoryPicker.isOpen, "a host change closes nothing")
 
-    _ = model.handle(.close)
+    _ = model.handleNewSessionKey(.close)
     #expect(!model.directoryPicker.isOpen)
     selection.wrappedValue = Fixtures.saturno.id
     #expect(model.newSessionDraft.hostID == Fixtures.saturno.id)

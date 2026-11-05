@@ -297,7 +297,7 @@ struct DirectoryFilterModelTests {
       model.directoryPickerContent?.items == [.action(.saveDirectory), .action(.clearRecents)])
 
     model.toggleDirectoryList()
-    #expect(model.handle(.openList) == .handled)
+    #expect(model.handleNewSessionKey(.openList) == .handled)
     #expect(model.directoryPicker.opening == .request)
     model.newSessionDraft.directory = "proj-zz"
     #expect(model.directoryPicker.isOpen)
@@ -328,10 +328,10 @@ struct DirectoryFilterModelTests {
   @Test func escKeepsTheTextAndCloses() {
     let model = Self.model()
     model.newSessionDraft.directory = "proj"
-    #expect(model.handle(.close) == .handled)
+    #expect(model.handleNewSessionKey(.close) == .handled)
     #expect(!model.directoryPicker.isOpen)
     #expect(model.newSessionDraft.directory == "proj")
-    #expect(model.panel == .newSession)
+    #expect(model.isNewSessionShown)
     model.newSessionDraft.directory = "proje"
     #expect(model.directoryPicker.opening == .typing)
   } // End of func escKeepsTheTextAndCloses()
@@ -342,11 +342,11 @@ struct DirectoryFilterModelTests {
   @Test func theArrowsStayInTheFilteredRows() {
     let model = Self.model()
     model.newSessionDraft.directory = "proj"
-    #expect(model.handle(.down) == .handled)
+    #expect(model.handleNewSessionKey(.down) == .handled)
     #expect(model.highlightedDirectoryItem == .entry(.recent, "~/projects/experiments"))
     var visited = [model.highlightedDirectoryItem]
     for _ in 0..<10 {
-      _ = model.handle(.down)
+      _ = model.handleNewSessionKey(.down)
       visited.append(model.highlightedDirectoryItem)
     }
     let items = model.directoryPickerContent?.items ?? []
@@ -354,12 +354,12 @@ struct DirectoryFilterModelTests {
     #expect(Set(visited.compactMap { $0 }) == Set(items))
     #expect(!visited.contains(.entry(.recent, "~/scratch")))
     #expect(model.highlightedDirectoryItem == .action(.clearRecents))
-    for _ in 0..<10 { _ = model.handle(.up) }
+    for _ in 0..<10 { _ = model.handleNewSessionKey(.up) }
     #expect(model.highlightedDirectoryItem == items.first)
 
     model.newSessionDraft.directory = "proje"
     #expect(model.highlightedDirectoryItem == nil)
-    #expect(model.handle(.openList) == .handled)
+    #expect(model.handleNewSessionKey(.openList) == .handled)
     #expect(model.highlightedDirectoryItem == .entry(.recent, "~/projects/experiments"))
     #expect(model.directoryPicker.opening == .typing)
   } // End of func theArrowsStayInTheFilteredRows()
@@ -375,7 +375,7 @@ struct DirectoryFilterModelTests {
     model.newSessionDraft.directory = "~/s"
     #expect(model.directoryPicker.opening == .typing)
     #expect(model.highlightedDirectoryItem == nil)
-    #expect(model.handle(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(!model.directoryPicker.isOpen)
     #expect(model.newSessionDraft.state == .creating)
     #expect(await Support.waitUntil { model.newSessionDraft.state == .collision })
@@ -390,9 +390,9 @@ struct DirectoryFilterModelTests {
     let recorder = AnnouncementRecorder()
     model.announce = { recorder.said.append($0) }
     model.newSessionDraft.directory = "proj"
-    _ = model.handle(.down)
+    _ = model.handleNewSessionKey(.down)
     let before = recorder.said
-    #expect(model.handle(.open) == .handled)
+    #expect(model.handleNewSessionKey(.open) == .handled)
     #expect(model.newSessionDraft.directory == "~/projects/experiments")
     #expect(!model.directoryPicker.isOpen)
     #expect(recorder.said == before)
@@ -425,7 +425,7 @@ struct DirectoryFilterModelTests {
     #expect(model.directoryPickerContent?.noMatches == true)
     #expect(model.directoryPicker.isOpen, "a host change closes nothing")
 
-    _ = model.handle(.close)
+    _ = model.handleNewSessionKey(.close)
     model.newSessionDraft.hostID = Fixtures.neptuno.id
     #expect(!model.directoryPicker.isOpen, "a host change opens nothing")
   } // End of func aHostChangeRefilters()

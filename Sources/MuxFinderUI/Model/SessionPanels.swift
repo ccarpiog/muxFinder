@@ -2,13 +2,12 @@ import Foundation
 import MuxFinderCore
 
 /// What the popover shows in place of its host list while the user decides (PLAN.md D25): the
-/// Move here confirmation or the New session sheet. Both are drawn inside the popover, so they
-/// never leave the menu bar window and render in the preview fixtures.
+/// Move here confirmation, drawn inside the popover, so it never leaves the menu bar window and
+/// renders in the preview fixtures. New session has its own window instead (PLAN.md D34,
+/// `AppModel.newSessionWindow`), so the two can show at the same time.
 public enum PopoverPanel: Sendable, Hashable {
   /// "Move here…": the confirmation in front of `AttachCoordinator.moveHere(_:confirmation:)`.
   case moveHere(MoveHereRequest)
-  /// "New session": host, name, optional directory (`AppModel.newSessionDraft`).
-  case newSession
 }
 
 /// The session a "Move here…" confirmation is about.
@@ -49,17 +48,18 @@ public struct MoveHereRequest: Sendable, Hashable {
   public static let confirmTitle = "Move here"
 }
 
-/// The New session sheet's fields and state (PLAN.md D18, D25). The name and the directory are
+/// The New session form's fields and state (PLAN.md D18, D25; the form is in the New session
+/// window, D34). The name and the directory are
 /// checked inline with the core's rules (`Validation.sessionName(_:)`,
 /// `Validation.workingDirectory(_:)`); tmux decides collisions when the session is created.
 public struct NewSessionDraft: Sendable, Hashable {
-  /// Where the sheet is.
+  /// Where the form is.
   public enum State: Sendable, Hashable {
     /// The user edits the fields.
     case editing
     /// The session is being created and attached.
     case creating
-    /// A session with this name exists on the host; the sheet offers "Open existing".
+    /// A session with this name exists on the host; the form offers "Open existing".
     case collision
     /// "Open existing" lists the host's sessions afresh to find the one with this exact name.
     case findingExisting
@@ -79,7 +79,7 @@ public struct NewSessionDraft: Sendable, Hashable {
   public var directory = "" {
     didSet { if directory != oldValue { editedAfterResult() } }
   }
-  /// Where the sheet is.
+  /// Where the form is.
   public var state = State.editing
   /// Whether "Create" was pressed once, so an empty name is reported too.
   public var showsIssues = false
@@ -122,7 +122,7 @@ public struct NewSessionDraft: Sendable, Hashable {
     }
   }
 
-  /// Whether the sheet is busy (creating, or looking for the existing session).
+  /// Whether the form is busy (creating, or looking for the existing session).
   public var isBusy: Bool { state == .creating || state == .findingExisting }
 
   /// The checked request for `hosts` (the enabled hosts), with `command` as the first pane's
@@ -140,7 +140,7 @@ public struct NewSessionDraft: Sendable, Hashable {
       host: host, name: name, workingDirectory: workingDirectory, command: command)
   } // End of func request(hosts:command:)
 
-  /// The message shown for the sheet's state, if any.
+  /// The message shown for the form's state, if any.
   public var stateMessage: String? {
     switch state {
     case .editing: return nil

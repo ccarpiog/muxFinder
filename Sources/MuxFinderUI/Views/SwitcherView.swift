@@ -3,13 +3,13 @@ import SwiftUI
 
 /// The session switcher (PLAN.md D32, Phase I-3b): a search field, the popover's banners, the
 /// live sessions (pinned rows first) with New session last, muted lines for hosts still
-/// checking or unreachable, and a line of key hints; or the popover's placeholder; or the New
-/// session form (`NewSessionPanelView`, shared with the popover) while it shows. It paints
-/// Phase 14's opaque background, so the real switcher and the preview gallery look the same.
+/// checking or unreachable, and a line of key hints; or the popover's placeholder. New session
+/// opens its own window (PLAN.md D34). It paints Phase 14's opaque background, so the real
+/// switcher and the preview gallery look the same.
 ///
 /// With `isLive` the view also tracks its window for the switcher's keys
-/// (`SwitcherWindowBridge`) and focuses New session's name field; the switcher's controller
-/// tells the model when it opens and closes. The preview gallery passes `false`.
+/// (`SwitcherWindowBridge`); the switcher's controller tells the model when it opens and
+/// closes. The preview gallery passes `false`.
 public struct SwitcherView: View {
   /// The switcher's width, in points (`SwitcherPlacement.width`).
   public static let width = SwitcherPlacement.width
@@ -37,32 +37,27 @@ public struct SwitcherView: View {
     self.isLive = isLive
   }
 
-  /// The New session form while it shows, otherwise the search field, banners, list (or
-  /// placeholder), host lines and key hints.
+  /// The search field, banners, list (or placeholder), host lines and key hints.
   public var body: some View {
     let content = model.switcherContent
     VStack(spacing: 0) {
-      if model.switcherShowsNewSession {
-        NewSessionPanelView(model: model, focusesName: isLive)
-      } else {
-        searchField
-          .padding(12)
+      searchField
+        .padding(12)
+      Divider()
+      if !content.banners.isEmpty {
+        BannersView(banners: content.banners, model: model)
         Divider()
-        if !content.banners.isEmpty {
-          BannersView(banners: content.banners, model: model)
-          Divider()
-        }
-        if let placeholder = content.placeholder {
-          PlaceholderView(placeholder: placeholder, openSettings: model.openSettings)
-        } else {
-          list(content)
-          if !content.hostLines.isEmpty {
-            hostLines(content.hostLines)
-          }
-        }
-        Divider()
-        SwitcherHintsView()
       }
+      if let placeholder = content.placeholder {
+        PlaceholderView(placeholder: placeholder, openSettings: model.openSettings)
+      } else {
+        list(content)
+        if !content.hostLines.isEmpty {
+          hostLines(content.hostLines)
+        }
+      }
+      Divider()
+      SwitcherHintsView()
     } // End of VStack holding the switcher
     .frame(width: Self.width)
     .background(PopoverPalette(colorScheme).background)
@@ -71,9 +66,6 @@ public struct SwitcherView: View {
     }
     .onChange(of: model.switcherFocusRequests) {
       isSearchFocused = true
-    }
-    .onChange(of: model.switcherShowsNewSession) { _, showsForm in
-      if !showsForm { isSearchFocused = true }
     }
     .accessibilityElement(children: .contain)
     .accessibilityLabel(Self.accessibilityTitle)
@@ -314,7 +306,8 @@ struct SwitcherRowView: View {
 }
 
 /// The switcher's last row: "New session…", or "New session “<name>”…" when the filter text
-/// gives the name. A click (or Return, or ⌘N) shows the form (`clickSwitcherItem(_:)`).
+/// gives the name. A click (or Return, or ⌘N) opens the New session window
+/// (`clickSwitcherItem(_:)`, PLAN.md D34).
 struct SwitcherNewSessionRowView: View {
   /// The row's content.
   let row: SwitcherContent.NewSessionRow
@@ -363,7 +356,7 @@ struct SwitcherNewSessionRowView: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityAddTraits(row.isSelected ? [.isButton, .isSelected] : [.isButton])
-    .accessibilityHint("Shows the New session form.")
+    .accessibilityHint("Opens the New session window.")
     .accessibilityAction { model.activateSwitcherItem(.newSession) }
   } // End of var body
 }

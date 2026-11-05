@@ -10,8 +10,8 @@ import SwiftUI
 /// switcher` every session switcher state, from synthetic fixtures. No SwiftUI scene, menu bar
 /// item, switcher panel, refresh engine, host list, login item, hotkey or iTerm2 is involved,
 /// and nothing is written except the PNG a `--preview-snapshot` asks for. With
-/// `--preview-key-view-loop popover|switcher` there is no gallery window: muxFinder's real
-/// popover or switcher panel shows the New session form over a fixture while
+/// `--preview-key-view-loop popover|switcher` there is no gallery window: muxFinder's real New
+/// session window (PLAN.md D34) shows the form over that entry point's fixture while
 /// `KeyViewLoopReport` prints its key view loop, then the app quits (PLAN.md Phase I-6).
 ///
 /// The window is shown without activating the app (the keyboard focus stays where it was),
@@ -89,18 +89,18 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
   } // End of func applicationDidFinishLaunching(_:)
 
   /// Closing the gallery window quits. The key view loop diagnostic quits by itself: the text
-  /// cursor's indicator window (`TUINSWindow`) closes while its panel's fields are edited.
+  /// cursor's indicator window (`TUINSWindow`) closes while its window's fields are edited.
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     options.previewKeyViewLoop == nil
   }
 
-  /// `--preview-key-view-loop`: prints the New session form's key view loop in `panel`'s real
-  /// panel over a fixture (`KeyViewLoopReport`), then quits: status 0 with the form's fields
-  /// found, 1 without, 3 when the watchdog ends it first. Lines go through
-  /// `keyViewLoopOutput`, so a reader that stops reading never holds the main actor while the
-  /// panel is key (lines that do not fit are dropped), and a watchdog off the main thread ends
-  /// the process `keyViewLoopDeadline` seconds after the start whatever the main thread is
-  /// doing, the panel going with it.
+  /// `--preview-key-view-loop`: prints the New session form's key view loop in the real New
+  /// session window over `panel`'s entry point fixture (`KeyViewLoopReport`), then quits:
+  /// status 0 with the form's fields found, 1 without, 3 when the watchdog ends it first. Lines
+  /// go through `keyViewLoopOutput`, so a reader that stops reading never holds the main actor
+  /// while the window is key (lines that do not fit are dropped), and a watchdog off the main
+  /// thread ends the process `keyViewLoopDeadline` seconds after the start whatever the main
+  /// thread is doing, the window going with it.
   private func reportKeyViewLoop(of panel: AppLaunchOptions.KeyViewLoopPanel) {
     watchdog = PopoverPlacementReport.makeWatchdog(
       after: Self.keyViewLoopDeadline, exitCode: Self.keyViewLoopWatchdogStatus)

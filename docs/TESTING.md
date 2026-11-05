@@ -58,11 +58,11 @@ then once after the review fixes, unlocked, with screen 1 main: the button at sc
 edge and the panel clamped 8 pt inside it, top on the menu bar's bottom, "after-fix check:
 passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the toggle bug, occlusion, size) and `PopoverAnchoringTests` (the anchor rule over this Mac's displays, the replica frames never anchors, the after-fix check). |
 | A global shortcut, off until recorded in Settings › General ("Show session switcher"): checked (a modifier besides ⇧ unless F1–F20, macOS's own combinations refused, a warning before ⌘ with one key or only ⌥/⌥⇧), shown with the current layout's key, kept in `preferences.json`, registered at launch, again on a change, unregistered on clear and at quit, suspended while recording, a taken one explained beside the recorder; its press toggles the session switcher (next row; PLAN.md Phase I-3a, D32). | Registration and its refusal of a second registration tested for real in the signed bundle (`--report-hotkey-registration`); the rest hermetically and in the preview renders (both appearances). Recording in the real Settings window, a taken shortcut, "Clear", a relaunch, the label on the user's layout and a press from another app: by a person (checklist 18). | Phase I-3a, 2026-10-24 (*Phase I-3a* below): `--report-hotkey-registration` exit 0, 8 of 8 checks as expected; `GlobalShortcutTests`, `PreferencesStoreTests`, `GlobalShortcutModelTests`, `GlobalShortcutAppTests`; `docs/screenshots/settings-states-*.png` regenerated and inspected. |
-| The session switcher: the shortcut toggles a non-activating panel centered on the display with the keyboard focus, in its upper part, over full-screen apps; a search field focused and empty at each opening; the live sessions in the popover's order (stale ones left out) with Phase 14's row look, filtered by the popover's rule; "New session…" last, naming the session from the filter; muted lines for hosts checking or unreachable; Return or one click opens as the popover does (the rest of that click's sequence is ignored and lands on the panel, held through the double-click interval, so a quick double click opens once and never acts on the form or on the window behind the panel), Return or a click on New session or ⌘N shows the form, ⌘R, ⌘, and Esc; it closes on success, keeps a failure on its row, and carries a failure that arrives once it closed to its next opening and the popover row; only one of it and the popover shows, and the engine hears one opened and one closed per change of "either one is visible" (PLAN.md Phases I-3b and I-5, D32, D22). | Tested hermetically and in the preview renders (both appearances); the app shell check as before. A press over a full-screen app, filtering and opening with iTerm2 coming forward, creating, and Esc giving the focus back: by a person (checklist 18). | Phase I-3b, 2026-10-24 (*Phase I-3b* below): `SwitcherContentTests`, `SwitcherControllerTests`, `SwitcherModelTests`, `GlobalShortcutAppTests.theShortcutTogglesTheSwitcher`; `docs/screenshots/switcher-states-*.png` rendered and inspected. Phase I-5, 2026-11-04 (*Phase I-5* below): `SwitcherClickTests`, and for the review fix the hold tests in `SwitcherControllerTests` and `PopoverHeightLimitTests`; the switcher gallery rendered again in both appearances, unchanged. |
+| The session switcher: the shortcut toggles a non-activating panel centered on the display with the keyboard focus, in its upper part, over full-screen apps; a search field focused and empty at each opening; the live sessions in the popover's order (stale ones left out) with Phase 14's row look, filtered by the popover's rule; "New session…" last, naming the session from the filter; muted lines for hosts checking or unreachable; Return or one click opens as the popover does (the rest of that click's sequence is ignored and lands on the panel, held through the double-click interval, so a quick double click opens once and never acts on the form or on the window behind the panel), Return or a click on New session or ⌘N shows the form (since Phase I-9a in the New session window, PLAN.md D34), ⌘R, ⌘, and Esc; it closes on success, keeps a failure on its row, and carries a failure that arrives once it closed to its next opening and the popover row; only one of it and the popover shows, and the engine hears one opened and one closed per change of "either one is visible" (PLAN.md Phases I-3b and I-5, D32, D22). | Tested hermetically and in the preview renders (both appearances); the app shell check as before. A press over a full-screen app, filtering and opening with iTerm2 coming forward, creating, and Esc giving the focus back: by a person (checklist 18). | Phase I-3b, 2026-10-24 (*Phase I-3b* below): `SwitcherContentTests`, `SwitcherControllerTests`, `SwitcherModelTests`, `GlobalShortcutAppTests.theShortcutTogglesTheSwitcher`; `docs/screenshots/switcher-states-*.png` rendered and inspected. Phase I-5, 2026-11-04 (*Phase I-5* below): `SwitcherClickTests`, and for the review fix the hold tests in `SwitcherControllerTests` and `PopoverHeightLimitTests`; the switcher gallery rendered again in both appearances, unchanged. |
 | A launch shows no window except onboarding (only while there is no `hosts.json`): no empty "muxFinder Settings" window; the Edit shortcuts in every text field, ⌘W in Settings and onboarding, ⌘Q with the orderly shutdown, SIGTERM and SIGINT as before (PLAN.md Phase I-4, D33). | Tested for real from the shell (the app shell check under two private homes, before and after the fix); the main menu hermetically. A launch from Finder and at login, and the keys pressed in the popover and Settings: by a person (checklist 19). | Phase I-4, 2026-11-04 (*Phase I-4* below): before the fix both homes listed a visible `SwiftUI.AppKitWindow` "muxFinder Settings"; after it, the empty home lists only the hidden popover panel and onboarding, the home with every host off only the hidden panel; exit 0 after SIGTERM, no child, nothing written; `MainMenuTests`, `AppShellReportTests`. |
-| New session's Tab order, in the popover and the session switcher: Tab from Name to Directory and ⇧Tab back; with macOS's keyboard navigation on, the Host picker, the directory list's button, Cancel and Create too, in reading order; never out of the panel, never closing it; Tab with the directory list open moves on and leaves it open; an input method's marked text gets Tab first (PLAN.md Phase I-6, D30, D31). | Read in process in the real panels (`--preview-key-view-loop`, before and after the fix: the focus moved by the key bindings' own action messages, no event) and tested hermetically. Real key presses, with keyboard navigation off and on, then a creation: by a person (checklist 20). | Phase I-6, 2026-11-04 (*Phase I-6* below): before the fix the form's fields led nowhere (Name → none) and Tab stayed in Name in both panels; after it Name → Directory → the list's button → Cancel → Create → Host picker → Name, and back; `NewSessionTabOrderTests`. |
-| New session: typing in Directory filters the directory list, combo-box style, in the popover and the session switcher: each section keeps the entries that contain the trimmed text (case and diacritics ignored; an exact match always), on This Mac also with the home folder written `~` or spelled out; "No matching directories" apart from "Nothing to pick yet"; the actions never filtered; typing opens the list while something matches, highlighting nothing, and closes a list it opened when nothing matches or the field is cleared, a list the button or ⌥↓ opened staying; Esc keeps the text; ↓/⌥↓ highlight the first match and the arrows stay in the rows shown; Return with nothing highlighted creates; a pick never reopens it; a host change re-filters; VoiceOver hears the match count (PLAN.md Phase I-7, D31). | Tested hermetically and in the preview renders (both appearances). Typing, the keys, VoiceOver and a creation in the real popover and switcher: by a person (checklist 21). | Phase I-7, 2026-11-04 (*Phase I-7* below): `DirectoryFilterContentTests` and `DirectoryFilterModelTests` (`DirectoryFilterTests.swift`); `docs/screenshots/attach-states-*.png` and `switcher-states-*.png` regenerated and inspected. |
-| New session: the Host picker from the keyboard, in the popover and the session switcher, with macOS's keyboard navigation on: ⇧Tab from Name reaches it; while it (an `NSPopUpButton`) has the focus, the panels' key monitor leaves ↑, ↓ and ⌥↓ to it (Space already reached it), Return still creates and Esc still closes the panel; while a menu tracks every key is the menu's; with the directory list open the list keeps its highlight and Return and Esc their list meaning; with any other focus nothing changes; a host picked from the menu acts as a click (PLAN.md Phase I-8, D30, D31, D32). | Read in process in the real panels (`--preview-key-view-loop`: the first responder after the window's own step back from Name and the monitor's route for each key, before and after the fix; no event, no menu opened) and tested hermetically (the routing as a pure function, the menu tracking observer, a pick through the picker's binding). What AppKit's pop-up button does with each key, the menu opening from the panel, and a creation on the host picked: by a person (checklist 22). | Phase I-8, 2026-11-05 (*Phase I-8* below): before the fix ↑/↓/⌥↓ went to the panel's handler with the picker focused (↑/↓ swallowed, ⌥↓ opening the directory list), after it to the picker; `PanelKeyRouteTests`, `MenuTrackingObserverTests`, `HostPickerBindingTests` (`HostPickerKeyboardTests.swift`). |
+| New session's Tab order, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34): Tab from Name to Directory and ⇧Tab back; with macOS's keyboard navigation on, the Host picker, the directory list's button, Cancel and Create too, in reading order; never out of the panel, never closing it; Tab with the directory list open moves on and leaves it open; an input method's marked text gets Tab first (PLAN.md Phase I-6, D30, D31). | Read in process in the real panels (`--preview-key-view-loop`, before and after the fix: the focus moved by the key bindings' own action messages, no event) and tested hermetically. Real key presses, with keyboard navigation off and on, then a creation: by a person (checklist 20). | Phase I-6, 2026-11-04 (*Phase I-6* below): before the fix the form's fields led nowhere (Name → none) and Tab stayed in Name in both panels; after it Name → Directory → the list's button → Cancel → Create → Host picker → Name, and back; `NewSessionTabOrderTests`. |
+| New session: typing in Directory filters the directory list, combo-box style, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34): each section keeps the entries that contain the trimmed text (case and diacritics ignored; an exact match always), on This Mac also with the home folder written `~` or spelled out; "No matching directories" apart from "Nothing to pick yet"; the actions never filtered; typing opens the list while something matches, highlighting nothing, and closes a list it opened when nothing matches or the field is cleared, a list the button or ⌥↓ opened staying; Esc keeps the text; ↓/⌥↓ highlight the first match and the arrows stay in the rows shown; Return with nothing highlighted creates; a pick never reopens it; a host change re-filters; VoiceOver hears the match count (PLAN.md Phase I-7, D31). | Tested hermetically and in the preview renders (both appearances). Typing, the keys, VoiceOver and a creation in the real popover and switcher: by a person (checklist 21). | Phase I-7, 2026-11-04 (*Phase I-7* below): `DirectoryFilterContentTests` and `DirectoryFilterModelTests` (`DirectoryFilterTests.swift`); `docs/screenshots/attach-states-*.png` and `switcher-states-*.png` regenerated and inspected. |
+| New session: the Host picker from the keyboard, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34), with macOS's keyboard navigation on: ⇧Tab from Name reaches it; while it (an `NSPopUpButton`) has the focus, the panels' key monitor leaves ↑, ↓ and ⌥↓ to it (Space already reached it), Return still creates and Esc still closes the panel; while a menu tracks every key is the menu's; with the directory list open the list keeps its highlight and Return and Esc their list meaning; with any other focus nothing changes; a host picked from the menu acts as a click (PLAN.md Phase I-8, D30, D31, D32). | Read in process in the real panels (`--preview-key-view-loop`: the first responder after the window's own step back from Name and the monitor's route for each key, before and after the fix; no event, no menu opened) and tested hermetically (the routing as a pure function, the menu tracking observer, a pick through the picker's binding). What AppKit's pop-up button does with each key, the menu opening from the panel, and a creation on the host picked: by a person (checklist 22). | Phase I-8, 2026-11-05 (*Phase I-8* below): before the fix ↑/↓/⌥↓ went to the panel's handler with the picker focused (↑/↓ swallowed, ⌥↓ opening the directory list), after it to the picker; `PanelKeyRouteTests`, `MenuTrackingObserverTests`, `HostPickerBindingTests` (`HostPickerKeyboardTests.swift`). |
 
 ## Unit tests (`swift test`)
 
@@ -985,16 +985,18 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   attachment kept, and the retry focusing it. Quitting while an attach waits for iTerm2's
   answer to its `CreateTab` (held by the fake) stops Settings' probe and the engine at once,
   returns after its (shortened) budget reporting the open still running, and that attach
-  withdraws its request once iTerm2 answers. The New session sheet: This Mac by default, an
-  empty or invalid name or directory reported inline with no creation, a valid name created
-  (trimmed, directory kept, the user's shell) and attached with the sheet closed; for a remote
+  withdraws its request once iTerm2 answers. New session (its window, PLAN.md D34): This Mac
+  by default, an empty or invalid name or directory reported inline with no creation, a valid
+  name created (trimmed, directory kept, the user's shell) and attached with the window
+  closed; for a remote
   host whose tab still waits, the new session's row shows "Still connecting — check the iTerm2
   tab" before the attach ended, "Show tab" activates that launch tab, a click starts nothing
   and quitting cancels it; a collision offering "Open existing", which resolves the name in a
   fresh listing of the host (the coordinator's discovery, while the engine's list is still the
   old one): the session that has the name now is opened, not the listed one that was renamed;
-  with no session of that name any more, or a host that cannot be listed, the sheet says so and
-  nothing is written or launched; another failure kept in the sheet until a field changes.
+  with no session of that name any more, or a host that cannot be listed, the window says so
+  and nothing is written or launched; another failure kept in the window until a field
+  changes.
   Every failure path's message (each `AttachFailure`, each detach outcome, the Show tab notes,
   the missing helper, both focuses that did not bring the tab forward, the two "Open existing"
   outcomes that open nothing) is pairwise distinct and a sentence; every attach failure offers
@@ -1028,8 +1030,10 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   the request, and closes the list (a row not listed, or a busy sheet, picks nothing; a pick
   after a collision returns to editing); a host change keeps the field and updates the list;
   ⌥↓ opens on the first row, ↑/↓ move and stop at the ends without moving the session
-  selection, Return picks, Esc closes the list and then the panel, ⌘F, ⌘N, ⌘R and ⌘, as
-  before; ⌥↓ in the host list and in Move here is `ignored` (left to the focused view); the
+  selection, Return picks, Esc closes the list and then the New session window, ⌘N and ⌘, as
+  the window has them and ⌘F and ⌘R left to the focused view (PLAN.md D34; these keys go
+  through `handleNewSessionKey(_:)` since D34); ⌥↓ in the host list and in Move here is
+  `ignored` (left to the focused view); the
   key mapping (⌥↓ only, with the arrows' own flags); Return with the list open and nothing
   highlighted, or closed, creates; editing the field drops the highlight, so Return then
   creates from the field, and a row highlighted with ↓ after the edit is what Return picks;
@@ -1139,12 +1143,14 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   the pointer, the first). In the app (real model, engine and coordinator over
   `SimulatedITerm2`): ↑/↓ without wrapping and typing selecting the first row; Return opening
   the selected session and its success closing the switcher; Return on New session and ⌘N
-  showing the form with the filter's name for This Mac; Esc closing the directory list, then
-  going back to the list, then closing; Return in the form creating, the created session's
-  attach closing the switcher on success; ⌘R, ⌘, and ⌘F; a failure while it shows staying on
-  its row; a failure after it closed (the launch held, then refused) on the popover row and
-  pinned and selected at the next opening, once; a creation failure after the form was left
-  putting the form back; the popover, then the switcher, then both, then neither giving one
+  opening the New session window with the filter's name for This Mac and asking the switcher
+  to close (PLAN.md D34); in the window Esc closing the directory list, then the window;
+  Return in the window creating from the switcher's draft, the created session's attach
+  closing the switcher on success while it still shows; ⌘R, ⌘, and ⌘F; a failure while it
+  shows staying on its row; a failure after it closed (the launch held, then refused) on the
+  popover row and pinned and selected at the next opening, once; a creation failure after the
+  window was closed bringing the window back, not key, the switcher's opening and closing
+  leaving it; the popover, then the switcher, then both, then neither giving one
   opened and one closed to the engine with each opening asking the other to close; both real
   controllers over fakes swapping; the fake registrar's press toggling the switcher with an
   empty, focused search field.
@@ -1154,20 +1160,38 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   equivalent, modifier mask and action (Quit ⌘Q `terminate:`, Redo ⇧⌘Z, Paste and match style
   ⌥⇧⌘V `pasteAsPlainText:`, Close ⌘W `performClose:`, Minimize ⌘M and the rest); every command
   to the first responder, no key equivalent twice, no Settings item and no ⌘,; Close enabled
-  for `SettingsWindow` and disabled for `PopoverPanelWindow` (neither shown). The app shell
+  for `SettingsWindow` and `NewSessionPanel` (PLAN.md D34) and disabled for
+  `PopoverPanelWindow` (none shown). The app shell
   check's listing: the status item lines as before, then the other windows (title, class,
   visibility, level, with a visible count), the launch's Apple event and the main menu; at
   most 32 windows and 80 menu items, the rest counted; titles cut to 80 characters, control
   characters replaced, quotes escaped; key labels (`⇧⌘+z`, `⌃⌘+U+0020`); the real menu's
   description.
 - **New session's Tab order** (`Tests/MuxFinderUITests/NewSessionTabOrderTests.swift`;
-  PLAN.md D30, D31, Phase I-6). Both panels' window class recalculates its key view loop; in
-  the real popover and switcher panels (never shown), after the form replaced the list, Tab's
-  action message to the field editor moves the editing from Name to Directory and ⇧Tab's back
-  (the two cases one after another); Tab and ⇧Tab, alone or with ⌥, ⌃ or ⌥⇧, are no
-  `PopoverKey`, so the key monitor leaves them to the focused view and an input method; the
-  `--preview-key-view-loop popover|switcher` flag (only with `--preview-fixtures`; another
-  name, no name or no `--preview-fixtures` a usage error).
+  PLAN.md D30, D31, D34, Phase I-6). Both panels' window class and the New session window's
+  (`NewSessionPanel`) recalculate their key view loop; in the real New session window (never
+  shown) over the popover's and the switcher's fixtures, its loop computed first and the
+  directory list then opened, Tab's action message to the field editor moves the editing from
+  Name to Directory and ⇧Tab's back (the two cases one after another); Tab and ⇧Tab, alone or
+  with ⌥, ⌃ or ⌥⇧, are no `PopoverKey`, so the key monitor leaves them to the focused view and
+  an input method; the `--preview-key-view-loop popover|switcher` flag (only with
+  `--preview-fixtures`; another name, no name or no `--preview-fixtures` a usage error).
+- **The New session window** (`Tests/MuxFinderUITests/NewSessionWindowTests.swift`; PLAN.md
+  D34), through the real model, engine and coordinator over fakes and the real popover,
+  switcher and window controllers over fake surfaces: opening from the popover and from the
+  switcher (each closes, the window shows key with its top centre at theirs, the switcher's
+  filter naming only a fresh draft); opening again bringing it forward with its draft,
+  directory list and moved frame; Cancel, Esc (the list first) and the close button dropping
+  the draft; a running creation keeping its draft busy across a close and reopen, its success
+  closing the window; a collision and a failure staying in it; a collision and a failure that
+  end after the window was closed bringing it back at its last frame, not key, from either
+  entry point, even with a Move here confirmation showing ("Open existing" then working); a
+  Move here confirmation and the window at the same time; the popover's and the switcher's
+  openings and closings leaving the window, its draft and its list alone; the window's keys
+  (⌘, Settings, ⌘R and ⌘F going on, ⌘N and the arrows nothing, none with it closed); its click
+  filter after each opening; the model with no window; the placement as pure functions (the
+  fresh frame clamped, a request's frame, the height with the top fixed) and the controller's
+  resize.
 - **The panels' key routing and the Host picker** (`Tests/MuxFinderUITests/HostPickerKeyboardTests.swift`;
   PLAN.md D30, D31, D32, Phase I-8). `PanelKeyRoute.decide` as a pure function: Space is no
   panel key and always reaches the focused view; with a pop-up button focused, ↑, ↓ and ⌥↓ go
@@ -2984,3 +3008,26 @@ host picker, list open, focus after selectKeyView(preceding: Name) (kind popUpBu
 | Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
 | Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
 | Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery popover\|attach\|switcher --appearance light\|dark --preview-snapshot <png in a private folder>` | exit 0 each: popover 4672 × 2200 px, attach 3136 × 6104, switcher 3448 × 3120, as in Phase I-7 (one switcher light run came out 3114 px tall, a second 3120); no view's look changed (the views gained doc comments only), so no screenshot was regenerated |
+
+### Phase I-9a — New session in its own window (2026-11-05)
+
+New session moved out of the popover's and the switcher's shared `panel` into its own titled,
+floating, non-activating "New session" window (PLAN.md Phase I-9, D34; D30–D33 edited), opened
+from both entry points, which close as it opens; the window's state is the model's
+(`AppModel.newSessionWindow`), followed by `NewSessionWindowController` in the app shell only.
+A creation that fails after its window was closed brings the window back, not key, replacing
+the switcher-only deferred failure. The folder drop, the window's gallery, the screenshots and
+the user docs are Phase I-9b's, so no gallery was rendered. Every check below ran with private
+folders or none: no real `hosts.json`, `directories.json` or `preferences.json` was read or
+written, and nothing went through LaunchServices. No `e2e-*` run was needed.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites and 405 UI tests in 40 suites (17 new in 1 suite: `NewSessionWindowTests`). Changed, because New session's form, keys and endings are the window's now: `SwitcherClickTests` (opening the window instead of showing the form; the click's hold now also covers the window's opening, its close for `newSessionOpened` waiting for the interval), `SwitcherModelTests` (`returnOnNewSessionOpensTheWindow`, `commandNAndTheWindowsKeys`, `aCreationFailureBringsTheWindowBack` replace the form tests; the two Move here deferral tests were removed with the retired path, their guarantee now in `NewSessionWindowTests.aFailureAfterClosingIsNotHeldBackByMoveHere`; `failedPinnedCreation` presses Return in the window), `NewSessionSheetTests` and `AttachFlowTests` (the window's state instead of `panel == .newSession`; the attach fixtures' New session states counted in `newSessionStates`), `DirectoryPickerTests`, `DirectoryFilterTests`, `HostPickerBindingTests` and `DirectoryRecordingTests` (the window's keys through `handleNewSessionKey(_:)`, ⌘F and ⌘R `ignored` there; `closeNewSession()` for Cancel), `NewSessionTabOrderTests` (over the real window, never shown), `MainMenuTests` (Close enabled for `NewSessionPanel`), `AppModelTests.commandKeys` |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| App shell | `CFFIXED_USER_HOME=$(mktemp -d) build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`, then `kill -TERM <pid>` | exit 0, no child while it ran or after, the private home still empty; the other windows were the popover's `PopoverPanelWindow` (hidden) and the onboarding window, no New session window (it is made at its first opening) |
+| Popover placement | `CFFIXED_USER_HOME=$(mktemp -d) build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement` (in the background) | exit 0, "after-fix check: passed" (both offsets 0), the popover appeared after 122 ms; `pgrep -P` empty while it ran, the private home empty |
+| Key view loop | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-key-view-loop popover`, then `switcher` | exit 0 each, now over the real New session window (`NewSessionPanel` "New session", `autorecalculatesKeyViewLoop` yes; key no and app active no from the bundle binary, as in Phase I-6's bundle run): the Name field focused at the opening (with the switcher's prefilled name), Tab Name → Directory → the list's button → Cancel → Create → Host picker → Name and ⇧Tab back, the list staying open; with the picker focused ↑, ↓, ⌥↓ and Space go to it, Return and Esc as before |
+| New session self-test | `build/muxFinder.app/Contents/MacOS/muxFinder --selftest new-session-local` (`TMUX_TMPDIR` unset; `iterm2 status` connected; iTerm2 17 threads before, 20 after) | exit 0, passed (7 steps): listed 107 ms; new session created and confirmed 1.16 s; launch tab buried; the same name refused as a collision with "Open existing" offered and nothing launched; detach 10.1 s; launch tab left 248 ms after the detach; kill. Afterwards no `muxfinder-test-*` session and nothing of the run in `iterm2 list-sessions` (tabs or buried sessions) |

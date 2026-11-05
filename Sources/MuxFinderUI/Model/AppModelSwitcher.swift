@@ -1,7 +1,8 @@
 import Foundation
 import MuxFinderCore
 
-/// Where an Open or New session attach the session switcher started is (PLAN.md D32).
+/// Where an Open the session switcher started, or the attach of a session created from a New
+/// session draft it made or opened from one with "Open existing", is (PLAN.md D32, D34).
 public enum SwitcherActionState: Sendable, Hashable {
   /// It runs. `closesOnSuccess` holds while the switcher has stayed open since it started:
   /// then its success closes the switcher.
@@ -13,12 +14,13 @@ public enum SwitcherActionState: Sendable, Hashable {
 
 /// The rest of a click sequence whose click activated a session switcher row (PLAN.md D32,
 /// Phase I-5). A click activates a row at once, so a quick double click's second click lands
-/// on what the first one showed: the New session form (its directory list button, Cancel or
+/// on what the first one showed: the New session window (its directory list button, Cancel or
 /// Create may sit under the pointer) or the row now opening. The switcher's panel lets the rest
 /// of that sequence (presses whose click count is above 1, with their drags and releases)
 /// through to no view; the next press starting a sequence of its own (click count 1) ends it.
-/// A pure value over the left mouse button's events; `SwitcherWindowTrackingView` applies it
-/// to those in the switcher's window (`AppModel.switcherPasses(_:)`).
+/// A pure value over the left mouse button's events; `PanelKeyTrackingView` applies it to
+/// those in the switcher's window (`AppModel.switcherPasses(_:)`) and, from each opening on, in
+/// the New session window (`AppModel.newSessionWindowPasses(_:)`, PLAN.md D34).
 public struct SwitcherClickSequence: Sendable, Hashable {
   /// A left mouse button event in the switcher's window.
   public enum Event: Sendable, Hashable {
@@ -62,44 +64,44 @@ public struct SwitcherClickSequence: Sendable, Hashable {
   } // End of func passes(_:)
 }
 
-/// A New session the switcher started, while its session is being created.
+/// The creation of a New session draft the switcher made (PLAN.md D32, D34), while its session
+/// is being created: its attach is then the switcher's to follow.
 struct SwitcherCreation: Sendable, Hashable {
   /// The creation's number (`AppModel.PendingCreation.id`).
   let id: Int
-  /// Whether the switcher has stayed open since it started.
+  /// Whether the switcher showed when it started and has stayed open since (rarely so: the
+  /// switcher closes as the New session window opens).
   var closesOnSuccess: Bool
 }
 
 /// The session switcher (PLAN.md D32, Phase I-3b): its content, its visibility combined with
-/// the popover's for the engine, its keys, and what follows the Open and New session actions it
-/// starts.
+/// the popover's for the engine, its keys, and what follows the Open actions it starts and the
+/// creations of the New session drafts it makes.
 ///
 /// - **Opening** (`switcherDidOpen()`): the search field is emptied and focused, the first row
-///   selected; an idle New session form goes back to the list (one creating, or showing a
-///   failure, stays so its outcome shows); the popover closes; the engine hears of it only when
-///   the popover did not show.
+///   selected; the popover closes; the engine hears of it only when the popover did not show.
+///   Opening and closing it never touches the New session window or its draft (PLAN.md D34).
 /// - **Selection:** the selected row is remembered at each opening, at each change of the
 ///   filter text and before each engine update while the switcher shows, so a refresh never
 ///   moves it, or Return's target, to another session (`rememberSwitcherSelection()`).
-/// - **Keys** (`handleSwitcherKey(_:)`, `PopoverKey`): in the list, ↑/↓ move without wrapping,
-///   Return opens the selected session (the popover's Open, PLAN.md D25) or shows the New
-///   session form, ⌘N shows the form, ⌘F focuses the search field, ⌘R refreshes, ⌘, opens
-///   Settings and Esc closes the switcher; in the form, the popover's panel keys (Return
-///   creates, ⌥↓ opens the directory list, Esc closes the list, then goes back to the list;
-///   with the Host picker focused, ↑, ↓ and ⌥↓ are the picker's, `PanelKeyRoute`, Phase I-8).
-///   A click activates a row as Return does, as in the popover (`clickSwitcherItem(_:)`), and
-///   the rest of that click's sequence is ignored (`SwitcherClickSequence`), the panel held
-///   through the double-click interval so that rest lands on it
-///   (`SwitcherController.holdForClick()`). Move here and Detach stay in the popover.
-/// - **Its actions:** an Open (a New session's attach included) started while the switcher
-///   shows is the switcher's (`switcherActions`). Its success closes the switcher if it stayed
-///   open since; a failure while it shows stays on its row with the popover row's text and
-///   recoveries; a failure once it closed is carried to the top of its next opening
-///   (`switcherCarriedFailures`) and stays on the popover row. A pinned row the engine does not
-///   list opens (Return, "Try again", "Bring forward") through its retained target on its host
-///   as enabled now, or shows that its host is no longer turned on. A New session's creation
-///   failure stays in the form, which is put back if the user had left it (once a Move here
-///   confirmation outside the switcher ends, or at the switcher's next opening).
+/// - **Keys** (`handleSwitcherKey(_:)`, `PopoverKey`): ↑/↓ move without wrapping, Return opens
+///   the selected session (the popover's Open, PLAN.md D25) or opens the New session window,
+///   ⌘N opens the window, ⌘F focuses the search field, ⌘R refreshes, ⌘, opens Settings and Esc
+///   closes the switcher. A click activates a row as Return does, as in the popover
+///   (`clickSwitcherItem(_:)`), and the rest of that click's sequence is ignored
+///   (`SwitcherClickSequence`), the panel held through the double-click interval so that rest
+///   lands on it (`SwitcherController.holdForClick()`), or on the New session window, which
+///   ignores it too. Move here and Detach stay in the popover; New session's keys are the
+///   window's (`handleNewSessionKey(_:)`, PLAN.md D34).
+/// - **Its actions:** an Open started while the switcher shows, and the attach of a session
+///   created from a New session draft the switcher made or opened from one with "Open
+///   existing", are the switcher's (`switcherActions`). A success closes the switcher if it stayed open since; a failure while
+///   it shows stays on its row with the popover row's text and recoveries; a failure once it
+///   closed is carried to the top of its next opening (`switcherCarriedFailures`) and stays on
+///   the popover row. A pinned row the engine does not list opens (Return, "Try again", "Bring
+///   forward") through its retained target on its host as enabled now, or shows that its host
+///   is no longer turned on. A New session's creation failure stays in the New session window,
+///   which comes back with it if it was closed (PLAN.md D34).
 extension AppModel {
   // MARK: - Content
 
@@ -120,12 +122,6 @@ extension AppModel {
       targets: switcherTargets)
   } // End of var switcherContent
 
-  /// Whether the switcher shows the New session form (the shared `panel`, PLAN.md D25).
-  public var switcherShowsNewSession: Bool {
-    if case .newSession? = panel { return true }
-    return false
-  }
-
   // MARK: - Visibility
 
   /// The switcher's panel became visible or hidden (`SwitcherController`).
@@ -133,13 +129,11 @@ extension AppModel {
     if isVisible { switcherDidOpen() } else { switcherDidClose() }
   }
 
-  /// The switcher opened: the search field is emptied, an idle New session form leaves (one
-  /// creating or showing its failure stays), a creation failure a Move here confirmation held
-  /// back shows in the form (`showDeferredCreationFailure()`), carried failures that are no
-  /// longer failures are forgotten, the first row is selected and remembered, the popover
-  /// closes, and unless it showed the engine refreshes now and every 15 s with attachment
-  /// checks (PLAN.md D22). No click sequence is ignored. A repeated call while open does
-  /// nothing.
+  /// The switcher opened: the search field is emptied, carried failures that are no longer
+  /// failures are forgotten, the first row is selected and remembered, the popover closes, and
+  /// unless it showed the engine refreshes now and every 15 s with attachment checks (PLAN.md
+  /// D22). No click sequence is ignored. The New session window and its draft are left as they
+  /// are (PLAN.md D34). A repeated call while open does nothing.
   public func switcherDidOpen() {
     guard !isSwitcherVisible else { return }
     let wasListVisible = isSessionListVisible
@@ -148,23 +142,17 @@ extension AppModel {
     switcherSearchText = ""
     switcherSelection = nil
     switcherClicks = SwitcherClickSequence()
-    if switcherShowsNewSession, !newSessionDraft.isBusy, newSessionDraft.state == .editing,
-      creation == nil
-    {
-      cancelPanel()
-    }
-    showDeferredCreationFailure()
     switcherCarriedFailures.removeAll { activities[$0]?.problem == nil }
     rememberSwitcherSelection()
-    if isPopoverVisible { closePopover?() }
+    if isPopoverVisible { closePopover?(.switcherOpened) }
     if !wasListVisible { send(.popoverOpened) }
   } // End of func switcherDidOpen()
 
-  /// The switcher closed: its running actions no longer close it on success, the failures it
-  /// showed are let go (their rows keep them in the popover), an idle New session form leaves
-  /// (so the popover does not open on it), the click sequence followed is forgotten, and unless
-  /// the popover shows the engine goes back to the background cadence with no attachment
-  /// checks.
+  /// The switcher closed: its running actions (and a creation it follows) no longer close it
+  /// on success, the failures it showed are let go (their rows keep them in the popover), the
+  /// click sequence followed is forgotten, and unless the popover shows the engine goes back to
+  /// the background cadence with no attachment checks. The New session window and its draft are
+  /// left as they are (PLAN.md D34).
   public func switcherDidClose() {
     guard isSwitcherVisible else { return }
     isSwitcherVisible = false
@@ -178,34 +166,21 @@ extension AppModel {
     switcherCreation?.closesOnSuccess = false
     switcherCarriedFailures = []
     forgetUnusedSwitcherTargets()
-    if switcherShowsNewSession, !newSessionDraft.isBusy, newSessionDraft.state == .editing,
-      creation == nil
-    {
-      cancelPanel()
-    }
     if !isSessionListVisible { send(.popoverClosed) }
   } // End of func switcherDidClose()
 
-  /// ⌘F, each opening, and leaving the form: asks the switcher's search field to take the
-  /// focus.
+  /// ⌘F and each opening: asks the switcher's search field to take the focus.
   public func focusSwitcherSearch() {
     switcherFocusRequests += 1
   }
 
   // MARK: - Keys and intents
 
-  /// Carries out a key in the switcher and says what its window does next (PLAN.md D32). In
-  /// the New session form the popover's panel keys apply (`handle(_:)`): Return creates, ⌥↓ and
-  /// the directory list's keys as there, Esc closes the directory list, else goes back to the
-  /// list (the search field takes the focus again). In the list: ↑/↓ move without wrapping,
-  /// Return activates the selected row, Esc closes the switcher, ⌘F focuses the search field,
-  /// ⌘R refreshes, ⌘N shows the form, ⌘, opens Settings; ⌥↓ goes on to the focused view.
+  /// Carries out a key in the switcher and says what its window does next (PLAN.md D32): ↑/↓
+  /// move without wrapping, Return activates the selected row, Esc closes the switcher, ⌘F
+  /// focuses the search field, ⌘R refreshes, ⌘N opens the New session window (PLAN.md D34),
+  /// ⌘, opens Settings; ⌥↓ goes on to the focused view.
   public func handleSwitcherKey(_ key: PopoverKey) -> PopoverKeyResult {
-    if switcherShowsNewSession {
-      let result = handle(key)
-      if key == .close, !switcherShowsNewSession { focusSwitcherSearch() }
-      return result
-    }
     switch key {
     case .up: moveSwitcherSelection(down: false)
     case .down: moveSwitcherSelection(down: true)
@@ -239,8 +214,8 @@ extension AppModel {
   /// success close waiting), then activates the row at once (`activateSwitcherItem(_:)`, which
   /// selects it first, so the row showing "Opening…" is the one clicked) and ignores the rest
   /// of that click's sequence (`SwitcherClickSequence`), so a quick double click's second click
-  /// acts neither on the New session form the first one showed, nor on the row it started
-  /// opening, nor on the window behind the panel.
+  /// acts neither on the New session window the first one opened (which ignores it too), nor
+  /// on the row it started opening, nor on the window behind the panel.
   public func clickSwitcherItem(_ item: SwitcherContent.Item) {
     holdSwitcherForClick?()
     activateSwitcherItem(item)
@@ -257,8 +232,8 @@ extension AppModel {
   /// Return, a click or the accessibility action on a row: it is selected, then a session
   /// opens as from the popover (focused when open in iTerm2 here, else attached, PLAN.md D25;
   /// ignored while an action on it is pending, so a second activation of a row opening starts
-  /// nothing) and the New session row shows the form (`newSessionFromSwitcher()`; nothing new
-  /// while it shows). Does nothing for `nil`.
+  /// nothing) and the New session row opens the New session window (`newSessionFromSwitcher()`;
+  /// while it shows, it only comes forward). Does nothing for `nil`.
   public func activateSwitcherItem(_ item: SwitcherContent.Item?) {
     switch item {
     case .session(let key)?:
@@ -272,33 +247,31 @@ extension AppModel {
     }
   } // End of func activateSwitcherItem(_:)
 
-  /// The New session row or ⌘N: shows the New session form (`newSession()`: This Mac by
-  /// default, the directory list loaded), its name filled in from the filter text when the New
-  /// session row offers it. A creation in progress keeps its own draft. Does nothing while the
-  /// form shows, so its draft stays as the user left it.
+  /// The New session row or ⌘N: opens the New session window placed from the switcher's frame
+  /// and closes the switcher (`openNewSession(from:source:prefill:)`, PLAN.md D34). A fresh
+  /// draft (This Mac by default, the directory list loaded) gets its name from the filter text
+  /// when the New session row offers it; a creation in progress keeps its own draft; a window
+  /// already showing only comes forward, its draft as the user left it.
   public func newSessionFromSwitcher() {
-    guard !switcherShowsNewSession else { return }
-    let prefill = switcherContent.newSession?.prefill
-    let wasCreating = creation != nil
-    newSession()
-    guard switcherShowsNewSession, !wasCreating, let prefill else { return }
-    newSessionDraft.name = prefill
+    openNewSession(
+      from: .switcher, source: switcherSource?(), prefill: switcherContent.newSession?.prefill)
   }
 
   // MARK: - Following the switcher's actions
 
-  /// An open of `key` (`target` as listed) started: the switcher's while it shows.
+  /// An open of `key` (`target` as listed) started: the switcher's while it shows. An "Open
+  /// existing" from a draft the switcher made is the switcher's even while it is closed
+  /// (`switcherExistingOpened(_:target:)`).
   func switcherActionStarted(_ key: SessionKey, target: AttachTarget) {
     guard isSwitcherVisible else { return }
-    switcherActions[key] = .running(closesOnSuccess: true)
-    switcherTargets[key] = target
-    switcherCarriedFailures.removeAll { $0 == key }
+    followSwitcherAction(key, target: target, closesOnSuccess: true)
   }
 
-  /// New session number `id` started creating its session: the switcher's while it shows.
+  /// New session number `id` started creating its session: the switcher's when the switcher
+  /// made its draft (PLAN.md D34), closing it on success only if it shows now and stays open.
   func switcherCreationStarted(_ id: Int) {
-    guard isSwitcherVisible else { return }
-    switcherCreation = SwitcherCreation(id: id, closesOnSuccess: true)
+    guard newSessionOrigin == .switcher else { return }
+    switcherCreation = SwitcherCreation(id: id, closesOnSuccess: isSwitcherVisible)
   }
 
   /// New session number `id` created `target`'s session (`key`), whose attach starts now: when
@@ -306,34 +279,28 @@ extension AppModel {
   func switcherSessionCreated(_ id: Int, key: SessionKey, target: AttachTarget) {
     guard let pending = switcherCreation, pending.id == id else { return }
     switcherCreation = nil
-    switcherActions[key] = .running(closesOnSuccess: pending.closesOnSuccess)
+    followSwitcherAction(key, target: target, closesOnSuccess: pending.closesOnSuccess)
+  }
+
+  /// "Open existing" started the attach of `key` (`target` as listed afresh) from the New
+  /// session draft: the switcher's when the switcher made that draft (PLAN.md D34), as the
+  /// attach of a session created from it is, even while the switcher is closed (it closes as
+  /// the window opens), so its target is retained (a pinned row while the engine does not list
+  /// the session) and its failure is carried to the switcher's next opening; it closes the
+  /// switcher on success only if it shows now and stays open. A draft the popover made is left
+  /// to `switcherActionStarted(_:target:)`.
+  func switcherExistingOpened(_ key: SessionKey, target: AttachTarget) {
+    guard newSessionOrigin == .switcher else { return }
+    followSwitcherAction(key, target: target, closesOnSuccess: isSwitcherVisible)
+  }
+
+  /// Follows the attach of `key` (`target` as listed or created) as the switcher's, closing
+  /// the switcher on its success only when `closesOnSuccess`; a failure carried for `key` is
+  /// let go.
+  func followSwitcherAction(_ key: SessionKey, target: AttachTarget, closesOnSuccess: Bool) {
+    switcherActions[key] = .running(closesOnSuccess: closesOnSuccess)
     switcherTargets[key] = target
     switcherCarriedFailures.removeAll { $0 == key }
-  }
-
-  /// New session number `id` ended without a session (a collision or a creation failure, in
-  /// the draft): when it was the switcher's and the form is no longer shown, the form comes
-  /// back with it (`showDeferredCreationFailure()`; held back while the popover shows Move
-  /// here), so the failure is never silent.
-  func switcherCreationFailed(_ id: Int) {
-    guard let pending = switcherCreation, pending.id == id else { return }
-    switcherCreation = nil
-    if case .newSession? = panel { return }
-    switcherCreationFailureDeferred = true
-    showDeferredCreationFailure()
-  }
-
-  /// Shows the switcher's creation failure the form is not showing yet: the New session form
-  /// comes back with it (the draft holds it) when no panel shows, or when the switcher shows
-  /// (a Move here confirmation, the popover's, then closes unconfirmed: it runs nothing). A
-  /// Move here confirmation outside the switcher holds it back until it ends
-  /// (`confirmMoveHere()`, `cancelPanel()`) or the switcher opens next.
-  func showDeferredCreationFailure() {
-    guard switcherCreationFailureDeferred else { return }
-    if case .moveHere? = panel, !isSwitcherVisible { return }
-    switcherCreationFailureDeferred = false
-    if case .newSession? = panel { return }
-    panel = .newSession
   }
 
   /// The session `key` of a switcher row the engine does not list (a session just created on

@@ -3,17 +3,19 @@ import MuxFinderCore
 import SwiftUI
 
 /// `--preview-fixtures --preview-key-view-loop popover|switcher` (PLAN.md Phase I-6): a
-/// read-only diagnostic of the New session form's keyboard focus in muxFinder's real panel.
+/// read-only diagnostic of the New session form's keyboard focus in muxFinder's real New
+/// session window (PLAN.md D34; before D34 the form was in the popover's and the switcher's
+/// panels, which the flag's names still pick as entry points).
 ///
-/// It builds the panel the app uses (`PanelHost` with `PopoverPanelRoot` or
-/// `SwitcherPanelRoot`, the live view and its key monitor included) over a synthetic fixture
-/// (`AttachFixtures.newSession`, `SwitcherFixtures.form`; no engine, host list, directory list,
-/// hotkey or iTerm2), shows it in the middle of the main display and makes it key (the
-/// frontmost app stays frontmost; the panel may take the key focus for about ten seconds, as
-/// `--report-popover-placement` does), first with the list, then with the form replacing it,
-/// as ⌘N does in the app. It prints one `muxFinder key view loop:` line per finding: the
-/// window's key state and key view loop settings, macOS's keyboard navigation setting (read,
-/// never changed), the first responder, the panel's key views (numbered in view tree order)
+/// It builds the window the app uses (`NewSessionWindowHost`: the `NewSessionPanel` with the
+/// live form and its key monitor) over the entry point's synthetic fixture
+/// (`AttachFixtures.newSession` for the popover, `SwitcherFixtures.form`, a name prefilled, for
+/// the switcher; no engine, host list, directory list, hotkey or iTerm2), shows it in the middle
+/// of the main display and makes it key (the frontmost app stays frontmost; the window may take
+/// the key focus for about ten seconds, as `--report-popover-placement` does), as ⌘N does in
+/// the app. It prints one `muxFinder key view loop:` line per finding: the window's key state
+/// and key view loop settings, macOS's keyboard navigation setting (read, never changed), the
+/// first responder at the opening, the window's key views (numbered in view tree order)
 /// with their links, the `nextValidKeyView` and `previousValidKeyView` chains from the Name
 /// field, and where the focus goes, step by step from Name, for Tab and ⇧Tab, with the
 /// directory list closed and open. A step is what the key does without its event: with a field
@@ -24,55 +26,49 @@ import SwiftUI
 /// first responder after the window's own step back from Name (`selectKeyView(preceding:)`,
 /// with `selectPreviousKeyView(_:)` and `insertBacktab(_:)` as cross-checks; its class,
 /// whether it is an `NSPopUpButton`, its menu's item count and which key binding messages it
-/// answers; never a title) and where the panel's key monitor would send ↑, ↓, ⌥↓, Space,
+/// answers; never a title) and where the window's key monitor would send ↑, ↓, ⌥↓, Space,
 /// Return and Esc with it, and with the focus in Name (`PanelKeyRoute`). No event is made or
 /// posted and no menu is opened. Views are named by their class, kind, placeholder or
 /// accessibility label, all synthetic.
 @MainActor
 public final class KeyViewLoopReport {
-  /// How long the panel settles (layout, the switcher's focus request) before a look.
+  /// How long the window settles (layout, the Name field's focus request) before a look.
   static let settleDelay: Duration = .milliseconds(1_000)
   /// How long the focus settles after each step.
   static let stepDelay: Duration = .milliseconds(250)
   /// The most links a chain or a walk follows.
   static let maximumSteps = 10
 
-  /// Which panel.
+  /// Which entry point's fixture.
   private let kind: AppLaunchOptions.KeyViewLoopPanel
   /// The fixture model the form edits.
   private let model: AppModel
-  /// The panel's window.
+  /// The New session window.
   private let window: NSWindow
-  /// The panel, as its controller drives it.
-  private let surface: any PopoverPanelSurface
+  /// The window, as its controller drives it.
+  private let surface: NewSessionWindowHost
   /// Writes one line.
   private let write: (String) -> Void
-  /// The panel's key views at the last listing, numbered from 1 in that order.
+  /// The window's key views at the last listing, numbered from 1 in that order.
   private var numbered: [ObjectIdentifier: Int] = [:]
 
-  /// A report on `kind`'s panel over its fixture, the form not shown yet; `write` gets each
-  /// line.
+  /// A report on the New session window over `kind`'s fixture, not shown yet; `write` gets
+  /// each line.
   private init(kind: AppLaunchOptions.KeyViewLoopPanel, write: @escaping (String) -> Void) {
     self.kind = kind
     self.write = write
+    let model: AppModel
     switch kind {
-    case .popover:
-      let model = AppModel(fixture: AttachFixtures.newSession)
-      model.panel = nil
-      let host = PopoverPanelHost(model: model)
-      (self.model, window, surface) = (model, host.panel, host)
-    case .switcher:
-      let model = AppModel(fixture: SwitcherFixtures.form)
-      model.panel = nil
-      let host = PanelHost<SwitcherPanelRoot>(level: .floating) { onSizeChange in
-        SwitcherPanelRoot(model: model, onSizeChange: onSizeChange)
-      }
-      (self.model, window, surface) = (model, host.panel, host)
+    case .popover: model = AppModel(fixture: AttachFixtures.newSession)
+    case .switcher: model = AppModel(fixture: SwitcherFixtures.form)
     }
+    let host = NewSessionWindowHost(model: model)
+    (self.model, window, surface) = (model, host.panel, host)
   } // End of init(kind:write:)
 
-  /// Runs the report on `kind`'s panel, writing each line to `write`; returns whether the
-  /// form's Name and Directory fields were found (the exit status is 0 then, else 1).
+  /// Runs the report on the New session window over `kind`'s fixture, writing each line to
+  /// `write`; returns whether the form's Name and Directory fields were found (the exit status
+  /// is 0 then, else 1).
   public static func run(
     _ kind: AppLaunchOptions.KeyViewLoopPanel, write: @escaping (String) -> Void
   ) async -> Bool {
@@ -82,25 +78,21 @@ public final class KeyViewLoopReport {
     return found
   }
 
-  /// The steps: shows the panel with the list, then the form, and looks at the form with the
-  /// directory list closed, then open.
+  /// The steps: shows the window with the form, and looks at the form with the directory
+  /// list closed, then open.
   private func inspect() async -> Bool {
     show()
     try? await Task.sleep(for: Self.settleDelay)
+    surface.setFrame(frame())
+    try? await Task.sleep(for: Self.stepDelay)
     line(
-      "panel \(kind.rawValue) key \(yesNo(window.isKeyWindow)) app active "
+      "window \(String(describing: type(of: window))) “\(window.title)”, opened as from the "
+        + "\(kind.rawValue): key \(yesNo(window.isKeyWindow)) app active "
         + "\(yesNo(NSApp.isActive)) keyboard navigation "
         + "\(NSApp.isFullKeyboardAccessEnabled ? "on" : "off") autorecalculatesKeyViewLoop "
         + "\(yesNo(window.autorecalculatesKeyViewLoop))")
     line(
-      "with the list: initialFirstResponder \(name(window.initialFirstResponder)); "
-        + "first responder \(name(window.firstResponder))")
-    model.panel = .newSession
-    try? await Task.sleep(for: Self.stepDelay)
-    surface.setFrame(frame())
-    try? await Task.sleep(for: Self.settleDelay)
-    line(
-      "with the form: initialFirstResponder \(name(window.initialFirstResponder)); "
+      "at the opening: initialFirstResponder \(name(window.initialFirstResponder)); "
         + "first responder \(name(window.firstResponder))")
     guard let nameField = textField(prompt: NewSessionPanelView.namePrompt),
       textField(prompt: DirectoryFieldView.prompt) != nil
@@ -204,7 +196,7 @@ public final class KeyViewLoopReport {
       ("Esc", 53, [], "\u{1B}"),
     ]
 
-  /// Where the panel's key monitor would send each of `routedKeys` with the window's first
+  /// Where the window's key monitor would send each of `routedKeys` with the window's first
   /// responder, menu tracking state, marked text and directory list as they are now.
   private func routes(state: String) {
     let responder = window.firstResponder
@@ -243,7 +235,7 @@ public final class KeyViewLoopReport {
     line("\(state): previousValidKeyView from Name: " + chain(from: nameField, forward: false))
   }
 
-  /// `view`'s top left corner in the panel, in points from the panel's top left.
+  /// `view`'s top left corner in the window, in points from its content's top left.
   private func position(of view: NSView) -> String {
     let frame = view.convert(view.bounds, to: nil)
     let height = window.contentView?.bounds.height ?? 0
@@ -270,14 +262,14 @@ public final class KeyViewLoopReport {
     line("\(state): focus in Name: \(name(window.firstResponder))")
   }
 
-  /// Shows the panel, key, at `frame()`.
+  /// Shows the window, key, at `frame()`.
   private func show() {
-    surface.show(at: frame())
+    surface.show(at: frame(), makingKey: true)
   }
 
-  /// The content's size in the middle of the main display.
+  /// The window's size for its content, in the middle of the main display.
   private func frame() -> CGRect {
-    let size = surface.contentSize
+    let size = surface.fittingFrameSize
     let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
     return CGRect(
       x: (screen.midX - size.width / 2).rounded(), y: (screen.midY - size.height / 2).rounded(),
@@ -293,13 +285,13 @@ public final class KeyViewLoopReport {
     return editor.delegate === field
   }
 
-  /// The panel's text field whose placeholder is `prompt`.
+  /// The window's text field whose placeholder is `prompt`.
   private func textField(prompt: String) -> NSTextField? {
     Self.subviews(of: window.contentView).lazy.compactMap { $0 as? NSTextField }
       .first { $0.placeholderString == prompt }
   }
 
-  /// The panel's views that take the focus or could (controls and views that accept the
+  /// The window's views that take the focus or could (controls and views that accept the
   /// first responder), in view tree order.
   private func keyViews() -> [NSView] {
     Self.subviews(of: window.contentView).filter {
@@ -368,7 +360,7 @@ public final class KeyViewLoopReport {
       let role = view.accessibilityRole()?.rawValue ?? "no role"
       return "\(kind) (\(role))"
     case is NSWindow:
-      return "the panel window"
+      return "the window"
     default:
       return kind
     }

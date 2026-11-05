@@ -79,14 +79,14 @@ struct AppModelKeyboardTests {
     #expect(model.activities.isEmpty)
   }
 
-  /// ⌘F asks for the search focus, ⌘N shows no sheet on a fixture, ⌘, is handled (a fixture
-  /// model presents no window), ⌘R is accepted and Esc closes the popover.
+  /// ⌘F asks for the search focus, ⌘N opens no New session window on a fixture, ⌘, is handled
+  /// (a fixture model presents no window), ⌘R is accepted and Esc closes the popover.
   @Test func commandKeys() {
     let model = Self.model()
     #expect(model.handle(.find) == .handled)
     #expect(model.searchFocusRequests == 1)
     #expect(model.handle(.newSession) == .handled)
-    #expect(model.panel == nil)
+    #expect(model.panel == nil && !model.isNewSessionShown)
     #expect(model.handle(.settings) == .handled)
     #expect(model.handle(.refresh) == .handled)
     #expect(model.handle(.close) == .closePopover)
