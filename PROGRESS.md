@@ -508,7 +508,8 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 - Phase I-3b: `d5fa941`, pushed. Inbox triage (I-4): `3804a78`.
 - Phase I-4: `d428822`, pushed. Inbox triage (I-5, I-6): `d1f445a`; phase summary `3b2603d`.
 - Phase I-5: `8f08b99`, pushed. Phase I-6: `26cef52`, pushed. Inbox triage (I-7): `79bea34`,
-  pushed. Phase I-7: `84a0adf`, pushed. Inbox triage (I-8): `f9e2b04`. Phase I-8: the commit
-  after it (this checkpoint); push result in the next checkpoint or the run's status line.
+  pushed. Phase I-7: `84a0adf`, pushed. Inbox triage (I-8): `f9e2b04`. Phase I-8: `b8ffe91`,
+  pushed. Inbox triage (I-9 queued, item 99 deferred): `8588893`; phase summary (I-9 row) the
+  commit after it, pushed with it (result in the run's status line).
 - The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
   note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.

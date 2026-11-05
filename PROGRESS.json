@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-05T22:28:36Z",
+  "updated": "2026-11-05T22:29:36Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -596,6 +596,15 @@
       "added": "2026-11-05T22:01:20Z",
       "started": "2026-11-05T22:01:20Z",
       "status_since": "2026-11-05T22:28:36Z"
+    },
+    {
+      "id": "I-9",
+      "title": "New session in its own always-on-top window, with folder drop",
+      "status": "queued",
+      "risk": "high",
+      "summary": "New session opens in its own floating titled window from the popover and the switcher, and accepts a dropped Finder folder.",
+      "added": "2026-11-05T22:29:36Z",
+      "status_since": "2026-11-05T22:29:36Z"
     }
   ]
 }
