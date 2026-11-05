@@ -45,14 +45,9 @@ file.
 | I-5 | Session switcher: one click activates a row, the rest of its click sequence dropped, the panel held through the double-click interval (D32 *Keys* edited; spec `autoclaude/processed/50-switcher-single-click-activates.md`) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-5.md` | `docs/progress-archive/i-5.md` |
 | I-6 | New session: Tab moves from Name to Directory — panels recalculate their key view loop (native fix), read-only `--preview-key-view-loop` diagnostic (spec `autoclaude/processed/60-new-session-tab-between-fields.md`) | routine | opus (impl worker); review fix inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-6.md` | `docs/progress-archive/i-6.md` |
 | I-7 | New session: typing in Directory filters the directory list — combo-box style, opens while something matches, "No matching directories", `~` rule on This Mac, match count announced (D31 edited; spec `autoclaude/processed/70-new-session-directory-list-filter.md`) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-7.md` | `docs/progress-archive/i-7.md` |
+| I-8 | New session: change the host from the keyboard — `PanelKeyRoute` leaves ↑/↓/⌥↓ to a focused pop-up button, every key to a tracking menu (D30–D32 edited; spec `autoclaude/processed/80-new-session-host-picker-keyboard.md`) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-8.md` | `docs/progress-archive/i-8.md` |
 
-### Queued
-
-| Phase | Title | Specification | Position |
-|---|---|---|---|
-| I-8 | New session: change the host from the keyboard — with Host focused, the panel's key monitor leaves ↑/↓/⌥↓ to the pop-up button; Space opens the host menu (diagnose first) | `autoclaude/processed/80-new-session-host-picker-keyboard.md` | next (the plan has no other remaining phase) |
-
-Every phase of `PLAN.md` and every earlier inbox phase is complete and reviewed; I-8 is queued.
+Every phase of `PLAN.md` and every inbox phase is complete and reviewed; nothing is queued.
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -64,13 +59,13 @@ to the run in it; its user decisions are recorded in the item itself), now compl
 2026-11-04 19:05 (I-7's iteration, before selection): `list` empty. 2026-11-05 22:01 (start of
 the iteration), one item triaged: `80-new-session-host-picker-keyboard.md` → I-8, queued,
 routine as proposed (no instruction to the run in it; its user decision, follow macOS's
-keyboard navigation setting, is recorded in the item).
+keyboard navigation setting, is recorded in the item; triage commit `f9e2b04`), now complete.
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b) and I-4 to I-7 are complete and reviewed.
-**Phase I-7 — New session: typing in Directory filters the directory list (routine):
-complete** 2026-11-04 (`docs/progress-archive/i-7.md`; D31 edited). **The plan is finished**
+Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b) and I-4 to I-8 are complete and reviewed.
+**Phase I-8 — New session: change the host from the keyboard (routine): complete** 2026-11-05
+(`docs/progress-archive/i-8.md`; D30–D32 edited). **The plan is finished**
 and nothing is queued; the user's manual checklist and the two `CLAUDE.md` notes owed (*Open
 risks*) remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
@@ -119,6 +114,11 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   and switcher galleries gained the filtered and no-match states, screenshots regenerated and
   inspected; 815 core + 376 UI pass; real typing and VoiceOver owed (checklist 21) —
   `docs/progress-archive/i-7.md`.
+- Phase I-8: all criteria met, 2026-11-05 — diagnosed in process (⇧Tab from Name reaches the
+  Host picker, an `NSPopUpButton`, but the monitor took ↑/↓/⌥↓ wherever the focus was); pure
+  `PanelKeyRoute.decide` wired into both panels' monitor, `MenuTrackingObserver`; diagnostic
+  before/after in `docs/TESTING.md`; 14 new UI tests, no existing test changed (815 core + 390
+  UI pass); galleries unchanged; real presses owed (checklist 22) — `docs/progress-archive/i-8.md`.
 
 ## Decisions
 
@@ -209,6 +209,10 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   "opened by" state `DirectoryPickerState.opening` (`request`/`typing`); a pick fills through
   `fillDirectoryField(_:)`, no edit; the announcement through `AppEnvironment.announce` —
   `docs/progress-archive/i-7.md`.
+- Phase I-8: the orchestrator's calls in `PLAN.md` "### Phase I-8" — a generic rule (any
+  `NSPopUpButton` first responder keeps ↑/↓/⌥↓; Return still creates, Esc still closes), every
+  key passes through while a menu tracks, and with the directory list open and Host focused the
+  list stays open and keeps Return/Esc (D31) — `docs/progress-archive/i-8.md`.
 
 ## Open risks / deviations
 
@@ -251,6 +255,10 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   rule). "Sessions on <host>" is capped at 10 before filtering. VoiceOver says nothing on a host
   change and was never on in a check; real typing, keys and VoiceOver are checklist 21's —
   `docs/progress-archive/i-7.md`.
+- I-8: what ↑/↓ and ⌥↓ do on a closed picker, whether the menu's tracking notifications fire
+  for it in the non-activating panel, and VO-Space are unverified until a real press
+  (checklist 22). Tests pick a host through the picker's binding, not the real menu (SwiftUI
+  builds no pop-up button in a never-shown panel) — `docs/progress-archive/i-8.md`.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -306,6 +314,8 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   3); re-verified — `docs/reviews/phase-I-6.md`.
 - Phase I-7: Codex wrote the file (`autoclaude-review.sh`, 12 min) → `ship`, 0 findings (not
   verified: checklist 21's live checks) — `docs/reviews/phase-I-7.md`.
+- Phase I-8: Codex wrote the file (`autoclaude-review.sh`, 12 min) → `ship`, 0 findings (not
+  verified: checklist 22's live checks) — `docs/reviews/phase-I-8.md`.
 
 ## Next action
 
@@ -435,18 +445,22 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 - App shell (D33, I-4): main menu `Sources/MuxFinderUI/Views/MainMenu.swift`, shell report
   `Sources/MuxFinderUI/Model/AppShellReport.swift`, entry `Sources/MuxFinderApp/{MuxFinderMenuBarApp,
   AppDelegate}.swift`; tests `Tests/MuxFinderUITests/{MainMenu,AppShellReport}Tests.swift`.
+- Panel key routing (I-8): `PanelKeyRoute`, `PanelFirstResponder`, `MenuTrackingObserver` in
+  `Sources/MuxFinderUI/Model/PanelKeyRouting.swift`, used by `PanelKeyTrackingView`
+  (`Views/PopoverWindowBridge.swift`); diagnostic `Preview/KeyViewLoopReport.swift`; tests
+  `Tests/MuxFinderUITests/HostPickerKeyboardTests.swift`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-7 (final tree, orchestrator, 2026-11-04): `swift build` exit 0; `swift test` 815
-  core tests in 81 suites passed and `swift test --filter MuxFinderUITests` 376 UI tests in 36
+- Phase I-8 (final tree, orchestrator, 2026-11-05): `swift build` exit 0; `swift test` 815
+  core tests in 81 suites passed and `swift test --filter MuxFinderUITests` 390 UI tests in 39
   suites passed; `swift format lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0,
-  `codesign --verify --deep --strict build/muxFinder.app` exit 0; switcher gallery PNG
-  inspected — `docs/progress-archive/i-7.md`.
-- Phases 1–I-6: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+  `codesign --verify --deep --strict build/muxFinder.app` exit 0 —
+  `docs/progress-archive/i-8.md`.
+- Phases 1–I-7: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -464,7 +478,7 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 - Phase I-3b: `d5fa941`, pushed. Inbox triage (I-4): `3804a78`.
 - Phase I-4: `d428822`, pushed. Inbox triage (I-5, I-6): `d1f445a`; phase summary `3b2603d`.
 - Phase I-5: `8f08b99`, pushed. Phase I-6: `26cef52`, pushed. Inbox triage (I-7): `79bea34`,
-  pushed. Phase I-7: the commit after it (this checkpoint, with the I-7 `PROGRESS.json` row the
-  triage left uncommitted); push result in the next checkpoint or the run's status line.
+  pushed. Phase I-7: `84a0adf`, pushed. Inbox triage (I-8): `f9e2b04`. Phase I-8: the commit
+  after it (this checkpoint); push result in the next checkpoint or the run's status line.
 - The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
   note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.

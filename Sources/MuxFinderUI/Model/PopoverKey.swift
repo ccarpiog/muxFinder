@@ -2,7 +2,8 @@ import AppKit
 
 /// The popover's keyboard commands (PLAN.md Phase 8, D31): ↑/↓ move, Return opens, ⌘F search,
 /// ⌘R refresh, ⌘N new session, ⌘, settings, Esc closes, and ⌥↓ opens New session's directory
-/// list.
+/// list. Whether the panel's handler gets a command at all is `PanelKeyRoute`'s to decide
+/// (PLAN.md Phase I-8): with a pop-up button focused, ↑, ↓ and ⌥↓ go on to it instead.
 public enum PopoverKey: Sendable, Hashable, CaseIterable {
   /// ↑: the previous session row (or, in New session's open directory list, the previous row).
   case up

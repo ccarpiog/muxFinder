@@ -172,7 +172,9 @@ final class SwitcherWindowTrackingView: PanelKeyTrackingView {
   /// Creates the view for `model`.
   init(model: AppModel) {
     self.model = model
-    super.init { [weak model] key in model?.handleSwitcherKey(key) ?? .ignored }
+    super.init(
+      route: { [weak model] key in model?.handleSwitcherKey(key) ?? .ignored },
+      isDirectoryListOpen: { [weak model] in model?.directoryPicker.isOpen ?? false })
   }
 
   /// Not used: the view is only created in code.

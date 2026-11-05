@@ -789,7 +789,9 @@ public final class AppModel {
   /// ⌘N do nothing. In New session, ⌥↓ opens the directory list; while it is open, ↑/↓ move
   /// through it, Return picks the highlighted row (with none, it closes the list and creates)
   /// and Esc closes the list, not the panel (`handleDirectoryListKey(_:)`, PLAN.md D31). ⌥↓
-  /// anywhere else is left to the focused view (`ignored`).
+  /// anywhere else is left to the focused view (`ignored`). With a pop-up button focused (the
+  /// Host picker) the panel's key monitor never hands ↑, ↓ or ⌥↓ here, and while a menu tracks
+  /// no key at all (`PanelKeyRoute`, PLAN.md Phase I-8).
   public func handle(_ key: PopoverKey) -> PopoverKeyResult {
     if let panel {
       if case .newSession = panel, let result = handleDirectoryListKey(key) { return result }

@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Connects the real popover to its window (PLAN.md D22, D30): it hands the popover's keys
-/// (`PopoverKey`) to the model before the focused view (the search field) sees them. Whether
+/// (`PopoverKey`) to the model before the focused view (the search field) sees them, as
+/// `PanelKeyRoute` decides (PLAN.md Phase I-8). Whether
 /// the popover shows is `PopoverController`'s to report, since it opens and closes the panel.
 struct PopoverWindowBridge: NSViewRepresentable {
   /// The model told about keys.
@@ -27,7 +28,9 @@ struct PopoverWindowBridge: NSViewRepresentable {
 final class PopoverWindowTrackingView: PanelKeyTrackingView {
   /// Creates the view for `model`.
   init(model: AppModel) {
-    super.init { [weak model] key in model?.handle(key) ?? .ignored }
+    super.init(
+      route: { [weak model] key in model?.handle(key) ?? .ignored },
+      isDirectoryListOpen: { [weak model] in model?.directoryPicker.isOpen ?? false })
   }
 
   /// Not used: the view is only created in code.
@@ -39,22 +42,38 @@ final class PopoverWindowTrackingView: PanelKeyTrackingView {
 /// An invisible view that follows the window it is in (a muxFinder panel: the popover's, or
 /// the session switcher's, PLAN.md D32) for its keys.
 ///
-/// A local key-down monitor sees the window's key events first. A key the handler uses goes
-/// no further, so ↑/↓ and Return work while the search field has the focus; anything else
-/// reaches the focused view. While an input method is composing text (marked text), every key
-/// goes to the text field. Esc (`PopoverKeyResult.closePopover`) closes the window, which the
-/// panel turns into its controller's close.
+/// A local key-down monitor sees the window's key events first. Where each goes is
+/// `PanelKeyRoute.decide(_:firstResponder:menuTracking:hasMarkedText:directoryListOpen:)`
+/// (PLAN.md Phase I-8), over the window's first responder at that moment: a key the handler
+/// uses goes no further, so ↑/↓ and Return work while the search field has the focus; anything
+/// else reaches the focused view. While a menu of the app is tracking (`MenuTrackingObserver`)
+/// or an input method is composing text (marked text), every key goes on untouched; while a
+/// pop-up button has the focus (New session's Host picker), ↑, ↓ and ⌥↓ go on to it. Esc
+/// (`PopoverKeyResult.closePopover`) closes the window, which the panel turns into its
+/// controller's close.
 class PanelKeyTrackingView: NSView {
   /// Carries out a key and says what the window does next.
   private let route: @MainActor (PopoverKey) -> PopoverKeyResult
+  /// Whether New session's directory list is open (the route's input; the handler asks the
+  /// list itself).
+  private let isDirectoryListOpen: @MainActor () -> Bool
+  /// Whether a menu of the app is tracking.
+  private let menuTracking: MenuTrackingObserver
   /// The window followed.
   private weak var trackedWindow: NSWindow?
   /// The key-down monitor.
   private var keyMonitor: Any?
 
-  /// Creates the view; its window's keys go to `route`.
-  init(route: @escaping @MainActor (PopoverKey) -> PopoverKeyResult) {
+  /// Creates the view; its window's keys go to `route`, `isDirectoryListOpen` says whether the
+  /// directory list is open, and `menuTracking` whether a menu is tracking.
+  init(
+    route: @escaping @MainActor (PopoverKey) -> PopoverKeyResult,
+    isDirectoryListOpen: @escaping @MainActor () -> Bool,
+    menuTracking: MenuTrackingObserver = .shared
+  ) {
     self.route = route
+    self.isDirectoryListOpen = isDirectoryListOpen
+    self.menuTracking = menuTracking
     super.init(frame: .zero)
   }
 
@@ -89,17 +108,22 @@ class PanelKeyTrackingView: NSView {
     trackedWindow = nil
   }
 
-  /// Hands a key press in the followed window to the handler; returns whether it was used.
+  /// Hands a key press in the followed window to the handler when its route says so
+  /// (`PanelKeyRoute`, over the window's first responder now); returns whether it was used.
   private func handle(_ press: KeyPress) -> Bool {
     guard let window = trackedWindow, press.windowNumber == window.windowNumber,
       window.isKeyWindow
     else { return false }
-    if let editor = window.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
-    guard
-      let key = PopoverKey(
+    let responder = window.firstResponder
+    let decision = PanelKeyRoute.decide(
+      PopoverKey(
         keyCode: press.keyCode, modifierFlags: press.modifierFlags,
-        charactersIgnoringModifiers: press.characters)
-    else { return false }
+        charactersIgnoringModifiers: press.characters),
+      firstResponder: PanelFirstResponder(responder),
+      menuTracking: menuTracking.isTracking,
+      hasMarkedText: (responder as? NSTextView)?.hasMarkedText() ?? false,
+      directoryListOpen: isDirectoryListOpen())
+    guard let key = decision.handlerKey else { return false }
     switch route(key) {
     case .handled:
       return true

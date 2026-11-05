@@ -531,6 +531,43 @@ press a key, turn VoiceOver on or create a session from the real app, and the re
   matching directories", "No matching directories"). 7: the same in the switcher.
 - **Undo:** step 8.
 
+## 22. Change the host from the keyboard in New session
+
+Owed by Phase I-8 (PLAN.md D30, D31, D32): which view has the focus after ⇧Tab from Name and
+where the panels' key monitor sends each key with it were read in process
+(`--preview-key-view-loop`, `docs/TESTING.md` *Phase I-8*) and the routing is unit-tested, but
+no unattended run may press a key or open a menu, so what AppKit's pop-up button does with
+each key is yours to see.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
+  at least two hosts turned on and macOS's keyboard navigation on (System Settings › Keyboard ›
+  "Keyboard navigation"):
+  1. Open the popover, press ⌘N and click in Name. Press ⇧Tab.
+  2. Press Space. In the menu, press ↓ (↑ if the host shown is the last one), then Return.
+  3. Press Space again, then Esc. Then, with the menu closed, press ↑ and ↓ (and ⌥↓).
+  4. Click the button at the end of Directory (the directory list opens), press ↓ once (a
+     row is highlighted), then click in Name and press ⇧Tab. Press Space, pick another host
+     with ↓ (or ↑) and Return, then press Esc once.
+  5. Press Tab (back to Name), type `muxfinder-test-host` and press Return.
+  6. Open the session switcher (item 18's shortcut), press ⌘N (the cursor is in Name), then
+     steps 1 to 5 there, naming the session `muxfinder-test-host2`.
+  7. Turn keyboard navigation off, open New session again, click in Name and press ⇧Tab.
+  8. Kill both sessions on the hosts you picked (`tmux kill-session -t
+     '=muxfinder-test-host'` and `'=muxfinder-test-host2'`, over ssh for an SSH host).
+- **Expect:** 1: a focus ring on the Host picker. 2: Space opens the host menu over the
+  picker (the panel stays open); ↓ moves to the next host and Return picks it: the picker
+  shows it, and the directory list's "Sessions on <host>" section (when you open it) names
+  that host. 3: Esc closes only the menu, not New session or the panel. ↑ and ↓ on the closed
+  picker do what macOS does with them (open the menu, or step to the next host: note which),
+  never moving anything else; ⌥↓ opens no directory list. 4: the directory list stays open
+  while the focus is on Host and while the host menu is open, its rows following the host
+  picked (the highlight goes only if the new host's list lacks that row); Esc then closes
+  the list and New session stays (a second Esc would close it). 5: the session is created on the
+  host picked, and it opens. 6: the same in the switcher's form (Esc in step 3 never closes
+  the switcher). 7: with keyboard navigation off, ⇧Tab from Name goes to Directory (Host is
+  skipped).
+- **Undo:** step 8; set keyboard navigation back as you had it.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -556,3 +593,4 @@ press a key, turn VoiceOver on or create a session from the real app, and the re
 | 19 | | | |
 | 20 | | | |
 | 21 | | | |
+| 22 | | | |

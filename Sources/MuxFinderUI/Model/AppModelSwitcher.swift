@@ -85,7 +85,8 @@ struct SwitcherCreation: Sendable, Hashable {
 ///   Return opens the selected session (the popover's Open, PLAN.md D25) or shows the New
 ///   session form, ⌘N shows the form, ⌘F focuses the search field, ⌘R refreshes, ⌘, opens
 ///   Settings and Esc closes the switcher; in the form, the popover's panel keys (Return
-///   creates, ⌥↓ opens the directory list, Esc closes the list, then goes back to the list).
+///   creates, ⌥↓ opens the directory list, Esc closes the list, then goes back to the list;
+///   with the Host picker focused, ↑, ↓ and ⌥↓ are the picker's, `PanelKeyRoute`, Phase I-8).
 ///   A click activates a row as Return does, as in the popover (`clickSwitcherItem(_:)`), and
 ///   the rest of that click's sequence is ignored (`SwitcherClickSequence`), the panel held
 ///   through the double-click interval so that rest lands on it

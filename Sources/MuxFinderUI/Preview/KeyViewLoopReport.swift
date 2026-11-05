@@ -20,8 +20,14 @@ import SwiftUI
 /// editor first, the action message its key binding sends (`insertTab(_:)`,
 /// `insertBacktab(_:)`, through `doCommand(by:)`), else the window's own
 /// `selectNextKeyView(_:)` or `selectPreviousKeyView(_:)`, which `NSWindow` runs for a Tab the
-/// responder chain leaves. No event is made or posted. Views are named by their class, kind,
-/// placeholder or accessibility label, all synthetic.
+/// responder chain leaves. Then, for each list state, the Host picker (PLAN.md Phase I-8): the
+/// first responder after the window's own step back from Name (`selectKeyView(preceding:)`,
+/// with `selectPreviousKeyView(_:)` and `insertBacktab(_:)` as cross-checks; its class,
+/// whether it is an `NSPopUpButton`, its menu's item count and which key binding messages it
+/// answers; never a title) and where the panel's key monitor would send ↑, ↓, ⌥↓, Space,
+/// Return and Esc with it, and with the focus in Name (`PanelKeyRoute`). No event is made or
+/// posted and no menu is opened. Views are named by their class, kind, placeholder or
+/// accessibility label, all synthetic.
 @MainActor
 public final class KeyViewLoopReport {
   /// How long the panel settles (layout, the switcher's focus request) before a look.
@@ -103,11 +109,13 @@ public final class KeyViewLoopReport {
       return false
     }
     await walk(from: nameField, listOpen: false)
+    await hostPicker(from: nameField, listOpen: false)
     model.openDirectoryList(highlightingFirst: false)
     try? await Task.sleep(for: Self.stepDelay)
     surface.setFrame(frame())
     try? await Task.sleep(for: Self.stepDelay)
     await walk(from: nameField, listOpen: true)
+    await hostPicker(from: nameField, listOpen: true)
     return true
   } // End of func inspect()
 
@@ -140,6 +148,94 @@ public final class KeyViewLoopReport {
     }
     chains(from: nameField, state: "\(state), after the steps")
   } // End of func walk(from:listOpen:)
+
+  /// The Host picker (PLAN.md Phase I-8), from Name: the window's own
+  /// `selectPreviousKeyView(_:)` with Name's field editor first (which is no key view), then
+  /// the window's own step back from the Name field itself (`selectKeyView(preceding:)`, what
+  /// ⇧Tab's `insertBacktab(_:)` asks of the window) and what has the focus then, with the key
+  /// monitor's routes for it and for Name, then ⇧Tab's action message to Name's field editor as
+  /// a cross-check. The directory list is as `listOpen` says. Nothing is pressed and no menu
+  /// opened: only the pop-up button's item count is read, never a title.
+  private func hostPicker(from nameField: NSTextField, listOpen: Bool) async {
+    let state = "host picker, list \(listOpen ? "open" : "closed")"
+    await focus(nameField, state: state)
+    routes(state: "\(state), focus in Name")
+    window.selectPreviousKeyView(nil)
+    try? await Task.sleep(for: Self.stepDelay)
+    line(
+      "\(state): after the window's selectPreviousKeyView with Name's field editor first: "
+        + name(window.firstResponder))
+    await focus(nameField, state: state)
+    window.selectKeyView(preceding: nameField)
+    try? await Task.sleep(for: Self.stepDelay)
+    let responder = window.firstResponder
+    line(
+      "\(state): after the window's selectKeyView(preceding: Name): \(name(responder)); "
+        + "NSPopUpButton \(yesNo(responder is NSPopUpButton)); kind "
+        + "\(PanelFirstResponder(responder)); list shows \(yesNo(model.directoryPicker.isOpen))")
+    if let popUp = responder as? NSPopUpButton {
+      let answers = ["moveUp:", "moveDown:", "moveForward:", "moveToEndOfParagraph:"].map {
+        "\($0) \(yesNo(popUp.responds(to: NSSelectorFromString($0))))"
+      }
+      line(
+        "\(state): pop-up button: \(popUp.numberOfItems) menu items, selected item "
+          + "\(popUp.indexOfSelectedItem + 1), enabled \(yesNo(popUp.isEnabled)), pulls down "
+          + "\(yesNo(popUp.pullsDown)); answers " + answers.joined(separator: ", "))
+    }
+    routes(state: "\(state), focus after selectKeyView(preceding: Name)")
+    await focus(nameField, state: state)
+    _ = press(forward: false)
+    try? await Task.sleep(for: Self.stepDelay)
+    line(
+      "\(state): after ⇧Tab's insertBacktab from Name: \(name(window.firstResponder)); list "
+        + "shows \(yesNo(model.directoryPicker.isOpen))")
+  } // End of func hostPicker(from:listOpen:)
+
+  /// The keys whose routes the Host picker section prints (PLAN.md Phase I-8), as a key-down
+  /// event would carry them (the arrows with their own `numericPad` and `function` flags);
+  /// values only, no event is made.
+  static let routedKeys:
+    [(label: String, keyCode: UInt16, flags: NSEvent.ModifierFlags, characters: String)] = [
+      ("↑", 126, [.numericPad, .function], "\u{F700}"),
+      ("↓", 125, [.numericPad, .function], "\u{F701}"),
+      ("⌥↓", 125, [.option, .numericPad, .function], "\u{F701}"),
+      ("Space", 49, [], " "),
+      ("Return", 36, [], "\r"),
+      ("Esc", 53, [], "\u{1B}"),
+    ]
+
+  /// Where the panel's key monitor would send each of `routedKeys` with the window's first
+  /// responder, menu tracking state, marked text and directory list as they are now.
+  private func routes(state: String) {
+    let responder = window.firstResponder
+    let kind = PanelFirstResponder(responder)
+    let marked = (responder as? NSTextView)?.hasMarkedText() ?? false
+    let tracking = MenuTrackingObserver.shared.isTracking
+    let listOpen = model.directoryPicker.isOpen
+    let routes = Self.routedKeys.map { probe in
+      let key = PopoverKey(
+        keyCode: probe.keyCode, modifierFlags: probe.flags,
+        charactersIgnoringModifiers: probe.characters)
+      let route = PanelKeyRoute.decide(
+        key, firstResponder: kind, menuTracking: tracking, hasMarkedText: marked,
+        directoryListOpen: listOpen)
+      return "\(probe.label) → \(Self.describe(route))"
+    }
+    line(
+      "\(state) (kind \(kind), menu tracking \(yesNo(tracking)), marked text "
+        + "\(yesNo(marked)), list open \(yesNo(listOpen))): " + routes.joined(separator: "; "))
+  } // End of func routes(state:)
+
+  /// A route in words.
+  static func describe(_ route: PanelKeyRoute) -> String {
+    switch route {
+    case .menu: return "the open menu"
+    case .inputMethod: return "the input method"
+    case .focusedView: return "the focused view"
+    case .directoryList(let key): return "the directory list's \(key)"
+    case .model(let key): return "the panel's \(key)"
+    }
+  }
 
   /// The `nextValidKeyView` and `previousValidKeyView` chains from `nameField`.
   private func chains(from nameField: NSTextField, state: String) {

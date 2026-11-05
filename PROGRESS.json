@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-04T19:37:20Z",
+  "updated": "2026-11-05T22:28:36Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -584,6 +584,18 @@
       "added": "2026-11-04T19:04:26Z",
       "started": "2026-11-04T19:05:55Z",
       "status_since": "2026-11-04T19:37:20Z"
+    },
+    {
+      "id": "I-8",
+      "title": "New session: change the host from the keyboard",
+      "status": "done",
+      "risk": "routine",
+      "summary": "With the Host picker focused, the panel leaves the arrows to it, so the keyboard can open the host menu and change the host.",
+      "review": "Codex, ship, docs/reviews/phase-I-8.md",
+      "narrative": "docs/progress-archive/i-8.md",
+      "added": "2026-11-05T22:01:20Z",
+      "started": "2026-11-05T22:01:20Z",
+      "status_since": "2026-11-05T22:28:36Z"
     }
   ]
 }

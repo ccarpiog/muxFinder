@@ -44,9 +44,9 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-7* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test` (*Phase I-8* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's reports of 2026-10-24 and 2026-11-04, PLAN.md Phases 13, 14 and I-1 to I-7):
+Added after the brief (the user's reports of 2026-10-24, 2026-11-04 and 2026-11-05, PLAN.md Phases 13, 14 and I-1 to I-8):
 
 | Requirement | Status | Evidence |
 |---|---|---|
@@ -62,6 +62,7 @@ passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the
 | A launch shows no window except onboarding (only while there is no `hosts.json`): no empty "muxFinder Settings" window; the Edit shortcuts in every text field, ⌘W in Settings and onboarding, ⌘Q with the orderly shutdown, SIGTERM and SIGINT as before (PLAN.md Phase I-4, D33). | Tested for real from the shell (the app shell check under two private homes, before and after the fix); the main menu hermetically. A launch from Finder and at login, and the keys pressed in the popover and Settings: by a person (checklist 19). | Phase I-4, 2026-11-04 (*Phase I-4* below): before the fix both homes listed a visible `SwiftUI.AppKitWindow` "muxFinder Settings"; after it, the empty home lists only the hidden popover panel and onboarding, the home with every host off only the hidden panel; exit 0 after SIGTERM, no child, nothing written; `MainMenuTests`, `AppShellReportTests`. |
 | New session's Tab order, in the popover and the session switcher: Tab from Name to Directory and ⇧Tab back; with macOS's keyboard navigation on, the Host picker, the directory list's button, Cancel and Create too, in reading order; never out of the panel, never closing it; Tab with the directory list open moves on and leaves it open; an input method's marked text gets Tab first (PLAN.md Phase I-6, D30, D31). | Read in process in the real panels (`--preview-key-view-loop`, before and after the fix: the focus moved by the key bindings' own action messages, no event) and tested hermetically. Real key presses, with keyboard navigation off and on, then a creation: by a person (checklist 20). | Phase I-6, 2026-11-04 (*Phase I-6* below): before the fix the form's fields led nowhere (Name → none) and Tab stayed in Name in both panels; after it Name → Directory → the list's button → Cancel → Create → Host picker → Name, and back; `NewSessionTabOrderTests`. |
 | New session: typing in Directory filters the directory list, combo-box style, in the popover and the session switcher: each section keeps the entries that contain the trimmed text (case and diacritics ignored; an exact match always), on This Mac also with the home folder written `~` or spelled out; "No matching directories" apart from "Nothing to pick yet"; the actions never filtered; typing opens the list while something matches, highlighting nothing, and closes a list it opened when nothing matches or the field is cleared, a list the button or ⌥↓ opened staying; Esc keeps the text; ↓/⌥↓ highlight the first match and the arrows stay in the rows shown; Return with nothing highlighted creates; a pick never reopens it; a host change re-filters; VoiceOver hears the match count (PLAN.md Phase I-7, D31). | Tested hermetically and in the preview renders (both appearances). Typing, the keys, VoiceOver and a creation in the real popover and switcher: by a person (checklist 21). | Phase I-7, 2026-11-04 (*Phase I-7* below): `DirectoryFilterContentTests` and `DirectoryFilterModelTests` (`DirectoryFilterTests.swift`); `docs/screenshots/attach-states-*.png` and `switcher-states-*.png` regenerated and inspected. |
+| New session: the Host picker from the keyboard, in the popover and the session switcher, with macOS's keyboard navigation on: ⇧Tab from Name reaches it; while it (an `NSPopUpButton`) has the focus, the panels' key monitor leaves ↑, ↓ and ⌥↓ to it (Space already reached it), Return still creates and Esc still closes the panel; while a menu tracks every key is the menu's; with the directory list open the list keeps its highlight and Return and Esc their list meaning; with any other focus nothing changes; a host picked from the menu acts as a click (PLAN.md Phase I-8, D30, D31, D32). | Read in process in the real panels (`--preview-key-view-loop`: the first responder after the window's own step back from Name and the monitor's route for each key, before and after the fix; no event, no menu opened) and tested hermetically (the routing as a pure function, the menu tracking observer, a pick through the picker's binding). What AppKit's pop-up button does with each key, the menu opening from the panel, and a creation on the host picked: by a person (checklist 22). | Phase I-8, 2026-11-05 (*Phase I-8* below): before the fix ↑/↓/⌥↓ went to the panel's handler with the picker focused (↑/↓ swallowed, ⌥↓ opening the directory list), after it to the picker; `PanelKeyRouteTests`, `MenuTrackingObserverTests`, `HostPickerBindingTests` (`HostPickerKeyboardTests.swift`). |
 
 ## Unit tests (`swift test`)
 
@@ -1167,6 +1168,21 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   `PopoverKey`, so the key monitor leaves them to the focused view and an input method; the
   `--preview-key-view-loop popover|switcher` flag (only with `--preview-fixtures`; another
   name, no name or no `--preview-fixtures` a usage error).
+- **The panels' key routing and the Host picker** (`Tests/MuxFinderUITests/HostPickerKeyboardTests.swift`;
+  PLAN.md D30, D31, D32, Phase I-8). `PanelKeyRoute.decide` as a pure function: Space is no
+  panel key and always reaches the focused view; with a pop-up button focused, ↑, ↓ and ⌥↓ go
+  on to it while Return and Esc are the handler's (the panel's with the directory list
+  closed, the list's with it open) and ⌘F, ⌘R, ⌘N and ⌘, the panel's; with any other focus
+  (a text field, its field editor, a button, a view, none) every panel key goes to the
+  handler as before Phase I-8; only `NSPopUpButton`s (pop-up, pull-down, subclass) count as
+  pop-up buttons; while a menu tracks, or an input method composes, every key goes on
+  untouched; the keys the routing calls the directory list's are exactly those the model's
+  open list answers; the diagnostic's keys are ↑, ↓, ⌥↓, Space, Return and Esc.
+  `MenuTrackingObserver` over a private notification center: a begin and its end, nested
+  menus, an end whose begin was never seen forgetting every menu, another center's and other
+  menu notifications ignored. A host written through the picker's binding (as AppKit's menu
+  pick, by click, keyboard or VoiceOver, makes SwiftUI write it) changes the draft's host,
+  re-filters the directory list, keeps Name and Directory, and opens or closes no list.
 - **Self-test drivers** (`Tests/MuxFinderUITests/SelfTestDriverTests.swift`, PLAN.md D25).
   `SelfTestDriver` over the real model, engine and coordinator with `SimulatedITerm2`, a
   `SimulatedTmux` (sessions in memory: the driver's tmux, discovery and New session's creator)
@@ -2902,3 +2918,69 @@ Typing, the keys, VoiceOver and a creation in the real panels are checklist 21.
 | Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
 | Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
 | Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery attach\|switcher\|popover --appearance light\|dark --preview-snapshot <png in a private folder>`, the attach and switcher images looked at | exit 0 each. Attach 3136 × 6104 px (was 5374): "typing filters the list" (This Mac with `~/proj`: Recent `~/projects/blog`, Saved `~/projects/site` and `~/projects/api`, "Sessions on Neptuno" `/Users/example/projects/site` through the `~` rule, nothing highlighted) and "no matching directories" (Saturno, the button's list: the note above both actions); "directory saved already" now shows only its saved entry, which the field keeps. Switcher 3448 × 3120 px (was 2452): the form filtered and with no match. Readable in both appearances; `attach-states-*.png` and `switcher-states-*.png` regenerated. The popover gallery holds no New session state: 4672 × 2200 px as in Phase I-6, not regenerated |
+
+### Phase I-8 — change the host from the keyboard in New session (2026-11-05)
+
+With macOS's keyboard navigation on, ⇧Tab from New session's Name field already reached the
+Host picker, in the popover's and the session switcher's form, but the keyboard could not
+change the host: the panels' key monitor took ↑, ↓ and ⌥↓ wherever the focus was (PLAN.md
+Phase I-8, D30, D31, D32; the cause under *Verified facts*, Phase I-8). The diagnosis came from
+I-6's read-only `--preview-fixtures --preview-key-view-loop popover|switcher`, which grew a Host
+picker section: for each directory list state, the routes the monitor would make with the focus
+in Name, then the first responder after the window's own step back from Name
+(`selectKeyView(preceding:)`; with `selectPreviousKeyView(_:)` sent with Name's field editor
+first, and ⇧Tab's `insertBacktab(_:)` to that editor, as cross-checks), its class, whether it
+is an `NSPopUpButton`, its menu's item count (never a title), the key binding messages it
+answers, and the route `PanelKeyRoute.decide` gives ↑, ↓, ⌥↓, Space, Return and Esc with it.
+The "before" runs used the debug binary with the routing's two new rules (menu tracking, the
+pop-up button) taken out, which is exactly the monitor's rule before this phase; the "after"
+runs the signed bundle binary of the final tree. No event was made, posted or delivered, no key
+was pressed, no menu was opened, no iTerm2 or engine was contacted, nothing went through
+LaunchServices, and the real `hosts.json`, `directories.json` and `preferences.json` were
+neither read nor written (synthetic fixtures only). The creation path did not change, so no
+self-test or `e2e-*` run was made. Real key presses are checklist 22.
+
+Before the fix (popover; the prefix `muxFinder key view loop: ` left out; the earlier lines,
+the Tab walks and the chains, are I-6's record unchanged; `…` repeats the line above's
+"menu tracking no, marked text no"):
+
+```
+panel popover key yes app active yes keyboard navigation on autorecalculatesKeyViewLoop yes
+host picker, list closed, focus in Name (kind other, …, list open no): ↑ → the panel's up; ↓ → the panel's down; ⌥↓ → the panel's openList; Space → the focused view; Return → the panel's open; Esc → the panel's close
+host picker, list closed: after the window's selectPreviousKeyView with Name's field editor first: field editor of #3 AppKitTextField text field “work”
+host picker, list closed: after the window's selectKeyView(preceding: Name): #1 SwiftUIPopupButton pop-up button; NSPopUpButton yes; kind popUpButton; list shows no
+host picker, list closed: pop-up button: 2 menu items, selected item 2, enabled yes, pulls down no; answers moveUp: yes, moveDown: yes, moveForward: no, moveToEndOfParagraph: no
+host picker, list closed, focus after selectKeyView(preceding: Name) (kind popUpButton, …, list open no): ↑ → the panel's up; ↓ → the panel's down; ⌥↓ → the panel's openList; Space → the focused view; Return → the panel's open; Esc → the panel's close
+host picker, list closed: after ⇧Tab's insertBacktab from Name: #1 SwiftUIPopupButton pop-up button; list shows no
+host picker, list open, focus in Name (kind other, …, list open yes): ↑ → the directory list's up; ↓ → the directory list's down; ⌥↓ → the directory list's openList; Space → the focused view; Return → the directory list's open; Esc → the directory list's close
+host picker, list open: after the window's selectKeyView(preceding: Name): #1 SwiftUIPopupButton pop-up button; NSPopUpButton yes; kind popUpButton; list shows yes
+host picker, list open, focus after selectKeyView(preceding: Name) (kind popUpButton, …, list open yes): ↑ → the directory list's up; ↓ → the directory list's down; ⌥↓ → the directory list's openList; Space → the focused view; Return → the directory list's open; Esc → the directory list's close
+host picker, list open: after ⇧Tab's insertBacktab from Name: #1 SwiftUIPopupButton pop-up button; list shows yes
+```
+
+The switcher's panel printed the same lines (its form focuses Name itself; its picker shows
+selected item 1, as its fixture lists the draft's host first). "The panel's up/down" is `AppModel.handle(_:)`
+doing nothing while a panel shows, so the key was swallowed; "the panel's openList" opened the
+directory list; "the directory list's up/down/openList" moved its highlight.
+
+After the fix (the signed bundle binary; every other line as before, the switcher's the same):
+
+```
+host picker, list closed, focus in Name (kind other, …, list open no): ↑ → the panel's up; ↓ → the panel's down; ⌥↓ → the panel's openList; Space → the focused view; Return → the panel's open; Esc → the panel's close
+host picker, list closed: after the window's selectKeyView(preceding: Name): #1 SwiftUIPopupButton pop-up button; NSPopUpButton yes; kind popUpButton; list shows no
+host picker, list closed, focus after selectKeyView(preceding: Name) (kind popUpButton, …, list open no): ↑ → the focused view; ↓ → the focused view; ⌥↓ → the focused view; Space → the focused view; Return → the panel's open; Esc → the panel's close
+host picker, list open, focus in Name (kind other, …, list open yes): ↑ → the directory list's up; ↓ → the directory list's down; ⌥↓ → the directory list's openList; Space → the focused view; Return → the directory list's open; Esc → the directory list's close
+host picker, list open: after the window's selectKeyView(preceding: Name): #1 SwiftUIPopupButton pop-up button; NSPopUpButton yes; kind popUpButton; list shows yes
+host picker, list open, focus after selectKeyView(preceding: Name) (kind popUpButton, …, list open yes): ↑ → the focused view; ↓ → the focused view; ⌥↓ → the focused view; Space → the focused view; Return → the directory list's open; Esc → the directory list's close
+```
+
+| Check | Command | Observed result |
+|---|---|---|
+| Diagnosis | `.build/debug/MuxFinderApp --preview-fixtures --preview-key-view-loop popover`, then `switcher` (the two new rules taken out for the run) | exit 0 each, the record above: ⇧Tab from Name reaches the picker (`SwiftUIPopupButton`, an `NSPopUpButton`, 2 items) with the list closed or open, the list staying open; with it focused ↑, ↓ and ⌥↓ went to the panel's handler. Keyboard navigation was on (the diagnostic reads `NSApp.isFullKeyboardAccessEnabled`) |
+| AppKit, read | the SDK's `NSEvent.h`, `NSMenu.h`, `NSPopUpButton.h`, `NSPopUpButtonCell.h`; `StandardKeyBinding.dict` through `plutil -convert json`; a scratch Swift process (outside the repository) listing the methods `NSPopUpButton`, `NSPopUpButtonCell`, `NSButton`, `NSButtonCell` and `NSControl` implement and which of them answer `moveUp:`, `moveDown:`, `moveForward:`, `moveToEndOfParagraph:`, `cancelOperation:`, `insertNewline:`, `performClick:` and `keyDown:` | ↑ `moveUp:`, ↓ `moveDown:`, ⌥↓ `moveForward:` + `moveToEndOfParagraph:`, Esc `cancelOperation:`, Return `insertNewline:`; only `NSPopUpButton` answers `moveUp:`/`moveDown:` (its own), none answers ⌥↓'s or `cancelOperation:`/`insertNewline:`; `NSPopUpButtonCell` implements `keyDown:inRect:ofView:` and `performClickWithFrame:inView:`; a local monitor is not called for events a menu's tracking loop consumes (`NSEvent.h`). No header says which key opens the menu (*Verified facts*, Phase I-8) |
+| After the fix | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-key-view-loop popover`, then `switcher` | exit 0 each, the record above: with the picker focused ↑, ↓, ⌥↓ and Space go to it, Return and Esc as before in both list states; with Name focused, unchanged |
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites and 390 UI tests in 39 suites (14 new in 3 suites: `PanelKeyRouteTests`, `MenuTrackingObserverTests`, `HostPickerBindingTests`). `aPopUpButtonKeepsTheArrows`, `theListOpenAndThePopUpButtonFocused` and `aTrackingMenuGetsEveryKey` fail with the two new rules taken out. No existing test changed. A test picking a host through the real picker's menu (`NSMenu.performActionForItem(at:)`) in a never-shown panel was tried and dropped: SwiftUI makes no AppKit pop-up button (nor buttons) in a panel that never showed, even after layout and a display pass, so the pick is tested through the picker's binding instead |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery popover\|attach\|switcher --appearance light\|dark --preview-snapshot <png in a private folder>` | exit 0 each: popover 4672 × 2200 px, attach 3136 × 6104, switcher 3448 × 3120, as in Phase I-7 (one switcher light run came out 3114 px tall, a second 3120); no view's look changed (the views gained doc comments only), so no screenshot was regenerated |

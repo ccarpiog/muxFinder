@@ -2161,7 +2161,16 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     views come and go (`autorecalculatesKeyViewLoop`, Phase I-6): the hosted view swaps whole
     forms (New session replacing the list), and with AppKit's default the loop computed at the
     panel's first showing left the form's fields leading nowhere, so Tab stayed in Name
-    (*Verified facts*, Phase I-6; the session switcher's panel is the same class, D32). Phase
+    (*Verified facts*, Phase I-6; the session switcher's panel is the same class, D32). Its
+    local key monitor (`PanelKeyTrackingView`) routes each key press through a pure decision,
+    `PanelKeyRoute.decide` (Phase I-8), over the key, the panel's first responder at that
+    moment, menu tracking, marked text and the directory list's state: while a menu of the app
+    tracks (`MenuTrackingObserver`, from `NSMenu.didBeginTrackingNotification` to
+    `didEndTrackingNotification`; an end whose begin was never seen forgets every menu) or an
+    input method composes text, every key goes on untouched; with an `NSPopUpButton` focused
+    (New session's Host picker), ↑, ↓ and ⌥↓ go on to it as AppKit handles them, while Return
+    and Esc keep the panel's meaning (D31); every other key goes to the panel's handler as
+    before (*Verified facts*, Phase I-8). Phase
     14's look, width and sizing are unchanged when the content fits; no arrow.
   - **The anchor rule** (`PopoverAnchoring.decide`): when the action comes from a mouse event
     (the current event is a mouse press or release at most 1 s old), the press's location is
@@ -2445,7 +2454,27 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     model-held focus would have had to copy. Tab with the directory list open moves on and
     leaves the list open: its rows are drawn by SwiftUI and are not key views, so Tab never
     walks into them, and the list's keys are the model's wherever the focus is in the form
-    (Esc, or Space on the button, closes it). Every other key is unchanged.
+    (Esc, or Space on the button, closes it), the Host picker aside (below). Every other key
+    is unchanged. **The Host picker's keys (Phase I-8; decided by the orchestrator:
+    AppKit's own pop-up button, a generic rule in the key monitor, D30):** with keyboard
+    navigation on, ⇧Tab from Name reaches the picker (an `NSPopUpButton`); while it has the
+    focus the key monitor (`PanelKeyRoute`) leaves ↑, ↓ and ⌥↓ to it, and Space is no panel
+    key, so the keys AppKit gives a focused pop-up button open the host menu (Space; ↑ and ↓
+    through `moveUp:`/`moveDown:`, which only `NSPopUpButton` answers; ⌥↓'s key binding
+    messages it does not answer), and while that menu tracks every key is the menu's (↑/↓,
+    Return, Space, Esc, type-to-select; Esc closes only the menu). Return with the menu closed
+    still creates and Esc still closes the panel. **The directory list and Host focus:** the
+    list keeps its keys wherever the focus is except on the pop-up button (I-6's rule that Tab
+    moves on and leaves the list open stands); with the list open and the focus on Host,
+    ↑/↓/⌥↓ go to the picker, the list stays open with its highlight unchanged (the model never
+    sees those keys), and Return and Esc keep their list meaning (Return picks the highlighted
+    row, else closes the list and creates; Esc closes the list first). A host picked from the
+    menu, by keyboard, click or VoiceOver (VO-Space, the pop-up's own accessibility action;
+    none added), comes through the picker's one binding (`$model.newSessionDraft.hostID`), so
+    it acts as a click: the list re-filters for that host, Name and Directory keep their text,
+    and the picker is disabled while the draft is busy. With keyboard navigation off the
+    picker is not in the loop and nothing changes (the user's decision: Host is never forced
+    in). No host menu was re-implemented in the model.
   - **Store use from the popover (Phase I-2b):** every load and change goes through
     `AppEnvironment.directories` on one queue (`enqueueDirectoryOperation(_:)`; the recording
     above runs on it too, and quitting waits for it within the budget). The lists are read
@@ -2692,9 +2721,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     accessibility action hold nothing. The New session form is the popover's `NewSessionPanelView` over the shared
     `panel` and `NewSessionDraft` (This Mac by default, D31's directory list included; the name
     field takes the focus), with the popover's panel keys (Return creates, ⌥↓ and the list's
-    keys, Esc closes the list, then goes back to the list) and its Tab order (D31's *Keys*:
+    keys, Esc closes the list, then goes back to the list), its Tab order (D31's *Keys*:
     AppKit's key view loop, which this panel recalculates as the popover's does, D30; never
-    out of the panel or to the session list the form replaced). Move here and Detach stay in
+    out of the panel or to the session list the form replaced) and its Host picker's keys
+    (D31's *Keys*, Phase I-8: the same key monitor leaves ↑, ↓ and ⌥↓ to the focused pop-up
+    button and every key to an open menu, `PanelKeyRoute`). Move here and Detach stay in
     the popover (a failure's own recoveries are the popover row's).
   - **Actions and carry-over** (`AppModelSwitcher.swift`): a session row opens through the
     popover's Open (D25: focused when open here, else attached). An Open, or a New session's
@@ -3426,6 +3457,49 @@ I-6*):
   closing, and the preview app,
   whose delegate then quits, stopped in the middle of the first diagnostic runs (exit 0). The
   diagnostic's mode no longer quits that way; the gallery mode is unchanged.
+
+Verified in Phase I-8 (2026-11-05, macOS 27.3 Build 26C5035r, keyboard navigation on; the debug
+binary's `--preview-fixtures --preview-key-view-loop popover|switcher` before the fix, with
+the routing's two new rules taken out for the run, and the signed bundle binary's after it,
+run from the shell; the AppKit SDK headers, its standard key bindings file and the
+Objective-C runtime of a scratch process read; no event made, posted or delivered, no key
+pressed, no menu opened; `docs/TESTING.md`, *Phase I-8*):
+
+- **The Host picker could not be changed from the keyboard because the panels' key monitor
+  took its arrows.** ⇧Tab from Name does reach the picker (with keyboard navigation on): the
+  window's own step back from the Name field (`selectKeyView(preceding:)`) and ⇧Tab's action
+  message to Name's field editor (`insertBacktab(_:)`) both make `SwiftUIPopupButton`, an
+  `NSPopUpButton` subclass (a pop-up, not a pull-down; 2 menu items in both fixtures), the
+  first responder, in both panels, with the directory list closed or open (it stays open).
+  (`selectPreviousKeyView(_:)` sent to the window with Name's field editor first leaves the
+  focus in Name: the field editor is no key view; ⇧Tab never takes that path.) With it
+  focused, the monitor sent ↑, ↓ and ⌥↓ to the panel's handler as with any other focus: ↑
+  and ↓ were swallowed (`AppModel.handle(_:)` does nothing with them while a panel shows),
+  ⌥↓ opened the directory list, and with the list open all three moved the list's highlight;
+  so the pop-up button never saw them. Space is no panel key and already reached it; Return
+  created, Esc closed the panel (or the list first). After the fix (`PanelKeyRoute`), with the
+  pop-up button focused, ↑, ↓, ⌥↓ and Space go to it; Return and Esc are unchanged in both list
+  states; with the focus in Name nothing changed.
+- **AppKit's behaviour for a focused pop-up button, as read:** the standard key bindings
+  (`/System/Library/Frameworks/AppKit.framework/Resources/StandardKeyBinding.dict`) send ↑
+  `moveUp:`, ↓ `moveDown:` and ⌥↓ `moveForward:` then `moveToEndOfParagraph:`; in the runtime,
+  `NSPopUpButton` implements `moveUp:`, `moveDown:` and `performClick:` itself (`NSButton`
+  and `NSResponder` answer neither arrow message) and answers neither of ⌥↓'s messages, and
+  `NSPopUpButtonCell` implements `keyDown:inRect:ofView:` and `performClickWithFrame:inView:`
+  itself. `NSEvent.h` documents that a local monitor is
+  not called for events consumed by nested tracking loops such as menu tracking, so an open
+  menu's keys never reach the monitor; the menu-tracking rule is a second guard for keys that
+  reach `sendEvent(_:)` while one is open. The headers do not document which key opens the
+  menu: that Space opens it, what ↑/↓ do on the closed picker (open the menu, or step the
+  selection), that ⌥↓ does nothing, that the menu opens from this borderless non-activating
+  panel of an accessory app without the panel resigning key (a click on the picker already
+  does, the user's report), that ↑/↓, Return, Space, Esc and type-to-select work inside it and
+  Esc closes only the menu, and that `NSMenu.didBeginTrackingNotification` is posted for a
+  pop-up button's menu, are all owed to a real press (checklist 22).
+- **A never-shown panel has no AppKit pop-up button or buttons:** SwiftUI makes them only once
+  the panel shows (a hidden panel's tree holds the text fields alone, after layout and a
+  display pass), so the hidden-panel tests cannot reach the picker; the real picker's class
+  and item count come from the diagnostic, and a pick is tested through the picker's binding.
 
 ## Unattended-run rules (binding for every phase)
 
@@ -4715,6 +4789,59 @@ tests had their Directory field changed, their expectations kept, because the fi
 (`docs/TESTING.md` *Phase I-7*): `clearRuleAndNotice`, `itemsAndMoving`,
 `pickingFillsAndChecksTheDraft`, `hostChangeKeepsTheField`, `editingTheFieldDropsTheHighlight`.
 On the final tree 815 core + 376 UI tests pass.
+
+### Phase I-8 — New session: change the host from the keyboard (routine)
+
+From the inbox (2026-11-05). The specification, with the user's request verbatim, the user's
+decision (follow macOS's keyboard navigation setting; Host is never forced into the loop), the
+findings, the requirements and the acceptance, is
+`autoclaude/processed/80-new-session-host-picker-keyboard.md`. The Tab and ⇧Tab order (I-6) is
+not changed. Not split.
+
+The orchestrator's calls, made before the worker: **the routing rule is generic, not
+host-specific** — while the panel's first responder is an `NSPopUpButton` (in the form that is
+the Host picker), the panel's key monitor leaves ↑, ↓ and ⌥↓ to it instead of mapping them;
+Return still presses Create and Esc still closes the panel (or, with the directory list open,
+closes the list first), as now. **While any menu is tracking** (between
+`NSMenu.didBeginTrackingNotification` and `didEndTrackingNotification` in the app), the
+monitor passes every key through untouched, so the open host menu gets its own ↑/↓, Return,
+Space, Esc and type-to-select, and Esc closes only the menu. **The directory list and Host
+focus**: the list keeps its keys wherever the focus is except on the pop-up button (I-6's rule
+that Tab moves on and leaves the list open stands); with the focus on Host and the list open,
+↑/↓/⌥↓ go to the picker, the list stays open with its highlight unchanged, and Return and Esc
+keep their list meaning (Return picks a highlighted row, else creates; Esc closes the list
+first). The decision is a pure function over (key, first responder kind, menu tracking,
+marked text, list state) so it is unit-testable; the diagnosis and AppKit's behaviour for a
+focused pop-up button come from in-process reads and AppKit's documentation, never from a
+synthesized, posted or directly delivered key event (`keyDown(with:)` with a constructed
+`NSEvent` counts as one). The real presses are the user's (checklist).
+
+Outcome: the cause was the panels' key monitor, not the focus. ⇧Tab from Name already reached
+the Host picker (`SwiftUIPopupButton`, an `NSPopUpButton`) in both panels, but the monitor
+mapped ↑, ↓ and ⌥↓ to `PopoverKey`s wherever the focus was, so ↑/↓ were swallowed and ⌥↓
+opened the directory list (with the list open, all three moved its highlight); only Space
+reached the picker (*Verified facts*, Phase I-8). The decided rule is now a pure function,
+`PanelKeyRoute.decide(_:firstResponder:menuTracking:hasMarkedText:directoryListOpen:)` in
+`Sources/MuxFinderUI/Model/PanelKeyRouting.swift`, with `PanelFirstResponder` (pop-up button
+or other, from the panel's first responder at the press) and `MenuTrackingObserver` (the app's
+menu tracking notifications); `PanelKeyTrackingView`'s monitor, shared by the popover and the
+switcher, calls it with the window's first responder, the observer's state, the field editor's
+marked text and the model's list state, and hands the handler only the keys it routes there.
+The model's key handling, the creation path and the views are unchanged (a host picked from
+the menu comes through the picker's existing binding), so no self-test or `e2e-*` run was
+made. D30's *Panel*, D31's *Keys* and D32's *Keys* items edited. The diagnostic
+`--preview-key-view-loop` grew a Host picker section (the first responder after the window's
+own step back from Name, its menu's item count, the key binding messages it answers, and the
+monitor's route for ↑, ↓, ⌥↓, Space, Return and Esc with it and with Name, list closed and
+open). The galleries are unchanged; checklist 22 added. New tests in
+`HostPickerKeyboardTests.swift`: `PanelKeyRouteTests` (`spaceIsNoPanelKey`,
+`aPopUpButtonKeepsTheArrows`, `theListOpenAndThePopUpButtonFocused`,
+`otherFocusKeepsTheOldMapping`, `firstResponderKinds`, `aTrackingMenuGetsEveryKey`,
+`markedTextGetsEveryKey`, `theDirectoryListKeysAreTheModels`, `theDiagnosticsKeys`; three fail
+with the two new rules taken out), `MenuTrackingObserverTests` (`beginAndEnd`, `nestedMenus`,
+`unbalancedEnd`, `onlyItsCenter`) and `HostPickerBindingTests`
+(`aHostPickedThroughThePickersBinding`); no existing test changed. On the final tree 815 core +
+390 UI tests pass.
 
 ## Deferred (explicitly out of scope for v1)
 

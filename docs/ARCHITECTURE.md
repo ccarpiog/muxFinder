@@ -76,10 +76,14 @@ over full-screen apps (`MenuBarPopover`, only AppKit wiring). Every decision is
 - **Model glue:** `popoverVisibilityChanged` follows the panel (open and not occluded), so
   attachment checks run only while it (or the session switcher) shows; a key monitor hands the
   popover's shortcuts to `AppModel.handle(_:)` first (one it does not use, such as ⌥↓ outside
-  New session, goes on to the focused view). Tab and ⇧Tab are no shortcut: they follow AppKit's
-  key view loop, which the panel recalculates as SwiftUI swaps the list and the New session
-  form (`autorecalculatesKeyViewLoop`; with AppKit's default the form's fields led nowhere,
-  Phase I-6). Opening it closes the session switcher.
+  New session, goes on to the focused view). Which keys it hands over is a pure decision,
+  `PanelKeyRoute` (Phase I-8), over the key and the panel's first responder at that moment:
+  while a menu tracks (`MenuTrackingObserver`) or an input method composes, none; with a
+  pop-up button focused (New session's Host picker), not ↑, ↓ or ⌥↓, which AppKit gives the
+  picker (Space, no shortcut, opens its menu); Return and Esc always. Tab and ⇧Tab are no
+  shortcut: they follow AppKit's key view loop, which the panel recalculates as SwiftUI swaps
+  the list and the New session form (`autorecalculatesKeyViewLoop`; with AppKit's default the
+  form's fields led nowhere, Phase I-6). Opening it closes the session switcher.
 
 The placement diagnostic `--report-popover-placement` opens it through the button's own action
 and checks the frame against the anchor and the menu bar.
@@ -167,9 +171,10 @@ the popover, the AppKit wiring (`SessionSwitcher`) holds no decisions:
   text is a valid, unused session name; muted host lines ("Sirio: unreachable"); the popover's
   placeholder with no host turned on; the selection kept on the same session across updates.
 - **Keys** go through the same local key monitor as the popover's (`PanelKeyTrackingView`,
-  not while an input method composes) to `AppModel.handleSwitcherKey(_:)`: the list's keys,
-  or in the New session form (`NewSessionPanelView`, shared with the popover) the popover's
-  panel keys. A click activates a row as Return does (`AppModel.clickSwitcherItem(_:)`), and
+  routed by `PanelKeyRoute`: not while an input method composes or a menu tracks, and not ↑,
+  ↓ or ⌥↓ while the Host picker has the focus) to `AppModel.handleSwitcherKey(_:)`: the
+  list's keys, or in the New session form (`NewSessionPanelView`, shared with the popover)
+  the popover's panel keys. A click activates a row as Return does (`AppModel.clickSwitcherItem(_:)`), and
   the switcher's tracking view also monitors its window's left mouse button events, so the
   rest of that click's sequence reaches no view (`SwitcherClickSequence`); through the
   double-click interval the controller keeps the panel no shorter than it was and holds back a
@@ -255,7 +260,9 @@ written `~` and with a leading `~` spelled out (the home folder is injected,
 stored). The actions are never filtered. Its keys are `PopoverKey`s: ⌥↓ opens the list, ↑/↓
 move inside the rows shown, Return picks the highlighted row (with none it creates, as in the
 field) and Esc closes the list before the panel, keeping the text; editing the field drops the
-highlight, so Return then creates. A user edit (not a pick or a host change) opens the list
+highlight, so Return then creates. The list keeps those keys wherever the focus is, except
+that with the Host picker focused ↑, ↓ and ⌥↓ are the picker's (the list stays open, its
+highlight unchanged; Return and Esc keep their list meaning; Phase I-8). A user edit (not a pick or a host change) opens the list
 while an entry matches and closes it again when none does or the field is emptied, unless the
 button or ⌥↓ opened it (`DirectoryPickerState.opening`); VoiceOver then hears the match count
 through `AppEnvironment.announce`. Rows

@@ -68,7 +68,11 @@ struct MoveHerePanelView: View {
 /// the session switcher (PLAN.md D32), which asks for the name field to take the focus. Tab
 /// and ⇧Tab move between Name and Directory (with macOS's keyboard navigation on, through the
 /// host picker, the directory list button, Cancel and Create too) by AppKit's own key view
-/// loop, which the panel recalculates (`PopoverPanelWindow`, PLAN.md Phase I-6).
+/// loop, which the panel recalculates (`PopoverPanelWindow`, PLAN.md Phase I-6). The host
+/// picker is AppKit's pop-up button: focused, it gets Space, ↑, ↓ and ⌥↓ as AppKit handles
+/// them, and its open menu every key (the panels' key monitor leaves them, `PanelKeyRoute`,
+/// PLAN.md Phase I-8); a host picked by keyboard, click or VoiceOver comes through the same
+/// binding.
 struct NewSessionPanelView: View {
   /// The Name field's placeholder.
   static let namePrompt = "work"
