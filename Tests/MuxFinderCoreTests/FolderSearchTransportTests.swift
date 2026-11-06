@@ -139,8 +139,10 @@ struct FolderSearchTransportTests {
     return false
   }
 
-  /// This Mac runs `/bin/sh -c <script> muxfinder` with the system search path; ssh gets
-  /// discovery's options, `-T` and no `-n`, then `--`, the destination and the D3 string.
+  /// This Mac runs `/bin/sh -c <script> muxfinder unchecked` (the fixed argument that turns
+  /// the readability checks off, PLAN.md Phase I-10b) with the system search path; ssh gets
+  /// discovery's options, `-T` and no `-n`, then `--`, the destination and the D3 string, which
+  /// carries no argument.
   @Test func buildsTheArgv() throws {
     let transport = ProcessFolderSearchTransport(
       localEnvironment: ProcessFolderSearchTransport.defaultLocalEnvironment(
@@ -148,7 +150,8 @@ struct FolderSearchTransportTests {
       sshEnvironment: ["PATH": ProcessEnvironment.systemSearchPath])
     let local = try transport.request(for: .local)
     #expect(local.executableURL.path == "/bin/sh")
-    #expect(local.arguments == ["-c", FolderSearchScript.script.source, "muxfinder"])
+    #expect(
+      local.arguments == ["-c", FolderSearchScript.script.source, "muxfinder", "unchecked"])
     #expect(local.environment == ["PATH": ProcessEnvironment.systemSearchPath, "HOME": "/h"])
     let ssh = try transport.request(for: .ssh(destination: "saturno-m4"))
     #expect(ssh.executableURL.path == "/usr/bin/ssh")

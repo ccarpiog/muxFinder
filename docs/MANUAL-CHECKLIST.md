@@ -623,6 +623,50 @@ Finder, press a key or turn VoiceOver on.
   hint, ending with "Dropping a folder from Finder here fills in its path."
 - **Undo:** step 9.
 
+## 24. Folder search in New session
+
+Owed by Phase I-10b (PLAN.md Phase I-10, D36, D31, D34): the section's states, the channel's
+lifetime, the scope setting and the announcements are unit-tested over a fake transport, the
+script under stub `mdfind`, and real `--count-only` probe runs counted folders on this Mac and
+Saturno; but no unattended run may show the real window, type into it, open Settings or System
+Settings, see a privacy prompt or turn VoiceOver on, and folder names are never recorded.
+
+- **Do**, from the installed app, with This Mac and Saturno turned on (Saturno's Spotlight
+  indexing on, as the Phase I-10a runs found it):
+  1. Open New session (from Sirio, or from this Mac with Saturno chosen as Host), click in
+     Directory and type part of the name of a folder you know is in Saturno's home folder.
+  2. Pick it from "Folders on Saturno" (click it, or ↓ to it and Return), type the name
+     `muxfinder-test-folders` and press Return.
+  3. Open Settings › Directories, choose "Whole disk" under "Search folders in", come back to
+     New session (Saturno) and type part of the name of a folder outside Saturno's home folder
+     (say one under `/Applications` or `/Volumes`).
+  4. Click "Missing a folder?" under the folders, read the explanation and click "Open
+     muxFinder Settings". Choose "Home folder" again.
+  5. Choose This Mac as Host and type a few letters: the first folder search on This Mac.
+     Compare the folders listed with what Alfred's File Filter (or Spotlight, ⌘Space) finds for
+     the same letters, including folders inside your Desktop, Documents and Downloads.
+  6. With VoiceOver on (⌘F5), type a few letters in Directory, slowly, then quickly.
+  7. Kill the session (`ssh saturno-m4 /opt/homebrew/bin/tmux kill-session -t
+     '=muxfinder-test-folders'`).
+- **Expect:** 1: "Searching…" under "Folders on Saturno", then the folder listed within about
+  half a second of a pause in typing, written `~/…`; Recent, Saved and Sessions filter at once
+  and never wait; a folder already listed there shows only there. 2: the field takes the
+  folder as shown, the list closes and does not reopen; the session is created in that folder
+  on Saturno and opens in iTerm2. 3: the folder outside the home folder is listed (with
+  "Home folder" it was not). 4: the explanation lists what Spotlight and muxFinder leave out
+  (dot folders, Spotlight's privacy settings, Library and package contents, node_modules and
+  the like), the scope, Remote Login's full disk access and the apostrophe note; the button
+  opens muxFinder's Settings on its Directories tab ("Open Spotlight settings" shows only for
+  This Mac and opens System Settings' Spotlight pane). 5: **no privacy prompt** asking for
+  access to Desktop, Documents or Downloads appears (This Mac's search checks none of them);
+  write down whether folders inside Desktop, Documents and Downloads are listed (whether
+  macOS's privacy protection hides them from muxFinder's Spotlight queries, and whether the
+  results otherwise match Alfred's or Spotlight's). If Saturno's Remote Login did not allow
+  full disk access for remote users, the section also said "Desktop, Documents and Downloads
+  on Saturno can't be searched over SSH." 6: VoiceOver says "Searching…" once when a search
+  starts (never for each key), then the number of folders found when it settles.
+- **Undo:** step 7; Settings › Directories back to "Home folder" if you changed it.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -650,3 +694,4 @@ Finder, press a key or turn VoiceOver on.
 | 21 | | | |
 | 22 | | | |
 | 23 | | | |
+| 24 | | | |

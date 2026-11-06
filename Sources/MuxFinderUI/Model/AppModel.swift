@@ -67,6 +67,9 @@ import os
 ///   `NewSessionWindowController` follows), its keys (`handleNewSessionKey(_:)`), the creation
 ///   and "Open existing". The popover and the switcher open it and close as it opens; opening
 ///   and closing them never touches it.
+/// - **Folder search** (PLAN.md D36, Phase I-10b; `AppModelFolderSearch.swift`): the directory
+///   list's "Folders on <host>" section runs on one `FolderSearchChannel` per window and host,
+///   owned here, closed with the window, a host change, a quiet minute and quitting.
 /// - **Fixtures:** `init(fixture:)` renders a fixed state for previews and screenshots; it
 ///   never starts an engine, reads the host list or contacts iTerm2.
 @MainActor
@@ -193,17 +196,24 @@ public final class AppModel {
   /// `newSessionWindow`, PLAN.md D34).
   public internal(set) var panel: PopoverPanel?
   /// The New session window as the model has it (PLAN.md D34): whether it shows and the latest
-  /// request to show it or bring it forward. Each change reaches `newSessionWindowChanged`.
+  /// request to show it or bring it forward. Each change reaches `newSessionWindowChanged`; the
+  /// window's closing, whatever closed it, also ends its folder search (`newSessionWindowClosed()`).
   public internal(set) var newSessionWindow = NewSessionWindowState() {
-    didSet { newSessionWindowChanged?() }
+    didSet {
+      if oldValue.isShown, !newSessionWindow.isShown { newSessionWindowClosed() }
+      newSessionWindowChanged?()
+    }
   }
   /// The New session form's fields and state. Any change to the Directory field's text (byte
   /// for byte: typing, pasting, a pick) drops the directory list's highlight, so Return then
   /// creates from what the field holds; a user edit (not a pick, a host change or a reset) also
   /// opens or closes the list as its filter matches (`directoryFieldChanged(from:)`, PLAN.md
-  /// D31).
+  /// D31). A host change ends the folder search on the old host (`newSessionHostChanged()`).
   public var newSessionDraft = NewSessionDraft() {
-    didSet { directoryFieldChanged(from: oldValue.directory) }
+    didSet {
+      directoryFieldChanged(from: oldValue.directory)
+      if oldValue.hostID != newSessionDraft.hostID { newSessionHostChanged() }
+    }
   }
   /// Increases whenever the New session window's Name field should take the keyboard focus
   /// (each fresh opening, PLAN.md D34).
@@ -219,6 +229,14 @@ public final class AppModel {
   /// Whether a drag that would fill the Directory field (one folder from Finder) hovers over
   /// its row, so the field shows the drop highlight (PLAN.md D34, Phase I-9b).
   public internal(set) var isDirectoryDropTargeted = false
+  /// The latest state the New session window's folder search channel published (PLAN.md D36,
+  /// Phase I-10b); `nil` while the window has none. In memory only.
+  public internal(set) var folderSearchState: FolderSearchState?
+  /// The latest folder search answer of the window's channel, kept while a newer text is
+  /// searched; in memory only.
+  public internal(set) var folderSearchPrevious: FolderSearchPreviousAnswer?
+  /// Whether the folders section shows its "Missing a folder?" explanation.
+  public internal(set) var isFolderSearchHelpShown = false
   /// Attachments in this Mac's iTerm2 that muxFinder made or found, by session.
   public internal(set) var attachedHere: [SessionKey: AttachmentRecord] = [:]
   /// The latest actions that ended, oldest first (at most `finishedActionLimit`).
@@ -388,6 +406,20 @@ public final class AppModel {
   /// Whether the model itself is filling the Directory field (a pick), so the change is not
   /// taken for the user's edit (`fillDirectoryField(_:)`).
   @ObservationIgnored var isFillingDirectoryField = false
+  /// Whether this fixture shows a folders section (`PreviewFixture.folderSearch`).
+  @ObservationIgnored let showsFolderSearchFixture: Bool
+  /// The New session window's folder search on its host, while it has one (PLAN.md D36, Phase
+  /// I-10b).
+  @ObservationIgnored var folderSearchSession: FolderSearchSession?
+  /// Numbers the folder search sessions.
+  @ObservationIgnored var nextFolderSearchSessionID = 0
+  /// The text the current session was last asked to search, as typed; `nil` once told to stop.
+  @ObservationIgnored var folderSearchAsked: String?
+  /// Closings of folder search sessions still running, by session number; quitting waits for
+  /// them.
+  @ObservationIgnored var folderSearchClosings: [Int: Task<Void, Never>] = [:]
+  /// What VoiceOver last heard of the folders section.
+  @ObservationIgnored var lastFolderAnnouncement = FolderSearchAnnouncement.hidden
 
   /// A model over `environment`. Nothing runs until `start()`.
   public init(environment: AppEnvironment) {
@@ -396,6 +428,7 @@ public final class AppModel {
     now = environment.now()
     thisMacHome = environment.homeDirectory
     announce = environment.announce
+    showsFolderSearchFixture = false
     settings =
       environment.settings.map { SettingsModel(environment: $0) }
       ?? SettingsModel(fixture: SettingsFixtures.blank)
@@ -440,6 +473,10 @@ public final class AppModel {
     directoryStatus = fixture.directoryStatus
     directoryPicker = fixture.directoryPicker
     isDirectoryDropTargeted = fixture.directoryDropTargeted
+    showsFolderSearchFixture = fixture.folderSearch != nil
+    folderSearchState = fixture.folderSearch?.state
+    folderSearchPrevious = fixture.folderSearch?.previous
+    isFolderSearchHelpShown = fixture.folderSearchHelpShown
     attachedHere = fixture.attachedHere
     shownExplanation = fixture.shownExplanation
     switcherSearchText = fixture.switcherSearchText
@@ -604,9 +641,11 @@ public final class AppModel {
   /// - At the same time, waiting for none of them: Settings' work (`SettingsModel.shutdown()`:
   ///   no new work, its probes and window opening cancelled and awaited, so their process groups
   ///   are gone), onboarding's and the popover's "Set up SSH in iTerm2…" requests (cancelled and
-  ///   awaited), and, in this order, the request queue (requests still queued are dropped), the
-  ///   system events adapter and the engine, whose `stop()` cancels any attachment check and
-  ///   kills any running probe's process group.
+  ///   awaited), New session's folder search (its channel closed and its processes reaped,
+  ///   PLAN.md D36; each closing awaited for at most the budget), and, in this order, the
+  ///   request queue (requests still queued are dropped), the system events adapter and the
+  ///   engine, whose `stop()` cancels any attachment check and kills any running probe's
+  ///   process group.
   /// - Then a directory store operation still running (a recording of a recent directory, a
   ///   load, a save or a clear, PLAN.md D31) is awaited for at most the same budget.
   ///
@@ -629,22 +668,26 @@ public final class AppModel {
   } // End of func shutdown()
 
   /// The part of `shutdown()` that never waits for a session action: Settings, onboarding,
-  /// the popover's "Set up SSH in iTerm2…" requests and the session switcher shortcut (its
-  /// save in progress awaited, its hotkey unregistered, PLAN.md D32) stop concurrently with the
-  /// engine's chain (the start in progress, the request queue, the system events adapter, the
+  /// the popover's "Set up SSH in iTerm2…" requests, the session switcher shortcut (its save
+  /// in progress awaited, its hotkey unregistered, PLAN.md D32) and New session's folder search
+  /// (its channel closed and its processes reaped, D36) stop concurrently with the engine's
+  /// chain (the start in progress, the request queue, the system events adapter, the
   /// engine and its updates).
   private func stopSubsystems() async {
     async let settingsStopped: Void = settings.shutdown()
     async let onboardingStopped: Void = onboarding.shutdown()
     async let sshSetupStopped: Void = sshSetup.shutdown()
     async let shortcutStopped: Void = shortcut.shutdown()
+    async let folderSearchStopped: Void = stopFolderSearch()
     await startTask?.value
     commandSink.finish()
     await commandTask?.value
     await systemEvents?.stop()
     await engine?.stop()
     await updatesTask?.value
-    _ = await (settingsStopped, onboardingStopped, sshSetupStopped, shortcutStopped)
+    _ = await (
+      settingsStopped, onboardingStopped, sshSetupStopped, shortcutStopped, folderSearchStopped
+    )
   } // End of func stopSubsystems()
 
   /// Records the session actions `shutdown()` stopped waiting for, kinds only, in the system

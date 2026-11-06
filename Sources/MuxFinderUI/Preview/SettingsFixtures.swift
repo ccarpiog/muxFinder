@@ -68,6 +68,13 @@ public struct SettingsFixture: Sendable, Identifiable {
   public var directorySaveError: String?
   /// A directory save's notice.
   public var directorySaveNotice: String?
+  /// The folder search scope (PLAN.md D36).
+  public var folderSearchScope = FolderSearchScope.standard
+  /// Why the scope could not be read or saved.
+  public var folderSearchScopeProblem: String?
+  /// Whether the preferences file can be used.
+  public var isFolderSearchScopeFileUsable = true
+
   /// The General tab's session switcher shortcut (PLAN.md D32).
   public var globalShortcut = GlobalShortcutFixture()
 
@@ -309,6 +316,30 @@ public enum SettingsFixtures {
     $0.directoryStatus = .fileNotUsable(.unsafe(.permissionsTooOpen))
   }
 
+  /// The Directories tab with New session's folder search (PLAN.md D36, Phase I-10b): "Search
+  /// folders in" set to Whole disk and the "Missing a folder?" explanation.
+  public static let folderSearch = SettingsFixture(
+    id: "directories-folder-search", title: "Directories: folder search", hosts: hostList
+  ) {
+    $0.tab = .directories
+    $0.directoryStatus = .usable(droppedEntryCount: 0)
+    $0.savedDirectories = Array(savedDirectoryList.prefix(2))
+    $0.folderSearchScope = .disk
+  }
+
+  /// A preferences file muxFinder can't use: folders are searched in the home folder and the
+  /// scope says why it can't change.
+  public static let folderSearchUnusable = SettingsFixture(
+    id: "directories-folder-search-unusable", title: "Directories: unusable preferences file",
+    hosts: hostList
+  ) {
+    $0.tab = .directories
+    $0.directoryStatus = .usable(droppedEntryCount: 0)
+    $0.isFolderSearchScopeFileUsable = false
+    $0.folderSearchScopeProblem = SettingsModel.unusablePreferencesMessage(
+      PreferencesFileProblem.unsafe(.permissionsTooOpen).message)
+  }
+
   // MARK: - General tab
 
   /// A General tab fixture for `status`, with `error` if given.
@@ -436,7 +467,8 @@ public enum SettingsFixtures {
   public static let all = [
     hosts, validation, thisMac, testFailed, invalidFile, newHost, profileEditor,
     profilesNotInstalled, profilesCurrent, profilesStale, profilesUnavailable, directories,
-    directoriesUnusable, diagnostics, loginEnabled, loginNotRegistered, loginRequiresApproval,
-    loginNotFound, shortcutNone, shortcutRecording, shortcutWarning, shortcutSet, shortcutTaken,
+    directoriesUnusable, folderSearch, folderSearchUnusable, diagnostics, loginEnabled,
+    loginNotRegistered, loginRequiresApproval, loginNotFound, shortcutNone, shortcutRecording,
+    shortcutWarning, shortcutSet, shortcutTaken,
   ]
 }

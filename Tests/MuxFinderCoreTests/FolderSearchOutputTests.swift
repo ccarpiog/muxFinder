@@ -228,7 +228,27 @@ struct FolderSearchOutputTests {
     #expect(header.unavailability(for: .disk) == nil)
     header.hasSpotlight = false
     #expect(header.unavailability(for: .disk) == .noSpotlight)
+    #expect(header.unreadableProtectedFolders == ["Documents"])
     header.documents = .readable
     #expect(!header.hasUnreadableProtectedFolder)
+    #expect(header.unreadableProtectedFolders.isEmpty)
+    header.desktop = .unreadable
+    header.downloads = .unreadable
+    #expect(header.unreadableProtectedFolders == ["Desktop", "Downloads"])
   } // End of func headerFacts()
+
+  /// `unchecked` (This Mac's script, PLAN.md Phase I-10b) reads as `notChecked`, which is not
+  /// unreadable; any other value is still a bad header.
+  @Test func readsUncheckedFolders() throws {
+    let bytes = Self.header(desktop: "unchecked", documents: "unchecked", downloads: "unchecked")
+    let events = try Self.parse(bytes)
+    var expected = Self.expectedHeader
+    expected.desktop = .notChecked
+    expected.documents = .notChecked
+    expected.downloads = .notChecked
+    #expect(events == [.header(expected)])
+    #expect(!expected.hasUnreadableProtectedFolder)
+    #expect(FolderSearchHeader.Readability.notChecked.rawValue == "unchecked")
+    #expect(Self.error(Self.header(documents: "not-checked")) == .badHeader)
+  } // End of func readsUncheckedFolders()
 }

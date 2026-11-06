@@ -63,9 +63,9 @@ The app icon and the menu bar icon are generated files in `Resources/`; their so
 script that regenerates them are in `scripts/dev/icon/`.
 
 **Folder search from the command line.** `swift run muxfinder-probe folders --local --name
-<text>` (or `--ssh <destination>`) searches the folder names on This Mac or a host through
-Spotlight: `mdfind` runs on that host, over the same noninteractive ssh as discovery, so the
-host needs no muxFinder of its own. It is read-only, and by default prints only how many
+<text>` (or `--ssh <destination>`) runs the search New session's "Folders on <host>" uses
+(below) on This Mac or a host through Spotlight: `mdfind` runs on that host, over the same
+noninteractive ssh as discovery, so the host needs no muxFinder of its own. It is read-only, and by default prints only how many
 folders matched and how long each search took (`--paths` prints the folders; `--name` can be
 given several times, and `--repeat <n>` asks each again, all through one connection). It
 finds folders whose name contains the text, ignoring case and accents, at most 50, in the
@@ -73,7 +73,8 @@ home folder (`--scope disk`: the whole disk). It leaves out `~/Library`, hidden 
 everything in them, `node_modules`, `DerivedData`, `Pods`, `__pycache__`, the inside of apps
 and other packages, and with the whole disk also other users' `Library` folders and system
 folders such as `/System`, `/Library` and `/usr`. A host without Spotlight, or with indexing
-off, says so; Spotlight's own privacy exclusions apply.
+off, says so; Spotlight's own privacy exclusions apply. On This Mac it never checks whether
+Desktop, Documents and Downloads can be read (the header says "not checked").
 
 ## Install on each Mac
 
@@ -169,8 +170,8 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   others.
 - **Keys:** ↑/↓ select, Return opens, ⌘F search (host or session name), ⌘R refresh, ⌘N new
   session (its own window), ⌘, Settings, Esc closes. In the New session window, Tab and ⇧Tab
-  move between Name and Directory, typing in Directory filters the directory list, ⌥↓ opens
-  it, Return creates, and Esc closes the list and then the window, as ⌘W does (below); with
+  move between Name and Directory, typing in Directory filters the directory list and
+  searches the host's folders, ⌥↓ opens it, Return creates, and Esc closes the list and then the window, as ⌘W does (below); with
   macOS's keyboard navigation on, ⇧Tab from Name reaches the Host picker, where Space opens
   the host menu.
 - **Open a session:** click it (or Return). muxFinder checks the session is still the one
@@ -234,6 +235,28 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   directory you saved from New session in the meantime. Both lists live in
   `~/Library/Application Support/muxFinder/directories.json` (paths only, never terminal
   content).
+- **Folder search in New session:** as you type at least two characters of a folder's name in
+  Directory (no `/`: a path is not searched), the list adds "Folders on <host>" below Recent,
+  Saved and Sessions, which filter at once and never wait for it: the host's Spotlight finds
+  the folders whose name contains the text (case and accents ignored), shown `~/…` under the
+  host's home folder, at most 50, each listed once (a folder already in Recent, Saved or
+  Sessions shows only there). Picking one fills Directory like any pick. On another Mac it
+  runs over the same ssh as discovery (key authentication, nothing to install there), through
+  one connection kept while you type and closed when the window closes, the host changes,
+  after a quiet minute or when muxFinder quits; on This Mac it runs locally. A host without
+  Spotlight, or with indexing off, says "Folder search isn't available on <host>" and why; an
+  unreachable host says so in the section, never holding up the form. **Settings ›
+  Directories › Search folders in:** Home folder (the default) or Whole disk; it applies to
+  the next search and is kept in `preferences.json`. **The limits** ("Missing a folder?" in
+  the list and in Settings explains them, with "Open muxFinder Settings" and, for This Mac,
+  "Open Spotlight settings"): Spotlight matches names, not paths; folders whose names start
+  with a dot and anything excluded in Spotlight's privacy settings never appear; muxFinder
+  leaves out Library folders, the inside of apps and other packages, `node_modules`,
+  `DerivedData`, `Pods` and `__pycache__` (and system folders with Whole disk); over SSH macOS
+  may hide Desktop, Documents and Downloads unless that Mac allows full disk access for remote
+  users (System Settings › General › Sharing › Remote Login › Allow full disk access for
+  remote users), and when the host reports them unreadable the section says so; an apostrophe
+  inside a word may find nothing. Folder names are never logged or saved.
 - **Session switcher shortcut:** a keyboard shortcut that works in every app. There is none
   until you record one in Settings › General › "Show session switcher": click the shortcut
   field, then press the keys (for example ⌃⌥Space). Esc cancels, Delete (or "Clear") turns the

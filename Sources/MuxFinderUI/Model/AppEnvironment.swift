@@ -78,6 +78,13 @@ public struct AppEnvironment: Sendable {
   /// `postAccessibilityAnnouncement(_:)` in the app; `nil` (nothing said) in the self-tests,
   /// the placement diagnostic and the tests, which record through `AppModel.announce`.
   public var announce: (@MainActor @Sendable (String) -> Void)?
+  /// New session's folder search (PLAN.md D36, Phase I-10b): the transport, clock and timings
+  /// of its channel and the preferences file its scope is read from for each query. Only the
+  /// menu bar app in normal mode has it (`ProcessFolderSearchTransport` and
+  /// `preferences.json`); `nil` everywhere else (the self-tests, the preview modes, every
+  /// `--report-*` flag, the tests of other parts), so those never run Spotlight or read
+  /// `preferences.json` for it, and the directory list shows no folders section.
+  public var folderSearch: FolderSearchEnvironment?
 
   /// Creates an environment from its parts.
   public init(
@@ -100,7 +107,8 @@ public struct AppEnvironment: Sendable {
     rewritesProfilesAtLaunch: Bool = false,
     globalShortcut: GlobalShortcutEnvironment? = nil,
     homeDirectory: String? = nil,
-    announce: (@MainActor @Sendable (String) -> Void)? = nil
+    announce: (@MainActor @Sendable (String) -> Void)? = nil,
+    folderSearch: FolderSearchEnvironment? = nil
   ) {
     self.loadHosts = loadHosts
     self.makeEngine = makeEngine
@@ -120,6 +128,7 @@ public struct AppEnvironment: Sendable {
     self.globalShortcut = globalShortcut
     self.homeDirectory = homeDirectory
     self.announce = announce
+    self.folderSearch = folderSearch
   } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
 
   /// The real app: `hosts.json` through one `HostStore` (loading never writes; Settings saves
@@ -142,8 +151,10 @@ public struct AppEnvironment: Sendable {
   /// `true`. So is `usesGlobalShortcut` (PLAN.md D32): only normal mode passes `true`, which
   /// adds the session switcher shortcut over `preferences.json` (`PreferencesStore`, read at
   /// launch, written only when the user records or clears a shortcut), Carbon's hotkeys
-  /// (`CarbonHotkeyRegistrar`) and the current keyboard layout; otherwise nothing reads that
-  /// file or registers a hotkey.
+  /// (`CarbonHotkeyRegistrar`) and the current keyboard layout, and, over the same store, New
+  /// session's folder search (PLAN.md D36: `ProcessFolderSearchTransport`, its scope read for
+  /// each query) and Settings › Directories' scope setting (written only when the user picks a
+  /// scope); otherwise nothing reads that file, registers a hotkey or runs Spotlight.
   ///
   /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
@@ -163,6 +174,7 @@ public struct AppEnvironment: Sendable {
     let index = AttachmentIndex(iTerm2: iTerm2)
     let store = HostStore()
     let directories = DirectoryStore()
+    let preferences = PreferencesStore()
     let sshSetup = SSHSetupLauncher(
       iTerm2: iTerm2, store: LaunchStore(), diagnostics: diagnostics)
     let settings = SettingsEnvironment(
@@ -180,7 +192,8 @@ public struct AppEnvironment: Sendable {
       systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
       sshSetup: sshSetup,
       persistentProfiles: PersistentProfileFiles(),
-      directories: directories)
+      directories: directories,
+      preferences: usesGlobalShortcut ? preferences : nil)
     return AppEnvironment(
       loadHosts: { try await store.load() },
       makeEngine: { hosts in
@@ -205,11 +218,15 @@ public struct AppEnvironment: Sendable {
       rewritesProfilesAtLaunch: rewritesProfilesAtLaunch,
       globalShortcut: usesGlobalShortcut
         ? GlobalShortcutEnvironment(
-          store: PreferencesStore(), registrar: CarbonHotkeyRegistrar(),
+          store: preferences, registrar: CarbonHotkeyRegistrar(),
           layout: SystemKeyboardLayout())
         : nil,
       homeDirectory: NSHomeDirectory(),
-      announce: { postAccessibilityAnnouncement($0) })
+      announce: { postAccessibilityAnnouncement($0) },
+      folderSearch: usesGlobalShortcut
+        ? FolderSearchEnvironment(
+          transport: ProcessFolderSearchTransport(), preferences: preferences)
+        : nil)
   } // End of static func production(rewritesProfilesAtLaunch:usesGlobalShortcut:)
 
   /// Asks VoiceOver to say `text` (`NSAccessibility` `announcementRequested`, medium priority,

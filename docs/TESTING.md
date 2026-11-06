@@ -3175,3 +3175,33 @@ the channel adds little; a query's time is Spotlight's, and the first query for 
 fragment is slower than its repeat. The first interrupt run exposed a probe bug (the signal
 only took effect once every query had run, since the task group waited for the queries'
 task, which cancellation does not interrupt); the signal now cancels the queries at once.
+
+### Phase I-10b — the folder search UI (2026-11-06)
+
+New session's "Folders on <host>" section, the window's channel, Settings › Directories'
+"Search folders in" and "Missing a folder?" (PLAN.md Phase I-10, its I-10b calls; D31, D34,
+D36). The section is a pure value (`FolderSearchSection` inside `DirectoryPickerContent`)
+tested apart from the view; the model's channel (`AppModelFolderSearch.swift`) is tested over
+`FakeFolderSearchTransport` and a gated clock the test moves (`GatedClock`,
+`FolderSearchUITestSupport.swift`), so no test starts a process, runs Spotlight or ssh. The
+scope is read through `InMemoryPreferencesStore`, a store whose reads fail, a store whose
+saves wait until the test releases them (`GatedPreferencesStore`), or
+`PreferencesStore` on a private `mkdtemp` folder; Settings' "Open Spotlight settings" and the
+section's links go through recorded seams, never opened. The core changed in one place: the
+script's fixed argument `unchecked` (This Mac's transport passes it), tested through the real
+script under the stub `mdfind`/`mdutil` harness with a logging `ls` stub first on `PATH`. No
+real `hosts.json`, `directories.json` or `preferences.json` was read or written, nothing went
+through LaunchServices, no Settings or System Settings window was opened, and no `--selftest`
+or `e2e-*` run was needed (creating and attaching did not change). Owed to a person: checklist
+item 24.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0; exit 0 |
+| Unit tests | `swift test` | exit 0: 881 core tests in 87 suites (2 new: `FolderSearchScriptTests.skipsTheReadabilityChecksWhenAsked`, bash and dash, and `FolderSearchOutputTests.readsUncheckedFolders`; changed: `FolderSearchTransportTests.buildsTheArgv` expects `unchecked` after the script name for This Mac and none for ssh, `FolderSearchOutputTests.headerFacts` covers `unreadableProtectedFolders`) and 468 UI tests in 46 suites (37 new in 3 suites: `FolderSearchSectionTests` 14, `FolderSearchModelTests` 16, `SettingsFolderSearchTests` 7; 3 of them added for the review's two findings: `searchingDropsThePreviousFoldersOfAnotherScope` and `aScopeChangeDropsThePreviousFolders`, a Whole disk answer's folders no longer listed while a Home folder search runs, and `quittingWaitsForTheScopeSave`, `shutdown()` returning only once a gated save of a pick ended; each failed with its fix reverted). The new UI suites passed 18 runs in a row (about 0.11 s each) once the harness waited for each debounce to wait before moving the clock (before that, one run spent 10 s in an unchecked wait, and one full run failed an expectation that a closing's bookkeeping was already done; both fixed in the tests). Seven full `swift test` runs afterwards: the UI target passed all seven; the core target failed once each in two of them under the full parallel load, in process-spawning tests (`TerminalChildRunnerTests.cancellationInterruptsTheCheck`, untouched here, and `FolderSearchTransportTests.answersAndEndsAtEndOfInput`, whose close took over its 2 s bound), and both suites passed 15 runs in a row on their own |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Real local check (read-only Spotlight, counts only) | `swift run muxfinder-probe folders --local --name do --name pro --count-only` | header: home present, `mdfind` yes, index home on, index disk on, Desktop, Documents and Downloads **not checked** (the new argument; no `ls` ran); channel open 44 ms; "do" limited (50) in 472 ms, "pro" limited (50) in 438 ms; closed in 15 ms, 0 child processes left. No privacy prompt appeared during the run. No remote run: the SSH path did not change (it passes no argument) |
+| New session gallery | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery new-session --appearance light --preview-snapshot docs/screenshots/new-session-states-light.png`, then `dark` | exit 0 both; 3448 × 7494 px, 22 states (the 13 of Phase I-9b and 9 new), inspected in crops (Pillow, `/tmp`): searching ("Searching…" with a small spinner, nothing local matching), folders found on This Mac (one left out as Saved shows it, a long path shortened in the middle, one outside the home folder, a highlighted row), "No folders found", "Folder search isn't available on Build box" (no Spotlight), on Saturno with indexing off and with no home folder, "The host can't be reached, so folders weren't searched.", Desktop, Documents and Downloads hidden over SSH (the note under three folders found), and "Missing a folder?" open on This Mac with "Open muxFinder Settings" and "Open Spotlight settings" below the scrolling sections; readable in both appearances (the highlighted help row's accent text keeps its contrast in dark) |
+| Settings gallery | `--preview-gallery settings`, light and dark, with `--preview-snapshot docs/screenshots/settings-states-<appearance>.png` | exit 0 both; 4528 × 12392 px, 25 states (2 new): the Directories tab with "Folder search" ("Search folders in", Whole disk chosen) and "Missing a folder?" with "Open Spotlight settings", and an unusable preferences file (the choice off, its explanation and "Try again"); the other Directories states now show the two sections below their own (cut by the card's height, as the tab scrolls) |
+| Attach, switcher and popover galleries | — | not regenerated: none of them shows the directory list (D34) |

@@ -20,6 +20,9 @@ public struct FolderSearchHeader: Sendable, Hashable {
     case unreadable = "no"
     /// It does not exist (or the home folder is unknown).
     case missing
+    /// It was not looked at: the script ran with `FolderSearchScript.uncheckedArgument`, as on
+    /// This Mac (PLAN.md Phase I-10b).
+    case notChecked = "unchecked"
   }
 
   /// The host's home folder, or `nil` when `$HOME` was not an absolute path.
@@ -58,9 +61,17 @@ public struct FolderSearchHeader: Sendable, Hashable {
   }
 
   /// Whether Desktop, Documents or Downloads exists but could not be read, so Spotlight's
-  /// results from them may be missing.
+  /// results from them may be missing (`notChecked` is not unreadable).
   public var hasUnreadableProtectedFolder: Bool {
-    [desktop, documents, downloads].contains(.unreadable)
+    !unreadableProtectedFolders.isEmpty
+  }
+
+  /// The names of the protected folders that exist but could not be read, in the header's
+  /// order ("Desktop", "Documents", "Downloads").
+  public var unreadableProtectedFolders: [String] {
+    zip(FolderSearchOutputParser.protectedFolders, [desktop, documents, downloads])
+      .filter { $0.1 == .unreadable }
+      .map { $0.0 }
   }
 
   /// Why `scope` cannot be searched on this host, or `nil` when it can (an `unknown` indexing

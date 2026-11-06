@@ -24,9 +24,12 @@ import os
 ///   while a drop would fill it (`directoryDragMoved(_:)`).
 /// - **The field is the list's search** (Phase I-7): the content is filtered by the field's
 ///   text (`DirectoryPickerContent`), and a user edit of the field opens the list while an
-///   entry matches and closes it again when none does or the field is left empty, unless the
-///   button or ⌥↓ opened it (`DirectoryPickerState.Opening`); VoiceOver hears the match count
-///   (`announce`).
+///   entry matches (or the folders section shows, Phase I-10b) and closes it again when
+///   neither does or the field is left empty, unless the button or ⌥↓ opened it
+///   (`DirectoryPickerState.Opening`); VoiceOver hears the match count (`announce`).
+/// - **The folders section** (Phase I-10b, `AppModelFolderSearch.swift`): the edit, the list's
+///   opening and a host change ask the window's folder search for the field's text; picking a
+///   folder found is a pick like any other.
 /// - **Failures never fail anything:** a refused save or clear leaves the lists as they were,
 ///   says why in the list, and is logged by its code only, never a directory.
 extension AppModel {
@@ -46,7 +49,8 @@ extension AppModel {
     return DirectoryPickerContent(
       host: snapshot.host, lists: directoryLists, sessions: snapshot.sessions,
       field: field, status: directoryStatus,
-      canChange: isPreview || environment?.directories != nil, thisMacHome: thisMacHome)
+      canChange: isPreview || environment?.directories != nil, thisMacHome: thisMacHome,
+      folderSearch: folderSearchSnapshot)
   }
 
   /// The highlighted row, while the list is open and still has it (a host change or a clear
@@ -71,19 +75,23 @@ extension AppModel {
 
   /// Opens the list under the Directory field at the user's request (the button, ⌥↓, which
   /// highlights its first row), so it stays open whatever the field holds. Only while New
-  /// session shows and is not busy, with a host chosen.
+  /// session shows and is not busy, with a host chosen. The field's text is searched in the
+  /// host's folders when it can be (Phase I-10b); the opening itself says nothing.
   public func openDirectoryList(highlightingFirst: Bool) {
     guard isNewSessionShown, !newSessionDraft.isBusy,
       let content = directoryPickerContent
     else { return }
     directoryPicker = DirectoryPickerState(
       opening: .request, highlighted: highlightingFirst ? content.items.first : nil)
+    updateFolderSearch()
+    _ = folderAnnouncement()
   }
 
   /// Closes the list (Esc, picking an entry, the button, the window closing) and forgets its
   /// highlight and problem.
   public func closeDirectoryList() {
     directoryPicker = DirectoryPickerState()
+    lastFolderAnnouncement = .hidden
   }
 
   /// ↓ (`down`) or ↑ in the open list: the next or previous row, staying at the ends; from no
@@ -118,45 +126,54 @@ extension AppModel {
 
   /// The user edited the Directory field from `previous` (typing, pasting), while New session
   /// shows, not busy, with a host chosen (PLAN.md D31, Phase I-7). With an entry matching the
-  /// new text, a closed list opens, highlighting nothing (Return still creates from the field;
-  /// ↓ or ⌥↓ highlights the first match). With none matching, or the field left empty (which
-  /// shows the whole list but never opens it), a list the typing opened closes, and one the
-  /// button or ⌥↓ opened stays. Then the match count is announced
-  /// (`announceDirectoryMatches(_:previous:wasOpen:)`).
+  /// new text, or the folders section showing for it (Phase I-10b, whatever its status), a
+  /// closed list opens, highlighting nothing (Return still creates from the field; ↓ or ⌥↓
+  /// highlights the first row). With neither, or the field left empty (which shows the whole
+  /// list but never opens it), a list the typing opened closes, and one the button or ⌥↓ opened
+  /// stays. Then the text is searched in the host's folders (`updateFolderSearch()`), and
+  /// VoiceOver hears, in one announcement, the match count
+  /// (`directoryMatchAnnouncement(_:previous:wasOpen:)`) and "Searching…" when a folder search
+  /// starts from a settled section (`folderAnnouncement()`).
   func directoryFieldEdited(from previous: String) {
     guard isNewSessionShown, !newSessionDraft.isBusy,
       let content = directoryPickerContent
     else { return }
     let wasOpen = directoryPicker.isOpen
     let openedByTyping = directoryPicker.opening == .typing
-    if content.query.isEmpty || content.matchCount == 0 {
+    if content.query.isEmpty || !content.hasSomethingToShow {
       if openedByTyping { closeDirectoryList() }
     } else if !wasOpen {
       directoryPicker = DirectoryPickerState(opening: .typing)
     }
-    announceDirectoryMatches(content, previous: previous, wasOpen: wasOpen)
+    let matches = directoryMatchAnnouncement(content, previous: previous, wasOpen: wasOpen)
+    updateFolderSearch()
+    let folders = folderAnnouncement()
+    let said = [matches, folders].compactMap { $0 }
+    if !said.isEmpty { announce?(said.joined(separator: ". ")) }
   } // End of func directoryFieldEdited(from:)
 
-  /// Tells VoiceOver what an edit of the Directory field did to the list (`content` after it,
+  /// What VoiceOver should hear of an edit of the Directory field (`content` after it,
   /// `previous` the text before it): while the list shows, its match count
   /// (`DirectoryPickerContent.matchSummary`) when the edit opened it or changed the rows shown
-  /// (an edit that keeps the same rows says nothing again); "No matching directories" when the
-  /// edit closed a list the typing had opened because nothing matches. Clearing the field,
-  /// which closes such a list, and an edit while the list stays closed say nothing.
-  func announceDirectoryMatches(
+  /// (an edit that keeps the same rows says nothing again), except while only the folders
+  /// section shows rows (it speaks for itself); "No matching directories" when the edit closed
+  /// a list the typing had opened because nothing matches. Clearing the field, which closes
+  /// such a list, and an edit while the list stays closed say nothing.
+  func directoryMatchAnnouncement(
     _ content: DirectoryPickerContent,
     previous: String,
     wasOpen: Bool
-  ) {
-    guard let announce else { return }
+  ) -> String? {
     if directoryPicker.isOpen {
       guard !wasOpen || directoryPickerContent(field: previous)?.sections != content.sections
-      else { return }
-      announce(content.matchSummary)
+      else { return nil }
+      if content.folders != nil, content.matchCount == 0 { return nil }
+      return content.matchSummary
     } else if wasOpen, !content.query.isEmpty {
-      announce(DirectoryPickerContent.noMatchesTitle)
+      return DirectoryPickerContent.noMatchesTitle
     }
-  } // End of func announceDirectoryMatches(_:previous:wasOpen:)
+    return nil
+  } // End of func directoryMatchAnnouncement(_:previous:wasOpen:)
 
   /// Fills the Directory field with `directory` for the user (a pick): the highlight goes, as
   /// with any change, but it is no edit, so the list is neither opened nor closed by it and
@@ -197,11 +214,12 @@ extension AppModel {
 
   // MARK: - Picking
 
-  /// Picks a row of the list: a directory fills the Directory field (which the draft then
-  /// checks like typed text; the fill is no edit, so it never reopens the list,
-  /// `fillDirectoryField(_:)`) and closes the list; an action runs ("Save this directory",
-  /// "Clear recent directories on <host>"), the list staying open. Only a row the list shows
-  /// (after the filter) and has on, while New session shows and is not busy.
+  /// Picks a row of the list: a directory (a folder found included, Phase I-10b) fills the
+  /// Directory field (which the draft then checks like typed text; the fill is no edit, so it
+  /// never reopens the list, `fillDirectoryField(_:)`) and closes the list; an action runs
+  /// ("Save this directory", "Clear recent directories on <host>", "Missing a folder?"), the
+  /// list staying open. Only a row the list shows (after the filter) and has on, while New
+  /// session shows and is not busy.
   public func pickDirectoryItem(_ item: DirectoryPickerContent.Item) {
     guard isNewSessionShown, !newSessionDraft.isBusy,
       directoryPickerContent?.items.contains(item) == true
@@ -214,6 +232,8 @@ extension AppModel {
       saveFieldDirectory()
     case .action(.clearRecents):
       clearRecentDirectories()
+    case .action(.folderSearchHelp):
+      toggleFolderSearchHelp()
     }
   } // End of func pickDirectoryItem(_:)
 

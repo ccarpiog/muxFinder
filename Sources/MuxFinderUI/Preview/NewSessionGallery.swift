@@ -5,9 +5,11 @@ import SwiftUI
 /// I-9b): every state of the New session window, each drawn like the window (its title bar and
 /// the live form's root view, `NewSessionWindowRoot`, not live): editing (as the popover and as
 /// the switcher open it), an invalid name, the directory list's states (open, nothing to pick,
-/// saved already, an unusable file, filtered by typing, no match), busy, a collision, a failure
-/// and a folder dragged over Directory. Nothing here runs an engine, reads `hosts.json` or
-/// `directories.json`, or contacts iTerm2.
+/// saved already, an unusable file, filtered by typing, no match), busy, a collision, a
+/// failure, a folder dragged over Directory, and the folders section's states (Phase I-10b,
+/// `FolderSearchFixtures`: searching, found, none, each unavailable reason, an SSH failure,
+/// protected folders over SSH, "Missing a folder?"). Nothing here runs an engine, reads
+/// `hosts.json`, `directories.json` or `preferences.json`, runs Spotlight or contacts iTerm2.
 public struct NewSessionGallery: View {
   /// How many cards each row holds.
   public static let columns = 3
@@ -15,11 +17,12 @@ public struct NewSessionGallery: View {
   static let titleBarHeight: CGFloat = 28
 
   /// The states in the gallery's order: the popover's (`AttachFixtures.newSessionStates`) with
-  /// the switcher's opening (`SwitcherFixtures.form`, its name from the filter) after the first.
+  /// the switcher's opening (`SwitcherFixtures.form`, its name from the filter) after the first,
+  /// then the folder search's (`FolderSearchFixtures.all`).
   public static let fixtures: [PreviewFixture] = {
     var states = AttachFixtures.newSessionStates
     states.insert(SwitcherFixtures.form, at: 1)
-    return states
+    return states + FolderSearchFixtures.all
   }()
 
   /// The states, each with its own model (made once).
@@ -99,6 +102,11 @@ public struct NewSessionGallery: View {
   NewSessionWindowRoot(
     model: AppModel(fixture: AttachFixtures.newSessionFolderDrag), isLive: false,
     onSizeChange: {})
+}
+
+#Preview("New session: folders found") {
+  NewSessionWindowRoot(
+    model: AppModel(fixture: FolderSearchFixtures.results), isLive: false, onSizeChange: {})
 }
 
 #Preview("Every New session window state") {

@@ -109,6 +109,10 @@ public struct SettingsEnvironment: Sendable {
   /// `DirectoryStore` as `AppEnvironment.directories` in the app; `nil` shows the tab empty and
   /// saves nothing (the tests of other parts).
   public var directories: (any DirectoryStoring)?
+  /// The preferences file for the Directories tab's folder search scope (PLAN.md D32, D36):
+  /// the app's `PreferencesStore` in normal mode only; `nil` (the scope shown as the default
+  /// and not changeable, nothing read) in every other mode and the tests of other parts.
+  public var preferences: (any PreferencesStoring)?
 
   /// Creates an environment from its parts.
   public init(
@@ -125,7 +129,8 @@ public struct SettingsEnvironment: Sendable {
     now: @escaping @Sendable () -> Date = { Date() },
     sshSetup: (any SSHSetupOpening)? = nil,
     persistentProfiles: any PersistentProfileManaging,
-    directories: (any DirectoryStoring)? = nil
+    directories: (any DirectoryStoring)? = nil,
+    preferences: (any PreferencesStoring)? = nil
   ) {
     self.store = store
     self.discovery = discovery
@@ -141,6 +146,7 @@ public struct SettingsEnvironment: Sendable {
     self.sshSetup = sshSetup
     self.persistentProfiles = persistentProfiles
     self.directories = directories
+    self.preferences = preferences
   } // End of init(store:discovery:profiles:sshSuggestions:loginItem:diagnostics:…)
 
   /// Puts `text` on the general pasteboard as plain text.

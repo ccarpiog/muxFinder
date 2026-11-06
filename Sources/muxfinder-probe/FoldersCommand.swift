@@ -227,6 +227,7 @@ enum FoldersCommand {
     case .readable: return "readable"
     case .unreadable: return "unreadable"
     case .missing: return "missing"
+    case .notChecked: return "not checked"
     }
   }
 

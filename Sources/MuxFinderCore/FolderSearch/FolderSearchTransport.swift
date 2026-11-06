@@ -3,7 +3,7 @@ import os
 
 /// The host a folder search runs on (PLAN.md D36): This Mac, or an SSH destination.
 public enum FolderSearchHost: Sendable, Hashable {
-  /// This Mac: the script runs as `/bin/sh -c <script> muxfinder`.
+  /// This Mac: the script runs as `/bin/sh -c <script> muxfinder unchecked`.
   case local
   /// An SSH host: the script runs through discovery's noninteractive ssh.
   case ssh(destination: String)
@@ -132,9 +132,10 @@ public protocol FolderSearchTransport: Sendable {
     -> any FolderSearchConnection
 }
 
-/// The real transport (PLAN.md D3, D36): This Mac runs `/bin/sh -c <script> muxfinder` by argv;
-/// an SSH host gets `/usr/bin/ssh <discovery's options> -T -- <destination> <D3 command>`, the
-/// D3 string carrying the static script and no argument, with standard input kept open as the
+/// The real transport (PLAN.md D3, D36): This Mac runs `/bin/sh -c <script> muxfinder
+/// unchecked` by argv (the fixed argument turns the readability checks off, Phase I-10b); an
+/// SSH host gets `/usr/bin/ssh <discovery's options> -T -- <destination> <D3 command>`, the D3
+/// string carrying the static script and no argument, with standard input kept open as the
 /// query stream (so no `-n`). Nothing here weakens host-key checking; the user's SSH
 /// configuration, keys and agent apply as they are.
 public struct ProcessFolderSearchTransport: FolderSearchTransport {
@@ -186,7 +187,10 @@ public struct ProcessFolderSearchTransport: FolderSearchTransport {
     case .local:
       return ProcessRequest(
         executableURL: DiscoveryProbe.shellURL,
-        arguments: ["-c", FolderSearchScript.script.source, ShellQuoting.scriptName],
+        arguments: [
+          "-c", FolderSearchScript.script.source, ShellQuoting.scriptName,
+          FolderSearchScript.uncheckedArgument,
+        ],
         environment: localEnvironment)
     case .ssh(let raw):
       let destination: String

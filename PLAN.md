@@ -106,8 +106,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   interpolated data. Locally, use `posix_spawn` with argv only and never a login shell; a
   static script runs as `/bin/sh -c <script> muxfinder <arg1> …`, data only as argv. This requires
   a POSIX-compatible login shell on remote hosts (zsh or bash, the macOS default); document it.
-  The folder-search script (D36) is a D3 user with no argument at all: the string is
-  `/bin/sh -c '<static script>' muxfinder`, and its data, the queries, arrive afterwards on
+  The folder-search script (D36) is a D3 user with no argument over SSH: the string is
+  `/bin/sh -c '<static script>' muxfinder` (This Mac's argv adds one fixed word, `unchecked`,
+  never a runtime value; Phase I-10b), and its data, the queries, arrive afterwards on
   standard input as data lines (an id, a scope token, escaped name text) that the script
   splits with parameter expansion, checks, and places into its one fixed predicate as a
   quoted word, never as shell source and never through `eval`.
@@ -2261,7 +2262,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Views/Settings/DirectoriesSettingsView.swift`; tests `DirectoryPickerTests.swift`,
   `SettingsDirectoriesTests.swift`; extended in Phase I-7 with the field's filter: the same
   files and `AppEnvironment.swift` (`homeDirectory`, `announce`); tests
-  `DirectoryFilterTests.swift`).
+  `DirectoryFilterTests.swift`; extended in Phase I-10b with the folders section, D36:
+  `Sources/MuxFinderUI/Model/FolderSearchSection.swift`, `AppModelFolderSearch.swift`, the same
+  picker files; tests `FolderSearchSectionTests.swift`, `FolderSearchModelTests.swift`).
   - **File:** `directories.json` in muxFinder's folder (`DirectoryStore`; the path is
     injectable), schema 1: `{"schemaVersion": 1, "saved": [ … ], "recent": {"<host id>":
     [ … ]}}`, pretty-printed with sorted keys and a final newline, at most 1 MiB, unknown keys
@@ -2444,10 +2447,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     opened (`DirectoryPickerState.opening`: `request` for the button, Space on it or ⌥↓;
     `typing`). A user edit of the field (`directoryFieldEdited(from:)`; not a pick, a host
     change or the draft's reset), while New session shows, is not busy and has a host, opens a
-    closed list as `typing` when an entry matches, highlighting nothing (so Return creates from
-    the field; ↓ or ⌥↓ highlights the first match), and closes a `typing` list again when no
-    entry matches or the trimmed text is empty (clearing the field shows the whole list but
-    never opens it); a `request` list stays open, showing "No matching directories" and the
+    closed list as `typing` when an entry matches or the folders section shows (Phase I-10b,
+    below), highlighting nothing (so Return creates from the field; ↓ or ⌥↓ highlights the
+    first row), and closes a `typing` list again when neither does or the trimmed text is
+    empty (clearing the field shows the whole list but never opens it); a `request` list stays open, showing "No matching directories" and the
     actions. After such an edit VoiceOver hears the match count (`AppModel.announce`, from
     `AppEnvironment.announce`: an `NSAccessibility` announcement in the app, `nil` in tests,
     which record through the model): `matchSummary` when the edit opened the list or changed
@@ -2493,6 +2496,51 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     and the picker is disabled while the draft is busy. With keyboard navigation off the
     picker is not in the loop and nothing changes (the user's decision: Host is never forced
     in). No host menu was re-implemented in the model.
+  - **The folders section (Phase I-10b, D36; the orchestrator's calls in *Phase I-10*):**
+    "Folders on <host>" comes last, after Recent, Saved and Sessions, while folder search
+    exists (normal mode only) and applies to the field's text: at least 2 characters, not only
+    spaces, and no `/` (a path being typed is no folder name; such text sends no query and hides
+    the section). It is a pure value too (`FolderSearchSection`, `DirectoryPickerContent
+    .folders`), built from the window's channel's latest state and answer
+    (`FolderSearchSnapshot`): "Searching…" until the channel's state is for the field's exact
+    text on this host (so a keystroke shows it at once; the previous answer's folders on the
+    host, in the same scope, whose names still contain the text stay listed under it, so the
+    list does not empty at each key), then the folders found (at most 50, in Spotlight's order), "No folders
+    found" ("No other folders found" when every one is in an earlier section), "Folder search
+    isn't available on <host>" with the reason (no Spotlight, indexing off for the scope's
+    disk, no home folder; nothing was sent), the channel's failure (an SSH problem after its
+    one reopen, a timeout; it stands until the text or host changes and never holds up the
+    form), or why the text cannot be searched. Rows are written `~/…` under the host's home
+    folder as the script's header reports it (the home itself `~`; absolute elsewhere),
+    shortened in the middle like the others, and a pick fills the field with exactly that (a
+    pick, `fillDirectoryField(_:)`: the list closes and does not reopen, nothing is
+    announced), so `~/…` resolves on the host (D18). Every path passes
+    `DirectoryLists.check` (a typed Directory's checks) and holds no control character before
+    it is offered; any other is dropped and only counted ("N folders found can't be offered"),
+    never logged. A folder an earlier section shows, compared after the `~` rule byte for byte,
+    shows only there. Notes: "Showing the first 50 folders found…" for a limited answer, and,
+    for an SSH host only, "Desktop, Documents and Downloads on <host> can't be searched over
+    SSH." naming the folders its header found unreadable (This Mac checks none, D36). While it
+    shows, the section counts as something to show for the open rule above (whatever its
+    status), and the list says neither "Nothing to pick yet" nor "No matching directories" in
+    its place. **Keys and pointer** as in the other sections: the folders are entry rows
+    (`SectionKind.folders`) after the others in `items`, then "Missing a folder?"
+    (`Action.folderSearchHelp`, a row the keys reach; Return or a click shows or hides the
+    explanation below the scrolling sections, the list staying open), then the actions.
+    **The explanation** (`FolderSearchSection.missingFolderExplanation`, also in Settings ›
+    Directories): results come from Spotlight and match names, not paths; dot folders and
+    anything excluded in Spotlight's privacy settings never appear; the noise rule's folders;
+    Home folder searches only the home folder; over SSH macOS may hide Desktop, Documents and
+    Downloads unless the host allows full disk access for remote users; an apostrophe inside a
+    word may find nothing; only 50 are listed. Its links: "Open muxFinder Settings" (Settings
+    on its Directories tab) and, for This Mac, "Open Spotlight settings" (System Settings'
+    Spotlight pane, `x-apple.systempreferences:com.apple.Spotlight-Settings.extension`, through
+    `AppEnvironment.openURL`; never opened by a check). **VoiceOver:** the list's value adds
+    the section's summary; "Searching…" is said once when a search starts from a settled (or
+    hidden) section, never again while it searches, and the summary ("3 folders found", "No
+    folders found", the reason or the problem) when it settles; an edit says the directory
+    count (when Recent, Saved or Sessions show rows) and "Searching…" in one announcement. The
+    channel itself is the window's (D34).
   - **Store use from New session (Phase I-2b):** every load and change goes through
     `AppEnvironment.directories` on one queue (`enqueueDirectoryOperation(_:)`; the recording
     above runs on it too, and quitting waits for it within the budget). The lists are read
@@ -2505,9 +2553,14 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     the list, makes the list read-only for `fileNotUsable`, and is logged as `directory list:
     <change kind> not done: <code>`, never a directory. A model without a store (tests of
     other parts) offers no change; fixtures show the actions as on and run nothing.
-  - **Settings › Directories (Phase I-2b):** its own tab, between Persistent profiles and
-    General, over `SettingsEnvironment.directories` (in the app the same `DirectoryStore`
-    instance as `AppEnvironment.directories`). D23's pattern: a working copy of the saved list
+  - **Settings › Directories (Phase I-2b; folder search in Phase I-10b):** its own tab,
+    between Persistent profiles and General, over `SettingsEnvironment.directories` (in the
+    app the same `DirectoryStore` instance as `AppEnvironment.directories`). Since Phase I-10b
+    it also holds "Folder search" ("Search folders in: Home folder / Whole disk", saved at once
+    through `SettingsEnvironment.preferences`, `PreferencesStore`, never `UserDefaults`; read
+    when the window opens; a failed save brings the previous scope back and says why; an
+    unusable file reads as Home folder, says so and turns the choice off until "Try again"
+    finds it fixed) and "Missing a folder?" with "Open Spotlight settings" (D36). D23's pattern: a working copy of the saved list
     with "Add" (checked inline with `DirectoryLists.check`, which includes
     `Validation.workingDirectory`, plus no duplicate by exact string and the 50-entry cap;
     appended as typed, Return in the field adds), move up, move down and remove per row, and
@@ -2535,7 +2588,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     list hands them to the tab (`directoriesChangedElsewhere(_:)`), whose saved list follows
     and whose working copy follows only while it has no unsaved edits. No recents editor:
     they are cleared per host from New session's list.
-  - **Previews (Phase I-2b):** New session's fixtures show the list open (three sections, a
+  - **Previews (Phase I-2b; I-10b):** since Phase I-10b `FolderSearchFixtures` add the
+    folders section's states to the New session gallery (searching, found with one left out
+    and a long path shortened, none, each unavailable reason, an SSH failure, the protected
+    folders' note, "Missing a folder?" open) and `SettingsFixtures.folderSearch` and
+    `folderSearchUnusable` the Directories tab's setting; synthetic paths only. New session's
+    fixtures show the list open (three sections, a
     highlighted recent row, a long path shortened), nothing to pick, a value saved already and
     an unusable file (`AttachFixtures.newSessionStates`; out of the attach gallery since D34,
     in the New session window's, `--preview-gallery new-session`); the Settings gallery shows the
@@ -2604,7 +2662,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     or `null` value, or any other (a newer muxFinder's, a number), reads as `home` and is kept
     in the file as it is until the scope is saved, like an unknown key (the file stays fully
     usable, so the write that replaces it keeps no backup); choosing `home` with no value, or
-    the value the file holds, writes nothing; a change applies to the next query. Schema 1
+    the value the file holds, writes nothing; a change (Settings › Directories' "Search
+    folders in", Phase I-10b, D31) applies to the next query. Schema 1
     did not change: an older muxFinder ignores the key and keeps it. Loading never writes; a
     missing file or a missing or `null` shortcut is "off";
     a value that is not a usable shortcut (not an object, a key code that is not an integer
@@ -2874,7 +2933,7 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   mouse filter), `Sources/MuxFinderApp/AppDelegate.swift`; tests
   `Tests/MuxFinderUITests/NewSessionWindowTests.swift` and the suites listed in
   `docs/TESTING.md`, *Phase I-9a*. The folder drop, the window's gallery and the user docs came
-  in Phase I-9b, below).
+  in Phase I-9b, below; the window's folder search in Phase I-10b, below).
   - **The choice** (the user's decisions): New session was a form drawn inside the popover and
     the session switcher, borderless panels that close on resigning key, a click elsewhere or
     another app becoming active (D30, D32), so going to Finder for a folder lost it without a
@@ -2949,7 +3008,27 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     cancelled, a `findingExisting` draft goes back to `collision`), a creation in progress goes
     on with its draft; otherwise the draft is dropped (the next opening starts a fresh one). A
     success closes the window and the attach goes on on its row; a collision ("Open existing")
-    or a failure stays in it.
+    or a failure stays in it. However the window closes (`newSessionWindow.isShown` turning
+    false: those, a success, "Open existing"), its folder search ends (below).
+  - **Folder search** (Phase I-10b, D36, the orchestrator's calls in *Phase I-10*;
+    `AppModelFolderSearch.swift`): one `FolderSearchChannel` per window and host, owned by the
+    model (`FolderSearchSession`: the channel, the task reading its states and one queue for
+    what is asked of it, each search reading the scope from `preferences.json` first, so a
+    change in Settings applies to the next query and an unusable or unreadable file means
+    `home`). It is made by the first searchable text while the directory list shows (an edit,
+    the list's opening, a host change), not by the window's opening; asked for each new text
+    (never the same text twice in a row); told to stop (`search("")`, which cancels a query
+    waiting for its debounce) when the text can no longer be searched; and ended (its
+    process closed and reaped in the background, nothing it found kept) when the window
+    closes, when the draft's host changes (a new one for the new host searches the field's
+    text at once while the list shows) and when the app quits (`shutdown()` waits for each
+    closing within the session actions' budget); its process also closes by itself after a
+    quiet minute without a query, a later text reopening it. The popover and the switcher
+    never make one. Transport, clock and timings come from `AppEnvironment.folderSearch`
+    (normal mode only: `ProcessFolderSearchTransport` and the shortcut's `PreferencesStore`;
+    tests a `FakeFolderSearchTransport`, a clock they move and an in-memory or private-folder
+    store), so the self-tests, the previews and every `--report-*` flag run no Spotlight and
+    read no `preferences.json` for it.
   - **Failure after close** (`newSessionCreationFailed()`): when a creation whose window was
     closed ends in a collision or a failure, the window comes back with the draft as submitted
     and that outcome (`.outcome`), whichever entry point started it, ordered front at its last
@@ -3006,7 +3085,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **The gallery** (Phase I-9b): `--preview-gallery new-session` (`NewSessionGallery`) draws
     each state in a window-like frame: `AttachFixtures.newSessionStates` with
     `SwitcherFixtures.form` second (editing from both entry points, an invalid name, the
-    directory list's six states, creating, a collision, a failure, the drop highlight);
+    directory list's six states, creating, a collision, a failure, the drop highlight), then,
+    since Phase I-10b, `FolderSearchFixtures.all` (the folders section's nine states, D31);
     `docs/screenshots/new-session-states-{light,dark}.png`.
   - **Considered:** a window that activates muxFinder, as Settings does (the frontmost app would
     lose its menu bar and the focus, for a form the user fills while looking elsewhere);
@@ -3035,7 +3115,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Tests/MuxFinderCoreTests/FolderSearchTextTests.swift`, `FolderSearchOutputTests.swift`,
   `FolderSearchScriptTests.swift`, `FolderSearchTransportTests.swift`,
   `FolderSearchChannelTests.swift`, `FolderSearchScopePreferenceTests.swift`,
-  `FolderSearchTestSupport.swift`).
+  `FolderSearchTestSupport.swift`; the UI in Phase I-10b, D31 and D34: `FolderSearchSection.swift`,
+  `AppModelFolderSearch.swift`, `SettingsModelFolderSearch.swift`, `DirectoryPickerViews.swift`,
+  `DirectoriesSettingsView.swift`, `FolderSearchFixtures.swift`; tests
+  `Tests/MuxFinderUITests/FolderSearchSectionTests.swift`, `FolderSearchModelTests.swift`,
+  `SettingsFolderSearchTests.swift`, `FolderSearchUITestSupport.swift`).
   - **What:** folder names only, case- and diacritic-insensitive "contains"
     (`kMDItemContentType == "public.folder" && kMDItemFSName == "*<text>*"cd`), found by
     Spotlight (`mdfind`) on the host itself, so the host needs no muxFinder: SSH hosts over
@@ -3043,8 +3127,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **One script, both kinds of host** (`FolderSearchScript.script`, a `StaticShellScript`):
     This Mac runs it as `/bin/sh -c <script> muxfinder` by argv, not through
     `NSMetadataQuery`, so one implementation of the header, the noise rule, the limit and the
-    answer format serves both and one set of tests covers both. It takes no argument (D3);
-    its standard input is the query stream and closing it ends the script.
+    answer format serves both and one set of tests covers both. Over SSH it takes no argument
+    (D3); This Mac's transport passes one fixed word, `unchecked`
+    (`FolderSearchScript.uncheckedArgument`, Phase I-10b), which turns the readability checks
+    off (below); any other argument is ignored. Its standard input is the query stream and
+    closing it ends the script.
   - **Query lines** (`FolderSearchScript.queryLine(id:scope:name:)`): `<id> <scope> <name
     text>` and a line feed; the id decimal digits (at most 18), the scope `home` or `disk`,
     the name text as `FolderSearchText` escapes it. The script splits the line with parameter
@@ -3075,8 +3162,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `mdutil -s "$HOME"` itself says "unknown indexing state", verified; `/System/Volumes/Data`
     on this Mac), `index disk on|off|unknown` (`mdutil -s /`; "Indexing enabled" is `on`, any
     "disabled" `off`, anything else or no `mdutil` `unknown`), `readable Desktop|Documents|
-    Downloads yes|no|missing` (`ls` of the folder, output discarded, since `[ -r ]` does not
-    see macOS's privacy protection), `ready`. `FolderSearchHeader.unavailability(for:)`: no
+    Downloads yes|no|missing|unchecked` (`ls` of the folder, output discarded, since `[ -r ]`
+    does not see macOS's privacy protection; `unchecked`, `Readability.notChecked`, with the
+    `unchecked` argument, which looks at none of the three, not even `[ -d ]`; the format stays
+    version 1, as the app always sends the script with its parser), `ready`. `FolderSearchHeader.unavailability(for:)`: no
     `mdfind` is `noSpotlight`, the home scope without a home `noHomeFolder`, indexing `off` for
     the scope's volume `indexingOff`; `unknown` is searched.
   - **Answers:** the kept paths (each starts with `/`, NUL-terminated, so a line feed in a
@@ -3147,7 +3236,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     drops the ones it does not wait for. Paths are kept as found (a line feed included);
     I-10b must pass each through `Validation.workingDirectory` before offering it.
   - **Transport** (`FolderSearchTransport`; `ProcessFolderSearchTransport` in the app and the
-    probe, `FakeFolderSearchTransport` in tests): This Mac's environment is this process's
+    probe, `FakeFolderSearchTransport` in tests): This Mac runs `/bin/sh -c <script> muxfinder
+    unchecked` by argv; This Mac's environment is this process's
     with `PATH` the system search path (so `mdfind` resolves in `/usr/bin` as on an SSH host)
     and without `TMUX`/`TMUX_PANE`; ssh gets `/usr/bin/ssh <D6 options> -T -- <destination>
     <D3 string>` with discovery's environment, no `-n` (standard input is the query stream),
@@ -3207,11 +3297,23 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     Saturno. The three-stage pipeline keeps those times (0.12–0.46 s here, 0.26–0.41 s on
     Saturno; about 16 ms of its own per query with a stub `mdfind`), with no process left on
     either side.
-  - **Left to I-10b:** on This Mac the readability `ls` runs as muxFinder's child, so the
-    first search may make macOS ask the user for access to Desktop, Documents or Downloads
-    (TCC); whether to skip those checks for This Mac (or explain the prompt) is I-10b's
-    call. The channel searches the text as given (the directory list's filter trims it; the
-    folder search keeps spaces); the home folder for `~/…` shortening comes from the header.
+  - **This Mac runs no readability check** (Phase I-10b, the orchestrator's call): there the
+    `ls` would run as muxFinder's child and could make macOS ask for access to Desktop,
+    Documents or Downloads the first time someone types a folder name, and the protected-folders
+    note is about Remote Login's full disk access, which has no local counterpart; so This
+    Mac's header says `unchecked` for the three (the probe prints "not checked") and the note
+    is an SSH host's only. Whether This Mac's Spotlight answers to muxFinder leave protected
+    folders out is owed to the manual checklist (item 24). The channel searches the text as
+    given (the directory list's filter trims it; the folder search keeps spaces); the home
+    folder for `~/…` shortening comes from the header.
+  - **The UI** (Phase I-10b): New session's "Folders on <host>" section (D31) and one channel
+    per window and host owned by the model (D34); Settings › Directories' "Search folders in:
+    Home folder / Whole disk" (`SettingsModelFolderSearch.swift`, through `PreferencesStore`,
+    applied at once, read again by the window for each query) and its "Missing a folder?"
+    explanation. Only the menu bar app in normal mode has folder search
+    (`AppEnvironment.folderSearch`, `SettingsEnvironment.preferences`, the same
+    `PreferencesStore` as the session switcher shortcut's); every other mode reads no
+    `preferences.json` for it and runs no Spotlight.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -5456,6 +5558,76 @@ Documents and Downloads the first time the app searches This Mac (TCC), so I-10b
 whether to skip them there; paths with control characters reach the parser's output and need
 `Validation.workingDirectory` before they are offered; the "Missing a folder?" text can say
 that a `'` inside a word finds nothing (Spotlight's matching).
+
+The orchestrator's calls for I-10b, made before its worker (the handovers above):
+
+- **This Mac runs no readability check.** On This Mac the script's `ls` of `~/Desktop`,
+  `~/Documents` and `~/Downloads` runs as muxFinder's child and can make macOS ask for access
+  to those folders the first time someone types a folder name, a prompt nobody asked for; and
+  the protected-folders note is about Remote Login's full disk access, which has no local
+  counterpart. So This Mac's channel turns the checks off through a fixed script argument
+  (never an inserted value; the header then says "not checked"), and the note is shown only
+  for SSH hosts. Whether This Mac's Spotlight answers to muxFinder leave protected folders out
+  is owed to the manual checklist.
+- **Unusable paths are dropped, never offered.** Every path the parser returns goes through
+  `Validation.workingDirectory` and the checks a typed Directory gets for that host (D31)
+  before the section shows it; one that fails (a control character such as a line feed in a
+  name, too long) is dropped and only counted, never logged. A pick therefore always passes
+  New session's validation.
+- **A path is not a name.** Directory text holding a `/` (a path being typed) sends no query
+  and hides the section: no folder name contains one. Fewer than 2 characters (D36) hides it
+  too.
+- **The section.** "Folders on <host>" comes last, after Recent, Saved and Sessions, with at
+  most the 50 folders the core returns, less those already in an earlier section (compared
+  after the `~` rule, shown once, in the first). While folder search applies to the text, the
+  section counts as something to show for I-7's open rule, its status line ("Searching…",
+  "No folders found", the unavailable reason, the problem) included, so the list stays open
+  while a search runs. Picking a row is a pick (`fillDirectoryField(_:)`, no reopen).
+- **The channel's lifetime.** One `FolderSearchChannel` per New session window and host,
+  owned by the window's model: opened by the first searchable text, closed when the window
+  closes, the host changes, after a quiet minute (no query for 60 s), and when the app quits.
+  The popover and the switcher never open one (New session has its own window, D34).
+- **The scope is read for each query** from `preferences.json` through `PreferencesStore`
+  (never `UserDefaults`), so a change in Settings applies to the next query; an unusable file
+  means `home`.
+- **An unreachable host** shows "Searching…" until the channel reports its failure (up to
+  about 10 s over SSH), then the problem, with no retry until the text or the host changes
+  (D36's reopen-once rule). The local sections and the form are never held up.
+- **Announcements**, as I-7's: the section's result count when it changes, and "Searching…"
+  once when a search starts from a settled state, never per keystroke.
+- **"Missing a folder?"** also says that a name with an apostrophe inside a word may not be
+  found.
+
+**Outcome of I-10b (2026-11-06).** As decided above; D31 and D34 record the UI, D36 (and D3's
+sentence on it) the core change. The script had no way to skip its readability checks, so it
+gained one fixed argument, `unchecked` (`FolderSearchScript.uncheckedArgument`), which This
+Mac's transport passes by argv (never a runtime value; SSH hosts get none): the header then
+says `unchecked` for Desktop, Documents and Downloads (`Readability.notChecked`) and the
+script looks at none of them; tested through the real script under the stub `mdfind`/`mdutil`
+harness with a logging `ls` (bash and dash), and by one real local `folders --count-only` run
+(the header said "not checked"; `docs/TESTING.md`). The section is a pure value
+(`FolderSearchSection`) inside `DirectoryPickerContent`; the window's channel lives in a
+`FolderSearchSession` the model owns, asked on each edit, the list's opening and a host
+change while the list shows, and ended by the window's closing (whatever closed it, through
+`newSessionWindow`'s observer), a host change and quitting. What the work settled: the search
+runs only while the list shows (typing searchable text always opens it, the section counting as
+something to show), so a window brought back by a failed creation starts no SSH connection by
+itself; the same text is not asked twice in a row, so a scope changed in Settings applies to
+the next new text; while a newer text is searched, the previous answer's folders whose names
+still contain it stay listed under "Searching…" (the section does not empty and the window
+does not jump at each key), only when that answer was for the new request's scope (the
+answer keeps its scope; a scope changed in Settings drops them, as the review asked); a
+scope picked in Settings is saved in a task the Settings model owns, which quitting waits
+for (the choice is off while it runs); "No other folders found" when every folder found is in an earlier
+section; the explanation shows below the scrolling sections so its links are always visible;
+an edit's announcement joins the directory count and "Searching…" so neither cuts the other
+off, and the directory count is left out while only the folders section shows rows. Folder
+search, its scope setting and `SettingsEnvironment.preferences` exist only in normal mode
+(the session switcher shortcut's `PreferencesStore` instance), so `--report-menu-bar-item`
+still reads no `preferences.json`. Hermetic: 37 new UI tests in 3 suites and 2 new core tests;
+the galleries gained nine New session states and two Settings states. Owed to a person:
+checklist item 24 (a real search on Saturno and This Mac, no privacy prompt on This Mac's first
+search, whether protected folders appear, the links, VoiceOver).
 
 ## Deferred (explicitly out of scope for v1)
 

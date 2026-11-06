@@ -47,6 +47,15 @@ struct FolderSearchSandbox {
 
     """#
 
+  /// A logging `ls`, installed by `installLoggingLS()`: appends its arguments to `ls.log`, then
+  /// runs the real one, so a test sees which folders the script listed.
+  static let lsStub = #"""
+    #!/bin/sh
+    printf '%s\n' "$*" >> "$MFX_DIR/ls.log"
+    exec /bin/ls "$@"
+
+    """#
+
   /// The tools the script needs besides `mdfind` and `mdutil`, for a `PATH` without them.
   static let tools = [
     "/bin/ls", "/bin/df", "/usr/bin/tail", "/usr/bin/wc", "/usr/bin/tr", "/usr/bin/head",
@@ -90,6 +99,17 @@ struct FolderSearchSandbox {
 
   /// The home folder's path.
   var homePath: String { home.path(percentEncoded: false).trimmingSuffix("/") }
+
+  /// Puts the logging `ls` (`lsStub`) first on the stubs' `PATH`.
+  func installLoggingLS() throws {
+    try Self.install(Self.lsStub, as: "ls", in: bin)
+  }
+
+  /// The logging `ls`'s calls, one argument string each (none when it never ran).
+  func lsCalls() -> [String] {
+    let text = (try? String(contentsOf: root.appending(path: "ls.log"), encoding: .utf8)) ?? ""
+    return text.split(separator: "\n").map(String.init)
+  }
 
   /// Sets the paths the stub prints, NUL-separated.
   func writePaths(_ paths: [String]) throws {
@@ -149,17 +169,19 @@ struct FolderSearchSandbox {
     return environment
   } // End of func environment(mode:home:extra:stubs:)
 
-  /// Runs the real script through `shell` with `lines` on standard input (then end of input)
-  /// and returns what it wrote, parsed: the header and every reply.
+  /// Runs the real script through `shell` with `arguments` after its name (none, as on an SSH
+  /// host, by default) and `lines` on standard input (then end of input), and returns what it
+  /// wrote, parsed: the header and every reply.
   func run(
     _ lines: [String],
     shell: String = "/bin/sh",
+    arguments: [String] = [],
     environment: [String: String],
     timeout: Duration = .seconds(20)
   ) async throws -> ScriptRun {
     let request = ProcessRequest(
       executableURL: URL(fileURLWithPath: shell),
-      arguments: ["-c", FolderSearchScript.script.source, ShellQuoting.scriptName],
+      arguments: ["-c", FolderSearchScript.script.source, ShellQuoting.scriptName] + arguments,
       environment: environment,
       standardInput: .data(Data(lines.map { $0 + "\n" }.joined().utf8)),
       timeout: timeout)
@@ -175,7 +197,7 @@ struct FolderSearchSandbox {
       }
     } // End of loop over events
     return run
-  } // End of func run(_:shell:environment:timeout:)
+  } // End of func run(_:shell:arguments:environment:timeout:)
 
   /// Removes the private folder (after making every folder in it writable again).
   func remove() {

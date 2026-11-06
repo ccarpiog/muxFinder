@@ -47,6 +47,11 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var directoryDropTargeted: Bool
   /// This Mac's home folder for the directory list's `~` rule (a synthetic one).
   public var homeDirectory: String?
+  /// New session's folder search as the "Folders on <host>" section shows it (PLAN.md D36,
+  /// Phase I-10b; synthetic paths only); `nil`: no folders section.
+  public var folderSearch: FolderSearchSnapshot?
+  /// Whether the folders section shows its "Missing a folder?" explanation.
+  public var folderSearchHelpShown: Bool
   /// The session switcher's search text (PLAN.md D32).
   public var switcherSearchText: String
   /// The session switcher's selection (`nil`: the first row).
@@ -77,6 +82,8 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     directoryPicker: DirectoryPickerState = DirectoryPickerState(),
     directoryDropTargeted: Bool = false,
     homeDirectory: String? = PreviewFixtures.homeDirectory,
+    folderSearch: FolderSearchSnapshot? = nil,
+    folderSearchHelpShown: Bool = false,
     switcherSearchText: String = "",
     switcherSelection: SwitcherContent.Item? = nil,
     switcherCarriedFailures: [SessionKey] = []
@@ -102,6 +109,8 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.directoryPicker = directoryPicker
     self.directoryDropTargeted = directoryDropTargeted
     self.homeDirectory = homeDirectory
+    self.folderSearch = folderSearch
+    self.folderSearchHelpShown = folderSearchHelpShown
     self.switcherSearchText = switcherSearchText
     self.switcherSelection = switcherSelection
     self.switcherCarriedFailures = switcherCarriedFailures

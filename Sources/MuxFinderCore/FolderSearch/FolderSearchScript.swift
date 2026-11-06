@@ -1,8 +1,13 @@
 import Foundation
 
 /// The static folder-search script (PLAN.md D36): one POSIX `sh` script, run on This Mac as
-/// `/bin/sh -c <script> muxfinder` by argv and on SSH hosts through the D3 command string, with
-/// no argument. Spotlight runs on the host itself (`mdfind`), so the host needs no muxFinder.
+/// `/bin/sh -c <script> muxfinder unchecked` by argv and on SSH hosts through the D3 command
+/// string, with no argument. Spotlight runs on the host itself (`mdfind`), so the host needs no
+/// muxFinder. Its one optional argument is fixed, never a runtime value: `unchecked`
+/// (`uncheckedArgument`, This Mac's, Phase I-10b) turns the readability checks off, so the
+/// header says `unchecked` for each protected folder and the script looks at none of them (on
+/// This Mac an `ls` of `~/Documents` would run as muxFinder's child and could make macOS ask the
+/// user for access); any other argument is ignored.
 ///
 /// It is read-only: it runs `mdfind`, `mdutil -s`, `df -P`, `ls` (output discarded), `sleep`
 /// and text tools (`tail`, `wc`, `xargs`), resolved through `PATH` as it comes (the
@@ -16,9 +21,10 @@ import Foundation
 /// mdfind yes|no                       (whether `command -v mdfind` finds it)
 /// index home on|off|unknown           (`mdutil -s` of the volume `df -P "$HOME"` names)
 /// index disk on|off|unknown           (`mdutil -s /`)
-/// readable Desktop yes|no|missing     (`ls` of the folder succeeds: TCC, then permissions)
-/// readable Documents yes|no|missing
-/// readable Downloads yes|no|missing
+/// readable Desktop yes|no|missing|unchecked  (`ls` of the folder succeeds: TCC, then
+///                                             permissions; `unchecked` with the argument)
+/// readable Documents yes|no|missing|unchecked
+/// readable Downloads yes|no|missing|unchecked
 /// ready
 /// ```
 ///
@@ -95,11 +101,17 @@ public enum FolderSearchScript {
   /// How long the producer waits, after its last record, for the answer stage's signal (the
   /// script's `u 1`); it bounds the producer's life when the answer stage never runs.
   public static let answerSignalWait: Duration = .seconds(1)
+  /// The script's fixed argument that turns the readability checks off (This Mac's transport
+  /// passes it, PLAN.md Phase I-10b): the header then reports every protected folder as
+  /// `unchecked` and nothing looks at them.
+  public static let uncheckedArgument = "unchecked"
 
   /// The script.
   public static let script: StaticShellScript = #"""
     PATH=${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
     export PATH
+    c=
+    if [ "${1-}" = unchecked ]; then c=1; fi
     k='z=
     y=
     t=
@@ -245,7 +257,9 @@ public enum FolderSearchScript {
     printf 'index home %s\000' "$(x "$v")"
     printf 'index disk %s\000' "$(x /)"
     for d in Desktop Documents Downloads; do
-      if [ -z "$h" ] || [ ! -d "$h/$d" ]; then
+      if [ -n "$c" ]; then
+        r=unchecked
+      elif [ -z "$h" ] || [ ! -d "$h/$d" ]; then
         r=missing
       elif ls "$h/$d" >/dev/null 2>&1 </dev/null; then
         r=yes

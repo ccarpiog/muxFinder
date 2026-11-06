@@ -3,7 +3,10 @@ import SwiftUI
 
 /// The Directories tab (PLAN.md D31): New session's saved directories, shared by every host,
 /// with their notice (an unusable file offers no edit), the list with move up, move down and
-/// remove per entry, "Add" checked inline, and "Revert" and "Save" (D23's pattern).
+/// remove per entry, "Add" checked inline, and "Revert" and "Save" (D23's pattern); a note on
+/// recent directories; and New session's folder search (D36, Phase I-10b): "Search folders in:
+/// Home folder / Whole disk", saved at once, and the "Missing a folder?" explanation with "Open
+/// Spotlight settings".
 struct DirectoriesSettingsView: View {
   /// The model shown.
   @Bindable var model: SettingsModel
@@ -30,10 +33,62 @@ struct DirectoriesSettingsView: View {
               + "directories you created sessions in on each host. Clear a host's recent "
               + "directories from New session's directory list.")
         }
+        folderSearchSection
+        SettingsSection(title: FolderSearchSection.helpTitle) {
+          ForEach(FolderSearchSection.missingFolderExplanation, id: \.self) { paragraph in
+            NoteText(text: paragraph)
+          }
+          HStack(spacing: 8) {
+            Button(FolderSearchSection.openSpotlightSettingsTitle) {
+              model.openSpotlightSettings()
+            }
+            .controlSize(.small)
+            NoteText(text: "This Mac's. Set another Mac's Spotlight on that Mac.")
+          }
+        } // End of SettingsSection "Missing a folder?"
       } // End of VStack holding the sections
       .padding(14)
     }
   } // End of var body
+
+  /// "Search folders in": the scope, saved at once, with what it does and any problem.
+  private var folderSearchSection: some View {
+    SettingsSection(title: "Folder search") {
+      NoteText(
+        text: "As you type in New session's Directory field, muxFinder also searches the host's "
+          + "folders by name with Spotlight, on This Mac and over SSH on your other Macs, with "
+          + "nothing to install there.")
+      FieldRow(label: "Search folders in") {
+        Picker(
+          "Search folders in",
+          selection: Binding(
+            get: { model.folderSearchScope },
+            set: { model.chooseFolderSearchScope($0) })
+        ) {
+          ForEach(FolderSearchScope.allCases, id: \.self) { scope in
+            Text(scope.title).tag(scope)
+          }
+        }
+        .pickerStyle(.radioGroup)
+        .labelsHidden()
+        .disabled(!model.canChangeFolderSearchScope)
+        .accessibilityLabel("Search folders in")
+        NoteText(
+          text: "Home folder searches only each host's home folder; Whole disk searches "
+            + "everything Spotlight indexes there. A change applies to the next search.")
+      }
+      if let problem = model.folderSearchScopeProblem {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          IssueText(text: problem)
+          Spacer(minLength: 8)
+          if !model.isFolderSearchScopeFileUsable {
+            Button("Try again") { Task { await model.loadFolderSearchScope() } }
+              .controlSize(.small)
+          }
+        }
+      }
+    } // End of SettingsSection "Folder search"
+  } // End of var folderSearchSection
 
   /// The notice with "Try again" when the file or the folder could not be used.
   private func noticeView(_ notice: String) -> some View {

@@ -155,15 +155,18 @@ before it exits; no event is posted.
 
 ## Folder search over Spotlight (D36)
 
-The core of a search of a host's folders by name, run by Spotlight on the host itself, so the
-host needs no muxFinder. Today `muxfinder-probe folders` drives it.
+A search of a host's folders by name, run by Spotlight on the host itself, so the host needs
+no muxFinder. New session's directory list (`Folders on <host>`, below) and `muxfinder-probe
+folders` drive it.
 
 - **The script** (`FolderSearchScript.script`, static): This Mac runs it as `/bin/sh -c
-  <script> muxfinder` by argv, an SSH host through discovery's noninteractive ssh with the D3
-  string and `-T` (no `-n`: standard input is the query stream). It writes a header once (the
-  home folder, whether `mdfind` exists, `mdutil -s` for the home's volume and for `/`, whether
-  Desktop, Documents and Downloads can be listed), then answers one query line at a time
-  until its standard input closes. A line is `<id> <home|disk> <escaped name text>`; the
+  <script> muxfinder unchecked` by argv (the fixed argument turns the readability checks
+  off), an SSH host through discovery's noninteractive ssh with the D3 string, no argument,
+  and `-T` (no `-n`: standard input is the query stream). It writes a header once (the home
+  folder, whether `mdfind` exists, `mdutil -s` for the home's volume and for `/`, whether
+  Desktop, Documents and Downloads can be listed, `unchecked` on This Mac, where an `ls` of
+  them could raise a privacy prompt), then answers one query line at a time until its
+  standard input closes. A line is `<id> <home|disk> <escaped name text>`; the
   script checks it and builds the one fixed predicate itself, `kMDItemContentType ==
   "public.folder" && kMDItemFSName == "*<text>*"cd`, passed to `mdfind -0` as one argument
   (after `-onlyin "$HOME"` for `home`), never through `eval`. Paths come NUL-separated (a line
@@ -190,7 +193,23 @@ host needs no muxFinder. Today `muxfinder-probe folders` drives it.
   within 5 s; a failure reopens once, a second in a row is reported until the text, scope or
   host changes; a quiet minute or a host change closes the script; a host without Spotlight or
   with indexing off is reported from the header and no query is sent. Results stay in memory.
-- **Scope:** `preferences.json`'s `folderSearchScope`, `home` (default) or `disk` (D32).
+- **Scope:** `preferences.json`'s `folderSearchScope`, `home` (default) or `disk` (D32), set
+  in Settings › Directories (`SettingsModelFolderSearch.swift`, saved at once) and read for
+  each query, so a change applies to the next one.
+- **In New session** (Phase I-10b; D31, D34): one channel per New session window and host,
+  owned by `AppModel` (`AppModelFolderSearch.swift`, `FolderSearchSession`: the channel, a task
+  reading its states and one queue for what is asked of it). The first searchable text (2
+  characters, not only spaces, no `/`) while the directory list shows makes it; each new text
+  is asked (the scope read first), text that can no longer be searched cancels a waiting
+  query, and the window's closing, a host change and quitting end it (its process also closes
+  after a quiet minute). `FolderSearchSection`, a pure value inside `DirectoryPickerContent`,
+  turns the channel's latest state into the section: "Searching…" until the state is for the
+  field's exact text (the previous answer's folders that still match stay listed), the
+  folders (`~/…` under the header's home, each passing a typed Directory's checks or dropped
+  and counted, each shown once across the list), "No folders found", the host's unavailability,
+  the failure, the limit and, for SSH hosts only, the protected folders' note; then "Missing a
+  folder?" and its explanation. Only normal mode has it (`AppEnvironment.folderSearch`); the
+  tests drive it over `FakeFolderSearchTransport` and a clock they move.
 
 ## The session switcher (D32)
 
@@ -356,7 +375,10 @@ that with the Host picker focused ↑, ↓ and ⌥↓ are the picker's (the list
 highlight unchanged; Return and Esc keep their list meaning; Phase I-8). A user edit (not a pick or a host change) opens the list
 while an entry matches and closes it again when none does or the field is emptied, unless the
 button or ⌥↓ opened it (`DirectoryPickerState.opening`); VoiceOver then hears the match count
-through `AppEnvironment.announce`. Rows
+through `AppEnvironment.announce`. Last comes "Folders on <host>" (D36, above) while folder
+search applies to the text; it counts as something to show for that rule, its folders are
+rows like the others (then "Missing a folder?"), and VoiceOver hears "Searching…" once per
+search and the folder count when it settles. Rows
 are identified by section and UTF-8 bytes, as the store compares directories, so two
 spellings of one accented name are two rows. Picking only fills the field, as does a folder
 dropped from Finder (D34, above); the draft checks it like typed text before any request. Every load (at each New session opening) and change
@@ -369,7 +391,10 @@ change through the same store (`mergeSaved`) that applies the tab's edits, under
 lock, to the saved list as the file holds it then, so a directory saved from New session (or
 by another muxFinder) during an edit is kept, and recents are left alone. An unusable file
 shows its notice with "Try again" and offers no edit. A save there updates New session's
-list, and a change from New session's list updates the tab while it has no unsaved edits.
+list, and a change from New session's list updates the tab while it has no unsaved edits. The
+tab also holds New session's folder search scope ("Search folders in: Home folder / Whole
+disk", through `SettingsEnvironment.preferences`, saved at once) and the "Missing a folder?"
+explanation (D36).
 
 ## Hiding the launch tab (D29)
 

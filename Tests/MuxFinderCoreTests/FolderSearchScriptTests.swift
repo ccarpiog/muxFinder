@@ -45,6 +45,43 @@ struct FolderSearchScriptTests {
     #expect(sandbox.mdfindCalls().isEmpty)
   } // End of func writesTheHeader(shell:)
 
+  /// With the fixed argument `unchecked` (This Mac's, PLAN.md Phase I-10b) the header reports
+  /// every protected folder as `unchecked` and no `ls` runs, even for an unreadable one; the
+  /// rest of the header and the queries are as without it. Without the argument (an SSH host)
+  /// the three folders are listed; any other argument is ignored.
+  @Test(arguments: FolderSearchSandbox.shells)
+  func skipsTheReadabilityChecksWhenAsked(shell: String) async throws {
+    let sandbox = try FolderSearchSandbox()
+    defer { sandbox.remove() }
+    try sandbox.installLoggingLS()
+    let documents = sandbox.home.appending(path: "Documents").path(percentEncoded: false)
+    #expect(chmod(documents, 0) == 0)
+    try sandbox.writePaths(["/syn/a"])
+    let unchecked = try await sandbox.run(
+      ["1 home ab"], shell: shell, arguments: [FolderSearchScript.uncheckedArgument],
+      environment: sandbox.environment())
+    let header = try #require(unchecked.header)
+    #expect(header.desktop == .notChecked)
+    #expect(header.documents == .notChecked)
+    #expect(header.downloads == .notChecked)
+    #expect(!header.hasUnreadableProtectedFolder)
+    #expect(header.homeDirectory == sandbox.homePath)
+    #expect(header.hasSpotlight && header.homeIndexing == .on && header.diskIndexing == .on)
+    #expect(unchecked.replies == [FolderSearchReply(id: 1, status: .ok, paths: ["/syn/a"])])
+    #expect(sandbox.lsCalls().isEmpty, "no folder was listed")
+
+    let checked = try await sandbox.run([], shell: shell, environment: sandbox.environment())
+    #expect(checked.header?.desktop == .readable)
+    if geteuid() != 0 { #expect(checked.header?.documents == .unreadable) }
+    #expect(checked.header?.downloads == .missing)
+    #expect(sandbox.lsCalls().count == 2, "Desktop and Documents listed; Downloads is missing")
+
+    let other = try await sandbox.run(
+      [], shell: shell, arguments: ["checked"], environment: sandbox.environment())
+    #expect(other.header?.desktop == .readable)
+    #expect(sandbox.lsCalls().count == 4)
+  } // End of func skipsTheReadabilityChecksWhenAsked(shell:)
+
   /// Unknown `mdutil` output is `unknown`; a home with a trailing slash loses it; a relative
   /// `HOME` is no home (the home scope then answers `error home`, the disk scope still works).
   @Test func headerEdgeCases() async throws {

@@ -40,6 +40,9 @@ import Observation
 ///   installs and removes it, a save while muxFinder's file is installed updates it, and the app
 ///   asks for the rewrite at launch; all through `SettingsEnvironment.persistentProfiles`, one
 ///   operation at a time.
+/// - **Folder search scope** (PLAN.md D36, Phase I-10b, `SettingsModelFolderSearch.swift`):
+///   the Directories tab's "Search folders in" choice, read when the window opens and saved
+///   through `SettingsEnvironment.preferences` at once when the user picks one.
 /// - **Fixtures:** `init(fixture:)` shows a fixed state for previews and screenshots and never
 ///   runs anything.
 @MainActor
@@ -233,6 +236,18 @@ public final class SettingsModel {
   public internal(set) var directorySaveError: String?
   /// What the last save of the saved directories did ("Saved.").
   public internal(set) var directorySaveNotice: String?
+  /// Where New session's folder search looks (PLAN.md D36), as last read or saved; `home` until
+  /// the window's opening read it.
+  public internal(set) var folderSearchScope = FolderSearchScope.standard
+  /// Why the scope could not be read or saved (an unusable preferences file, a failed save);
+  /// `nil` when there is nothing to say.
+  public internal(set) var folderSearchScopeProblem: String?
+  /// Whether a save of the scope runs.
+  public internal(set) var isSavingFolderSearchScope = false
+  /// Whether the preferences file (or its folder) can be used: `false` once a read or a save
+  /// found that it cannot, so the scope cannot change until it is fixed or moved away ("Try
+  /// again" reads it again).
+  public internal(set) var isFolderSearchScopeFileUsable = true
   /// Whether the window is open.
   public private(set) var isWindowOpen = false
   /// Whether this model renders a fixture.
@@ -267,6 +282,9 @@ public final class SettingsModel {
   @ObservationIgnored private var runningTasks: [Int: Task<Void, Never>] = [:]
   /// The last number given to a task in `runningTasks`.
   @ObservationIgnored private var lastTaskNumber = 0
+  /// The folder search scope's save in progress (`chooseFolderSearchScope(_:)`), which
+  /// `shutdown()` waits for (never cancelled).
+  @ObservationIgnored var folderSearchScopeSave: Task<Bool, Never>?
   /// Increases whenever running probes must be ignored.
   @ObservationIgnored private var probeGeneration = 0
   /// Increases when the window opens or closes; work started for an earlier opening drops its
@@ -317,6 +335,9 @@ public final class SettingsModel {
     newDirectory = fixture.newDirectory
     directorySaveError = fixture.directorySaveError
     directorySaveNotice = fixture.directorySaveNotice
+    folderSearchScope = fixture.folderSearchScope
+    folderSearchScopeProblem = fixture.folderSearchScopeProblem
+    isFolderSearchScopeFileUsable = fixture.isFolderSearchScopeFileUsable
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
     globalShortcut = GlobalShortcutModel(fixture: fixture.globalShortcut)
   } // End of init(fixture:)
@@ -324,8 +345,8 @@ public final class SettingsModel {
   // MARK: - Window
 
   /// The window opened: reads the login item status, loads the host list, then the profiles,
-  /// the SSH suggestions, the log, the persistent profile file's status and the saved
-  /// directories, in a task the model owns (`windowDidClose()` cancels it), and returns once that task has ended. Does nothing
+  /// the SSH suggestions, the log, the persistent profile file's status, the saved
+  /// directories and the folder search scope, in a task the model owns (`windowDidClose()` cancels it), and returns once that task has ended. Does nothing
   /// for a fixture, while already open, or after `shutdown()`.
   public func windowDidOpen() async {
     guard environment != nil, !isWindowOpen, !isShutDown else { return }
@@ -349,7 +370,8 @@ public final class SettingsModel {
     async let log: Void = refreshDiagnostics()
     async let files: Void = checkProfiles()
     async let directories: Void = loadDirectories()
-    _ = await (profiles, names, log, files, directories)
+    async let scope: Void = loadFolderSearchScope()
+    _ = await (profiles, names, log, files, directories, scope)
   }
 
   /// Whether work started for the window opened as `generation` may go on: that window is
@@ -386,8 +408,10 @@ public final class SettingsModel {
 
   /// Quitting (`AppModel.shutdown()`): refuses new work from now on (no opening, load, profile
   /// request, probe, ssh tab or save), cancels the window's opening, every probe and any ssh
-  /// tab request, and returns once all of them have ended. A discovery probe ends only after
-  /// its process group was killed and reaped. Later calls only wait again.
+  /// tab request, and returns once all of them have ended, and once a folder search scope save
+  /// in progress has ended (not cancelled, so a scope picked just before quitting is kept). A
+  /// discovery probe ends only after its process group was killed and reaped. Later calls only
+  /// wait again.
   public func shutdown() async {
     isShutDown = true
     windowGeneration += 1
@@ -400,6 +424,7 @@ public final class SettingsModel {
       await task.value
     }
     await sshSetup.shutdown()
+    _ = await folderSearchScopeSave?.value
   } // End of func shutdown()
 
   /// Starts `work` as a task kept in `runningTasks` until it ends, and returns it.

@@ -50,13 +50,13 @@ file.
 
 | I-9b | New session window: the folder drop — pure `FolderDrop`, a drop view over the Directory row ahead of the field editor, `~/…` under This Mac's home, files/packages/several refused; `--preview-gallery new-session`, screenshots, checklist 23 (D34 extended) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-9b.md` | `docs/progress-archive/i-9b.md` |
 | I-10a | Folder search core: one static Spotlight script for This Mac and SSH hosts (header, folder-name queries on stdin, noise rule, 50 limit, 4 s host deadline, end records), escaping, bounded parser, streaming transport, channel state machine, scope in `preferences.json`, probe `folders`; real `--count-only` runs here and on Saturno (D36; D3, D11, D32 edited; spec `autoclaude/processed/100-folder-search-spotlight.md`) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-10a.md` | `docs/progress-archive/i-10a.md` |
+| I-10b | Folder search UI: "Folders on <host>" section in New session's directory list (states, de-dup, pick, `/` and <2 rules, unusable paths dropped), one channel per window and host, This Mac's `unchecked` script argument, Settings › Directories scope and "Missing a folder?", VoiceOver, galleries, checklist 24 (D3, D31, D32, D34, D36 edited) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-10b.md` | `docs/progress-archive/i-10b.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-10b | Folder search UI (routine): the "Folders on <host>" section in New session's directory list, wiring the I-10a channel to the window, Settings › Directories "Search folders in: Home folder / Whole disk", "Missing a folder?" with its links, VoiceOver, galleries and screenshots, checklist item, D31/D34 edited, docs | `autoclaude/processed/100-folder-search-spotlight.md` (requirements 3–6, 8, 9; UI acceptance) and `PLAN.md` *Phase I-10* | next |
-| I-11 | Detach other clients (high): proof of the command through iTerm2's tmux connection first (local and Saturno), a coordinator call bound to a session-key confirmation, the popover's "Detach other clients…" item and its confirmation, an e2e step, galleries, new D number, docs | `autoclaude/processed/105-detach-other-clients.md` | after I-10b; before I-12 (the user's order) |
+| I-11 | Detach other clients (high): proof of the command through iTerm2's tmux connection first (local and Saturno), a coordinator call bound to a session-key confirmation, the popover's "Detach other clients…" item and its confirmation, an e2e step, galleries, new D number, docs | `autoclaude/processed/105-detach-other-clients.md` | next; before I-12 (the user's order) |
 | I-12 | Other terminal apps (high, a group): Terminal.app and Ghostty in plain tmux beside iTerm2's control mode, terminal seam, JSON definitions, helper plain mode, confirmation, Settings › General "Terminal", strings, onboarding without iTerm2, docs; split into sub-phases (the item suggests a–e) in `PLAN.md` before its first worker | `autoclaude/processed/110-other-terminal-apps.md` | after I-11 (last) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
@@ -84,11 +84,11 @@ the run in either; their user decisions are recorded in the items).
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8, I-9 (a, b) and I-10a are
-complete and reviewed. The user released 0.2.0 (build 2) in `f1b11ac`. **Phase I-10a —
-folder search core (high): complete** 2026-11-06 (`docs/progress-archive/i-10a.md`; D36).
-I-10 was split into I-10a/I-10b in `PLAN.md` *Phase I-10* before the first worker. **Queued:
-I-10b** (the UI; *Next action* 0). Also remaining: the manual checklist (the user's). Phase
+Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8, I-9 (a, b) and I-10 (a, b)
+are complete and reviewed. The user released 0.2.0 (build 2) in `f1b11ac`. **Phase I-10b —
+folder search UI (routine): complete** 2026-11-06 (`docs/progress-archive/i-10b.md`).
+**Queued: I-11** (Detach other clients; *Next action* 0), then **I-12** (other terminal apps,
+a group to split first). Also remaining: the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
@@ -132,6 +132,12 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   runs on this Mac and Saturno recorded in `docs/TESTING.md` *Phase I-10a* (open channel
   0.12–0.46 s per query after the fixes; opening 0.8–0.9 s on Saturno), nothing left running;
   D36 recorded; the three owed `CLAUDE.md` notes applied — `docs/progress-archive/i-10a.md`.
+- Phase I-10b: all criteria met, 2026-11-06 — the section's states, de-dup, pick, the `/` and
+  <2 rules, unusable paths dropped, the channel's lifetime, the scope per query, announcements
+  and This Mac's `unchecked` argument under hermetic tests (37 new UI tests, 2 core; 881 core +
+  468 UI pass); one real read-only local `folders --count-only` (header "not checked", no child
+  left); galleries light and dark inspected; checklist 24 new; real search on Saturno, This
+  Mac's privacy prompt and VoiceOver owed — `docs/progress-archive/i-10b.md`.
 
 ## Decisions
 
@@ -167,6 +173,14 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   `" * ? \`, a 4 s host-side deadline per query (worst-case host lifetime after a disconnect
   about 4–5 s), the explicit stop at the limit, an 8-event transport queue —
   `docs/progress-archive/i-10a.md`.
+- Phase I-10b: the orchestrator's calls in `PLAN.md` *Phase I-10* ("calls for I-10b"): This
+  Mac runs no readability check (a fixed `unchecked` script argument; the note only for SSH
+  hosts); unusable paths dropped before they are offered; text with `/` or under 2 characters
+  sends no query; the section last, counting for I-7's open rule; one channel per window and
+  host; the scope read per query; announcements as I-7's. The worker's: folder search only in
+  normal mode; earlier matching results kept while a new text is searched (same host and scope
+  only, after the review); a model-owned scope save awaited at shutdown —
+  `docs/progress-archive/i-10b.md`.
 
 ## Open risks / deviations
 
@@ -191,7 +205,13 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   `Validation.workingDirectory` before being offered; a mid-word `'` finds nothing; an
   unreachable host shows its problem after up to ~10 s. One fix-worker `swift test` run had 3
   `PopoverHeightLimitTests` failures, not reproduced. The fix worker ran one read-only `git
-  diff --stat` — `docs/progress-archive/i-10a.md`.
+  diff --stat` — `docs/progress-archive/i-10a.md`. Those handovers were settled by I-10b's
+  calls.
+- I-10b: rows of the previous scope can show for the few milliseconds before the channel
+  announces a new search; 2 of the worker's 7 full `swift test` runs had one load-sensitive
+  core process test over its bound (passing alone 15 times; the orchestrator's final runs
+  passed); owed to the user, checklist 24 (real Saturno search, This Mac's privacy prompt,
+  protected folders on This Mac, the links, VoiceOver) — `docs/progress-archive/i-10b.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -251,17 +271,24 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   should-fix (limit stop without SIGPIPE; bounded event queue); a review-fix worker fixed all
   three, each regression failing with its fix reverted; re-verified by the orchestrator —
   `docs/reviews/phase-I-10a.md`.
+- Phase I-10b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
+  blockers, 2 should-fix (previous results kept across a scope change; an untracked scope save
+  lost at quit); a review-fix worker fixed both, each regression failing with its fix
+  reverted; re-verified by the orchestrator — `docs/reviews/phase-I-10b.md`.
 
 ## Next action
 
-0. **Phase I-10b (queued, routine): the folder search UI.** Poll the inbox first. Then run
-   one worker on `PLAN.md` *Phase I-10* (the I-10b bullet, the orchestrator's calls, "Outcome
-   of I-10a", D36) and the specification's requirements 3–6, 8, 9 and UI acceptance
-   (`autoclaude/processed/100-folder-search-spotlight.md`), wiring the existing
-   `FolderSearchChannel` (`Sources/MuxFinderCore/FolderSearch/`); first make the calls the
-   *Open risks* I-10a bullet hands over (readability check on This Mac, newline paths through
-   `Validation.workingDirectory`) and record them in `PLAN.md`. Galleries use synthetic paths
-   only; real `folders --count-only` runs need nothing new unless the core changes.
+0. **Phase I-11 (queued, high): Detach other clients.** Poll the inbox first. Then add a
+   `### Phase I-11` section to `PLAN.md` (before *Deferred*) from
+   `autoclaude/processed/105-detach-other-clients.md`; it is high and has a real-run proof
+   requirement (1) before the UI, so split it before the first worker, e.g. **I-11a** proof +
+   core (the command through iTerm2's tmux connection on This Mac and Saturno, option (a)
+   `attach-session -d -t <id>` vs (b) per-client `detach-client -t <name>` bound by
+   `client_pid`/session, the new D number, the coordinator call with its session-key
+   confirmation and typed results, the e2e step) and **I-11b** UI (the popover's "Detach other
+   clients…" item and the D25-style confirmation, galleries, docs, checklist). Real runs follow
+   the gate in item 3. Then I-12 (`autoclaude/processed/110-other-terminal-apps.md`, split
+   a–e as it suggests, in `PLAN.md` before its first worker).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -287,28 +314,26 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   `Sources/MuxFinderCore/Process/StreamingProcess.swift`, the scope in
   `Config/PreferencesStore.swift`, probe `Sources/muxfinder-probe/FoldersCommand.swift`; tests
   `Tests/MuxFinderCoreTests/FolderSearch*Tests.swift` and `FolderSearchTestSupport.swift`.
+- Folder search UI (I-10b): `Sources/MuxFinderUI/Model/{FolderSearchSection,AppModelFolderSearch,SettingsModelFolderSearch}.swift`,
+  `Views/DirectoryPickerViews.swift`, `Views/Settings/DirectoriesSettingsView.swift`,
+  `Preview/FolderSearchFixtures.swift`; tests
+  `Tests/MuxFinderUITests/{FolderSearchSectionTests,FolderSearchModelTests,SettingsFolderSearchTests,FolderSearchUITestSupport}.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
+- Phase I-10b (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `swift test` 881 core tests in 87 suites and 468 UI tests in
+  46 suites passed, no failure; `scripts/build-app.sh` exit 0; `codesign --verify --deep
+  --strict build/muxFinder.app` exit 0; no `mdfind` or probe process left. Workers:
+  `-warnings-as-errors` builds exit 0; one real local `folders --count-only` —
+  `docs/progress-archive/i-10b.md`.
 - Phase I-10a (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
   lint -r Sources Tests` exit 0; `swift test` 879 core tests in 87 suites and 431 UI tests in
   43 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
   build/muxFinder.app` exit 0; no `mdfind` or probe process left. Workers: `-warnings-as-errors`
   builds exit 0; real `folders --count-only` on this Mac and Saturno — `docs/progress-archive/i-10a.md`.
-- Phase I-9a (final tree, orchestrator, 2026-11-05): `swift build` exit 0; `swift test` exit
-  0, 815 core tests in 81 suites and 406 UI tests in 40 suites; `swift format lint -r Sources
-  Tests` exit 0; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0; `--report-menu-bar-item` under an empty private home exit 0, no
-  child, home empty. Worker: `--report-popover-placement` exit 0 (passed), `--selftest
-  new-session-local` 7/7 (iTerm2 17 → 20 threads) — `docs/progress-archive/i-9a.md`.
-- Phase I-9b (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift test` exit
-  0, 815 core tests in 81 suites; `swift test --filter MuxFinderUITests` exit 0, 431 UI tests
-  in 43 suites; `swift format lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0;
-  `codesign --verify --deep --strict build/muxFinder.app` exit 0. Worker: `swift build
-  -warnings-as-errors` exit 0, `--report-menu-bar-item` under a private home exit 0, no child,
-  home empty; no real run — `docs/progress-archive/i-9b.md`.
-- Phases 1–I-7: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phases 1–I-9b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -332,5 +357,6 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
 - The user's release commit `f1b11ac` ("Release 0.2.0 (build 2)", 2026-11-06) committed their
   `CLAUDE.md` and `nonamedownloads.json`; the tree was clean when this run started (empty
   preflight file). Inbox triage (I-10): `faa47a6`.
-- Phase I-10a: the commit carrying this checkpoint ("Phase I-10a: folder search core"),
-  pushed (SHA and push result in the run's status line and the next checkpoint).
+- Phase I-10a: `267dc0b`, pushed. Inbox triage (I-11, I-12): `f03de09`.
+- Phase I-10b: the commit carrying this checkpoint ("Phase I-10b: folder search UI"), pushed
+  (SHA and push result in the run's status line and the next checkpoint).

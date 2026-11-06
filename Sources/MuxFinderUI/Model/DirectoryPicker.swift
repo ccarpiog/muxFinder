@@ -70,6 +70,11 @@ public enum DirectoryListStatus: Sendable, Hashable {
 ///   ones included, sorted, at most `maximumSessionFolders`). A folder can show in more than one
 ///   section; within a section each shows once (exact string). With all three empty the list
 ///   says there is nothing to pick yet.
+/// - **"Folders on <host>"** (Phase I-10b, `folders`): last, while folder search exists and
+///   applies to the field's text (`FolderSearchSection`), with its status line, the folders
+///   the host's Spotlight found less those the three sections show, and "Missing a folder?".
+///   While it shows it counts as something to show (`hasSomethingToShow`, I-7's open rule) and
+///   the list never says "Nothing to pick yet" or "No matching directories" in its place.
 /// - **The filter** (Phase I-7): the Directory field is the list's search, combo-box style.
 ///   With its text (trimmed, `query`) empty nothing is filtered; otherwise each section keeps,
 ///   in its order, only the entries that match (`entry(_:matches:field:home:)`), and a section
@@ -80,8 +85,9 @@ public enum DirectoryListStatus: Sendable, Hashable {
 ///   is empty, breaks `Validation.workingDirectory` or the entry rules, is saved already, the
 ///   saved list is full, or the store takes no change) and "Clear recent directories on
 ///   <host>" (off with no recent directory, shown or not, or while the store takes no change).
-/// - **Items** are what the keyboard moves through: every entry shown, then the actions that
-///   are on. An entry's identity is its section and its UTF-8 bytes, as the store's (`Item`),
+/// - **Items** are what the keyboard moves through: every entry shown (the folders found
+///   last), "Missing a folder?" while the folders section shows, then the actions that are
+///   on. An entry's identity is its section and its UTF-8 bytes, as the store's (`Item`),
 ///   so two spellings of one accented name are two rows the keys pass through in turn.
 /// - Every entry is display data until picked: picking only fills the Directory field, which
 ///   the draft checks like typed text before any request (D3, D18).
@@ -110,6 +116,8 @@ public struct DirectoryPickerContent: Sendable, Hashable {
     case saved
     /// The start folders of the host's sessions.
     case sessions
+    /// The folders the host's Spotlight found (Phase I-10b); never in `sections`.
+    case folders
   }
 
   /// A titled group of directories.
@@ -142,6 +150,9 @@ public struct DirectoryPickerContent: Sendable, Hashable {
     case saveDirectory
     /// "Clear recent directories on <host>".
     case clearRecents
+    /// "Missing a folder?" in the folders section: shows or hides its explanation (Phase
+    /// I-10b).
+    case folderSearchHelp
   }
 
   /// One row the keyboard can highlight and the user can pick. Its identity (equality, hashing,
@@ -228,13 +239,18 @@ public struct DirectoryPickerContent: Sendable, Hashable {
   /// How many entries the sections hold before the filter (a folder in two sections counts
   /// twice).
   public var unfilteredEntryCount: Int
+  /// The "Folders on <host>" section (Phase I-10b), while folder search exists and applies to
+  /// the field's text; `nil` otherwise.
+  public var folders: FolderSearchSection?
 
   /// The list for `host`: its recent directories and the saved ones from `lists`, the start
   /// folders of `sessions` (the host's listed sessions), filtered by `field` (the Directory
   /// field as typed), which "Save this directory" would also add, with `status` the lists' load
   /// status and `canChange` whether a store takes changes at all. `thisMacHome` is This Mac's
   /// home folder for the filter's `~` rule; it is used only when `host` is This Mac (an SSH
-  /// host's home folder is unknown), and `nil` turns the rule off.
+  /// host's home folder is unknown), and `nil` turns the rule off. `folderSearch` is what the
+  /// window's folder search knows (`nil`: there is none), from which the folders section is
+  /// built after the others, so it leaves out what they show.
   public init(
     host: HostConfig,
     lists: DirectoryLists,
@@ -242,7 +258,8 @@ public struct DirectoryPickerContent: Sendable, Hashable {
     field: String,
     status: DirectoryListStatus = .notLoaded,
     canChange: Bool = true,
-    thisMacHome: String? = nil
+    thisMacHome: String? = nil,
+    folderSearch: FolderSearchSnapshot? = nil
   ) {
     hostName = host.displayName
     let recent = lists.recent(for: host.id)
@@ -266,18 +283,36 @@ public struct DirectoryPickerContent: Sendable, Hashable {
     saveIssue = Self.saveIssue(field: field, lists: lists, acceptsChanges: acceptsChanges)
     canClearRecents = acceptsChanges && !recent.isEmpty
     notice = status.acceptsChanges ? nil : status.notice
-  } // End of init(host:lists:sessions:field:status:canChange:thisMacHome:)
+    let shown = sections.flatMap(\.entries)
+    folders = folderSearch.flatMap {
+      FolderSearchSection(host: host, field: field, snapshot: $0, shown: shown)
+    }
+  } // End of init(host:lists:sessions:field:status:canChange:thisMacHome:folderSearch:)
 
   /// Whether the host has nothing to pick at all (every section empty before the filter): the
-  /// list says "Nothing to pick yet", whatever the field holds.
+  /// list says "Nothing to pick yet", whatever the field holds, unless the folders section
+  /// shows.
   public var isEmpty: Bool { unfilteredEntryCount == 0 }
 
   /// Whether the filter hides every entry the host has: the list says "No matching
-  /// directories" above the actions.
+  /// directories" above the actions, unless the folders section shows.
   public var noMatches: Bool { !isEmpty && sections.isEmpty }
 
-  /// How many entry rows the list shows (after the filter; actions not counted).
+  /// How many entry rows Recent, Saved and Sessions show (after the filter; the folders found
+  /// and the actions not counted).
   public var matchCount: Int { sections.reduce(0) { $0 + $1.entries.count } }
+
+  /// Whether the list has something to show for I-7's open rule: a matching entry, or the
+  /// folders section (whatever its status: "Searching…", the folders, "No folders found", the
+  /// unavailable reason or the problem), so the list stays open while a search runs.
+  public var hasSomethingToShow: Bool { matchCount > 0 || folders != nil }
+
+  /// The list's accessibility value: `matchSummary`, and the folders section's summary while it
+  /// shows (alone when Recent, Saved and Sessions show nothing).
+  public var listSummary: String {
+    guard let folders else { return matchSummary }
+    return matchCount == 0 ? folders.summary : "\(matchSummary). \(folders.summary)"
+  }
 
   /// What VoiceOver hears when the filter changes (and the list's accessibility value): "3
   /// matching directories", "1 matching directory" or "No matching directories" while the
@@ -305,15 +340,19 @@ public struct DirectoryPickerContent: Sendable, Hashable {
     switch action {
     case .saveDirectory: return canSaveDirectory
     case .clearRecents: return canClearRecents
+    case .folderSearchHelp: return folders != nil
     }
   }
 
   /// The rows the keyboard moves through, in the list's order: every entry shown (after the
-  /// filter), then the actions that are on.
+  /// filter), the folders found and "Missing a folder?" while the folders section shows, then
+  /// the actions that are on.
   public var items: [Item] {
     let entries = sections.flatMap(\.items)
+    let found = (folders?.entries ?? []).map { Item.entry(.folders, $0) }
+    let help = folders == nil ? [] : [Item.action(.folderSearchHelp)]
     let actions = [Action.saveDirectory, .clearRecents].filter(isEnabled).map(Item.action)
-    return entries + actions
+    return entries + found + help + actions
   }
 
   /// The item after (`down`) or before `current` in `items`, staying at the ends; with no

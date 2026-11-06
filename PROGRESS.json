@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T09:19:33Z",
+  "updated": "2026-11-06T10:29:06Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -636,12 +636,12 @@
     {
       "id": "I-10",
       "title": "New session: search the host's folders by name",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Spotlight folder search in New session, split into I-10a (core, done) and I-10b (UI, queued).",
+      "summary": "Spotlight folder search in New session, split into I-10a (core) and I-10b (UI), both done.",
       "added": "2026-11-06T07:27:19Z",
       "started": "2026-11-06T07:27:19Z",
-      "status_since": "2026-11-06T07:27:19Z"
+      "status_since": "2026-11-06T10:29:06Z"
     },
     {
       "id": "I-10a",
@@ -659,12 +659,33 @@
     {
       "id": "I-10b",
       "title": "Folder search UI: list section, setting, explanation, galleries",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "I-10",
       "summary": "Folders on host section in the directory list, the home or whole-disk setting, Missing a folder? and galleries.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-10b.md",
+      "narrative": "docs/progress-archive/i-10b.md",
       "added": "2026-11-06T07:27:19Z",
-      "status_since": "2026-11-06T07:27:19Z"
+      "started": "2026-11-06T09:21:49Z",
+      "status_since": "2026-11-06T10:29:06Z"
+    },
+    {
+      "id": "I-11",
+      "title": "Detach other clients",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Popover action that keeps this Mac's tmux attachment and detaches the session's other clients, proven first on real runs.",
+      "added": "2026-11-06T10:29:06Z",
+      "status_since": "2026-11-06T10:29:06Z"
+    },
+    {
+      "id": "I-12",
+      "title": "Other terminal apps: Terminal.app and Ghostty",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Open sessions in Terminal.app or Ghostty with plain tmux beside iTerm2's control mode, through a terminal setting and JSON definitions.",
+      "added": "2026-11-06T10:29:06Z",
+      "status_since": "2026-11-06T10:29:06Z"
     }
   ]
 }
