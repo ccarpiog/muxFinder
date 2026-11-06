@@ -3835,6 +3835,96 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     terminal, tmux drew on it, the bound `PlainClientDetach` ended it and the helper exited 0
     with a success result; with the reopen disabled tmux drew under 200 bytes and the check
     failed. The remote plain attach's real run is I-12c's `e2e-plain`.
+  - **Terminal seam (I-12b3)** (2026-11-06; code in `Sources/MuxFinderCore/Terminals/`:
+    `TerminalBackend.swift` (`TerminalBackend`, `TerminalAttachmentHandle`,
+    `TerminalFocusResult`), `ITerm2TerminalBackend.swift`, `PlainTerminalWindows.swift`
+    (`PlainTerminalWindows`, `PlainTerminalWindow`), `PlainTerminalWindowError.swift`,
+    `PlainTerminalSeams.swift` (`TerminalProcessSpawning`, `DetachedTerminalProcessSpawner`,
+    `DetachedChildReaper`, `TerminalAppActivating`, `RunningApplicationActivator`),
+    `PlainTerminalFakes.swift` (`FakeTerminalAppInspector`, `FakeTerminalProcessSpawner`,
+    `FakeTerminalAppActivator`); tests in `ITerm2TerminalBackendTests`,
+    `PlainTerminalWindowsTests`, `PlainTerminalSeamsTests`; `docs/TESTING.md` *Phase
+    I-12b3* and *Phase I-12b3 review fixes*). Nothing calls them yet: `AppModel`,
+    `AppEnvironment.makeAttachCoordinator`, the self-tests, the probe and the refresh engine
+    still call the coordinator directly, and no file under `Attach/`, `ITerm2/`, `Launch/`,
+    the UI, the probe or the helper changed.
+    **The seam** is the protocol `TerminalBackend` (`Sendable`): the coordinator's operations
+    the app and the self-tests call, with their present signatures and result types
+    (`attach(_:)`, `moveHere(_:confirmation:)`, `createAndAttach(_:onCreated:)` plus an
+    extension without `onCreated`, `currentSession(named:on:)`, `detach(session:on:)`,
+    `detachOtherClients(of:confirmation:)`, `state(of:)`), `terminal` (`LaunchTerminalApp`),
+    and `focus(_:)` over `TerminalAttachmentHandle` (`iTerm2LaunchTab(sessionID:)` or
+    `plainWindow(PlainTerminalWindow)`), answering `TerminalFocusResult`: `launchTab` with
+    `showLaunchTab`'s `LaunchTabShowResult` unchanged, `plainWindowFocused`,
+    `plainWindowFailed(PlainTerminalWindowError)`, or `handleOfAnotherTerminal`. No open here
+    (I-12c); the connection detach `detach(connectionID:gatewaySessionID:launchID:)` stays
+    iTerm2's own (the probe's and self-tests' cleanups). **The iTerm2 backend** is a wrapper,
+    not a conformance (the worker's call: the coordinator stays untouched):
+    `ITerm2TerminalBackend(coordinator:)` forwards every operation in the caller's task with
+    the same arguments and returns the result unchanged; a plain window handle is
+    `handleOfAnotherTerminal`, nothing run. Its tests run each scenario twice on fresh,
+    identical coordinator fakes (directly, then through the backend) and compare results,
+    published updates, the iTerm2 fake's calls, the launch store and discovery (launch ids,
+    drawn at random, compared by position; the attachment index's concurrent identity checks
+    of several connections in any order). **The plain window layer** `PlainTerminalWindows`
+    (main actor, no default seams, so no check can reach a real one by omission) opens with
+    the mode word `LaunchHelperMode.attachPlain.word`, in this order: the facts
+    (`TerminalAppFacts`: `notInstalled`, `tooOld`, `unknown` and a permission read as `denied`
+    are typed failures with nothing compiled, sent or started; `notDetermined`,
+    `targetNotRunning`, `granted` and any other status go ahead, the worker's call for
+    `other`: the event's own answer then decides), the launch command for the definition's
+    form (refused with its `TerminalLaunchCommandError`, nothing compiled), then for
+    `appleScript` the script compiled once per `LoadedTerminalDefinition` for the layer's
+    lifetime (a reloaded definition with another script compiles again; a failed compile is
+    not kept) and `muxfinder_open`, its reply read strictly into `PlainTerminalWindow` (the
+    `LoadedTerminalDefinition` that opened it, `openedBy`, its `definitionID` derived; window
+    id, tty), or for `exec` the spawn. A focus or close also refuses an app that is not
+    running (`appNotRunning`, nothing compiled or sent: an event would launch it). **The
+    opener** (review fix): a focus or close takes only a window the given loaded definition
+    itself opened, `LoadedTerminalDefinition` compared whole (definition, source, file name,
+    script): another id's window is `windowOfAnotherTerminal`, a window another loaded
+    definition with the same id opened (a user override of a built-in, or the definition
+    loaded again with another bundle identifier or script) is `definitionChanged`, both
+    before anything is read, compiled or sent, so a window's id or tty never reaches another
+    app or script; the same files loaded again give an equal value and still match.
+    **Focus:** `tty` → `muxfinder_focus("", tty)`, `windowID` → `muxfinder_focus(id, "")`, a
+    window without that value `windowLacksFocusValue`; `app` →
+    `TerminalAppActivating` (`NSRunningApplication.activate(options:)` on the first running
+    instance; no Apple event, no facts read, never a launch; `notRunning` → `appNotRunning`,
+    `refused` → `activationFailed`). **Close** only by an id this layer's own open recorded
+    for that same loaded definition (each record bound to it; the newest 64,
+    `rememberedWindows`; else `notOpenedHere`), no id `windowHasNoID`, through
+    `muxfinder_close`: 1001 `windowBusy` (kept), -1728 `windowGone` (forgotten), any other
+    failure kept, success forgotten. **Forgetting** (review fix): a focus answered -1728
+    forgets that window's record as a close does, so its stale id is never closed; an app
+    seen not running (by any facts read, an open's included, or the activator's
+    `notRunning`) has every record of its bundle identifier forgotten (compared without
+    regard to case), whichever loaded definition opened them, since window ids are not
+    stable across a restart of the app. Forgetting only ever leaves a window open. Any
+    handler's -1743 is `permissionDenied`; -1728 from `open` stays `scriptFailed`. **The
+    spawn** (`DetachedTerminalProcessSpawner`, behind `TerminalProcessSpawning`): `posix_spawn`
+    with the argv `TerminalLaunchCommand.execArgv(_:inApp:)` builds (never a shell),
+    `POSIX_SPAWN_SETSID` (a session and process group of its own, no controlling terminal, so
+    no signal for muxFinder's group or terminal reaches it), standard input, output and error
+    on `/dev/null`, `POSIX_SPAWN_CLOEXEC_DEFAULT`, default signal dispositions, and the layer's
+    environment (this process's by default). It returns right after the spawn and never
+    signals the program; `DetachedChildReaper` (one dispatch process source per child on a
+    serial queue, `waitpid(WNOHANG)` at its exit, also for an exit before the watch) reaps it,
+    so it is never left a zombie, and launchd adopts it when muxFinder quits first (a hermetic
+    test on `/bin/sleep` and `/usr/bin/true`). XNU posts the exit event before the child is a
+    zombie, so the wait may answer 0 first (review fix): the child then stays pending and is
+    waited for again after 1, 2, 4, … ms, at most 1 s apart, until the wait answers its pid
+    or a failure other than `EINTR` (`ECHILD`: nothing left; `EINTR` waited again at once);
+    only then is its watch dropped. A bounded backoff on the reaper's queue rather than a
+    blocking `waitpid` thread per child (the fix's call: no thread held for a terminal
+    program's lifetime); the wait is a seam (`DetachedChildReaper(wait:)`, the spawner's
+    internal `init(reaper:)`) so tests force the 0 answers. **Failures** are one enum,
+    `PlainTerminalWindowError` (18 cases, each with `kind` and a plain sentence naming the
+    definition's display name), never retried (D13). **Left to I-12c:** the plain backend's
+    conformance (confirmation from the early report, detach and Move here through tmux, open
+    here for every terminal), moving the app, self-tests and probe onto the seam with the
+    backend picked from the terminal setting, a fake backend if the UI tests need one; and,
+    still owed as in I-12b1, compiling and calling the built-in scripts for real.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -6712,6 +6802,76 @@ Calls for I-12b2 (helper plain mode; 2026-11-06, before its worker):
   refusal), D38 ("Helper plain mode (I-12b2)"), `docs/TESTING.md` *Phase I-12b2*, and
   `CLAUDE.md`'s launch helper line (present state). Nothing in the app or the coordinator
   writes a plain request yet (I-12c).
+
+Calls for I-12b3 (terminal seam; 2026-11-06, before its worker):
+
+- **Where.** `Sources/MuxFinderCore/Terminals/`: the seam, the iTerm2 adapter, the plain
+  window layer and their fakes, in new files; tests in `Tests/MuxFinderCoreTests/`. Nothing
+  in `Sources/MuxFinderCore/Attach/` or `ITerm2/` changes its logic (a conformance in a new
+  file at most).
+- **The seam sits at the session operations, not below the coordinator.** iTerm2's open,
+  confirmation by connection, burial and detach are one flow over its API (D15, D29); the
+  seam must not split it (requirement 2: iTerm2 behaves exactly as now). A protocol (the
+  worker names it, e.g. `TerminalBackend`, `Sendable`) whose requirements are the
+  coordinator's public operations the app and the self-tests call today, with their present
+  signatures and result types: attach, move here (with `MoveHereConfirmation`), create and
+  attach (with `onCreated`), the current session by name, detach a session on a host, detach
+  other clients (D37), the per-key state; plus `terminal` (`LaunchTerminalApp`, I-12b2) naming
+  the backend, and focus of an attachment the backend opened through a terminal-neutral
+  handle (an enum: iTerm2's launch tab session id, or a plain window from the layer below),
+  the iTerm2 case mapped to `showLaunchTab`. Today's result types are kept byte for byte;
+  I-12c may extend them for plain attachments. "Open here" is not in the seam yet:
+  requirement 7 rewrites it for every terminal, iTerm2 included, through discovery's
+  `client_pid` / `client_tty` and process ancestry, and I-12c adds it.
+- **The iTerm2 backend** is an adapter over `AttachCoordinator` (a wrapper or a conformance,
+  the worker's call): each operation forwards to the existing method with the same arguments
+  and returns its result unchanged; a plain handle given to it is refused with a typed
+  result, nothing run. Tested over the existing coordinator test fakes: for the same fake
+  run, the adapter's result equals the coordinator's and the same requests reach the fakes.
+- **Nothing is rewired yet.** `AppModel`, `AppEnvironment.makeAttachCoordinator`, the
+  self-tests, the probe and the refresh engine keep calling the coordinator directly; I-12c
+  moves them onto the seam and picks the backend from the terminal setting (I-12d shows it).
+  So no runtime path changes in this phase, and its regression is every existing test passing
+  with no expectation edited; no real run is needed.
+- **The plain window layer** (the plain backend's open, focus and close; its confirmation,
+  detach, move here and its conformance to the seam are I-12c's), built from a
+  `LoadedTerminalDefinition`, the helper path and the launch token:
+  - **Open.** The command from `TerminalLaunchCommand` for the definition's form, with the
+    mode word the I-12b2 constant for `attach-plain` (never a literal) and the token.
+    `appleScript`: the definition's script compiled once per loaded definition for the
+    layer's lifetime through `AppleScriptRunning`, then `muxfinder_open` through
+    `TerminalScriptCalls`, the reply read strictly; the result a plain window value
+    (definition id, window id and tty, each optional as the reply gives them). `exec`: the
+    argv `TerminalLaunchCommand` builds, the executable resolved inside the app
+    LaunchServices found, spawned without a shell through a seam with a fake; the spawn must
+    neither block the call until the terminal app exits nor end that process when the call
+    returns (the worker records how). Its window has no id or tty (the schema already ties
+    `tty` and `windowID` focus to `appleScript`).
+  - **Before any event** the app's facts (`TerminalAppInspecting`): not installed or too old
+    (`tooOld`; `unknown` refused too) and an Automation permission read as `denied` are typed
+    failures with nothing sent; `notDetermined` and `targetNotRunning` go ahead (in the app a
+    person asked for the window and can answer the prompt; launching the app is the open's
+    purpose there). Checks never take that path (fakes only; *Unattended-run rules* 8).
+  - **Focus** by the definition's focus kind: `tty` calls `muxfinder_focus` with the window's
+    tty, `windowID` with its window id (the other argument empty, as the handler contract
+    says); a window lacking the value its kind needs is a typed failure, nothing sent; `app`
+    brings the app forward by bundle identifier with no Apple event (`NSRunningApplication`,
+    behind a seam with a fake), never launching it (not running: a typed result).
+  - **Close** only by a window id this layer's own open recorded (any other is refused,
+    nothing sent), through `muxfinder_close`; never as a detach (detach is tmux's, D38). The
+    script's refusal of a busy window (1001) and of a missing one (-1728) map to typed
+    results. A window with no id cannot be closed (typed result).
+  - **Failures** are one typed enum (app missing or too old, permission denied, the launch
+    command refused with its reason, compile or handler failure with the OSA number, a
+    malformed reply, spawn failed, not this layer's window, …), each with a plain sentence for
+    I-12d; never a retry (D13). The layer runs on the main actor, as `AppleScriptRunning` does.
+- **No real Apple event and no compile of a built-in.** Tests use `FakeAppleScriptRunner`, a
+  fake app inspector, a fake spawner and a fake activator. A test may load the built-in
+  definitions (text only, as I-12b1's tests do) and drive them through the fake runner to
+  check the arguments each handler gets (Terminal's command text, Ghostty's words with the
+  token last).
+- **Records.** D38 "Terminal seam (I-12b3)", `docs/TESTING.md` *Phase I-12b3*. `CLAUDE.md`
+  changes only if a command does (none expected).
 
 ## Deferred (explicitly out of scope for v1)
 

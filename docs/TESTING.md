@@ -3531,3 +3531,73 @@ directory and no real tmux server: the real check below runs on a private server
 | Real plain attach of the built helper | `swift test --filter LaunchHelperPlainBinaryTests` (`realPlainAttachOnAPseudoTerminal`: the debug helper), then `MUXFINDER_TEST_LAUNCH_HELPER=<repo>/build/muxFinder.app/Contents/MacOS/muxfinder-launch swift test --filter LaunchHelperPlainBinaryTests` (the signed bundle's helper) | pass both times, 0.1–0.4 s. The test opens a pseudo-terminal itself (80 × 24, everything drained and counted, never kept) and runs `/bin/sh` in a new session that opens it as standard input read-only and output and error write-only (its controlling terminal) and `exec`s `muxfinder-launch attach-plain <uuid>` with `TMUX_TMPDIR` a folder from `mkdtemp("/private/tmp/mfx.XXXXXX")`, a private `MUXFINDER_LAUNCH_DIRECTORY`, test mode, `MUXFINDER_LAUNCH_NO_WAIT=1`, `TERM=xterm-256color`, against its own `muxfinder-test-plain-helper-<8 hex>` session (`sleep 600`) on that private server and a plain request (`terminal` `terminal`). The report named that pseudo-terminal and the helper's pid; its child pid was the digest's `attachChildProcessID`, the helper's own child, with the kernel's start time; the session had exactly one client, on that terminal, its pid the child's; at least 200 bytes were drawn; the bound `PlainClientDetach` (all six session fields, the client's name, pid and creation time) answered `detached`; the helper exited 0 with a success result (child `exited(0)`); taking the result removed the report and left the launch directory empty; the session was killed (only `muxfinder-test-*` ones, never `kill-server`), the server gone, the attach child gone. With `MUXFINDER_TEST_LAUNCH_HELPER` naming a missing file the test is skipped (the override is honored) |
 | The check fails without the reopen | the runner's reopen replaced by `nil` for one run, then restored | both real tests failed: the child could not write through its read-only standard input, and tmux drew under 200 bytes on the helper's terminal; restored, both pass |
 | Leftovers after every run | `pgrep -fl muxfinder-test-plain-helper`; `ls -d /private/tmp/mfx.*` | exit 1, no process; no folder |
+
+
+### Phase I-12b3 — terminal seam (2026-11-06)
+
+The terminal seam (PLAN.md D38 *Terminal seam (I-12b3)*): the protocol `TerminalBackend` at
+the attach coordinator's session operations, iTerm2's backend `ITerm2TerminalBackend` (a
+wrapper forwarding each operation to `AttachCoordinator` unchanged), and the plain window
+layer `PlainTerminalWindows` (open, focus and close of a terminal app's window from a
+`LoadedTerminalDefinition`) with its spawn and activation seams, fakes and one failure enum.
+Nothing calls the seam yet (I-12c), and no file under `Attach/`, `ITerm2/`, `Launch/`, the UI,
+the probe or the helper changed, so no runtime path changed: the regression is every existing
+test passing with no expectation edited, and no gallery, `--selftest` or `e2e-*` run is due.
+Hermetic only: the built-in definitions were loaded as text and driven through
+`FakeAppleScriptRunner`; no script was compiled, no Apple event sent, no terminal app or iTerm2
+contacted or launched, no tmux.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` (the phase's code, before the review fixes; rerun in *Phase I-12b3 review fixes*) | exit 0: 1053 core tests in 104 suites (31 new in 3 suites: `ITerm2TerminalBackendTests` 9, each scenario run twice on fresh, identical coordinator fakes, directly and through the backend, with equal results, updates, iTerm2 fake calls, launch store records and discovery calls (launch ids compared by position): attach and `state(of:)`, move here confirmed and refused, create and attach with and without `onCreated` and a creation failure, the current session found and gone, detach of a session's two attachments, detach other clients confirmed and refused, a launch tab focus equal to `showLaunchTab` (`shown`, `notOpenedHere`), a plain window handle refused with nothing sent; `PlainTerminalWindowsTests` 16, Terminal's open with D3's command text and `attach-plain`, Ghostty's with the token the last word, an `exec` definition spawned inside the app with every placeholder one argument, the compile once per loaded definition across opens, focuses and closes (another definition, a reloaded one and a new layer compile their own), every facts-gate refusal with nothing compiled, sent or started and every status that goes ahead, an `exec` definition's gate without a permission read, the launch command refused before anything, every open failure typed (compile, handler number, -1743, malformed replies, no script, spawn), focus by tty, by window id and by app (no event, no facts read) with each missing value and refusal, close only of recorded ids (busy kept, missing and app-not-running forgotten, no id, another definition's window), the newest 64 ids kept; `PlainTerminalSeamsTests` 6, the real spawner on `/bin/sleep 30` (returns at once, the program alive after the call, a session and process group of its own, reaped after a `SIGKILL`) and `/usr/bin/true` (reaped), its refusals (`ENOENT`, not a file URL, NUL), the real activator for an identifier nobody uses (`notRunning`, nothing launched), the fakes, and all 17 failure kinds with their sentences) and 485 UI tests in 47 suites, unchanged |
+| Repeated runs | `swift test --skip-build --filter "ITerm2TerminalBackendTests\|PlainTerminalWindowsTests\|PlainTerminalSeamsTests"` 5 times; `--filter ITerm2TerminalBackendTests` 20 times | all passed every time |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Terminal apps after the runs | `pgrep -x Terminal`; `pgrep -x ghostty` | exit 1, no output: neither app ran |
+
+Two findings while writing the tests, neither a code change outside the new files: the first
+comparison of the session detach failed because the attachment index checks several
+connections' identities concurrently, so their order differs between any two runs (the
+adapter's or not); that comparison now takes those requests in any order and the
+`detach-client` commands in order. And one later full `swift test` run had a timing issue in
+`FolderSearchTransportTests.answersAndEndsAtEndOfInput` (its 2 s bound, a suite this phase did
+not touch); it passed alone and in the next full run (exit 0, the counts above).
+
+**Owed:** nothing new in this phase. Compiling and calling the built-in scripts for real (open,
+focus and close in Terminal and Ghostty) stays owed as listed in *Phase I-12b1*, to the user or
+to I-12c's `e2e-plain` under the same gate; the `exec` spawn of a real terminal app (no
+built-in uses `exec`) is owed to whoever adds such a definition.
+
+
+### Phase I-12b3 review fixes (2026-11-06)
+
+The adversarial review's three findings (`docs/reviews/phase-I-12b3.md`; PLAN.md D38 *Terminal
+seam (I-12b3)*), each fixed in `Sources/MuxFinderCore/Terminals/` with a hermetic regression:
+**the opener** (blocker): a window and its close record were tied to the definition id only, so
+after a same-id override or reload a window could be focused or closed through another app's
+or another script's handler; now `PlainTerminalWindow.openedBy` and each record hold the
+`LoadedTerminalDefinition` that opened it (compared whole), and a focus or close through any
+other is `definitionChanged` (a new, 18th failure case) with nothing read, compiled or sent.
+**Forgetting** (blocker): a focus that found the window missing (-1728) or its app not running
+left the record, so a later close sent the stale id; now a focus's -1728 forgets that record,
+and an app seen not running (any facts read, an open's included, or the activator) has every
+record of its bundle identifier forgotten. **The reaper** (should-fix): it dropped its watch
+after one `waitpid(WNOHANG)`, also when that answered 0 (XNU posts the exit event before the
+child is a zombie), leaving a zombie; now the child stays pending and is waited for again
+after 1, 2, 4, … ms, at most 1 s apart, until its pid or `ECHILD`. Fakes and `/usr/bin/true`
+only: no script compiled, no Apple event, no terminal app or iTerm2, no tmux.
+
+| Check | Command | Observed result |
+|---|---|---|
+| The regressions | `swift test --filter "ITerm2TerminalBackendTests\|PlainTerminalWindowsTests\|PlainTerminalSeamsTests"`, 5 times | 36 tests, all passed every time. `bindsAWindowToTheDefinitionThatOpenedIt`: Terminal's window focused and closed through an override for another app with its own script, and through the definition with another script: `definitionChanged` ("Terminal"), nothing compiled, called or read; a window value naming the override with the recorded id `notOpenedHere`; the same files loaded again (an equal value) focus and close it; an `exec` window's `app` focus through a variant with another bundle identifier refused, the activator not asked. `focusFindingTheWindowGoneRevokesItsClose`: Terminal (by tty) and Ghostty (by id), a focus answered -1728, then the close `notOpenedHere`, no `muxfinder_close`; the other window still closes. `anAppSeenNotRunningRevokesItsWindows`: a focus's facts showing Terminal not running forget the built-in's and a lowercase-bundle-identifier variant's records, not Ghostty's; the activator's `notRunning` and an open's facts the same; each later close `notOpenedHere`. `reaperKeepsWaitingWhenTheExitComesFirst`: the wait seam answers 0, `EINTR`, 0, then real waits; `/usr/bin/true` reaped, the watch dropped, at least 4 waits, the delays 1, 2, 4 … 512, 1000, 1000 ms. `reaperStopsAtNoSuchChild`: `ECHILD` ends the watch after 1 wait (the test reaps the child itself) |
+| Regressions fail on the old code | each fix reverted in turn (the data model kept), its tests run, the fix restored | the opener checks dropped and records matched by definition id: `bindsAWindowToTheDefinitionThatOpenedIt` 9 issues, the calls `open, focus, close, focus` (the window closed through the other app's script); the forgetting dropped (close forgetting only its own record on `appNotRunning` or -1728, as before): `focusFindingTheWindowGoneRevokesItsClose` 8 issues (close calls `["7"], ["8"]`), `anAppSeenNotRunningRevokesItsWindows` 8 issues (close calls `1, 2, G, 3, 4, 5`), `closeMapsBusyAndMissingWindows` still passing; the old single-wait reap: `reaperKeepsWaitingWhenTheExitComesFirst` 2 issues (1 wait, the child left a zombie and reaped by the test), `reaperStopsAtNoSuchChild` passing. All pass restored |
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 1058 core tests in 104 suites (5 new: 3 in `PlainTerminalWindowsTests`, 2 in `PlainTerminalSeamsTests`) and 485 UI tests in 47 suites |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Leftovers | `pgrep -fl "/usr/bin/true\|/bin/sleep 30"`; `pgrep -x Terminal`; `pgrep -x ghostty` | exit 1 each: no test child left, neither app ran |
+
+Existing tests edited (finding 1 changes the window's shape): every `PlainTerminalWindow`
+built in `PlainTerminalWindowsTests` (5 places) and `ITerm2TerminalBackendTests` (2; those two
+tests now `throws`), and the one recorded-window expectation, name the opening loaded
+definition instead of its id, with the same meaning; `everyFailureHasItsSentence` gained the
+`definitionChanged` row and counts 18 kinds. No other expectation changed.
