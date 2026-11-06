@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T12:24:23Z",
+  "updated": "2026-11-06T13:03:57Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -672,12 +672,12 @@
     {
       "id": "I-11",
       "title": "Detach other clients",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Detach other clients, split into I-11a (proof and core, done) and I-11b (UI, queued).",
+      "summary": "Detach other clients, split into I-11a (proof and core) and I-11b (the popover UI), both done.",
       "added": "2026-11-06T10:29:06Z",
       "started": "2026-11-06T10:31:24Z",
-      "status_since": "2026-11-06T10:31:24Z"
+      "status_since": "2026-11-06T13:03:57Z"
     },
     {
       "id": "I-11a",
@@ -695,12 +695,15 @@
     {
       "id": "I-11b",
       "title": "Detach other clients: popover item, confirmation, galleries, docs",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "I-11",
-      "summary": "Adds the popover item Detach other clients and its confirmation, galleries, screenshots and the manual checklist item.",
+      "summary": "Popover item Detach other clients with its offer rule, in-popover confirmation, result messages, refresh and row hint.",
+      "review": "docs/reviews/phase-I-11b.md",
+      "narrative": "docs/progress-archive/i-11b.md",
       "added": "2026-11-06T10:31:24Z",
-      "status_since": "2026-11-06T10:31:24Z"
+      "started": "2026-11-06T12:27:01Z",
+      "status_since": "2026-11-06T13:03:57Z"
     },
     {
       "id": "I-12",
@@ -710,6 +713,15 @@
       "summary": "Open sessions in Terminal.app or Ghostty with plain tmux beside iTerm2's control mode, through a terminal setting and JSON definitions.",
       "added": "2026-11-06T10:29:06Z",
       "status_since": "2026-11-06T10:29:06Z"
+    },
+    {
+      "id": "I-13",
+      "title": "Update check against GitHub releases",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Tells the user about a newer GitHub release and updates the app in one click after verifying it; to be split a core / b UI.",
+      "added": "2026-11-06T13:03:57Z",
+      "status_since": "2026-11-06T13:03:57Z"
     }
   ]
 }

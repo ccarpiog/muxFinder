@@ -42,10 +42,11 @@ import os
 ///   host key problem offers it in the popover (`setUpSSH(hostID:)`), through `sshSetup`.
 /// - **Fix-its:** an error with a fix-it (`FixIt`) shows its button; `perform(_:)` opens the
 ///   System Settings pane through `AppEnvironment.openURL` or shows the explanation.
-/// - **Session actions** (PLAN.md D25, `AppModelSessions.swift`): Open (a click or Return),
-///   "Move here…" (after the user confirms the dialog), "Detach from this Mac", New session and
-///   "Show tab" run on one `AttachCoordinator` that `AppEnvironment.makeAttachCoordinator`
-///   builds at the first action. Each session has at most one action at a time: clicks while
+/// - **Session actions** (PLAN.md D25, D37, `AppModelSessions.swift`): Open (a click or
+///   Return), "Move here…" and "Detach other clients…" (each after the user confirms its
+///   dialog), "Detach from this Mac", New session and "Show tab" run on one
+///   `AttachCoordinator` that `AppEnvironment.makeAttachCoordinator` builds at the first
+///   action. Each session has at most one action at a time: clicks while
 ///   one is pending are ignored (a New session's attach is its session's action from the moment
 ///   the session was created). The coordinator's updates and each action's result reach the
 ///   model through one ordered stream, so the row's activity follows the core's states and
@@ -111,6 +112,8 @@ public final class AppModel {
     case moveHere
     /// Detach from this Mac.
     case detach
+    /// A confirmed "Detach other clients…" (PLAN.md D37).
+    case detachOtherClients
 
     /// Its name in the log and in `ShutdownReport`.
     var name: String {
@@ -118,8 +121,17 @@ public final class AppModel {
       case .open: return "open"
       case .moveHere: return "move here"
       case .detach: return "detach"
+      case .detachOtherClients: return "detach other clients"
       }
     }
+
+    /// Whether the coordinator publishes launch states for it (an open or a move here); the
+    /// detaches publish none, so an update never changes their rows.
+    var followsLaunchStates: Bool { self == .open || self == .moveHere }
+
+    /// Whether repeating it ("Try again") shows a confirmation first, which only the popover
+    /// draws (a move here or a "Detach other clients…"; PLAN.md D25, D32, D37).
+    var confirmsInPopover: Bool { self == .moveHere || self == .detachOtherClients }
   }
 
   /// One action in progress on a session.
@@ -137,7 +149,7 @@ public final class AppModel {
   enum ActionEvent: Sendable {
     /// A state update of a launch (published by the coordinator).
     case update(AttachUpdate)
-    /// An open, move here or detach ended.
+    /// An open, move here, detach or "Detach other clients…" ended.
     case finished(SessionKey, SessionActionRecord.Outcome)
     /// New session number `id` created its session on `host` in `directory` (as checked; `nil`
     /// for the home folder); its attach starts now (before the coordinator publishes any state
@@ -192,8 +204,8 @@ public final class AppModel {
   /// Banners for sessions that vanished or changed between the listing and an action, newest
   /// first.
   public internal(set) var banners: [SessionBanner] = []
-  /// The popover's Move here confirmation, while shown (New session has its own window,
-  /// `newSessionWindow`, PLAN.md D34).
+  /// The popover's Move here or Detach other clients confirmation, while shown (New session
+  /// has its own window, `newSessionWindow`, PLAN.md D34).
   public internal(set) var panel: PopoverPanel?
   /// The New session window as the model has it (PLAN.md D34): whether it shows and the latest
   /// request to show it or bring it forward. Each change reaches `newSessionWindowChanged`; the
@@ -506,7 +518,8 @@ public final class AppModel {
       sshSetupStates: sshSetup.states,
       notes: notes,
       banners: banners,
-      attachedHere: Set(attachedHere.keys))
+      attachedHere: Set(attachedHere.keys),
+      pending: Set(runningActions.keys))
   } // End of var content
 
   // MARK: - Lifecycle
@@ -867,16 +880,17 @@ public final class AppModel {
   } // End of func moveSelection(down:)
 
   /// Carries out a popover key and says whether the popover should close. While the Move here
-  /// confirmation shows, Return confirms it, Esc closes it, ⌘R and ⌘, act as in the list, the
-  /// arrows, ⌘F and ⌘N do nothing and ⌥↓ is left to the focused view (`ignored`). In the list,
+  /// or Detach other clients confirmation shows, Return confirms it (`confirmPanel()`), Esc
+  /// closes it, ⌘R and ⌘, act as in the list, the arrows, ⌘F and ⌘N do nothing and ⌥↓ is left
+  /// to the focused view (`ignored`). In the list,
   /// ⌘N opens the New session window (`newSession()`, PLAN.md D34) and ⌥↓ is left to the
   /// focused view. While a menu tracks the panel's key monitor hands no key here
   /// (`PanelKeyRoute`, PLAN.md Phase I-8). The New session window's keys are
   /// `handleNewSessionKey(_:)`.
   public func handle(_ key: PopoverKey) -> PopoverKeyResult {
-    if case .moveHere? = panel {
+    if panel != nil {
       switch key {
-      case .open: confirmMoveHere()
+      case .open: confirmPanel()
       case .openList: return .ignored
       case .close: cancelPanel()
       case .refresh: refresh()
@@ -903,7 +917,7 @@ public final class AppModel {
 /// What `AppModel.shutdown()` stopped waiting for (PLAN.md D22, D25).
 public struct ShutdownReport: Sendable, Hashable {
   /// The session actions still running when the budget ran out, by kind ("open", "move here",
-  /// "detach", "new session", "open existing", "show tab").
+  /// "detach", "detach other clients", "new session", "open existing", "show tab").
   public var unfinishedActions: [String]
 
   /// Creates a report.

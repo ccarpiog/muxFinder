@@ -788,8 +788,9 @@ struct FailureMessageTests {
   } // End of static func caseIndex(_:)
 
   /// Every message: each attach failure's, each detach outcome but `detached`, the Show tab
-  /// notes, the missing helper's, the two focuses that did not bring the tab forward, and the
-  /// two "Open existing" outcomes that open nothing.
+  /// notes, the missing helper's, the two focuses that did not bring the tab forward, the two
+  /// "Open existing" outcomes that open nothing, and every "Detach other clients…" failure
+  /// (each `checkFailed` problem kind, a detach tmux refused, PLAN.md D37).
   static var allMessages: [String] {
     let key = PreviewFixtures.session("s", id: 1, on: PreviewFixtures.neptuno, windows: 1).key
     let attach = attachSamples.map { SessionProblem.attach($0, launchTab: "tab").message }
@@ -809,15 +810,18 @@ struct FailureMessageTests {
       NewSessionDraft.existingGone,
       NewSessionDraft.existingNotListed(AttachFailure.discoveryFailed("unreachable").message),
     ]
+    let otherClients = DetachOtherClientsUITests.outcomes.compactMap {
+      SessionProblem.detachOtherClients(DetachOtherClientsResult(key: key, outcome: $0))?.message
+    }
     return attach + detach + notes + [LaunchHelperPathError.notFound.message] + focus
-      + openExisting
+      + openExisting + otherClients
   } // End of static var allMessages
 
   /// The samples cover every case, and every message is distinct from every other.
   @Test func messagesArePairwiseDistinct() {
     #expect(Set(Self.attachSamples.map(Self.caseIndex)).count == 20)
     let messages = Self.allMessages
-    #expect(messages.count == 20 + 5 + 2 + 1 + 2 + 2)
+    #expect(messages.count == 20 + 5 + 2 + 1 + 2 + 2 + 8)
     for (offset, message) in messages.enumerated() {
       for other in messages[(offset + 1)...] {
         #expect(message != other)
@@ -838,23 +842,28 @@ struct FailureMessageTests {
 
   /// The session-action fixtures show every state: each progress and result, every attach
   /// failure but the three a banner covers, every detach problem, both focuses that did not
-  /// bring the tab forward, the Move here panel and both banners; the New session form's states
+  /// bring the tab forward, the Move here panel, the Detach other clients panels and six of its
+  /// failures (PLAN.md D37), and both banners; the New session form's states
   /// are apart (`newSessionStates`, the window's, PLAN.md D34: editing, creating, a collision, a
   /// failure and a folder dragged over Directory, Phase I-9b); all from synthetic data.
   @Test func attachFixturesCoverEveryState() {
     let fixtures = AttachFixtures.all
     let activities = fixtures.flatMap { $0.activities.values }
     let problems = Set(activities.compactMap(\.problem?.message))
-    #expect(problems.count == 17 + 1 + 5 + 2)
+    #expect(problems.count == 17 + 1 + 5 + 2 + 6)
     #expect(problems.contains(SessionProblem.notBroughtForward(nil).message))
     #expect(
       problems.contains(SessionProblem.notBroughtForward(.activateFailed(.badIdentifier)).message))
     let shown: [SessionActivity] = [
       .opening, .movingHere, .waitingForITerm2, .confirmed, .focused, .detaching, .detached,
+      .detachingOtherClients, .noOtherClientsLeft,
     ]
     for activity in shown { #expect(activities.contains(activity), "\(activity)") }
     #expect(activities.contains { if case .stillConnecting = $0 { true } else { false } })
     #expect(fixtures.contains { if case .moveHere = $0.panel { true } else { false } })
+    #expect(
+      fixtures.filter { if case .detachOtherClients = $0.panel { true } else { false } }.count
+        == 2)
     #expect(!fixtures.contains { $0.showsNewSession })
     let forms = AttachFixtures.newSessionStates
     #expect(forms.allSatisfy { $0.showsNewSession })

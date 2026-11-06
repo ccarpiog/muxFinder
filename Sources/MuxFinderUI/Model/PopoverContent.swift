@@ -17,6 +17,9 @@ public enum HostListStatus: Sendable, Hashable {
 public struct SessionRow: Sendable, Hashable, Identifiable {
   /// The badge text for a session that iTerm2 on this Mac shows (PLAN.md D16).
   public static let openHereBadge = "Open in iTerm2 here"
+  /// What the badge adds while "Detach other clients…" is offered (PLAN.md D37): the listing
+  /// shows more clients than this Mac's attachments.
+  public static let alsoAttachedElsewhereHint = "also attached elsewhere"
 
   /// Where the session is attached, as the row's leading indicator shows it (PLAN.md D22).
   /// It says only whether and where tmux clients are attached, never whether anything runs or
@@ -67,10 +70,44 @@ public struct SessionRow: Sendable, Hashable, Identifiable {
   /// worked, or iTerm2 was not running; `PopoverContent.knowsWhatIsOpenHere(_:)`). The one
   /// check covers every host, SSH ones too. Without it a client count never says where.
   public var knowsWhatIsOpenHere = false
+  /// Whether the host's last check succeeded, so `clientCount` is live (neither stale nor
+  /// unreachable, nor still checking).
+  public var isLive = false
+  /// How many attachments of the session this Mac's iTerm2 has: the attachment index's count
+  /// for it, at least 1 when muxFinder made or found one itself (PLAN.md D37).
+  public var attachmentsHere = 0
+  /// Whether an action on the session is in progress (its other actions are ignored then).
+  public var isPending = false
 
   /// Whether "Move here…" is offered: not while this Mac's iTerm2 shows the session already
   /// (the move would refuse, PLAN.md D21).
   public var offersMoveHere: Bool { !isOpenInITerm2Here }
+
+  /// Whether "Detach other clients…" is offered (shown; disabled while `isPending`): see
+  /// `offersDetachOtherClients(isLive:clientCount:attachmentsHere:)`.
+  public var offersDetachOtherClients: Bool {
+    Self.offersDetachOtherClients(
+      isLive: isLive, clientCount: clientCount, attachmentsHere: attachmentsHere)
+  }
+
+  /// The offer rule of "Detach other clients…" (PLAN.md D37), one place for the row and the
+  /// model: the row is live (its host's last check succeeded), this Mac's iTerm2 shows the
+  /// session (`attachmentsHere`, the index's count or 1 for an attachment muxFinder made or
+  /// found, at least 1), and the listing's `clientCount` is greater than that.
+  public static func offersDetachOtherClients(
+    isLive: Bool,
+    clientCount: Int,
+    attachmentsHere: Int
+  ) -> Bool {
+    isLive && attachmentsHere > 0 && clientCount > attachmentsHere
+  }
+
+  /// The "Open in iTerm2 here" badge's text: with "also attached elsewhere" while "Detach other
+  /// clients…" is offered.
+  public var openHereText: String {
+    guard offersDetachOtherClients else { return Self.openHereBadge }
+    return Self.openHereBadge + " · " + Self.alsoAttachedElsewhereHint
+  }
 
   /// The leading indicator's state. "Open in iTerm2 here" comes first, since the attachment
   /// index is live even when the host's listing is stale; then a stale row; then the live
@@ -96,10 +133,13 @@ public struct SessionRow: Sendable, Hashable, Identifiable {
   /// The VoiceOver label: the session and its host.
   public var accessibilityLabel: String { "\(name) on \(hostName)" }
 
-  /// The VoiceOver value: the counts or staleness, the badge and the activity.
+  /// The VoiceOver value: the counts or staleness, the badge (with its hint) and the activity.
   public var accessibilityValue: String {
     var parts = [detail]
-    if isOpenInITerm2Here { parts.append(Self.openHereBadge) }
+    if isOpenInITerm2Here {
+      parts.append(Self.openHereBadge)
+      if offersDetachOtherClients { parts.append(Self.alsoAttachedElsewhereHint) }
+    }
     if let activity { parts.append(activity.text) }
     return parts.joined(separator: ", ")
   }
@@ -218,8 +258,9 @@ public struct PopoverContent: Sendable, Hashable {
 
   /// The content for `state` (`nil` while loading) with the search `query`, the sessions'
   /// `activities` and `notes`, the keyboard `selection`, relative times seen at `now`, the
-  /// hosts' "Set up SSH in iTerm2…" lines (`sshSetupStates`, by host id), the `banners`, and
-  /// the sessions muxFinder attached or found in this Mac's iTerm2 (`attachedHere`).
+  /// hosts' "Set up SSH in iTerm2…" lines (`sshSetupStates`, by host id), the `banners`, the
+  /// sessions muxFinder attached or found in this Mac's iTerm2 (`attachedHere`) and those with
+  /// an action in progress (`pending`).
   ///
   /// Search: a host whose name contains the query shows all its sessions; any other host
   /// shows only the sessions whose names contain it, and is left out when none does. Matching
@@ -234,7 +275,8 @@ public struct PopoverContent: Sendable, Hashable {
     sshSetupStates: [UUID: SSHSetupState] = [:],
     notes: [SessionKey: String] = [:],
     banners: [SessionBanner] = [],
-    attachedHere: Set<SessionKey> = []
+    attachedHere: Set<SessionKey> = [],
+    pending: Set<SessionKey> = []
   ) {
     notices = Self.notices(hostList: hostList, attachmentCheck: state?.attachmentCheck)
     self.banners = banners
@@ -259,6 +301,10 @@ public struct PopoverContent: Sendable, Hashable {
         section.rows[index].note = notes[key]
         section.rows[index].offersDetach =
           section.rows[index].isOpenInITerm2Here || attachedHere.contains(key)
+        if attachedHere.contains(key) {
+          section.rows[index].attachmentsHere = max(section.rows[index].attachmentsHere, 1)
+        }
+        section.rows[index].isPending = pending.contains(key)
       }
       if section.offersSSHSetup { section.sshSetup = sshSetupStates[snapshot.host.id] }
       if !trimmed.isEmpty, !Self.matches(snapshot.host.displayName, query: trimmed) {
@@ -332,7 +378,9 @@ public struct PopoverContent: Sendable, Hashable {
         activity: activities[session.key],
         isSelected: session.key == selection,
         clientCount: discovered.attachedClientCount,
-        knowsWhatIsOpenHere: knowsOpenHere)
+        knowsWhatIsOpenHere: knowsOpenHere,
+        isLive: snapshot.freshness == .live,
+        attachmentsHere: session.attachments.count)
     } // End of map over the host's sessions
     var caption: String?
     if let lastSuccess = snapshot.lastSuccess {

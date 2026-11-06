@@ -2,13 +2,15 @@ import Foundation
 import MuxFinderCore
 
 /// Why an action on a session failed, in plain English, and what the row offers to recover
-/// (PLAN.md D25). Every failure path of an attach, a move here, a detach and "Show tab" has its
-/// own message (a unit test checks that they are pairwise distinct), and none holds user data
-/// beyond what the popover shows anyway.
+/// (PLAN.md D25, D37). Every failure path of an attach, a move here, a detach, a "Detach other
+/// clients…" and "Show tab" has its own message (a unit test checks that they are pairwise
+/// distinct), and none holds user data beyond what the popover shows anyway.
 public struct SessionProblem: Sendable, Hashable {
   /// A button under the message.
   public enum Recovery: Sendable, Hashable {
-    /// "Try again": repeats the failed action (a move here asks for confirmation again).
+    /// "Try again": repeats the failed action (a move here and a "Detach other clients…" ask
+    /// for confirmation again, in the popover only, so the session switcher does not offer it
+    /// for them).
     case retry
     /// "Refresh": clears the failure and refreshes the session's host.
     case refresh
@@ -159,6 +161,80 @@ public struct SessionProblem: Sendable, Hashable {
         fixIt: result.checkFailure.flatMap(FixIt.init(failure:)))
     }
   } // End of static func detach(_:)
+
+  // MARK: - Detach other clients
+
+  /// The problem a "Detach other clients…" that ended `result` shows (PLAN.md D37); `nil` when
+  /// it detached, found nothing left to detach (the row's informational line) or was cancelled
+  /// (the row shows nothing). "Try again" shows the confirmation again.
+  public static func detachOtherClients(_ result: DetachOtherClientsResult) -> SessionProblem? {
+    let keepsRunning = " The session keeps running."
+    switch result.outcome {
+    case .detached, .nothingToDetach, .cancelled:
+      return nil
+    case .notAttachedHere:
+      return SessionProblem(
+        message: "This Mac's iTerm2 no longer shows this session, so muxFinder detached no other "
+          + "client." + keepsRunning, recoveries: [.refresh])
+    case .identityChanged:
+      return SessionProblem(
+        message: "muxFinder detached no other client, because this Mac's tab of the session in "
+          + "iTerm2 changed, so nothing was sent." + keepsRunning, recoveries: [.refresh])
+    case .notConfirmed:
+      return SessionProblem(
+        message: "muxFinder detached nothing, because the confirmation was for another session.",
+        recoveries: [.refresh])
+    case .checkFailed(.send(.tmuxCommandFailed)):
+      return SessionProblem(
+        message: "tmux refused to detach one of the other clients (it may have just left), and "
+          + "iTerm2 may have ended this Mac's attachment of the session too." + keepsRunning,
+        recoveries: [.refresh])
+    case .checkFailed(let problem):
+      return detachOtherClientsCheckFailed(problem)
+    }
+  } // End of static func detachOtherClients(_:)
+
+  /// The problem of a "Detach other clients…" that could not check or send something (other
+  /// than a detach tmux refused): its message, "Try again" and "Refresh", and D23's fix-it for
+  /// an iTerm2 permission or API error.
+  static func detachOtherClientsCheckFailed(_ problem: DetachOtherClientsProblem) -> SessionProblem
+  {
+    let message: String
+    let fixIt: FixIt?
+    switch problem {
+    case .attachmentCheck(let failure):
+      let reason: String
+      if case .attachmentCheckFailed(let error) = failure {
+        reason = error.errorDescription.map { " " + $0 } ?? ""
+      } else {
+        reason = " " + failure.message
+      }
+      message =
+        "muxFinder could not check which iTerm2 tabs show this session, so it detached no other "
+        + "client." + reason
+      fixIt = FixIt(failure: failure)
+    case .identityCheck(let reason):
+      message =
+        "muxFinder could not check this Mac's tab of the session in iTerm2, so it detached no "
+        + "other client."
+      if case .requestFailed(let error) = reason {
+        fixIt = FixIt(error: error)
+      } else {
+        fixIt = nil
+      }
+    case .clientListing(let error):
+      message =
+        "muxFinder could not read the session's other clients through iTerm2, so it stopped "
+        + "detaching them." + (error?.errorDescription.map { " " + $0 } ?? "")
+      fixIt = FixIt(error: error)
+    case .send(let error):
+      message =
+        "muxFinder could not send the detach through iTerm2, so some of the session's other "
+        + "clients may still be attached." + (error.errorDescription.map { " " + $0 } ?? "")
+      fixIt = FixIt(error: error)
+    }
+    return SessionProblem(message: message, recoveries: [.retry, .refresh], fixIt: fixIt)
+  } // End of static func detachOtherClientsCheckFailed(_:)
 
   // MARK: - Show tab
 

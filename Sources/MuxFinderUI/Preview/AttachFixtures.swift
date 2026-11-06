@@ -2,8 +2,9 @@ import Foundation
 import MuxFinderCore
 
 /// The session actions' states for `--preview-fixtures --preview-gallery attach` (PLAN.md
-/// D25): progress and results, every failure with its recoveries, the Move here dialog, Detach
-/// and the banners. The New session form's states (empty, invalid name, creating, collision,
+/// D25): progress and results, every failure with its recoveries, the Move here dialog, Detach,
+/// Detach other clients (its two dialogs, its progress, results and failures, PLAN.md D37) and
+/// the banners. The New session form's states (empty, invalid name, creating, collision,
 /// failed, a folder dragged over Directory; its directory list open with entries, with nothing
 /// to pick, with the directory saved already, with an unusable file, filtered by typing and
 /// with no matching directory, D31) are `newSessionStates`: the form is in its own window now
@@ -204,6 +205,91 @@ public enum AttachFixtures {
     ]
   }
 
+  /// A synthetic session on Saturno open here once, with `clients` tmux clients.
+  static func openHere(_ name: String, id: Int, clients: Int) -> HostSnapshot.Session {
+    Fixtures.session(
+      name, id: id, on: Fixtures.saturno, windows: 1 + id % 3, clients: clients, openHere: true)
+  }
+
+  /// The "Detach other clients…" confirmation (`otherClients` others, `here` of them in this
+  /// Mac's iTerm2) for a session of Saturno open here.
+  static func detachOtherClientsFixture(
+    id: String,
+    title: String,
+    otherClients: Int,
+    here: Int
+  ) -> PreviewFixture {
+    var session = openHere("build-farm", id: 32 + otherClients, clients: otherClients + 1)
+    for extra in 0..<here {
+      session.attachments.append(
+        AttachmentSnapshot.Attachment(
+          key: session.key, connectionID: "fixture-\(extra)", owningSessionID: "g\(extra)"))
+    }
+    return PreviewFixture(
+      id: id, title: title, state: hosts(saturno: [session]),
+      panel: .detachOtherClients(
+        DetachOtherClientsRequest(
+          target: AttachTarget(host: Fixtures.saturno, session: session.discovered),
+          otherClients: otherClients, otherClientsHere: here)))
+  } // End of static func detachOtherClientsFixture(id:title:otherClients:here:)
+
+  /// The "Detach other clients…" confirmation for a session with one other client.
+  public static let detachOtherClients = detachOtherClientsFixture(
+    id: "attach-detach-other-clients", title: "Detach other clients", otherClients: 1, here: 0)
+
+  /// The confirmation for two other clients, one of them a second attachment in this Mac's
+  /// iTerm2.
+  public static let detachOtherClientsHere = detachOtherClientsFixture(
+    id: "attach-detach-other-clients-here", title: "Detach other clients: one also here",
+    otherClients: 2, here: 1)
+
+  /// "Detaching other clients…" (the row with the badge's "also attached elsewhere"), one and
+  /// two detached (one had already left) and nothing left to detach.
+  public static let detachOtherClientsResults: PreviewFixture = {
+    let sessions = [
+      openHere("api-server", id: 110, clients: 2), openHere("build-farm", id: 111, clients: 1),
+      openHere("experiments", id: 112, clients: 1), openHere("scratch", id: 113, clients: 1),
+    ]
+    let activities: [SessionKey: SessionActivity] = [
+      sessions[0].key: .detachingOtherClients,
+      sessions[1].key: .detachedOtherClients(count: 1, alreadyLeft: 0),
+      sessions[2].key: .detachedOtherClients(count: 2, alreadyLeft: 1),
+      sessions[3].key: .noOtherClientsLeft,
+    ]
+    return PreviewFixture(
+      id: "attach-detach-other-clients-results", title: "Detach other clients: results",
+      state: hosts(saturno: sessions), activities: activities)
+  }()
+
+  /// The problem a "Detach other clients…" that ended `outcome` shows.
+  static func otherClientsProblem(_ outcome: DetachOtherClientsResult.Outcome) -> SessionProblem {
+    let key = Fixtures.session("fixture", id: 119, on: Fixtures.saturno, windows: 1).key
+    return SessionProblem.detachOtherClients(DetachOtherClientsResult(key: key, outcome: outcome))!
+  }
+
+  /// Not attached here any more, this Mac's tab changed, and a detach tmux refused, each with
+  /// "Refresh".
+  public static let detachOtherClientsProblems = failures(
+    id: "attach-detach-other-clients-problems", title: "Detach other clients: problems",
+    [
+      ("api-server", otherClientsProblem(.notAttachedHere)),
+      ("build-farm", otherClientsProblem(.identityChanged)),
+      ("experiments", otherClientsProblem(.checkFailed(.send(.tmuxCommandFailed)))),
+    ])
+
+  /// A failed check (with the Python API fix-it), a send that failed, and a confirmation for
+  /// another session.
+  public static let detachOtherClientsCheckFailures = failures(
+    id: "attach-detach-other-clients-check-failures", title: "Detach other clients: failures",
+    [
+      (
+        "scratch",
+        otherClientsProblem(.checkFailed(.attachmentCheck(.attachmentCheckFailed(.apiDisabled))))
+      ),
+      ("release-check", otherClientsProblem(.checkFailed(.send(.timedOut)))),
+      ("docs-site", otherClientsProblem(.notConfirmed)),
+    ])
+
   /// The New session form, empty, for This Mac.
   public static let newSession = PreviewFixture(
     id: "new-session", title: "New session", state: hosts(saturno: [], neptuno: neptuno),
@@ -380,14 +466,15 @@ public enum AttachFixtures {
   /// This Mac's sessions in the New session fixtures.
   static let neptuno = [Fixtures.session("notes", id: 95, on: Fixtures.neptuno, windows: 1)]
 
-  /// Two rows for the context menu's card: one open in iTerm2 here (Detach offered, Move here
-  /// not), one attached elsewhere (Move here offered, Detach not).
+  /// Two rows for the context menu's card: one open in iTerm2 here and attached elsewhere too
+  /// (Detach and Detach other clients offered, Move here not), one attached elsewhere (Move
+  /// here offered, neither detach).
   public static let menuRows: [SessionRow] = {
     let content = PopoverContent(
       state: hosts(
         saturno: [
           Fixtures.session(
-            "build-farm", id: 97, on: Fixtures.saturno, windows: 4, clients: 1, openHere: true),
+            "build-farm", id: 97, on: Fixtures.saturno, windows: 4, clients: 2, openHere: true),
           Fixtures.session("experiments", id: 98, on: Fixtures.saturno, windows: 2, clients: 1),
         ]),
       hostList: .saved, query: "", activities: [:], selection: nil, now: Fixtures.now)
@@ -397,7 +484,9 @@ public enum AttachFixtures {
   /// Every fixture of the popover's session actions, in the gallery's order.
   public static let all = [
     progress, launchFailures, moreLaunchFailures, checkFailures, moreCheckFailures, hostFailures,
-    iTermFailures, moveHere, detach, detachProblems, banners,
+    iTermFailures, moveHere, detach, detachProblems, detachOtherClients, detachOtherClientsHere,
+    detachOtherClientsResults, detachOtherClientsProblems, detachOtherClientsCheckFailures,
+    banners,
   ]
 
   /// The New session form's states as the popover opens it (the New session window's, PLAN.md

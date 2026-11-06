@@ -2,10 +2,12 @@ import MuxFinderCore
 import SwiftUI
 
 /// One session: its attach-state indicator, its name (stronger while attached), "4 windows ·
-/// 1 client" (or "Last seen … · not live"), the "Open in iTerm2 here" badge, and any progress,
-/// result or failure. A click opens it; the context menu offers "Move here…" and, for an
-/// attachment in this Mac's iTerm2, "Detach from this Mac" (PLAN.md D25). The keyboard
-/// selection is a neutral fill with an accent outline (PLAN.md D22).
+/// 1 client" (or "Last seen … · not live"), the "Open in iTerm2 here" badge (with "also
+/// attached elsewhere" while "Detach other clients…" is offered, PLAN.md D37), and any
+/// progress, result or failure. A click opens it; the context menu offers "Move here…" and,
+/// for an attachment in this Mac's iTerm2, "Detach from this Mac" and, when the listing shows
+/// more clients than this Mac's attachments, "Detach other clients…" (PLAN.md D25, D37). The
+/// keyboard selection is a neutral fill with an accent outline (PLAN.md D22).
 struct SessionRowView: View {
   /// The row's content.
   let row: SessionRow
@@ -35,7 +37,7 @@ struct SessionRowView: View {
             .lineLimit(1)
         } // End of HStack holding the name and the detail
         if row.isOpenInITerm2Here {
-          OpenHereBadge()
+          OpenHereBadge(text: row.openHereText)
         }
         if let activity = row.activity {
           ActivityLine(activity: activity, key: row.key, model: model)
@@ -83,6 +85,9 @@ struct SessionRowView: View {
     if row.offersDetach {
       Button(SessionMenu.detachTitle) { model.detach(row.key) }
     }
+    if row.offersDetachOtherClients, !row.isPending {
+      Button(SessionMenu.detachOtherClientsTitle) { model.requestDetachOtherClients(row.key) }
+    }
     if case .stillConnecting = row.activity {
       Button("Show tab") { model.showTab(for: row.key) }
     }
@@ -96,12 +101,17 @@ struct SessionRowView: View {
 
 /// A session row's context menu: "Open in iTerm2", "Move here…" (not while this Mac's iTerm2
 /// shows the session already) and, only for an attachment in this Mac's iTerm2, "Detach from
-/// this Mac", which detaches with tmux and leaves the session running.
+/// this Mac", which detaches with tmux and leaves the session running, and, only while the
+/// listing shows more clients than this Mac's attachments of a live row, "Detach other
+/// clients…" (hidden otherwise, disabled while another action of the row is pending; PLAN.md
+/// D37), which asks first.
 struct SessionMenu: View {
   /// "Move here…".
   static let moveHereTitle = "Move here…"
   /// "Detach from this Mac".
   static let detachTitle = "Detach from this Mac"
+  /// "Detach other clients…".
+  static let detachOtherClientsTitle = "Detach other clients…"
 
   /// The row the menu is for.
   let row: SessionRow
@@ -118,33 +128,44 @@ struct SessionMenu: View {
       Button(Self.detachTitle) { model.detach(row.key) }
         .help("Detaches this Mac's iTerm2 from the session. The session keeps running.")
     }
-  }
+    if row.offersDetachOtherClients {
+      Button(Self.detachOtherClientsTitle) { model.requestDetachOtherClients(row.key) }
+        .disabled(row.isPending)
+        .help(
+          "Detaches the session's other clients, such as iTerm2 on your other Macs, and keeps "
+            + "this Mac's. The session keeps running.")
+    }
+  } // End of var body
 }
 
 /// "Open in iTerm2 here": an iTerm2 tmux connection on this Mac shows the session (from
-/// `AttachmentIndex` only). White text on a solid blue capsule (`PopoverPalette`), readable
-/// on a selected row and an unselected one alike.
+/// `AttachmentIndex` only); `text` adds "also attached elsewhere" while "Detach other clients…"
+/// is offered (`SessionRow.openHereText`). White text on a solid blue capsule
+/// (`PopoverPalette`), readable on a selected row and an unselected one alike.
 struct OpenHereBadge: View {
+  /// The badge's text.
+  var text = SessionRow.openHereBadge
   /// Light or dark, for the palette.
   @Environment(\.colorScheme) private var colorScheme
 
   /// The capsule.
   var body: some View {
     let palette = PopoverPalette(colorScheme)
-    Label(SessionRow.openHereBadge, systemImage: "macwindow")
+    Label(text, systemImage: "macwindow")
       .font(.caption2.weight(.semibold))
       .foregroundStyle(palette.badgeText)
       .padding(.horizontal, 7)
       .padding(.vertical, 2)
       .background(Capsule().fill(palette.badgeFill))
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(SessionRow.openHereBadge)
+      .accessibilityLabel(text)
   }
 }
 
-/// Progress ("Opening…", "Waiting for iTerm2…"), "Still connecting — check the iTerm2 tab"
-/// with "Show tab", a result ("Confirmed…", "Detached…"), or a failure with its recoveries and,
-/// when it has one, its fix-it.
+/// Progress ("Opening…", "Waiting for iTerm2…", "Detaching other clients…"), "Still
+/// connecting — check the iTerm2 tab" with "Show tab", a result ("Confirmed…", "Detached…"),
+/// "No other clients to detach…" with an information mark, or a failure with its recoveries
+/// and, when it has one, its fix-it.
 struct ActivityLine: View {
   /// What to show.
   let activity: SessionActivity
@@ -178,9 +199,11 @@ struct ActivityLine: View {
       ) {
         model.showTab(for: key)
       }
-    case .confirmed, .focused, .detached:
+    case .confirmed, .focused, .detached, .detachedOtherClients:
       MessageLine(text: activity.text, systemImage: "checkmark.circle.fill", tint: .green)
-    case .opening, .movingHere, .waitingForITerm2, .detaching:
+    case .noOtherClientsLeft:
+      MessageLine(text: activity.text, systemImage: "info.circle.fill", tint: .blue)
+    case .opening, .movingHere, .waitingForITerm2, .detaching, .detachingOtherClients:
       HStack(spacing: 6) {
         ProgressView()
           .progressViewStyle(.circular)

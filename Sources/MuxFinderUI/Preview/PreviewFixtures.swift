@@ -27,7 +27,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var notes: [SessionKey: String]
   /// Banners for vanished or changed sessions.
   public var banners: [SessionBanner]
-  /// The popover's panel shown (Move here).
+  /// The popover's panel shown (Move here, Detach other clients).
   public var panel: PopoverPanel?
   /// Whether the New session window shows (PLAN.md D34); its form renders whatever this says,
   /// and its keys act only while it is set.
@@ -242,12 +242,13 @@ public enum PreviewFixtures {
     id: "overview", title: "Hosts and sessions", state: state(overviewHosts),
     selection: saturnoSessions[1].key)
 
-  /// The keyboard selection on a session open in iTerm2 here (the badge on a selected row),
-  /// beside one attached elsewhere; Saturno needing a sign-in (the orange attention tone) next
-  /// to Sirio unreachable (muted, its last sessions stale).
+  /// The keyboard selection on a session open in iTerm2 here and attached elsewhere too (the
+  /// badge with "also attached elsewhere" on a selected row, PLAN.md D37), beside one attached
+  /// elsewhere; Saturno needing a sign-in (the orange attention tone) next to Sirio unreachable
+  /// (muted, its last sessions stale).
   public static let selectedBadgeOffline: PreviewFixture = {
     let local = [
-      session("notes", id: 9, on: neptuno, windows: 2, clients: 1, openHere: true),
+      session("notes", id: 9, on: neptuno, windows: 2, clients: 2, openHere: true),
       session("index-rebuild", id: 10, on: neptuno, windows: 3, clients: 1),
     ]
     let hosts = [

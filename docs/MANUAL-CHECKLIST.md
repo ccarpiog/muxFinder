@@ -667,6 +667,47 @@ Settings, see a privacy prompt or turn VoiceOver on, and folder names are never 
   starts (never for each key), then the number of folders found when it settles.
 - **Undo:** step 7; Settings › Directories back to "Home folder" if you changed it.
 
+## 25. Detach other clients from two Macs
+
+Owed by Phase I-11b (PLAN.md Phase I-11, D37): the command was proven on This Mac and Saturno
+with a plain `tmux -C` client standing in for the other Mac (`e2e-detach-others`, Phase
+I-11a), and the popover's item, its confirmation, results and failures are unit-tested over a
+fake iTerm2 and seen only in the preview galleries; no unattended run may open the real
+popover, click it, use another Mac's iTerm2 or press keys.
+
+- **Do**, from the installed app on This Mac, with Saturno turned on and its iTerm2 running:
+  1. Create a session on Saturno (`ssh saturno-m4 /opt/homebrew/bin/tmux new-session -d -s
+     muxfinder-test-two-macs`) and open it on Saturno itself in iTerm2 (`tmux -CC attach -t
+     '=muxfinder-test-two-macs'` there, or muxFinder on Saturno). Leave that window as it is.
+  2. On This Mac, open the popover, click the session to open it here; then make This Mac's
+     iTerm2 window of it much larger (or smaller) than Saturno's.
+  3. Open the popover again (the row now says "Open in iTerm2 here · also attached
+     elsewhere" and "2 clients"), right-click the session and choose "Detach other clients…";
+     read the dialog, press Esc; choose it again and press "Detach other clients".
+  4. Resize This Mac's iTerm2 window of the session again.
+  5. With VoiceOver on (⌘F5), open the dialog once more on a session attached on both Macs
+     (repeat 1 and 2 first), hear it, and press Cancel.
+- **Expect:** 2: This Mac's window shows the session at Saturno's size, the rest of the window
+  unused (the problem this fixes). 3: Esc closes the dialog and nothing happens; the dialog
+  names the session, says "1 other client was attached when muxFinder last looked", that they
+  may be iTerm2 on other Macs, that nothing is closed and the session keeps running, and that
+  "While another client is attached, tmux may keep the window at the other client's size."
+  Confirming shows "Detaching other clients…" on the row (for up to about 10 s if a client is
+  younger than that), then "Detached 1 other client — the session keeps running"; Saturno's
+  iTerm2 windows of the session close (its tmux tab shows the detach; no "tmux Reported a
+  Problem" alert), This Mac's windows stay open with the same tabs, no window closes and
+  reopens here, and the row's badge loses "also attached elsewhere" and reads "1 client"
+  after the refresh. 4: the session now follows This Mac's window size. 5: VoiceOver reads the
+  dialog's title when it appears, and its buttons by name.
+- **The residual race (D37):** muxFinder checks each other client right before it detaches
+  it, one round trip apart. If a client ends (or switches session) in exactly that instant,
+  tmux may refuse the detach; iTerm2 then shows its "tmux Reported a Problem" alert and may end
+  this Mac's attachment too, and the row says "tmux refused to detach one of the other
+  clients …" with "Refresh". The session keeps running in every case: open it again. Write
+  down if you ever see it.
+- **Undo:** in muxFinder, "Detach from this Mac" on the session; then `ssh saturno-m4
+  /opt/homebrew/bin/tmux kill-session -t '=muxfinder-test-two-macs'`.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -695,3 +736,4 @@ Settings, see a privacy prompt or turn VoiceOver on, and folder names are never 
 | 22 | | | |
 | 23 | | | |
 | 24 | | | |
+| 25 | | | |

@@ -2,9 +2,9 @@ import Foundation
 import MuxFinderCore
 import os
 
-/// The session actions of the popover (PLAN.md D25): Open, "Move here…", "Detach from this
-/// Mac", "Show tab", the recoveries a failure offers, and the banners (New session, in its own
-/// window, is `AppModelNewSession.swift`, PLAN.md D34).
+/// The session actions of the popover (PLAN.md D25, D37): Open, "Move here…", "Detach from
+/// this Mac", "Detach other clients…", "Show tab", the recoveries a failure offers, and the
+/// banners (New session, in its own window, is `AppModelNewSession.swift`, PLAN.md D34).
 ///
 /// - **One action per session:** `runningActions` holds the action in progress for each
 ///   session; a click, Return or menu item for a session with one pending is ignored, so a burst
@@ -71,7 +71,23 @@ extension AppModel {
     guard environment != nil, lifecycle != .stopped, runningActions[key] == nil,
       let target = target(for: key)
     else { return }
-    panel = .moveHere(MoveHereRequest(target: target))
+    showPanel(.moveHere(MoveHereRequest(target: target)))
+  }
+
+  /// Shows a confirmation in place of the host list and has VoiceOver say its title.
+  func showPanel(_ shown: PopoverPanel) {
+    panel = shown
+    announce?(shown.title)
+  }
+
+  /// Return on a confirmation: confirms the one that shows (`confirmMoveHere()` or
+  /// `confirmDetachOtherClients()`).
+  func confirmPanel() {
+    switch panel {
+    case .moveHere?: confirmMoveHere()
+    case .detachOtherClients?: confirmDetachOtherClients()
+    case nil: break
+    }
   }
 
   /// The confirmation's "Move here": the only call that reaches
@@ -82,7 +98,8 @@ extension AppModel {
     startAttach(request.target.key, kind: .moveHere, target: request.target)
   }
 
-  /// Closes the Move here confirmation (Cancel, or Esc): it runs nothing. The New session
+  /// Closes the Move here or Detach other clients confirmation (Cancel, or Esc): it runs
+  /// nothing. The New session
   /// window is not the popover's panel and is left as it is (its own Cancel is
   /// `closeNewSession()`, PLAN.md D34).
   public func cancelPanel() {
@@ -149,6 +166,70 @@ extension AppModel {
     logger.info("Session action started: detach")
   } // End of func detach(_:)
 
+  // MARK: - Detach other clients
+
+  /// The confirmation "Detach other clients…" would show for `key` now, or `nil` when it is not
+  /// offered (PLAN.md D37, `SessionRow.offersDetachOtherClients(isLive:clientCount:…)`): the
+  /// session listed on its host's live snapshot, shown in this Mac's iTerm2 (the index's
+  /// attachments, at least 1 for one in `attachedHere`), with more clients than that. The
+  /// counts are the listing's at this time.
+  func detachOtherClientsRequest(for key: SessionKey) -> DetachOtherClientsRequest? {
+    guard let snapshot = refreshState?.snapshot(of: key.hostID),
+      let session = snapshot.sessions.first(where: { $0.key == key })
+    else { return nil }
+    let here = max(session.attachments.count, attachedHere[key] == nil ? 0 : 1)
+    let clients = session.discovered.attachedClientCount
+    guard
+      SessionRow.offersDetachOtherClients(
+        isLive: snapshot.isLive, clientCount: clients, attachmentsHere: here)
+    else { return nil }
+    return DetachOtherClientsRequest(
+      target: AttachTarget(host: snapshot.host, session: session.discovered),
+      otherClients: clients - 1, otherClientsHere: here - 1)
+  } // End of func detachOtherClientsRequest(for:)
+
+  /// "Detach other clients…": shows the confirmation for `key` (what is detached, that they
+  /// may be on other Macs, that the session keeps running, the window-size reason). Nothing
+  /// runs until `confirmDetachOtherClients()`. Ignored while an action on the session is
+  /// pending, when the offer rule does not hold, for a fixture and after `shutdown()`. Returns
+  /// whether it showed.
+  @discardableResult
+  public func requestDetachOtherClients(_ key: SessionKey) -> Bool {
+    guard environment != nil, lifecycle != .stopped, runningActions[key] == nil,
+      let request = detachOtherClientsRequest(for: key)
+    else { return false }
+    showPanel(.detachOtherClients(request))
+    return true
+  }
+
+  /// The confirmation's "Detach other clients" (or Return): the only call that reaches
+  /// `AttachCoordinator.detachOtherClients(of:confirmation:)`, with the confirmation naming the
+  /// session the panel names and that session as the target. The row shows "Detaching other
+  /// clients…" meanwhile (the call can wait about 20 s for young tabs and clients, D37); clicks
+  /// on it are ignored, and `shutdown()` cancels it.
+  public func confirmDetachOtherClients() {
+    guard case .detachOtherClients(let request) = panel else { return }
+    panel = nil
+    let target = request.target
+    let key = target.key
+    guard lifecycle != .stopped, runningActions[key] == nil else { return }
+    guard let coordinator = coordinator() else {
+      if let attacherProblem { activities[key] = .failed(.unavailable(attacherProblem)) }
+      return
+    }
+    lastActions[key] = .detachOtherClients
+    activities[key] = .detachingOtherClients
+    notes[key] = nil
+    let sink = actionSink
+    let task = Task {
+      let result = await coordinator.detachOtherClients(
+        of: target, confirmation: .detachOtherClients(of: key))
+      sink.yield(.finished(key, .detachedOtherClients(result)))
+    }
+    runningActions[key] = RunningAction(kind: .detachOtherClients, target: target, task: task)
+    logger.info("Session action started: detach other clients")
+  } // End of func confirmDetachOtherClients()
+
   // MARK: - Show tab and recoveries
 
   /// "Show tab": brings forward the launch tab of `key`'s activity (a still-connecting attach,
@@ -192,17 +273,36 @@ extension AppModel {
     }
   } // End of func perform(_:for:)
 
-  /// "Try again" on a session's failure: repeats its last action (a move here shows its
-  /// confirmation again); with none, clears the failure and refreshes the session's host.
+  /// The sessions whose "Try again" would show a confirmation that only the popover draws:
+  /// their last action was a move here or a "Detach other clients…" (PLAN.md D25, D32, D37).
+  /// The session switcher offers their failures' other recoveries only (`SwitcherContent`).
+  var retriesConfirmedInPopover: Set<SessionKey> {
+    Set(lastActions.compactMap { $0.value.confirmsInPopover ? $0.key : nil })
+  }
+
+  /// Whether the popover is the one showing (open, and the session switcher not), so a
+  /// confirmation it draws is seen.
+  var isPopoverShowing: Bool { isPopoverVisible && !isSwitcherVisible }
+
+  /// "Try again" on a session's failure: repeats its last action (a move here and a "Detach
+  /// other clients…" show their confirmation again; one no longer offered refreshes the host);
+  /// with none, clears the failure and refreshes the session's host. Those two confirmations
+  /// are drawn only in the popover (PLAN.md D25, D32, D37), so while the popover is not the one
+  /// showing their retry changes nothing (the failure stays, no confirmation is set to wait
+  /// hidden); the switcher does not offer it for them.
   public func retry(session key: SessionKey) {
     guard runningActions[key] == nil else { return }
     let last = lastActions[key]
+    if last?.confirmsInPopover == true, !isPopoverShowing { return }
     activities[key] = nil
     notes[key] = nil
     switch last {
     case .open?: open(key)
     case .moveHere?: requestMoveHere(key)
     case .detach?: detach(key)
+    case .detachOtherClients?:
+      // Its confirmation again; the host's listing decides whether it is still offered.
+      if !requestDetachOtherClients(key) { refreshHost(key.hostID) }
     case nil: refreshHost(key.hostID)
     }
   } // End of func retry(session:)
@@ -267,7 +367,8 @@ extension AppModel {
   /// replaced (`isCurrent == false`) and of launches no pending action of this model started
   /// change nothing.
   func apply(_ update: AttachUpdate) {
-    guard update.isCurrent, let running = runningActions[update.key], running.kind != .detach
+    guard update.isCurrent, let running = runningActions[update.key],
+      running.kind.followsLaunchStates
     else { return }
     switch update.state {
     case .failed, .focused: return
@@ -276,7 +377,8 @@ extension AppModel {
     activities[update.key] = SessionActivity(update.state, movingHere: running.kind == .moveHere)
   }
 
-  /// An open, move here or detach of `key` ended; a note from "Show tab" goes with it.
+  /// An open, move here, detach or "Detach other clients…" of `key` ended; a note from "Show
+  /// tab" goes with it.
   func finish(_ key: SessionKey, _ outcome: SessionActionRecord.Outcome) {
     let running = runningActions.removeValue(forKey: key)
     notes[key] = nil
@@ -286,6 +388,8 @@ extension AppModel {
       finishAttach(result, target: running?.target)
     case .detached(let result):
       finishDetach(result)
+    case .detachedOtherClients(let result):
+      finishDetachOtherClients(result)
     case .created:
       break
     }
@@ -353,6 +457,40 @@ extension AppModel {
     }
   } // End of func finishDetach(_:)
 
+  /// What the row shows after a "Detach other clients…" that ended `result` (PLAN.md D37):
+  /// "Detached <n> other client(s) — the session keeps running" (with how many had already
+  /// left), "No other clients to detach — they had already left", or the problem
+  /// (`SessionProblem.detachOtherClients(_:)`); `nil` for a cancelled one, which shows nothing.
+  static func activity(after result: DetachOtherClientsResult) -> SessionActivity? {
+    switch result.outcome {
+    case .detached(let count):
+      return .detachedOtherClients(count: count, alreadyLeft: result.goneBeforeDetach)
+    case .nothingToDetach:
+      return .noOtherClientsLeft
+    case .cancelled:
+      return nil
+    default:
+      return SessionProblem.detachOtherClients(result).map(SessionActivity.failed)
+    }
+  } // End of static func activity(after:)
+
+  /// Shows how a "Detach other clients…" ended (`activity(after:)`) and refreshes its host
+  /// afterwards, so `clientCount` and the offer follow, for every outcome but `cancelled` and
+  /// `notConfirmed`. "Not attached here" also forgets the attachment muxFinder recorded.
+  func finishDetachOtherClients(_ result: DetachOtherClientsResult) {
+    let key = result.key
+    activities[key] = Self.activity(after: result)
+    switch result.outcome {
+    case .cancelled, .notConfirmed:
+      return
+    case .notAttachedHere:
+      attachedHere[key] = nil
+    default:
+      break
+    }
+    refreshHost(key.hostID)
+  } // End of func finishDetachOtherClients(_:)
+
   /// Keeps `record` among the latest finished actions and logs its kind (no ids or names).
   func record(_ record: SessionActionRecord) {
     finishedActions.append(record)
@@ -366,6 +504,7 @@ extension AppModel {
     case .created(let result):
       kind = "new session \(result.creationFailure?.kind ?? result.attach?.state.kind ?? "?")"
     case .detached(let result): kind = "detach \(result.outcome.rawValue)"
+    case .detachedOtherClients(let result): kind = "detach other clients \(result.outcome.kind)"
     }
     logger.info("Session action ended: \(kind, privacy: .public)")
   } // End of func record(_:)
@@ -384,13 +523,15 @@ extension AppModel {
     if banners.count > Self.bannerLimit { banners.removeLast(banners.count - Self.bannerLimit) }
   } // End of func addBanner(_:key:target:)
 
-  /// Cancels every session action in progress (opens, moves, detaches, New session attaches, a
-  /// New session being created, "Open existing" lookups, "Show tab" requests) and returns once
-  /// each has ended and its result was handled, or once `budget` (if given) has passed: then
-  /// it returns the kinds (`ShutdownReport.unfinishedActions`) of the actions still running,
-  /// which go on until they end. An attach stops at its next step and withdraws its request (a
-  /// `CreateTab` already sent is answered first, D15); a detach waiting for its tab's age sends
-  /// nothing. Used by `shutdown()` and the self-tests' cleanup.
+  /// Cancels every session action in progress (opens, moves, detaches, "Detach other clients…"
+  /// calls, New session attaches, a New session being created, "Open existing" lookups, "Show
+  /// tab" requests) and returns once each has ended and its result was handled, or once
+  /// `budget` (if given) has passed: then it returns the kinds
+  /// (`ShutdownReport.unfinishedActions`) of the actions still running, which go on until they
+  /// end. An attach stops at its next step and withdraws its request (a `CreateTab` already
+  /// sent is answered first, D15); a detach waiting for its tab's age, and a "Detach other
+  /// clients…" waiting for young tabs or clients, send nothing. Used by `shutdown()` and the
+  /// self-tests' cleanup.
   @discardableResult
   public func cancelSessionActions(within budget: Duration? = nil) async -> [String] {
     var pending = runningActions.values.map { (kind: $0.kind.name, task: $0.task) }

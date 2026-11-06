@@ -52,13 +52,13 @@ file.
 | I-10a | Folder search core: one static Spotlight script for This Mac and SSH hosts (header, folder-name queries on stdin, noise rule, 50 limit, 4 s host deadline, end records), escaping, bounded parser, streaming transport, channel state machine, scope in `preferences.json`, probe `folders`; real `--count-only` runs here and on Saturno (D36; D3, D11, D32 edited; spec `autoclaude/processed/100-folder-search-spotlight.md`) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-10a.md` | `docs/progress-archive/i-10a.md` |
 | I-10b | Folder search UI: "Folders on <host>" section in New session's directory list (states, de-dup, pick, `/` and <2 rules, unusable paths dropped), one channel per window and host, This Mac's `unchecked` script argument, Settings › Directories scope and "Missing a folder?", VoiceOver, galleries, checklist 24 (D3, D31, D32, D34, D36 edited) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-10b.md` | `docs/progress-archive/i-10b.md` |
 | I-11a | Detach other clients, proof and core: `attach-session -d` rejected on real runs (iTerm2 reopens windows), per-client checked `detach-client`, `detachOtherClients(of:confirmation:)` with typed results and 10 s age guard, `tmuxCommandFailed` at the API boundary, `e2e-detach-others` 9/9 on both hosts (D37) | high | opus (impl + review-fix worker); orchestrator regression run and one `CLAUDE.md` edit | Codex, ship-with-fixes, `docs/reviews/phase-I-11a.md` | `docs/progress-archive/i-11a.md` |
+| I-11b | Detach other clients, the UI: popover item and offer rule, in-popover confirmation, pending row, results through `SessionProblem`, refresh, row hint "also attached elsewhere", VoiceOver, galleries; switcher offers no "Try again" for popover-only confirmations (D25, D32, D37 edited) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-11b.md` | `docs/progress-archive/i-11b.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-11b | Detach other clients, the UI (routine): the popover's "Detach other clients…" item and offer rule, D25-style confirmation, refresh and recovery, optional hint, galleries, README, checklist, D37's UI part — `PLAN.md` *Phase I-11* | `autoclaude/processed/105-detach-other-clients.md` | next; before I-12 (the user's order) |
-| I-12 | Other terminal apps (high, a group): Terminal.app and Ghostty in plain tmux beside iTerm2's control mode, terminal seam, JSON definitions, helper plain mode, confirmation, Settings › General "Terminal", strings, onboarding without iTerm2, docs; split into sub-phases (the item suggests a–e) in `PLAN.md` before its first worker | `autoclaude/processed/110-other-terminal-apps.md` | after I-11 |
+| I-12 | Other terminal apps (high, a group): Terminal.app and Ghostty in plain tmux beside iTerm2's control mode, terminal seam, JSON definitions, helper plain mode, confirmation, Settings › General "Terminal", strings, onboarding without iTerm2, docs; split into sub-phases (the item suggests a–e) in `PLAN.md` before its first worker | `autoclaude/processed/110-other-terminal-apps.md` | next |
 | I-13 | Update check (high, a group): GitHub `releases/latest` check at launch and daily (toggle on by default), popover notice and icon dot, one-click Update (download, SHA-256, `ditto`, Developer ID + notarization check, D27-style swap, relaunch), hand-written, no Sparkle; split a (core) / b (UI) in `PLAN.md` before its first worker | `autoclaude/processed/120-update-check-github.md` | after I-12 (last) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
@@ -92,10 +92,11 @@ runs are owed to the user.
 ## Current phase
 
 Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8, I-9 (a, b), I-10 (a, b) and
-I-11a are complete and reviewed. The user released 0.2.0 (build 2) in `f1b11ac`. **Phase
-I-11a — Detach other clients, proof and core (high): complete** 2026-11-06
-(`docs/progress-archive/i-11a.md`). **Queued: I-11b** (the UI; *Next action* 0), then
-**I-12** (other terminal apps, a group to split first). Also remaining: the manual checklist (the user's). Phase
+I-11 (a, b) are complete and reviewed. The user released 0.2.0 (build 2) in `f1b11ac`.
+**Phase I-11b — Detach other clients, the UI (routine): complete** 2026-11-06
+(`docs/progress-archive/i-11b.md`). **Queued: I-12** (other terminal apps, a group to split
+first; *Next action* 0), then **I-13** (update check, a group to split a/b). Also remaining:
+the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
@@ -126,32 +127,21 @@ I-11a/I-11b.
 - Phases I-4 to I-9a: all criteria met, 2026-11-04 to 2026-11-05 (I-9a: 815 core + 406 UI
   tests, `--selftest new-session-local` 7/7); real presses, clicks and windows owed
   (checklist 19–22) — verbatim in `docs/progress-archive/head-i-4-i-9a.md`.
-- Phase I-9b: all criteria met, 2026-11-06 — `FolderDrop.outcome(for:home:)` with the
-  specification's cases and more (package, sibling prefix, zero items, non-file URL, trailing
-  slash); the fill closes the list without reopening it; 25 new UI tests, 2 changed (recorded
-  in `docs/TESTING.md` *Phase I-9b*; 815 core + 431 UI pass); `--preview-gallery new-session`
-  13 states incl. the 7 required, light and dark, inspected; attach and switcher screenshots
-  regenerated; checklist 23 new, 17, 18, 20–22 updated; real drags owed (checklist 23) —
-  `docs/progress-archive/i-9b.md`.
-- Phase I-10a: all criteria met, 2026-11-06 — the core types and probe `folders`; 64 hermetic
-  folder-search tests (escaping, parser incl. a newline in a name, the noise rule, limit and
-  end records through the real script with stub `mdfind`/`mdutil`, the channel with a fake
-  transport and clock, the scope preference), 879 core + 431 UI pass; real `--count-only`
-  runs on this Mac and Saturno recorded in `docs/TESTING.md` *Phase I-10a* (open channel
-  0.12–0.46 s per query after the fixes; opening 0.8–0.9 s on Saturno), nothing left running;
-  D36 recorded; the three owed `CLAUDE.md` notes applied — `docs/progress-archive/i-10a.md`.
-- Phase I-10b: all criteria met, 2026-11-06 — the section's states, de-dup, pick, the `/` and
-  <2 rules, unusable paths dropped, the channel's lifetime, the scope per query, announcements
-  and This Mac's `unchecked` argument under hermetic tests (37 new UI tests, 2 core; 881 core +
-  468 UI pass); one real read-only local `folders --count-only` (header "not checked", no child
-  left); galleries light and dark inspected; checklist 24 new; real search on Saturno, This
-  Mac's privacy prompt and VoiceOver owed — `docs/progress-archive/i-10b.md`.
+- Phases I-9b, I-10a, I-10b: all criteria met, 2026-11-06 (I-9b the folder drop, real drags
+  owed, checklist 23; I-10a folder search core, real `--count-only` runs on both hosts; I-10b
+  folder search UI, 881 core + 468 UI, real Saturno search owed, checklist 24) —
+  `docs/progress-archive/{i-9b,i-10a,i-10b}.md`.
 - Phase I-11a: all criteria met, 2026-11-06 — option (a) `attach-session -d` proven unusable
   on both hosts (iTerm2 3.7.7 reopens the windows; `e2e-detach-others` 7/9 each), option (b)
   chosen; `detachOtherClients(of:confirmation:)` with the typed results; hermetic tests (905
   core + 468 UI pass); `e2e-detach-others` 9/9 locally and on Saturno on the final code;
   `e2e-local` 16/16 as regression of the API client change; D37, TESTING, ARCHITECTURE,
   `CLAUDE.md` recorded — `docs/progress-archive/i-11a.md`.
+- Phase I-11b: all criteria met, 2026-11-06 — the offer rule, the in-popover confirmation as
+  the only caller of the core call (the named key only), the pending row, every outcome mapped
+  and refreshed as the calls say, the hint kept, VoiceOver, `attach`/`popover` galleries light
+  and dark, docs and D25/D32/D37; 905 core + 485 UI pass; real clicks owed (checklist 25) —
+  `docs/progress-archive/i-11b.md`.
 
 ## Decisions
 
@@ -170,31 +160,9 @@ I-11a/I-11b.
 - Phase 13 planning to I-9a: their decision lines moved verbatim to
   `docs/progress-archive/decisions-13-i-9a.md` (D29 to D34; the splits of 13, I-1, I-2, I-3
   and I-9).
-- Phase I-9b: the orchestrator's calls in `PLAN.md` *Phase I-9* ("calls for I-9b"): the drop
-  target is the Directory row only (the user's "onto Directory"); one non-package folder URL,
-  everything else refused with no "+"; the path as dropped, `~` by whole components; the fill
-  a pick. The worker's route: an invisible AppKit drop view in front of the field and its
-  field editor, registered for every type the field editor takes, clicks passing through. The
-  switcher's `formFiltered`/`formNoMatches` fixtures retired as duplicates of the window's
-  states. `docs/REQUIREMENTS.md` left as it is (the verbatim brief, never inline) —
-  `docs/progress-archive/i-9b.md`.
-- Phase I-10: split into I-10a/I-10b in `PLAN.md` before the first worker, with the
-  orchestrator's calls there: one static script for This Mac and SSH hosts (not
-  `NSMetadataQuery`); the channel carries only id, scope and escaped name text, the script
-  builds the fixed predicate; the fixed noise rule (a)–(d) in the script, tested through the
-  real script with stub tools; at most 50 folders; the scope in `preferences.json`. New
-  **D36** (D3, D11, D32 edited) adds the worker's and the review's: refusal of unescaped
-  `" * ? \`, a 4 s host-side deadline per query (worst-case host lifetime after a disconnect
-  about 4–5 s), the explicit stop at the limit, an 8-event transport queue —
-  `docs/progress-archive/i-10a.md`.
-- Phase I-10b: the orchestrator's calls in `PLAN.md` *Phase I-10* ("calls for I-10b"): This
-  Mac runs no readability check (a fixed `unchecked` script argument; the note only for SSH
-  hosts); unusable paths dropped before they are offered; text with `/` or under 2 characters
-  sends no query; the section last, counting for I-7's open rule; one channel per window and
-  host; the scope read per query; announcements as I-7's. The worker's: folder search only in
-  normal mode; earlier matching results kept while a new text is searched (same host and scope
-  only, after the review); a model-owned scope save awaited at shutdown —
-  `docs/progress-archive/i-10b.md`.
+- Phases I-9b, I-10 (split a/b, D36) and I-10b: the orchestrator's calls are in `PLAN.md`
+  *Phase I-9* and *Phase I-10*, the workers' in their archives —
+  `docs/progress-archive/{i-9b,i-10a,i-10b}.md`.
 - Phase I-11: split into I-11a/I-11b in `PLAN.md` before the first worker, with the
   orchestrator's calls there (proof of (a) first; its own confirmation type; the attachment
   Show tab focuses is kept; identity check before sending; read-only count, nothing sent when
@@ -202,6 +170,12 @@ I-11a/I-11b.
   `detach-client -t` after a server-wide check of name, pid, creation time and session; a 10 s
   age guard by tmux's clock on every listed client; an answer without `output` is
   `tmuxCommandFailed` for every `SendCommand` caller — `docs/progress-archive/i-11a.md`.
+- Phase I-11b: the orchestrator's calls in `PLAN.md` *Phase I-11* ("calls for I-11b": popover
+  only, the offer rule, the in-popover confirmation and its count, wording, recoveries, refresh,
+  the hint). The worker's: only the new item disabled while an action is pending; both dialogs
+  announce their title; `notAttachedHere` forgets the record. The review fix's: the switcher
+  offers no "Try again" for a move here or a detach of others (popover-only confirmations),
+  fixing Move here's same older flaw — `docs/progress-archive/i-11b.md`.
 
 ## Open risks / deviations
 
@@ -213,26 +187,9 @@ I-11a/I-11b.
   `docs/progress-archive/open-risks-i-2b-i-9a.md` (real keys, clicks, presses, drags and
   windows unverified, checklist 15–23; load-sensitive private-server tests). The three
   `CLAUDE.md` notes owed there by I-4, I-6 and I-9a were applied by I-10a.
-- I-9b: no real drag was made; that the drop view gets drags ahead of the field editor in the
-  real window rests on one throwaway probe of the worker's (deleted; the shipped code uses no
-  private API) — checklist 23. The popover gallery's committed screenshot predates I-6 (32 px
-  shorter than it renders now; not regenerated, I-9 did not change it). The worker ran one
-  read-only `git log`, against its brief — `docs/progress-archive/i-9b.md`.
-- I-10a: to verify the escaping by counts the worker mounted its own 16 MB scratch disk image
-  with Spotlight indexing on, queried synthetic folders, then detached and deleted it (none
-  left mounted, `hdiutil info`): beyond rule 3's "read-only queries", no folder of the user's
-  touched — noted for the user. Handed to I-10b: the readability check may raise a macOS
-  access prompt on This Mac (decide whether to skip it locally); paths with a newline must pass
-  `Validation.workingDirectory` before being offered; a mid-word `'` finds nothing; an
-  unreachable host shows its problem after up to ~10 s. One fix-worker `swift test` run had 3
-  `PopoverHeightLimitTests` failures, not reproduced. The fix worker ran one read-only `git
-  diff --stat` — `docs/progress-archive/i-10a.md`. Those handovers were settled by I-10b's
-  calls.
-- I-10b: rows of the previous scope can show for the few milliseconds before the channel
-  announces a new search; 2 of the worker's 7 full `swift test` runs had one load-sensitive
-  core process test over its bound (passing alone 15 times; the orchestrator's final runs
-  passed); owed to the user, checklist 24 (real Saturno search, This Mac's privacy prompt,
-  protected folders on This Mac, the links, VoiceOver) — `docs/progress-archive/i-10b.md`.
+- I-9b, I-10a, I-10b: their open risks are in their archives (real drags, checklist 23; the
+  I-10a scratch disk image, noted for the user; real Saturno search, This Mac's privacy prompt
+  and VoiceOver, checklist 24) — `docs/progress-archive/{i-9b,i-10a,i-10b}.md`.
 - I-11a (**for the user**): the review's blocker could only be narrowed (D37). Within one round
   trip between the check and `detach-client`, a checked client that switches sessions is
   detached from its new session, and one that ends makes `detach-client` fail, which on
@@ -241,6 +198,9 @@ I-11a/I-11b.
   private-server probe used `kill-server` on its own private socket (against the rule, nothing
   of the user's touched). The age guard can be shortened by a wall clock jump on the tmux
   host — `docs/progress-archive/i-11a.md`.
+- I-11b: no real click, menu, key or VoiceOver check (checklist 25, with D37's residual race);
+  the switcher's badge shows the hint too, unshown in its gallery; the implementation worker
+  ran one read-only `git status --short`, against its brief — `docs/progress-archive/i-11b.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -291,40 +251,30 @@ I-11a/I-11b.
   I-6 and I-9a `ship-with-fixes` (one should-fix each, all fixed and re-verified), I-7 and I-8
   `ship` — verbatim in `docs/progress-archive/head-i-4-i-9a.md`, reports in
   `docs/reviews/phase-I-{4,5,6,7,8,9a}.md`.
-- Phase I-9b: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship`, 0 findings (not
-  verified: checklist 23's real drags, click-through, keys and VoiceOver while Directory is
-  being edited) — `docs/reviews/phase-I-9b.md`.
-
-- Phase I-10a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
-  blocker (a blocked remote search outliving the ssh close → 4 s host deadline) + 2
-  should-fix (limit stop without SIGPIPE; bounded event queue); a review-fix worker fixed all
-  three, each regression failing with its fix reverted; re-verified by the orchestrator —
-  `docs/reviews/phase-I-10a.md`.
-- Phase I-10b: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
-  blockers, 2 should-fix (previous results kept across a scope change; an untracked scope save
-  lost at quit); a review-fix worker fixed both, each regression failing with its fix
-  reverted; re-verified by the orchestrator — `docs/reviews/phase-I-10b.md`.
+- Phases I-9b, I-10a, I-10b: Codex wrote each file (`autoclaude-review.sh`): I-9b `ship`; I-10a
+  `ship-with-fixes` (1 blocker + 2 should-fix), I-10b `ship-with-fixes` (2 should-fix), all
+  fixed with regressions failing on the old code — `docs/reviews/phase-I-{9b,10a,10b}.md`.
 - Phase I-11a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
   blocker (check not binding the detach: narrowed, not closable within tmux 3.8 and iTerm2
   3.7.7, recorded in D37 and *Open risks*) + 2 should-fix (an error counted as a detach; age
   guard missing later clients), both fixed; a review-fix worker did all three, each regression
   failing with its fix reverted; re-verified by the orchestrator — `docs/reviews/phase-I-11a.md`.
+- Phase I-11b: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
+  blockers, 1 should-fix ("Try again" from the switcher set a confirmation only the popover
+  draws); a review-fix worker fixed it, 2 regressions failing with the fix reverted;
+  re-verified by the orchestrator — `docs/reviews/phase-I-11b.md`.
 
 ## Next action
 
-0. **Phase I-11b (queued, routine): Detach other clients, the UI.** Poll the inbox first.
-   Then, from `PLAN.md` *Phase I-11* (I-11b's bullet and D37) and requirement 3 and 4 of
-   `autoclaude/processed/105-detach-other-clients.md`: write the orchestrator's calls for
-   I-11b into `PLAN.md` before the worker (the offer rule: open in this Mac's iTerm2 and the
-   listing's `clientCount` above this Mac's attachments, hidden on a stale row; the
-   confirmation's text and count; how `ageWait`, `notConfirmed`, `cancelled` and each failure
-   show; whether the row hint fits), then a worker for the popover item, the D25-style
-   confirmation, the refresh, galleries (`attach`, `popover` if the row changes) light and
-   dark, README (actions list and the window-size note), ARCHITECTURE, TESTING,
-   MANUAL-CHECKLIST (new item: two Macs, run it on one, the other's windows close, resizing
-   now resizes; and D37's residual race), D37's UI part, D25 edited. No real run is needed
-   unless the core changes. Then I-12 (`autoclaude/processed/110-other-terminal-apps.md`,
-   split a–e as it suggests, in `PLAN.md` before its first worker).
+0. **Phase I-12 (queued, high, a group): Other terminal apps.** Poll the inbox first. Then
+   read `autoclaude/processed/110-other-terminal-apps.md` (the task statement, with the user's
+   decisions) and only the `PLAN.md` sections it touches; **split it into sub-phases in
+   `PLAN.md` before its first worker** (the item suggests a–e), with the orchestrator's calls
+   for the first sub-phase written there; select only that first sub-phase, with acceptance
+   criteria, risk class and deliverables. Real runs, if any, follow the gate in item 3. After
+   I-12, **I-13** (`autoclaude/processed/120-update-check-github.md`, split a core / b UI; first
+   settle whether *Unattended-run rules* 3 lets a run make its read-only GitHub GETs, see the
+   *Inbox* note).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -359,28 +309,25 @@ I-11a/I-11b.
   `ITerm2/ITerm2APIClient.swift` (`commandOutput(of:)`), probe
   `Sources/muxfinder-probe/E2EDetachOthers{Command,Run}.swift`; tests
   `Tests/MuxFinderCoreTests/DetachOtherClientsTests.swift`.
+- Detach other clients UI (I-11b): `Sources/MuxFinderUI/Model/{AppModelSessions,SessionPanels,SessionProblem,SwitcherContent}.swift`,
+  `Views/{SessionPanelViews,SessionRowView,SwitcherView}.swift`, `Preview/AttachFixtures.swift`;
+  tests `Tests/MuxFinderUITests/DetachOtherClientsUITests.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
+- Phase I-11b (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `swift test` 905 core tests in 88 suites and 485 UI tests in
+  47 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
+  build/muxFinder.app` exit 0. No real e2e (no core change). Workers: `-warnings-as-errors`
+  builds exit 0 — `docs/progress-archive/i-11b.md`.
 - Phase I-11a (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
   lint -r Sources Tests` exit 0; `swift test` 905 core tests in 88 suites and 468 UI tests in
   46 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
   build/muxFinder.app` exit 0; `swift run muxfinder-probe e2e-local` 16/16 (66.1 s, threads
   16 → 22), no leftovers. Workers: `-warnings-as-errors` build exit 0; `e2e-detach-others`
   9/9 locally and on Saturno on the final code — `docs/progress-archive/i-11a.md`.
-- Phase I-10b (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `swift test` 881 core tests in 87 suites and 468 UI tests in
-  46 suites passed, no failure; `scripts/build-app.sh` exit 0; `codesign --verify --deep
-  --strict build/muxFinder.app` exit 0; no `mdfind` or probe process left. Workers:
-  `-warnings-as-errors` builds exit 0; one real local `folders --count-only` —
-  `docs/progress-archive/i-10b.md`.
-- Phase I-10a (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `swift test` 879 core tests in 87 suites and 431 UI tests in
-  43 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0; no `mdfind` or probe process left. Workers: `-warnings-as-errors`
-  builds exit 0; real `folders --count-only` on this Mac and Saturno — `docs/progress-archive/i-10a.md`.
-- Phases 1–I-9b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phases 1–I-10b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
@@ -406,5 +353,7 @@ I-11a/I-11b.
   preflight file). Inbox triage (I-10): `faa47a6`.
 - Phase I-10a: `267dc0b`, pushed. Inbox triage (I-11, I-12): `f03de09`.
 - Phase I-10b: `6f4aec2`, pushed.
-- Phase I-11a: the commit carrying this checkpoint ("Phase I-11a: detach other clients, proof
-  and core"), pushed (SHA and push result in the run's status line and the next checkpoint).
+- Phase I-11a: `53f2d95`, pushed. Inbox triage (I-13): `5dfb622`.
+- Phase I-11b: the commit carrying this checkpoint ("Phase I-11b: detach other clients, the
+  UI"), pushed with the triage commit (SHA and push result in the run's status line and the
+  next checkpoint).

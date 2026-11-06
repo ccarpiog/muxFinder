@@ -8,7 +8,9 @@ import MuxFinderCore
 ///
 /// - **Rows:** a flat list of the **live** sessions in the popover's order (host order, then
 ///   session order), each one the popover's `SessionRow` (its state indicator, detail text,
-///   badge and activity); stale sessions are left out, so an unreachable host lists nothing.
+///   badge and activity); stale sessions are left out, so an unreachable host lists nothing. A
+///   failure whose "Try again" would show a move here's or a "Detach other clients…"'s
+///   confirmation, drawn only in the popover, offers its other recoveries only (PLAN.md D37).
 /// - **Filter:** the popover's search rule over host and session names
 ///   (`PopoverContent.matches(_:query:)`: a host whose name matches keeps all its sessions,
 ///   otherwise only the sessions whose names match; case, diacritics and surrounding spaces
@@ -103,7 +105,9 @@ public struct SwitcherContent: Sendable, Hashable {
   /// `carried` lists the sessions whose failure is shown at the top (newest first; only those
   /// still failed count), `actionKeys` the sessions of the switcher's actions (pinned when
   /// not listed), and `targets` those sessions as listed when their action started (the row
-  /// of a session the engine does not list).
+  /// of a session the engine does not list). The failures of `retriesConfirmedInPopover`
+  /// (sessions whose last action was a move here or a "Detach other clients…") offer no "Try
+  /// again" here, since its confirmation is drawn only in the popover (PLAN.md D25, D32, D37).
   public init(
     state: RefreshState?,
     hostList: HostListStatus?,
@@ -116,7 +120,8 @@ public struct SwitcherContent: Sendable, Hashable {
     attachedHere: Set<SessionKey> = [],
     carried: [SessionKey] = [],
     actionKeys: [SessionKey] = [],
-    targets: [SessionKey: AttachTarget] = [:]
+    targets: [SessionKey: AttachTarget] = [:],
+    retriesConfirmedInPopover: Set<SessionKey> = []
   ) {
     self.banners = banners
     pinned = []
@@ -144,8 +149,10 @@ public struct SwitcherContent: Sendable, Hashable {
       all: all, live: live, carried: carried, actionKeys: actionKeys, targets: targets,
       activities: activities, notes: notes)
     pinned = pinned.filter { Self.passes($0, query: trimmed) }
+      .map { Self.withoutPopoverRetry($0, in: retriesConfirmedInPopover) }
     let pinnedKeys = Set(pinned.map(\.key))
     rows = live.filter { !pinnedKeys.contains($0.key) && Self.passes($0, query: trimmed) }
+      .map { Self.withoutPopoverRetry($0, in: retriesConfirmedInPopover) }
     newSession = NewSessionRow(prefill: Self.prefill(trimmed, live: live), isSelected: false)
     if pinned.isEmpty && rows.isEmpty {
       emptyText = trimmed.isEmpty ? Self.noLiveSessionsText : Self.noMatchesText(trimmed)
@@ -153,6 +160,17 @@ public struct SwitcherContent: Sendable, Hashable {
     hostLines = state.hosts.compactMap(Self.hostLine(for:))
     select(selection)
   } // End of init(state:hostList:query:selection:activities:now:notes:banners:…)
+
+  /// `row` as the switcher shows it: when `keys` holds its session (whose "Try again" would
+  /// show a confirmation only the popover draws), its failure offers its other recoveries
+  /// only; any other row is left as it is.
+  static func withoutPopoverRetry(_ row: SessionRow, in keys: Set<SessionKey>) -> SessionRow {
+    guard keys.contains(row.key), case .failed(var problem)? = row.activity else { return row }
+    problem.recoveries.removeAll { $0 == .retry }
+    var shown = row
+    shown.activity = .failed(problem)
+    return shown
+  }
 
   /// Whether `row` passes the filter `query` (trimmed; empty lets everything pass): its host's
   /// name or its own name contains it (the popover's rule).

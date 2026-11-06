@@ -119,7 +119,8 @@ extension AppModel {
       attachedHere: Set(attachedHere.keys),
       carried: switcherCarriedFailures,
       actionKeys: switcherActions.keys.sorted { $0.sessionID.rawValue < $1.sessionID.rawValue },
-      targets: switcherTargets)
+      targets: switcherTargets,
+      retriesConfirmedInPopover: retriesConfirmedInPopover)
   } // End of var switcherContent
 
   // MARK: - Visibility

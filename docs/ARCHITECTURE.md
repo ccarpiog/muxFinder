@@ -278,8 +278,8 @@ reused) holds no decisions; the model and `NewSessionWindowController` do, over 
   holds the latest request, numbered so the controller carries it out once: a user's opening
   (key) or a failure's comeback (not key). The controller is installed by the app shell only,
   so the self-tests drive the model with no window, and preview mode builds the window only
-  for its diagnostics. The popover's own `panel` holds only the Move here confirmation, so
-  both can show at once.
+  for its diagnostics. The popover's own `panel` holds only the Move here and Detach other
+  clients confirmations, so both can show at once.
 - **Opening** from the popover or the switcher (which close as it opens) places a fresh
   window's top centre at theirs, clamped to that display, with a fresh draft (named from the
   switcher's filter); an opening while it shows only brings it forward, draft and frame as
@@ -346,6 +346,15 @@ click → AttachCoordinator: rediscover (still the same session?) → already op
   iTerm2's reply pairing allow no single guarded command (D37 records what that leaves). Not
   `attach-session -d`: iTerm2 closes and reopens the session's windows on the
   `%session-changed` it causes. Local and SSH hosts alike, with no new ssh, file or request.
+  In the popover only (not the switcher), the row's context menu shows "Detach other
+  clients…" only for a live row this Mac's iTerm2 shows whose listing has more clients than
+  this Mac's attachments of it (`SessionRow.offersDetachOtherClients`, one rule for the row
+  and the model; the badge then reads "Open in iTerm2 here · also attached elsewhere"),
+  disabled while another action of the row is pending. Its confirmation is drawn in the
+  popover like Move here's (`PopoverPanel.detachOtherClients`); `confirmDetachOtherClients()`
+  is the only caller of the core call. The row shows "Detaching other clients…", then the
+  result or a `SessionProblem` with its recoveries, and the host is refreshed after every
+  outcome but `cancelled` and `notConfirmed`; quitting cancels it.
 - "Set up SSH in iTerm2…" opens the same kind of tab running plain interactive ssh (D24).
 
 ## New session directories (D31)

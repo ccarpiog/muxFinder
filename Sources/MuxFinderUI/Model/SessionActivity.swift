@@ -22,6 +22,15 @@ public enum SessionActivity: Sendable, Hashable {
   case detaching
   /// "Detach from this Mac" detached every attachment here; the session keeps running.
   case detached
+  /// "Detach other clients…" runs (PLAN.md D37; it may wait about 20 s for young tabs and
+  /// clients).
+  case detachingOtherClients
+  /// "Detach other clients…" detached `count` other clients (at least one); `alreadyLeft` had
+  /// left before their check.
+  case detachedOtherClients(count: Int, alreadyLeft: Int)
+  /// "Detach other clients…" found every other client gone: nothing to detach (informational,
+  /// not a failure).
+  case noOtherClientsLeft
   /// The last action failed; the problem says why and what the row offers.
   case failed(SessionProblem)
 
@@ -48,6 +57,12 @@ public enum SessionActivity: Sendable, Hashable {
     case .focused: return "Already open here — brought its tab forward"
     case .detaching: return "Detaching from this Mac…"
     case .detached: return "Detached from this Mac — the session keeps running"
+    case .detachingOtherClients: return "Detaching other clients…"
+    case .detachedOtherClients(let count, let alreadyLeft):
+      let clients = count == 1 ? "1 other client" : "\(count) other clients"
+      let left = alreadyLeft > 0 ? " (\(alreadyLeft) had already left)" : ""
+      return "Detached \(clients) — the session keeps running" + left
+    case .noOtherClientsLeft: return "No other clients to detach — they had already left"
     case .failed(let problem): return problem.message
     }
   } // End of var text
@@ -55,16 +70,19 @@ public enum SessionActivity: Sendable, Hashable {
   /// Whether work is in progress (a spinner).
   public var isInProgress: Bool {
     switch self {
-    case .opening, .movingHere, .waitingForITerm2, .stillConnecting, .detaching: return true
-    case .confirmed, .focused, .detached, .failed: return false
+    case .opening, .movingHere, .waitingForITerm2, .stillConnecting, .detaching,
+      .detachingOtherClients:
+      return true
+    case .confirmed, .focused, .detached, .detachedOtherClients, .noOtherClientsLeft, .failed:
+      return false
     }
   }
 
-  /// Whether the last action succeeded (a check mark); these are cleared when the popover opens
-  /// again.
+  /// Whether the last action succeeded (a check mark; for "No other clients to detach", an
+  /// information mark); these are cleared when the popover opens again.
   public var isDone: Bool {
     switch self {
-    case .confirmed, .focused, .detached: return true
+    case .confirmed, .focused, .detached, .detachedOtherClients, .noOtherClientsLeft: return true
     default: return false
     }
   }

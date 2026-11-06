@@ -40,6 +40,58 @@ struct MoveHerePanelView: View {
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
+    .accessibilityLabel(request.title)
+  } // End of var body
+}
+
+/// "Detach other clients of “name”?", the panel the popover shows in place of its host list
+/// (PLAN.md D25, D37): that tmux detaches every other client of the session and keeps this
+/// Mac's attachment, that they may be iTerm2 on other Macs, that nothing is closed and the
+/// session keeps running, how many there were when it opened (and how many of them are in this
+/// Mac's iTerm2), and why someone may want it (the window size). "Cancel" and "Detach other
+/// clients"; only the latter reaches the core's call. Drawn inside the popover, as Move here's.
+struct DetachOtherClientsPanelView: View {
+  /// The session and the counts.
+  let request: DetachOtherClientsRequest
+  /// The model the buttons talk to.
+  let model: AppModel
+
+  /// The dialog.
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label {
+        Text(request.title)
+          .font(.headline)
+          .fixedSize(horizontal: false, vertical: true)
+      } icon: {
+        Image(systemName: "person.2.slash")
+          .foregroundStyle(.orange)
+      }
+      Text(request.explanation)
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+      Text(DetachOtherClientsRequest.windowSizeText)
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+      Text(request.clientsText)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+      HStack {
+        Spacer()
+        Button("Cancel") { model.cancelPanel() }
+          .keyboardShortcut(.cancelAction)
+          .accessibilityHint("Closes this question. Nothing is detached.")
+        Button(DetachOtherClientsRequest.confirmTitle) { model.confirmDetachOtherClients() }
+          .keyboardShortcut(.defaultAction)
+          .accessibilityHint("Detaches the session's other clients and keeps this Mac's.")
+      }
+      .padding(.top, 4)
+    } // End of VStack holding the dialog
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(request.title)
   } // End of var body
 }
 

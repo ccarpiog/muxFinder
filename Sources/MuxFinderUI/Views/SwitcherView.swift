@@ -214,10 +214,13 @@ struct SwitcherListBox: View {
 }
 
 /// One session in the switcher: Phase 14's attach-state indicator, its name (stronger while
-/// attached) and its host's name, the detail text, the "Open in iTerm2 here" badge, and any
-/// progress, result or failure with the popover row's recoveries. A click (or Return) opens it
-/// as the popover's Open does, as a click on a popover row does (`clickSwitcherItem(_:)`). No
-/// Move here or Detach here: those stay in the popover (PLAN.md D32).
+/// attached) and its host's name, the detail text, the "Open in iTerm2 here" badge (with the
+/// popover row's "also attached elsewhere"), and any progress, result or failure with the
+/// popover row's recoveries (without "Try again" after a move here or a "Detach other
+/// clients…", whose confirmation the popover draws: `SwitcherContent`). A click (or Return)
+/// opens it as the popover's Open does, as a click on a popover row does
+/// (`clickSwitcherItem(_:)`). No Move here, Detach here or Detach other clients: those stay in
+/// the popover (PLAN.md D32, D37).
 struct SwitcherRowView: View {
   /// The row's content.
   let row: SessionRow
@@ -253,7 +256,7 @@ struct SwitcherRowView: View {
             .lineLimit(1)
         } // End of HStack holding the name, host and detail
         if row.isOpenInITerm2Here {
-          OpenHereBadge()
+          OpenHereBadge(text: row.openHereText)
         }
         if let activity = row.activity {
           ActivityLine(activity: activity, key: row.key, model: model)

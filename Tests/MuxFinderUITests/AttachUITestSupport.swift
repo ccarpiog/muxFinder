@@ -15,7 +15,10 @@ import os
 /// activations can fail or find no tab. Buried state is iTerm2 3.7.6's (PLAN.md Phase 13, S2,
 /// S3, S8): a bury moves a launch tab out of its window (the window closes with it) into
 /// `buried_sessions`, a restore brings a buried one back in a new window, and both are
-/// idempotent.
+/// idempotent. A session's other tmux clients (another Mac's iTerm2, say: `otherClients`) and
+/// its connections' own clients answer "Detach other clients" (PLAN.md D37) as tmux 3.8 does:
+/// the connection's own client name with tmux's clock, the session's client listing, each
+/// client's check and `detach-client -t <name>`.
 actor SimulatedITerm2: ITerm2Integration {
   /// One tmux connection.
   struct Connection: Sendable {
@@ -27,6 +30,18 @@ actor SimulatedITerm2: ITerm2Integration {
     var key: SessionKey
     /// The node name its identity answer reports.
     var nodeName: String
+    /// The process id of its tmux client (named `client-<pid>`).
+    var clientPID: Int32 = 0
+  }
+
+  /// One tmux client of a session that is not a connection of this Mac's iTerm2.
+  struct TmuxClient: Sendable, Hashable {
+    /// `#{client_pid}`.
+    var pid: Int32
+    /// `#{client_created}`, by `serverTime`'s clock.
+    var created: Int64
+    /// `#{client_name}`.
+    var name: String
   }
 
   /// A command sent to a connection.
@@ -74,6 +89,15 @@ actor SimulatedITerm2: ITerm2Integration {
   var activationError: ITerm2Error?
   /// Whether `activateFirstTab` finds no tab of the connection (it answers `nil`).
   var showsNoTabs = false
+  /// tmux's clock (whole seconds) as `display-message -p '%s …'` reports it.
+  var serverTime: Int64 = 1_800_000_000
+  /// The clients of each session besides this Mac's connections.
+  var otherClients: [SessionKey: [TmuxClient]] = [:]
+  /// Names of other clients that leave right after a listing of their session (gone at their
+  /// check).
+  var leavesAfterListing: Set<String> = []
+  /// The error `detach-client -t <name>` throws instead of detaching, if any.
+  var detachClientError: ITerm2Error?
 
   /// The connections.
   private(set) var connections: [Connection] = []
@@ -100,6 +124,8 @@ actor SimulatedITerm2: ITerm2Integration {
   private var nextNumber = 0
   /// Numbers the windows restores open.
   private var restores = 0
+  /// The next connection's client pid.
+  private var nextClientPID: Int32 = 7_000
 
   /// A fake over `store` whose launch tabs attach (`attaches`) the requested session.
   init(
@@ -123,8 +149,11 @@ actor SimulatedITerm2: ITerm2Integration {
 
   /// Adds a connection the user opened (owned by a tab muxFinder did not open).
   func addUserConnection(_ id: String, owner: String, key: SessionKey) {
+    nextClientPID += 1
     connections.append(
-      Connection(id: id, owner: owner, key: key, nodeName: nodeName(of: key.hostID)))
+      Connection(
+        id: id, owner: owner, key: key, nodeName: nodeName(of: key.hostID),
+        clientPID: nextClientPID))
   }
 
   /// Changes the behavior.
@@ -213,10 +242,11 @@ actor SimulatedITerm2: ITerm2Integration {
           socketPath: socketPath, pid: launch.expectedServerPID,
           startTime: launch.expectedServerStartTime),
         sessionID: launch.sessionID)
+      nextClientPID += 1
       connections.append(
         Connection(
           id: "conn-\(nextNumber)", owner: gateway, key: key,
-          nodeName: nodeName(of: key.hostID)))
+          nodeName: nodeName(of: key.hostID), clientPID: nextClientPID))
     }
     return ITerm2API.CreateTabResponse(
       status: .ok, windowID: "w-\(gateway)", tabID: Int32(nextNumber), sessionID: gateway)
@@ -249,7 +279,7 @@ actor SimulatedITerm2: ITerm2Integration {
     return try await answer(command, on: connection)
   } // End of func sendTmuxCommand(_:connectionID:ownedBy:)
 
-  /// The identity line, or a detach.
+  /// The identity line, a detach, or one of "Detach other clients"' commands.
   private func answer(_ command: String, on connection: Connection) async throws -> String {
     sent.append(Sent(command: command, connectionID: connection.id))
     if command == ConnectionIdentity.detachCommand {
@@ -263,6 +293,7 @@ actor SimulatedITerm2: ITerm2Integration {
       }
       return ""
     }
+    if let answer = try otherClientsAnswer(command, on: connection) { return answer }
     guard command == ConnectionIdentity.command else { return "" }
     let isLaunchTab = launchTabs.contains(connection.owner)
     if holdsIdentity, isLaunchTab {
@@ -274,6 +305,48 @@ actor SimulatedITerm2: ITerm2Integration {
     return "1:\(host.utf8.count):\(host):\(key.server.pid):\(key.server.startTime):"
       + "\(path.utf8.count):\(path):\(key.sessionID.rawValue)\n"
   } // End of func answer(_:on:)
+
+  /// The clients of `key`'s session, this Mac's connections' (old: an hour before
+  /// `serverTime`) first, then the others, as `#{client_pid}`, `#{client_created}` and
+  /// `#{client_name}`.
+  private func clients(of key: SessionKey) -> [TmuxClient] {
+    connections.filter { $0.key == key }.map {
+      TmuxClient(pid: $0.clientPID, created: serverTime - 3_600, name: "client-\($0.clientPID)")
+    } + (otherClients[key] ?? [])
+  }
+
+  /// The answer to one of "Detach other clients"' commands (`OtherClientsCommands`) through
+  /// `connection`, or `nil` for any other command. A detach removes the client (a connection's
+  /// own client: the connection); a check or a detach of no listed client answers as tmux does
+  /// (empty, or `tmuxCommandFailed`).
+  private func otherClientsAnswer(_ command: String, on connection: Connection) throws -> String? {
+    let key = connection.key
+    let own = "client-\(connection.clientPID)"
+    if command == OtherClientsCommands.ownClientAndTime { return "\(serverTime) \(own)\n" }
+    if command == OtherClientsCommands.clients(of: key.sessionID) {
+      let lines = clients(of: key).map { "\($0.pid):\($0.created):\($0.name)\n" }
+      otherClients[key]?.removeAll { leavesAfterListing.contains($0.name) }
+      return lines.joined()
+    }
+    for client in clients(of: key) where client.name != own {
+      guard
+        let checked = OtherClient(
+          processID: String(client.pid), created: String(client.created), name: client.name)
+      else { continue }
+      if command == OtherClientsCommands.check(checked, of: key.sessionID) {
+        return "\(client.pid)\n"
+      }
+      if command == OtherClientsCommands.detach(checked) {
+        if let detachClientError { throw detachClientError }
+        otherClients[key]?.removeAll { $0.name == client.name }
+        connections.removeAll { "client-\($0.clientPID)" == client.name }
+        return ""
+      }
+    } // End of loop over the session's other clients
+    if command.hasPrefix("list-clients -f '#{&&:") { return "" }
+    if command.hasPrefix("detach-client -t ") { throw ITerm2Error.tmuxCommandFailed }
+    return nil
+  } // End of func otherClientsAnswer(_:on:)
 
   /// Records the activation.
   func activate(_ request: ITerm2API.ActivateRequest) async throws {

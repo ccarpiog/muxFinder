@@ -196,6 +196,16 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
 - **Detach from this Mac** (context menu) detaches iTerm2's tmux client with tmux's own
   `detach-client`; the session and its processes keep running. muxFinder never closes tmux
   tabs to detach (closing a tmux window in iTerm2 can kill it).
+- **Detach other clients…** (context menu) keeps this Mac's iTerm2 attached and has tmux
+  detach the session's other clients, wherever they are (iTerm2 on your other Macs, say);
+  nothing is closed and the session keeps running. It is offered only for a session open in
+  iTerm2 here whose host's listing shows more clients than this Mac's attachments (the "Open
+  in iTerm2 here" badge then adds "also attached elsewhere"), and it asks first. Why: while two
+  iTerm2 windows (two Macs) are attached to one session, tmux keeps the session's window at
+  its old size and ignores both windows' resizes, so part of your iTerm2 window stays unused;
+  once the other clients are detached, resizing this Mac's window resizes the session again.
+  Afterwards the row says how many were detached and the list is refreshed; the other Macs
+  can attach again at any time.
 - **New session:** the popover's "New session" (or ⌘N), or the session switcher's (below),
   opens a small window of its own titled "New session" where the popover or switcher was,
   and the popover or switcher closes. The window floats above other apps' windows, on every
@@ -281,8 +291,8 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   yet, it reads "New session “<name>”…" and fills the name in. A click on it, Return on it or
   ⌘N closes the switcher and opens the New session window (above) where the switcher was, for
   This Mac by default, with that name filled in (a window already open comes forward as it
-  is, its name kept). ⌘R refreshes and ⌘, opens Settings; Move here and
-  Detach stay in the popover. The panel shows the row's progress, closes once the session is
+  is, its name kept). ⌘R refreshes and ⌘, opens Settings; Move here, Detach and Detach other
+  clients stay in the popover. The panel shows the row's progress, closes once the session is
   open (or as soon as iTerm2 comes forward), and stays open with the explanation and its
   buttons when something fails. A failure that arrives after the panel closed shows on the
   popover's row and at the top of the switcher the next time you open it. Esc, the

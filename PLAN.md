@@ -1482,7 +1482,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     its own, no longer `sessionChanged`'s), each detach outcome but `detached`, the two "Show
     tab" notes, the missing helper, the two focuses that did not bring the tab forward and the
     two "Open existing" outcomes that open nothing. Recoveries: "Try again" (repeats the last
-    action; a move here shows its confirmation again), "Refresh", "Show tab" (a timeout, a
+    action; a move here shows its confirmation again, so after one it is offered in the popover
+    only, never in the session switcher), "Refresh", "Show tab" (a timeout, a
     helper failure or a wait limit with a launch tab), "Bring forward" and "Detach from this
     Mac" (`alreadyAttachedHere`), "Open Settings" (an invalid destination, tmux missing), and
     D23's fix-it for iTerm2 permission and API errors. A helper failure's explanation says
@@ -1510,6 +1511,15 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     (the index's badge, or `attachedHere`). It is `detach(session:on:)` (D16: the 10 s tab age,
     the identity re-check, `detach-client`, never a closed tab); the row then says "Detached
     from this Mac — the session keeps running", the record goes and the host is refreshed.
+  - **Detach other clients** (Phase I-11b; D37 has the rules): the context menu's "Detach
+    other clients…" after Detach, shown only for a live row this Mac's iTerm2 shows whose
+    listing has more clients than this Mac's attachments of it
+    (`SessionRow.offersDetachOtherClients`), disabled while another action of the row is
+    pending. Its confirmation is drawn in the popover like Move here's
+    (`PopoverPanel.detachOtherClients`, `DetachOtherClientsPanelView`), with the same keys;
+    "Detach other clients" or Return calls `confirmDetachOtherClients()`, the only caller of
+    `detachOtherClients(of:confirmation:)`. The row shows "Detaching other clients…", then
+    the result or its `SessionProblem`, and the host is refreshed.
   - **New session:** a form (in its own window since D34) with the host (enabled hosts, This
     Mac first), the name (checked
     inline with `Validation.sessionName`; an empty name is reported once Create was pressed) and
@@ -1531,8 +1541,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     fixtures; while it shows, Return confirms it, Esc closes it, and the arrows, ⌘F and ⌘N do
     nothing. New session's keys and endings are D34's (its Esc also cancels an "Open
     existing" lookup).
-  - **Quit:** `shutdown()` cancels the actions in progress (opens, moves, detaches, New session
-    creations and attaches, "Open existing" lookups, "Show tab"; an attach withdraws its
+  - **Quit:** `shutdown()` cancels the actions in progress (opens, moves, detaches, "Detach
+    other clients…" calls, New session creations and attaches, "Open existing" lookups, "Show tab"; an attach withdraws its
     request, a detach waiting for its tab's age sends nothing), stops everything else at the
     same time without waiting for them, waits for them at most 12 s and reports those still
     running (D22), and detaches nothing.
@@ -1582,12 +1592,14 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     once; a New session attach followed on its row with "Show tab"; a focus that did not bring
     its tab forward; "Open existing" resolving the name afresh). The real runs are Phase 10b's.
   - **Preview fixtures:** `--preview-fixtures --preview-gallery attach` shows
-    `AttachFixtures.all` (11 states: progress and results, every failure in six cards, both
+    `AttachFixtures.all` (16 states: progress and results, every failure in six cards, both
     check-failure cards with a focus that did not bring its tab forward, Move here, two detach
-    cards, the banners; the New session form's states, empty, with an invalid name, creating,
+    cards, Detach other clients' two confirmations and three result cards (D37, Phase I-11b),
+    the banners; the New session form's states, empty, with an invalid name, creating,
     after a collision, failed, a folder dragged over Directory and D31's list states, are
     `AttachFixtures.newSessionStates`, shown by the New session window's gallery, D34) and
-    the context menu of a session open here and of one attached elsewhere; screenshots
+    the context menu of a session open here (and attached elsewhere too, so it lists "Detach
+    other clients…") and of one attached elsewhere; screenshots
     `docs/screenshots/attach-states-{light,dark}.png`.
 
 - **D26 — Persistent work profiles** (decided in Phase 11a, 2026-10-23, Settings in Phase 11c;
@@ -2813,7 +2825,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     New session is its own window (D34), opened with the name prefilled from the filter (for a
     fresh draft only) and placed from the switcher's frame; its form, keys and Tab order are the
     window's. Move here and Detach stay in the popover (a failure's own recoveries are the
-    popover row's).
+    popover row's, but for "Try again" after a move here or a "Detach other clients…", whose
+    confirmation only the popover draws, D37).
   - **Actions and carry-over** (`AppModelSwitcher.swift`): a session row opens through the
     popover's Open (D25: focused when open here, else attached). An Open started while the
     switcher shows, and the creation and attach of a New session draft the switcher made (D34)
@@ -3436,8 +3449,64 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     attachments here, the other clients listed, the wait for young clients (`ageWait`), those
     gone before their check and detached, and `mayHaveSent`. No outcome triggers a
     refresh; diagnostics record kinds and counts only.
-  - **The UI** is Phase I-11b's (the popover's "Detach other clients…" and its D25-style
-    confirmation).
+  - **The UI** (Phase I-11b; code in `Sources/MuxFinderUI/Model/AppModelSessions.swift`,
+    `SessionPanels.swift`, `SessionProblem.swift`, `SessionActivity.swift`,
+    `PopoverContent.swift`, `Views/SessionRowView.swift`, `SessionPanelViews.swift`,
+    `Preview/AttachFixtures.swift`; tests in `Tests/MuxFinderUITests/DetachOtherClientsUITests.swift`):
+    - **Popover only** (D32): the row's context menu, after "Detach from this Mac"; never in
+      the session switcher.
+    - **The offer rule** (`SessionRow.offersDetachOtherClients(isLive:clientCount:…)`, the one
+      rule the row and the model use): "Detach other clients…" is shown only when the row is
+      live (its host's last check succeeded: not stale, not unreachable, not still checking),
+      this Mac's iTerm2 shows the session (`attachmentsHere`: the index's count for its key, at
+      least 1 when only muxFinder's own record `attachedHere` says so) and the listing's
+      `clientCount` is greater than `attachmentsHere`; hidden otherwise. While another action
+      of the row is pending it stays shown, disabled (`SessionRow.isPending`), and
+      `requestDetachOtherClients(_:)` refuses (the row's other items are ignored by the model
+      then, as before).
+    - **The hint:** while the rule holds, the "Open in iTerm2 here" badge reads "Open in iTerm2
+      here · also attached elsewhere" (`SessionRow.openHereText`; VoiceOver's value adds
+      "also attached elsewhere"). It fits on one line at the popover's width in both
+      galleries. The switcher's rows share the popover's `SessionRow`, so their badge says the
+      same; the action itself stays in the popover.
+    - **The confirmation** (`PopoverPanel.detachOtherClients(DetachOtherClientsRequest)`) is
+      drawn in place of the host list, as Move here's, with its keys (Return confirms, Esc and
+      Cancel run nothing, the arrows, ⌘F and ⌘N do nothing): title "Detach other clients of
+      “<name>”?"; that tmux detaches every other client of the session on its host and keeps
+      this Mac's attachment, that they may be iTerm2 on other Macs, that nothing is closed and
+      the session keeps running; "While another client is attached, tmux may keep the window at
+      the other client's size."; the count when it opened, the listing's `clientCount` less one
+      ("1 other client was attached when muxFinder last looked." / "<n> other clients were
+      …"), with ", including <k> in this Mac's iTerm2" when this Mac has more than one
+      attachment (`attachmentsHere` less one); "Cancel" and "Detach other clients".
+      `confirmDetachOtherClients()` is the only caller of `detachOtherClients(of:confirmation:)`
+      and passes `.detachOtherClients(of:)` for the key of the session the panel names, that
+      session as the target. VoiceOver hears the dialog's title when it appears
+      (`AppModel.announce`; Move here's dialog now announces its title the same way), and the
+      dialog and its buttons are labelled.
+    - **While it runs** the row shows "Detaching other clients…" (a spinner; up to about 20 s
+      for young tabs and clients); clicks on the row are ignored; `shutdown()` cancels it
+      (`cancelSessionActions`, kind "detach other clients").
+    - **Results** (`AppModel.activity(after:)`, failures through
+      `SessionProblem.detachOtherClients(_:)`, every line pairwise distinct, tested):
+      `detached(count:)` → "Detached <n> other client(s) — the session keeps running", then
+      "(<m> had already left)" when `goneBeforeDetach` is above zero (a check mark, cleared when
+      the popover opens again); `nothingToDetach` → "No other clients to detach — they had
+      already left" (an information mark, not a failure, cleared the same way);
+      `notAttachedHere` → "This Mac's iTerm2 no longer shows this session, so muxFinder
+      detached no other client. …", "Refresh", muxFinder's own record of the attachment
+      forgotten; `identityChanged` → "muxFinder detached no other client, because this Mac's tab
+      of the session in iTerm2 changed, so nothing was sent. …", "Refresh";
+      `checkFailed(.send(.tmuxCommandFailed))` → "tmux refused to detach one of the other
+      clients (it may have just left), and iTerm2 may have ended this Mac's attachment of the
+      session too. …", "Refresh"; the other `checkFailed` problems (the attachment check, the
+      identity check, the client listing, another send failure) → a message of their own with
+      "Try again" (which shows the confirmation again, or refreshes the host when it is no
+      longer offered; popover only: the session switcher's row shows the failure without it)
+      and "Refresh", and D23's fix-it for iTerm2 permission and API errors;
+      `notConfirmed` → "muxFinder detached nothing, because the confirmation was for another
+      session.", "Refresh"; `cancelled` → nothing. Every outcome but `cancelled` and
+      `notConfirmed` refreshes the host afterwards, so `clientCount` and the offer follow.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -5860,6 +5929,75 @@ review fixes, the gate and leftover checks clean before and after (`docs/TESTING
 I-11a* and *Phase I-11a review fixes*). For I-11b: the call takes an `AttachTarget`; the offer needs `clientCount` greater
 than this Mac's attachments, and the confirmation's count is the listing's at the time, so a
 result may report fewer clients (`goneBeforeDetach`) than the confirmation named.
+
+The orchestrator's calls for I-11b, made before its worker:
+
+- **Popover only** (D32): the row's context menu, beside "Move here…" and "Detach from this
+  Mac"; not in the session switcher. No core change is expected: if the worker finds one
+  necessary it reports it and runs no real e2e (the orchestrator decides on real runs).
+- **The offer rule.** "Detach other clients…" is **shown** (not disabled) only when all hold:
+  the row is live (its host's snapshot is not stale and not unreachable); this Mac's iTerm2
+  shows the session (the same condition that offers "Detach from this Mac": the index's badge,
+  or a confirmed `attachedHere`); and the listing's `clientCount` is greater than this Mac's
+  attachments of the session (the attachment index's count for its key, at least 1 when only a
+  confirmed `attachedHere` says so). Otherwise it is hidden. While another action of the row is
+  pending it is disabled, as the row's other items are.
+- **The confirmation** is drawn inside the popover in place of the host list, exactly as Move
+  here's (D25: Return confirms, Esc and Cancel run nothing, the arrows, ⌘F and ⌘N do nothing).
+  Title "Detach other clients of “<name>”?". Body: the count, the row's `clientCount` less one
+  at the time it opens ("1 other client" / "<n> other clients"), with "including <k> in this
+  Mac's iTerm2" when this Mac has more than one attachment (all but the one Show tab focuses
+  are detached); that they may be on other Macs; that nothing is closed and the session keeps
+  running; and "While another client is attached, tmux may keep the window at the other
+  client's size." Buttons "Cancel" and "Detach other clients". Its confirm method is the only
+  caller of `detachOtherClients(of:confirmation:)`, passing `.detachOtherClients(of:)` for the
+  key of the session the panel names, never another row's.
+- **While it runs** the row shows "Detaching other clients…" (the call can wait up to about
+  20 s for young tabs and clients, D37); clicks on the row are ignored meanwhile, as for an
+  Open; `shutdown()` cancels it. `cancelled` shows nothing.
+- **Results**, through `SessionProblem` as Detach's (messages pairwise distinct, tested):
+  `detached(count:)` → "Detached <n> other client(s) — the session keeps running", adding
+  "<m> had already left" when `goneBeforeDetach` is above zero; `nothingToDetach` → an
+  informational line, "No other clients to detach — they had already left", not a failure;
+  `notAttachedHere` → "This Mac's iTerm2 no longer shows this session", Refresh;
+  `identityChanged` → mapped as Detach's identity change is, nothing detached, Refresh;
+  `checkFailed(.send(.tmuxCommandFailed))` → tmux refused a detach and iTerm2 may have ended
+  this Mac's attachment (D37's residual), Refresh; other `checkFailed` problems → as Detach's
+  failures (D23's fix-it for iTerm2 permission and API errors, else "Try again", which shows
+  the confirmation again, and Refresh); `notConfirmed` (unreachable from the UI) → a generic
+  failure with Refresh. Every outcome but `cancelled` and `notConfirmed` refreshes the host
+  afterwards, so `clientCount` and the offer update.
+- **The row hint**: when the offer rule holds, the row's existing attached-here text gains
+  "also attached elsewhere" (no new line or control). If it truncates at the popover's width
+  in the gallery, leave it out and record why.
+- **VoiceOver**: the item, the confirmation and its buttons are labelled, and the confirmation
+  is announced as Move here's is.
+- **Galleries** (synthetic data, light and dark): `attach` gains the confirmation (one other
+  client; two others including one here), the pending row, and each result above; `popover`
+  gains the hint, and its screenshots are regenerated only if the row changed.
+
+**Outcome of I-11b (2026-11-06).** As decided above, with no core change: D37's *The UI*
+records the rules as built and D25 gains its "Detach other clients" bullet. The offer rule is
+one function (`SessionRow.offersDetachOtherClients(isLive:clientCount:attachmentsHere:)`) for
+the row and the model; the item stays shown but disabled while another action of the row is
+pending (the row's other items were never disabled: the model ignores them then, unchanged).
+The confirmation and the results are as listed, every line pairwise distinct. Beyond the calls:
+the hint fits on one line at the popover's width, so it was kept, and since the switcher's rows
+are the popover's `SessionRow` its badge reads the same (no switcher fixture shows it, so the
+switcher's screenshots did not change); Move here's dialog had no announcement, so both dialogs
+now announce their title through `AppModel.announce` (`showPanel(_:)`); "Try again" on a
+failure whose offer no longer holds refreshes the host instead; after review, the switcher's
+row of a failed move here or "Detach other clients…" offers its other recoveries without "Try
+again" (`SwitcherContent`), and that retry changes nothing while the popover is not the one
+showing, so no confirmation waits hidden; `notAttachedHere` also forgets
+muxFinder's own record of the attachment, as Detach's `nothingAttached` does. The UI tests'
+fake iTerm2 now answers the core's four commands with other clients as state, so the tests run
+the real coordinator call. Hermetic: 17 tests in `DetachOtherClientsUITests` and the new
+messages in `FailureMessageTests` (905 core and 485 UI tests pass). Galleries: `attach` (16
+states, 5 new, and the context menu listing the item) and `popover` (the hint on "Selected
+session open here, offline host"), light and dark, inspected. No real run was needed (the core
+did not change); checklist item 25 is owed to the user (two Macs, the real popover, VoiceOver,
+the window size afterwards, and D37's residual race).
 
 ## Deferred (explicitly out of scope for v1)
 
