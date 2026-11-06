@@ -15,6 +15,14 @@ import Foundation
 ///    brings its window forward and ends `plainFocused`, opening nothing; a stale record is
 ///    dropped; a check that cannot run fails the attach (`clientCheckFailed`), opening nothing.
 ///    A move here with a live record runs nothing (`alreadyOpenInTerminal`).
+///    Then, for an attach on This Mac with a local client attributor (Phase I-12c2), open on
+///    this Mac: process ancestry is read once for the revalidated session's clients
+///    (`LocalClientAttributing`, no D16 index, so iTerm2's control-mode clients count too);
+///    when one descends from a terminal app, that running app is brought forward
+///    (`TerminalAppActivating`, never a launch or an Apple event) and the attach ends
+///    `appFocused(app)` with the activation's outcome, opening nothing, as D16 never opens a
+///    duplicate. Unmapped clients and a table that cannot be read never block the attach. A
+///    move here and a create-and-attach skip it.
 /// 3. Write a plain request (`terminal` the definition's id, `keepsMinimumLifetime` the
 ///    definition's, the session's four identity values, `detachOtherClients` only for a move
 ///    here).
@@ -79,6 +87,12 @@ public actor PlainTerminalBackend: TerminalBackend {
   let processStartTime: @Sendable (Int32) -> ProcessStartTime?
   /// Where outcomes are recorded, if anywhere.
   let diagnostics: DiagnosticsLog?
+  /// Traces This Mac's clients to terminal apps (open on this Mac, Phase I-12c2); `nil` skips
+  /// that check, as before it.
+  let localClients: (any LocalClientAttributing)?
+  /// Brings an app forward (open on this Mac, `.app` handles); `nil` uses
+  /// `RunningApplicationActivator`.
+  let appActivator: (any TerminalAppActivating)?
   /// The state observer.
   private let onUpdate: AttachCoordinator.UpdateHandler?
 
@@ -129,8 +143,9 @@ public actor PlainTerminalBackend: TerminalBackend {
 
   /// A backend for `loaded`'s terminal app. `windows` opens and focuses its windows, `store`
   /// holds the launch files, `discovery` revalidates, `tmux` runs the readings and bound
-  /// commands, `sessionCreator` creates sessions; tests pass fakes for each, a manual clock and
-  /// a start-time reader of their own.
+  /// commands, `sessionCreator` creates sessions, `localClients` traces This Mac's clients to
+  /// terminal apps (`nil`: no open-on-this-Mac check) and `appActivator` brings such an app
+  /// forward; tests pass fakes for each, a manual clock and a start-time reader of their own.
   public init(
     loaded: LoadedTerminalDefinition,
     windows: any PlainTerminalWindowLayer,
@@ -145,6 +160,8 @@ public actor PlainTerminalBackend: TerminalBackend {
       ProcessStartTime.of($0)
     },
     diagnostics: DiagnosticsLog? = nil,
+    localClients: (any LocalClientAttributing)? = nil,
+    appActivator: (any TerminalAppActivating)? = nil,
     onUpdate: AttachCoordinator.UpdateHandler? = nil
   ) {
     self.loaded = loaded
@@ -159,6 +176,8 @@ public actor PlainTerminalBackend: TerminalBackend {
     self.configuration = configuration
     self.processStartTime = processStartTime
     self.diagnostics = diagnostics
+    self.localClients = localClients
+    self.appActivator = appActivator
     self.onUpdate = onUpdate
   } // End of init(loaded:windows:helperPath:store:discovery:tmux:sessionCreator:clock:…)
 
@@ -186,7 +205,8 @@ public actor PlainTerminalBackend: TerminalBackend {
 
   /// Attaches `target`'s session in a new window of the backend's terminal app and returns how
   /// it ended: `plainConfirmed`, `plainFocused` (the backend's own attachment still held it, so
-  /// its window was brought forward) or `failed`.
+  /// its window was brought forward), `appFocused` (a client of the session on This Mac runs
+  /// in that app, which was brought forward) or `failed`.
   public func attach(_ target: AttachTarget) async -> AttachResult {
     await attach(target, checksExistingAttachment: true, detachesOtherClients: false)
   }
@@ -240,13 +260,16 @@ public actor PlainTerminalBackend: TerminalBackend {
 
   /// A plain window through the window layer with this backend's loaded definition (the layer
   /// refuses another definition's window with nothing sent); an iTerm2 launch tab is
-  /// `handleOfAnotherTerminal`, nothing run.
+  /// `handleOfAnotherTerminal`, nothing run; an app is activated (`appActivation`), nothing
+  /// launched.
   public func focus(_ handle: TerminalAttachmentHandle) async -> TerminalFocusResult {
     switch handle {
     case .iTerm2LaunchTab:
       return .handleOfAnotherTerminal
     case .plainWindow(let window):
       return await focusWindow(window)
+    case .app(let app):
+      return .appActivation(await RunningApplicationActivator.activate(app, with: appActivator))
     }
   }
 
@@ -414,6 +437,10 @@ public actor PlainTerminalBackend: TerminalBackend {
     var client: PlainClientRecord?
     /// How the focus of the window went.
     var windowFocus: TerminalFocusResult?
+    /// The client on This Mac traced to an app, for an `appFocused` attach.
+    var localAttachment: LocalAttachment?
+    /// How bringing that app forward went.
+    var appActivation: TerminalAppActivation?
     /// Step timings.
     var timings = AttachTimings()
     /// Whether the window was asked for, so a helper may run with this launch's id.
@@ -450,14 +477,15 @@ public actor PlainTerminalBackend: TerminalBackend {
     let result = AttachResult(
       key: target.key, launchID: launchID, state: finalState, timings: progress.timings,
       plainWindow: progress.window, plainClient: progress.client,
-      plainWindowFocus: progress.windowFocus)
+      plainWindowFocus: progress.windowFocus, localAttachment: progress.localAttachment,
+      appActivation: progress.appActivation)
     await record(result, hostID: target.host.id, detachesOtherClients: detachesOtherClients)
     return result
   } // End of func run(_:launchID:flightID:checksExistingAttachment:detachesOtherClients:)
 
-  /// Steps 1–7. Returns the final state (`plainConfirmed`, `plainFocused` or `failed`);
-  /// `plainLaunched`, `plainStillWaiting`, `plainConfirmed` and `plainFocused` are published
-  /// on the way (a failure is published by the caller).
+  /// Steps 1–7. Returns the final state (`plainConfirmed`, `plainFocused`, `appFocused` or
+  /// `failed`); `plainLaunched`, `plainStillWaiting`, `plainConfirmed`, `plainFocused` and
+  /// `appFocused` are published on the way (a failure is published by the caller).
   private func perform(_ progress: inout Run) async -> AttachState {
     let target = progress.target
     let launchHost: LaunchHost
@@ -490,6 +518,16 @@ public actor PlainTerminalBackend: TerminalBackend {
         }
       }
     } // End of the existing-attachment check
+    // 2b. Open on this Mac: a client of the session traced to a terminal app (one reading of
+    // the process table; unmapped clients never block). Not for a move here (it attaches with
+    // `-d` whatever is attached) or a session created a moment ago.
+    if progress.checksExistingAttachment, !progress.detachesOtherClients,
+      target.host.mode == .local, let localClients
+    {
+      let found = await Self.localAttachments(of: session, on: target.host, with: localClients)
+      progress.timings.checked = clock.now() - progress.start
+      if let first = found.first { return await focusApp(first, &progress) }
+    }
     // 3. Write the plain request.
     _ = try? store.sweep()
     var request = LaunchRequest(
@@ -552,6 +590,31 @@ public actor PlainTerminalBackend: TerminalBackend {
     publish(.plainFocused(client: attachment.client), for: progress)
     return .plainFocused(client: attachment.client)
   } // End of func focusExisting(_:_:)
+
+  /// Step 2b's reading, off the actor: `session`'s local attachments with no D16 index (the
+  /// plain backend runs only when iTerm2 is not the chosen terminal), in client order.
+  private static func localAttachments(
+    of session: DiscoveredSession,
+    on host: HostConfig,
+    with attributor: any LocalClientAttributing
+  ) async -> [LocalAttachment] {
+    await Task.detached {
+      attributor.localAttachments(of: [session], on: host, indexInUse: false)[session.key] ?? []
+    }.value
+  }
+
+  /// Step 2b's focus: brings `attachment`'s app forward and ends `appFocused`, whatever the
+  /// activation's outcome (the session is open there, so nothing is opened; an app that is not
+  /// running is not launched).
+  private func focusApp(_ attachment: LocalAttachment, _ progress: inout Run) async -> AttachState {
+    progress.localAttachment = attachment
+    progress.appActivation = await RunningApplicationActivator.activate(
+      attachment.app, with: appActivator)
+    progress.timings.confirmed = progress.timings.checked
+    progress.timings.activated = clock.now() - progress.start
+    publish(.appFocused(app: attachment.app), for: progress)
+    return .appFocused(app: attachment.app)
+  } // End of func focusApp(_:_:)
 
   /// Step 5: polls the helper's result and its early report until exactly one client of the
   /// session carries the launch's evidence, the helper reports how it ended, or the budget runs
@@ -810,7 +873,11 @@ public actor PlainTerminalBackend: TerminalBackend {
     } else {
       var detail =
         result.isFocused ? "\(operation) focused its window" : "\(operation) confirmed"
+      if case .appFocused = result.state {
+        detail = "\(operation) focused the app the session is open in on this Mac"
+      }
       if let focus = result.plainWindowFocus { detail += "; window focus \(focus.kind)" }
+      if let activation = result.appActivation { detail += "; app \(activation.rawValue)" }
       await diagnostics.record(
         .attach, outcome: .success, hostID: hostID.uuidString, durationMs: duration,
         detail: detail)

@@ -198,10 +198,11 @@ public enum TerminalAppActivation: String, Sendable, Hashable {
 }
 
 /// Brings a running app forward by bundle identifier, with no Apple event and never launching
-/// it (a definition's `app` focus, PLAN.md D38). A seam: the app uses
+/// it (a definition's `app` focus, PLAN.md D38, and since Phase I-12c2 the focus of an `.app`
+/// handle: a session open in that app on This Mac). A seam: the app uses
 /// `RunningApplicationActivator`, tests `FakeTerminalAppActivator`.
 @MainActor
-public protocol TerminalAppActivating {
+public protocol TerminalAppActivating: Sendable {
   /// Asks the running app with `bundleIdentifier` to come forward.
   func activate(bundleIdentifier: String) -> TerminalAppActivation
 }
@@ -218,5 +219,17 @@ public struct RunningApplicationActivator: TerminalAppActivating {
       withBundleIdentifier: bundleIdentifier)
     guard let instance = instances.first(where: { !$0.isTerminated }) else { return .notRunning }
     return instance.activate(options: []) ? .activated : .refused
+  }
+
+  /// Brings `app` forward on the main actor through `activator`, or a
+  /// `RunningApplicationActivator` when it is `nil` (an `.app` handle's focus, Phase I-12c2).
+  public static func activate(
+    _ app: LocalTerminalApp,
+    with activator: (any TerminalAppActivating)?
+  ) async -> TerminalAppActivation {
+    let bundleIdentifier = app.bundleIdentifier
+    return await MainActor.run {
+      (activator ?? RunningApplicationActivator()).activate(bundleIdentifier: bundleIdentifier)
+    }
   }
 } // End of struct RunningApplicationActivator

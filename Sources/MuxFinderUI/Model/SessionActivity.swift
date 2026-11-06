@@ -47,7 +47,7 @@ public enum SessionActivity: Sendable, Hashable {
     // writes their own text; a plain window has no launch tab for "Show tab".
     case .plainLaunched, .plainStillWaiting: self = .waitingForITerm2
     case .plainConfirmed: self = .confirmed
-    case .plainFocused: self = .focused
+    case .plainFocused, .appFocused: self = .focused
     }
   }
 

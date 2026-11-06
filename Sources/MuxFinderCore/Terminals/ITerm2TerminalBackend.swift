@@ -8,14 +8,19 @@ import Foundation
 ///
 /// A focus forwards an iTerm2 launch tab to `AttachCoordinator.showLaunchTab(_:)`; a plain
 /// window is refused (`handleOfAnotherTerminal`) and nothing reaches the coordinator or
-/// iTerm2.
+/// iTerm2. An `.app` handle (a session open in that app on This Mac, Phase I-12c2) activates
+/// the running app through `appActivator`, never through the coordinator or iTerm2's API.
 public struct ITerm2TerminalBackend: TerminalBackend {
   /// The coordinator every operation forwards to.
   public let coordinator: AttachCoordinator
+  /// Brings an `.app` handle's app forward; `nil` uses `RunningApplicationActivator`.
+  public let appActivator: (any TerminalAppActivating)?
 
-  /// A backend over `coordinator`.
-  public init(coordinator: AttachCoordinator) {
+  /// A backend over `coordinator`; `appActivator` brings `.app` handles forward (tests pass a
+  /// fake).
+  public init(coordinator: AttachCoordinator, appActivator: (any TerminalAppActivating)? = nil) {
     self.coordinator = coordinator
+    self.appActivator = appActivator
   }
 
   /// Always `.iterm2`.
@@ -69,13 +74,16 @@ public struct ITerm2TerminalBackend: TerminalBackend {
   }
 
   /// A launch tab: `AttachCoordinator.showLaunchTab(_:)`'s result, unchanged. A plain window:
-  /// `handleOfAnotherTerminal`, nothing run.
+  /// `handleOfAnotherTerminal`, nothing run. An app: `appActivation` with the activator's
+  /// outcome.
   public func focus(_ handle: TerminalAttachmentHandle) async -> TerminalFocusResult {
     switch handle {
     case .iTerm2LaunchTab(let sessionID):
       return .launchTab(await coordinator.showLaunchTab(sessionID))
     case .plainWindow:
       return .handleOfAnotherTerminal
+    case .app(let app):
+      return .appActivation(await RunningApplicationActivator.activate(app, with: appActivator))
     }
   }
 } // End of struct ITerm2TerminalBackend

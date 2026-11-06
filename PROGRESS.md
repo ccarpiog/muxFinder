@@ -57,12 +57,13 @@ file.
 | I-12b2 | Other terminals, helper plain mode: `attach-plain` / `profile-plain` mode words, the request's `terminal` field (exit 72 cross refusals, `keepsMinimumLifetime` on plain requests only), the bound plain attach from `PlainLaunch` (stdin reopened read-write), no OSC 1337 / status report / bury, early report `<uuid>.report.json`, real pty test (D14, D38 extended; I-12b2 split from I-12b3) | high | opus (impl worker); split, calls and the review fix inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12b2.md` | `docs/progress-archive/i-12b2.md` |
 | I-12b3 | Other terminals, terminal seam: `TerminalBackend` at the coordinator's session operations, `ITerm2TerminalBackend` wrapping `AttachCoordinator` unchanged, `PlainTerminalWindows` (facts gate, compile once, `muxfinder_open`/`focus`/`close`, `exec` spawn with a reaper, windows bound to their opening definition); nothing rewired (D38 extended) | high | opus (impl + review-fix worker); calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12b3.md` | `docs/progress-archive/i-12b3.md` |
 | I-12c1 | Other terminals, the plain backend: `PlainTerminalBackend` conforming to `TerminalBackend` (plain request, open through the window layer, confirmation from the early report + `client_tty`/`client_pid`/start time or the remote token, bound tmux detach, move here and detach others, in-memory records), result types extended by new cases, `AttachSharedSteps` factored out; nothing rewired (D38 extended; I-12c split into c1–c3) | high | opus (impl + review-fix worker); split and calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12c1.md` | `docs/progress-archive/i-12c1.md` |
+| I-12c2 | Other terminals, open on this Mac: discovery's nonce-framed `tty` record (`client_tty`, `client_created`), read-only process table and `LocalClientAttributor` (iTerm2 and its job server, definitions' apps, pid reuse refused, SSH never), per-session local attachments, optional refresh attributor, `.app` focus by activation, plain backend's attach focusing an attributed app, probe `local-clients`; nothing rewired (D38 extended) | high | opus (impl + review-fix worker); calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12c2.md` | `docs/progress-archive/i-12c2.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-12c2, I-12c3, I-12d, I-12e | Other terminal apps, the rest of the group as split in `PLAN.md` *Phase I-12*: c2 open on this Mac by process ancestry (discovery's `client_pid`/`client_tty`; high), c3 the app, self-tests and probe onto the seam with the terminal setting, `attach --terminal`, `e2e-plain`, iTerm2 regression runs (high), d UI (routine), e docs (routine) | `autoclaude/processed/110-other-terminal-apps.md` | next (c2 first) |
+| I-12c3, I-12d, I-12e | Other terminal apps, the rest of the group as split in `PLAN.md` *Phase I-12*: c3 the app, self-tests and probe onto the seam with the terminal setting, the attributor and app activator passed in, `attach --terminal`, `e2e-plain`, iTerm2 regression runs (high), d UI (routine), e docs (routine) | `autoclaude/processed/110-other-terminal-apps.md` | next (c3 first) |
 | I-13 | Update check (high, a group): GitHub `releases/latest` check at launch and daily (toggle on by default), popover notice and icon dot, one-click Update (download, SHA-256, `ditto`, Developer ID + notarization check, D27-style swap, relaunch), hand-written, no Sparkle; split a (core) / b (UI) in `PLAN.md` before its first worker | `autoclaude/processed/120-update-check-github.md` | after I-12 (last) |
 
 **Inbox**: every triage through 2026-11-06 (items 40 to 120, item 99 deferred and then resolved
@@ -80,9 +81,10 @@ I-11 (a, b), I-12a and I-12b (b1, b2, b3) are complete and reviewed. The user re
 decision), **I-12b1** (definitions, loader, AppleScript runner), **I-12b2** (helper plain
 mode) and **I-12b3** (terminal seam) complete 2026-11-06
 (`docs/progress-archive/{i-12a,i-12b1,i-12b2,i-12b3}.md`). **I-12c is split into
-I-12c1/I-12c2/I-12c3**; **I-12c1** (the plain backend) complete 2026-11-06
-(`docs/progress-archive/i-12c1.md`). **Next: I-12c2** (open on this Mac; *Next action* 0),
-then I-12c3, I-12d, I-12e, then **I-13** (update check, a group to split a/b).
+I-12c1/I-12c2/I-12c3**; **I-12c1** (the plain backend) and **I-12c2** (open on this Mac)
+complete 2026-11-06 (`docs/progress-archive/{i-12c1,i-12c2}.md`). **Next: I-12c3** (onto the
+seam and the real runs; *Next action* 0), then I-12d, I-12e, then **I-13** (update check, a
+group to split a/b).
 Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
@@ -138,6 +140,11 @@ I-11a/I-11b, I-12 into I-12a–e.
   built helper's end to end on a pty against a private tmux server among them; 1098 core + 486
   UI pass); nothing rewired, no real run; one exhaustive-switch addition in an existing UI
   test, its samples unchanged — `docs/progress-archive/i-12c1.md`.
+- Phase I-12c2: all criteria met, 2026-11-06 — discovery's client fields, the attributor over a
+  fake table, the per-session rule, the refresh attributor, `.app` focus and the plain backend's
+  open-here focus all hermetic (1134 core + 486 UI pass); real read-only `discover --local`,
+  `--ssh saturno-m4` and `local-clients` (1 client → iTerm2, 0 unmapped); nothing rewired —
+  `docs/progress-archive/i-12c2.md`.
 
 ## Decisions
 
@@ -207,6 +214,13 @@ I-11a/I-11b, I-12 into I-12a–e.
   out of the coordinator; an attach waits out an earlier plain attach (`earlierLaunchPending`);
   the review fix binds every detach-others detach to the kept client's presence (D38
   "Plain backend (I-12c1)") — `docs/progress-archive/i-12c1.md`.
+- Phase I-12c2: the orchestrator's calls in `PLAN.md` *Phase I-12* ("Calls for I-12c2": core
+  only; pid reuse refused by terminal device and start time; iTerm2's job server names iTerm2;
+  the index keeps iTerm2's control-mode clients; activation of a running app only; the iTerm2
+  backend's attach unchanged). The workers': `incompleteClient`; attributor and activator off by
+  default in the plain backend (I-12c3 passes them); `ITerm2TerminalBackend(appActivator:)` for
+  `.app` handles; the review fix's nonce-framed `tty` record (D38 "Open on this Mac (I-12c2)") —
+  `docs/progress-archive/i-12c2.md`.
 
 ## Open risks / deviations
 
@@ -256,6 +270,10 @@ I-11a/I-11b, I-12 into I-12a–e.
   touched; I-12c3/I-12d decide whether to refuse it up front); a detach-others stopped
   partway says "none detached" though some may have been (I-12d's wording) —
   `docs/progress-archive/i-12c1.md`.
+- I-12c2: no client in Terminal or Ghostty traced for real (Ghostty's chain unverified); nothing
+  calls the attributor yet (I-12c3); an app found by ancestry is focused by activation only, and
+  macOS 14's cooperative activation may refuse it (recorded, never failing an attach); the review
+  fix extended one existing test's input and expectations — `docs/progress-archive/i-12c2.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -333,27 +351,28 @@ I-11a/I-11b, I-12 into I-12a–e.
   not rechecked after a confirming reading; the early report swept during the remote wait); a
   review-fix worker fixed all three, each regression failing with its fix reverted;
   re-verified by the orchestrator — `docs/reviews/phase-I-12c1.md`.
+- Phase I-12c2: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
+  blockers, 1 should-fix (`client_tty` raw in the line-based client record: a line feed failed
+  the host's discovery); a review-fix worker moved it into a nonce-framed `tty` record, its
+  full-report regression failing on the old code; re-verified by the orchestrator —
+  `docs/reviews/phase-I-12c2.md`.
 
 ## Next action
 
-0. **Phase I-12c2 (queued, high): Other terminals, open on this Mac.** Poll the inbox first.
-   Then read `PLAN.md` *Phase I-12* ("I-12c split, and the orchestrator's calls": the I-12c2
-   bullet; "Calls for I-12c1" for the backend's in-memory records), D38's sub-bullet "Plain
-   backend (I-12c1)", D16 (attachment index) and requirement 7 of
-   `autoclaude/processed/110-other-terminal-apps.md`. Write the calls for I-12c2 under the
-   I-12c split block before its worker: discovery's `list-clients` gains `client_pid` and
-   `client_tty` (read-only, D6, D12; parser and probe JSON); a read-only process ancestry
-   reader by pid (e.g. `proc_pidinfo`/`sysctl` ppid chain, fake process table in tests) mapping
-   a local client to the terminal app it descends from (bundle identifiers of iTerm2 and the
-   loaded definitions); "open in <app> on this Mac" for every terminal, iTerm2 included, with
-   iTerm2 chosen D16's focus by connection unchanged (requirement 12); focus by that
-   terminal's focus kind (plain: the backend's own record, else `app` activation); a remote
-   session attached by hand in a plain terminal is "attached somewhere"; still nothing rewired
-   in the app (I-12c3). Hermetic; real runs only `discover --local`/`--ssh saturno-m4` (counts
-   only). Select with acceptance criteria and deliverables. Then I-12c3 (its calls at its
-   selection: the app, self-tests and probe onto the seam, terminal setting in
-   `preferences.json`, `attach --terminal`, `e2e-plain` under the gate in item 3 and
-   *Unattended-run rules* 8, iTerm2's `e2e-*` and self-tests as regression), I-12d, I-12e.
+0. **Phase I-12c3 (queued, high): Other terminals, onto the seam and the real runs.** Poll the
+   inbox first. Then read `PLAN.md` *Phase I-12* (the I-12c3 bullet of "I-12c split, and the
+   orchestrator's calls"; "Calls for I-12c1" and "Calls for I-12c2"), D38's sub-bullets "Plain
+   backend (I-12c1)" and "Open on this Mac (I-12c2)", requirements 7, 8 and 12 of
+   `autoclaude/processed/110-other-terminal-apps.md`. I-12c3 is likely two workers' worth:
+   consider splitting it (e.g. c3a the app, self-tests and probe onto `TerminalBackend` with the
+   terminal setting in `preferences.json` through `PreferencesStore`, `RefreshCoordinator
+   (localClients:)` and the plain backend's attributor and activator passed in, the app never
+   contacting iTerm2 when it is not the choice, probe `attach --terminal`; c3b `e2e-plain
+   --terminal terminal|ghostty --local | --ssh saturno-m4` under the gate in item 3 and
+   *Unattended-run rules* 8, else owed, and iTerm2's `e2e-*` and self-tests as regression),
+   recording the split and its calls in `PLAN.md` before the first worker. Open questions left
+   to it: a session name with `{`, `[` or `]` (I-12c1); whether the iTerm2 backend's attach
+   should ever consult ancestry (I-12c2 kept it unchanged, requirement 12). Then I-12d, I-12e.
    After I-12, **I-13** (`autoclaude/processed/120-update-check-github.md`, split a core / b
    UI; first settle the GitHub GETs question, see the *Inbox* note).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
@@ -408,16 +427,20 @@ I-11a/I-11b, I-12 into I-12a–e.
   `Sources/MuxFinderCore/Attach/AttachSharedSteps.swift`; tests
   `Tests/MuxFinderCoreTests/PlainTerminalBackend{,Detach,EndToEnd}Tests.swift`,
   `PlainTerminalBackendTestSupport.swift`.
+- Open on this Mac (I-12c2): `Sources/MuxFinderCore/Terminals/{ProcessTable,ProcessTableFakes,LocalClientAttribution}.swift`,
+  discovery's `tty` record in `Tmux/{ProbeScript,ProbeReport}.swift`, `Refresh/RefreshCoordinator.swift`
+  (`localClients:`), probe `Sources/muxfinder-probe/LocalClientsCommand.swift`; tests
+  `Tests/MuxFinderCoreTests/{ProbeClientFields,LocalClientAttribution,LocalClientsReal,RefreshLocalAttachments,PlainTerminalBackendOpenHere}Tests.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/` (inbox log: `inbox-log.md`).
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-12c1 (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `swift test` exit 0, 1098 core tests in 107 suites and 486
-  UI tests in 47 suites (before the review fix 1090 + 486); no real run (nothing rewired, no
-  terminal app, iTerm2 or remote host); no leftovers of the run —
-  `docs/progress-archive/i-12c1.md`.
-- Phases 1–I-12b3: each phase's final-tree verification is in
+- Phase I-12c2 (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `swift test` exit 0, 1134 core tests in 112 suites and 486
+  UI tests in 47 suites (before the review fix 1130 + 486); real read-only `discover --local`
+  and `local-clients` exit 0 (counts only), the private folder removed —
+  `docs/progress-archive/i-12c2.md`.
+- Phases 1–I-12c1: each phase's final-tree verification is in
   `docs/progress-archive/<phase>.md`.
 
 ## Git state
@@ -450,6 +473,7 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phase I-12b1: `e60149d`, pushed.
 - Phase I-12b2: `d008435`, pushed.
 - Phase I-12b3: `06f7d6e`, pushed.
-- Phase I-12c1: the commit carrying this checkpoint ("Phase I-12c1: other terminals, the
-  plain backend"), pushed (SHA and push result in the run's status line and the next
-  checkpoint). The tree was clean when this iteration started (empty preflight file).
+- Phase I-12c1: `73718f1`, pushed.
+- Phase I-12c2: the commit carrying this checkpoint ("Phase I-12c2: other terminals, open on
+  this Mac"), pushed (SHA and push result in the run's status line and the next checkpoint).
+  The tree was clean when this iteration started (empty preflight file).

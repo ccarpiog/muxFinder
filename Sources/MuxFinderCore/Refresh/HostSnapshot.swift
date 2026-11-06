@@ -38,7 +38,8 @@ public struct HostSnapshot: Sendable, Hashable, Identifiable {
     }
   } // End of enum Outcome
 
-  /// One discovered session with the iTerm2 tmux connections on this Mac that show it.
+  /// One discovered session with the iTerm2 tmux connections on this Mac that show it, and
+  /// its clients on this Mac traced to a terminal app.
   public struct Session: Sendable, Hashable, Identifiable {
     /// The session as discovery reported it.
     public var discovered: DiscoveredSession
@@ -46,11 +47,22 @@ public struct HostSnapshot: Sendable, Hashable, Identifiable {
     /// attachment check (PLAN.md D16). Empty when none is, and also when the check failed or
     /// never ran: `RefreshState.attachmentCheck` says which.
     public var attachments: [AttachmentSnapshot.Attachment]
+    /// This Mac's session only, with a local client attributor configured (PLAN.md D38,
+    /// Phase I-12c2): the clients process ancestry traced to a terminal app, from the same
+    /// attempt as `discovered` ("open in <app> on this Mac"; with D16's index in use, iTerm2's
+    /// control-mode clients are left to `attachments`). Empty otherwise, and always for an SSH
+    /// host's session.
+    public var localAttachments: [LocalAttachment]
 
     /// Creates a session entry.
-    public init(discovered: DiscoveredSession, attachments: [AttachmentSnapshot.Attachment] = []) {
+    public init(
+      discovered: DiscoveredSession,
+      attachments: [AttachmentSnapshot.Attachment] = [],
+      localAttachments: [LocalAttachment] = []
+    ) {
       self.discovered = discovered
       self.attachments = attachments
+      self.localAttachments = localAttachments
     }
 
     /// The session's identity, which includes its host.
@@ -120,37 +132,49 @@ public struct HostSnapshot: Sendable, Hashable, Identifiable {
   /// Records a finished attempt that ended at `date`. `ok` and `noServer` are successes: the
   /// snapshot turns live with the reported sessions and the failure count resets. Anything
   /// else is a failure: the sessions of the last success are kept and the snapshot turns
-  /// stale. Session attachments come from `index` (none when `nil`).
-  mutating func record(_ result: DiscoveryResult, at date: Date, index: AttachmentSnapshot?) {
+  /// stale. Session attachments come from `index` (none when `nil`), local attachments from
+  /// `localAttachments` (the same attempt's, by session; none when empty).
+  mutating func record(
+    _ result: DiscoveryResult,
+    at date: Date,
+    index: AttachmentSnapshot?,
+    localAttachments: [SessionKey: [LocalAttachment]] = [:]
+  ) {
     lastAttempt = date
     switch result.status {
     case .ok(let discovered):
       succeed(
-        with: discovered, outcome: .sessionsListed, at: date, nodeName: result.report?.nodeName)
+        with: discovered, outcome: .sessionsListed, at: date, nodeName: result.report?.nodeName,
+        localAttachments: localAttachments)
     case .noServer:
-      succeed(with: [], outcome: .noServer, at: date, nodeName: result.report?.nodeName)
+      succeed(
+        with: [], outcome: .noServer, at: date, nodeName: result.report?.nodeName,
+        localAttachments: [:])
     default:
       freshness = .stale
       lastOutcome = .failed(result.status)
       consecutiveFailures += 1
     }
     mergeAttachments(index)
-  } // End of func record(_:at:index:)
+  } // End of func record(_:at:index:localAttachments:)
 
-  /// The success half of `record(_:at:index:)`.
+  /// The success half of `record(_:at:index:localAttachments:)`.
   private mutating func succeed(
     with discovered: [DiscoveredSession],
     outcome: Outcome,
     at date: Date,
-    nodeName reported: String?
+    nodeName reported: String?,
+    localAttachments: [SessionKey: [LocalAttachment]]
   ) {
     freshness = .live
     lastOutcome = outcome
     lastSuccess = date
     consecutiveFailures = 0
-    sessions = discovered.map { Session(discovered: $0) }
+    sessions = discovered.map {
+      Session(discovered: $0, localAttachments: localAttachments[$0.key] ?? [])
+    }
     if let reported { nodeName = reported }
-  } // End of func succeed(with:outcome:at:nodeName:)
+  } // End of func succeed(with:outcome:at:nodeName:localAttachments:)
 
   /// Sets every session's attachments to the connections `index` mapped to its key, or to none
   /// when there is no index result (never checked, iTerm2 not running, or the check failed).

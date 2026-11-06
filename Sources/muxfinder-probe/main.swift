@@ -25,6 +25,7 @@ let usage = """
   \(E2EDetachOthersCommand.usage)
   \(TerminalsCommand.usage)
   \(PlainProofCommand.usage)
+  \(LocalClientsCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -71,6 +72,8 @@ case "terminals":
   exit(await TerminalsCommand.run(Array(arguments.dropFirst())))
 case "plain-proof":
   exit(await PlainProofCommand.run(Array(arguments.dropFirst())))
+case "local-clients":
+  exit(await LocalClientsCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

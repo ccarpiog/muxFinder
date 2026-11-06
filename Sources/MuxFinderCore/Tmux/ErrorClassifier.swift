@@ -127,7 +127,9 @@ public enum ErrorClassifier {
     var clientsBySession: [TmuxSessionID: [ClientSummary]] = [:]
     for client in clients.records {
       clientsBySession[client.sessionID, default: []].append(
-        ClientSummary(pid: client.pid, isControlMode: client.isControlMode)
+        ClientSummary(
+          pid: client.pid, isControlMode: client.isControlMode,
+          terminalPath: client.terminalPath, createdAt: client.createdAt)
       )
     }
     let discovered = sessions.records.map { record in

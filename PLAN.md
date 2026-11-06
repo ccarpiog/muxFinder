@@ -578,6 +578,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     rejected: a connection the user opens between the check and the index would get the
     command. `muxfinder-probe attach` and `iterm2 attachments` ask every connection, so
     unattended runs use them only while `list-connections` shows none of the user's.
+  - **Beside other terminals:** D38's *Open on this Mac (I-12c2)* traces This Mac's tmux
+    clients to the terminal app their process descends from; with this index in use (iTerm2
+    chosen) iTerm2's control-mode clients are left to it, so this mapping and its unmapped kinds
+    stay exactly as above.
 - **D17 — Remote attach over SSH** (decided in Phase 5b, 2026-10-22; code in
   `Sources/MuxFinderCore/Launch/RemoteLaunch.swift`, `LaunchHelper.swift`,
   `TerminalChildRunner.swift` and `Attach/AttachCoordinator.swift`).
@@ -2409,9 +2413,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     the parser drops and counts like an empty one, and is never cut to a length the parser
     would keep; the path is the false branch, so a tmux that cannot evaluate the comparison
     prints it whole, as before (only tmux 3.8 is tested). Discovery keeps stdout up to the
-    largest report the parser accepts (`ProbeReportParser.maximumReportSize`, about 11.8 MiB:
-    every line at the 4,096-byte cap, 1,000 sessions and 1,000 clients, and a path record of
-    at most `maximumPathRecordLength`, 4,156 bytes, after each session), so 1,000 sessions in
+    largest report the parser accepts (`ProbeReportParser.maximumReportSize`, about 12.1 MiB:
+    every line at the 4,096-byte cap, 1,000 sessions and 1,000 clients, a path record of at
+    most `maximumPathRecordLength`, 4,156 bytes, after each session, and, since Phase I-12c2's
+    review fix, a `tty` record of at most `maximumTerminalRecordLength`, 324 bytes, after each
+    client), so 1,000 sessions in
     4,096-byte folders still report; more is "too large"; stderr keeps the runner's 1 MiB cap
     (`ProcessRequest.errorOutputLimit`). The parser requires the record to follow its own
     session's line (same id, at most one, else `malformed`; no end mark, `incomplete`), applies
@@ -3575,8 +3581,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `docs/TESTING.md` *Phase I-12a* and *Phase I-12a review fixes*). Outside iTerm2 muxFinder attaches with plain tmux (one
   window, tmux's status bar, prefix keys and copy mode); iTerm2 keeps native control mode
   exactly as today. The helper runs it since I-12b2 (*Helper plain mode (I-12b2)* below) and
-  the plain backend writes its requests since I-12c1 (*Plain backend (I-12c1)* below); nothing
-  in the app calls that backend yet: I-12c3 wires it.
+  the plain backend writes its requests since I-12c1 (*Plain backend (I-12c1)* below), and
+  process ancestry tells which terminal app shows a session on This Mac since I-12c2 (*Open on
+  this Mac (I-12c2)* below); nothing in the app calls either yet: I-12c3 wires them.
   - **The proof** (`plain-proof`, tmux 3.8, on This Mac and on Saturno, no terminal app and
     no iTerm2): plain clients on pseudo-terminals the harness opens itself, each the
     controlling terminal of its child's own session, 80 × 24, `TERM=xterm-256color`,
@@ -4065,6 +4072,101 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       kept client went through. Each review fix's regression tests fail with that fix reverted.
       **Owed:** the real runs with Terminal and Ghostty and the remote plain attach (I-12c3's
       `e2e-plain`).
+  - **Open on this Mac (I-12c2)** (2026-11-06; requirement 7, core only; code in
+    `Sources/MuxFinderCore/Terminals/ProcessTable.swift` (`ProcessTableEntry`,
+    `ProcessTableLookup`, `ProcessTableReading`, `SystemProcessTable`),
+    `ProcessTableFakes.swift` (`FakeProcessTable`), `LocalClientAttribution.swift`
+    (`LocalTerminalApp`, `LocalClientUnmappedReason`, `LocalClientAttribution`,
+    `LocalAttachment`, `LocalClientAttributing`, `LocalClientAttributor`); additively in
+    `Tmux/ProbeScript.swift`, `ProbeReport.swift`, `ErrorClassifier.swift`, `TmuxModels.swift`,
+    `Refresh/HostSnapshot.swift`, `RefreshCoordinator.swift`, `Attach/AttachModels.swift`,
+    `Terminals/TerminalBackend.swift`, `PlainTerminalBackend.swift`,
+    `ITerm2TerminalBackend.swift`, `PlainTerminalSeams.swift`, the two minimum `MuxFinderUI`
+    switches and the probe's `local-clients` (`LocalClientsCommand.swift`); tests in
+    `ProbeClientFieldsTests`, `LocalClientAttributionTests`, `LocalClientsRealTests`,
+    `RefreshLocalAttachmentsTests`, `PlainTerminalBackendOpenHereTests`; `docs/TESTING.md`
+    *Phase I-12c2*). It does what the calls for I-12c2 say; nothing in the app, the self-tests
+    or the existing probe commands calls it yet (I-12c3). **The worker's calls:**
+    - *Discovery's client record* gains `client_created` and `client_tty` (format 1 kept, the
+      script static and read-only). **Review fix:** both come in a `tty` record of their own
+      right after the client's line, framed like D31's `path` record (`tty`, the nonce, the
+      client's pid, the creation time, the terminal, printed as nothing over 255 bytes, and the
+      nonce again as end mark), because tmux takes `client_tty` from what the client sends and
+      one with a line break, raw on the client line as first written, failed the whole host's
+      discovery; the parser takes everything up to the first tab, nonce and line feed as the
+      terminal, so a hostile one only makes that client's path `nil` (the pid and creation time
+      come before it), and `ProbeReportParser.maximumReportSize` counts one such record
+      (`maximumTerminalRecordLength`, 324 bytes) per client. A five-field client line without
+      the record (an older probe, a fake) still parses with both `nil`, a six-field one stays
+      malformed, and a misplaced `tty` record fails the report like a misplaced `path`.
+      `ClientSummary.terminalPath` (`ProbeReportParser.terminalPath(_:)`:
+      `/` first, bytes 0x21–0x7E, at most 255) and `createdAt` (canonical decimal), optional,
+      so `discover` JSON shows them when known (left out when `nil`; tmux prints an empty
+      `client_tty` for a client with no terminal, such as `tmux -C` on a pipe). Every existing
+      fixture kept its five-field lines and its expectations.
+    - *The process table* behind `ProcessTableReading` (`process(_:)` → `found`, `gone`,
+      `unreadable`; `terminalDevice(atPath:)`, `stat`'s `st_rdev` of a character device).
+      `SystemProcessTable` reads `sysctl` `KERN_PROC_PID` (parent, `p_starttime`, `e_tdev`;
+      `NODEV` is none; a pid with no process answers no data), `proc_pidpath` and
+      `NSRunningApplication(processIdentifier:)` (thread-safe, `Sendable`: no main-actor hop),
+      then `sysctl` again: an entry that changed meanwhile is `gone`. Verified on Neptuno
+      (2026-11-06): `proc_pidpath` and `sysctl` read root's processes (`launchd`, `login`) as
+      the user, and `NSRunningApplication` names iTerm2 by pid from a command-line process.
+    - *The walk* (`LocalClientAttributor.attribute(_:)`) checks the client first: no usable
+      terminal path or creation time is `incompleteClient` (a reason the calls did not list,
+      added so the probe's counts say why), another or no controlling terminal is
+      `terminalMismatch`, a start later than `client_created` + 1 s is `startedAfterClient`.
+      Then up the parents, at most 64 steps; pid 1 or 0 or a repeated pid is
+      `noTerminalAncestor` (launchd is never read, and a cycle counts as the chain's end); a
+      parent that started after its child is a reused pid, `processGone`. Bundle identifiers
+      compare without ASCII case (as LaunchServices does); the app keeps its process's
+      identifier (iTerm2's constant for its job server) and `definitionIDs` in loader order.
+      iTerm2's job server is an executable named `iTermServer-*` directly in
+      `~/Library/Application Support/iTerm2` of the real home (`getpwuid_r` for the real uid, so
+      `HOME` and `CFFIXED_USER_HOME` do not move it; injected in tests).
+    - *Types:* `LocalTerminalApp` (`init?` refuses an app that is neither iTerm2 nor any
+      definition's, so `terminal` is always `iterm2` or the first definition's plain one),
+      `LocalAttachment` (app, client pid, terminal path, control mode) and
+      `LocalAttachment.counted(_:indexInUse:)`, the per-session rule (iTerm2's control-mode
+      clients dropped only with `indexInUse`). `LocalClientAttributing.localAttachments(of:on:
+      indexInUse:)` returns `[:]` for an SSH host without reading anything, and only sessions
+      of the given host's id.
+    - *The refresh engine:* `RefreshCoordinator(localClients:)` (after `attachmentIndex`,
+      default `nil`). The attempt's own detached task attributes This Mac's listed sessions
+      right after discovery (`indexInUse` is "an attachment index is configured"), and the
+      applied snapshot's sessions carry `HostSnapshot.Session.localAttachments` (default
+      empty; a stale snapshot keeps its last success's, like its sessions).
+    - *Focus:* the new handle `TerminalAttachmentHandle.app(LocalTerminalApp)` (its `terminal`
+      is the app's) and `TerminalFocusResult.appActivation(TerminalAppActivation)`. It reuses
+      I-12b3's `TerminalAppActivating` (now `Sendable`) and `RunningApplicationActivator`
+      (`NSRunningApplication`, first instance not terminated, `activate(options: [])`; not
+      running → `notRunning`, nothing launched; no Apple event), through
+      `RunningApplicationActivator.activate(_:with:)` on the main actor. Every backend focuses
+      an `.app` handle: the plain backend and, additively, `ITerm2TerminalBackend(coordinator:
+      appActivator:)` (`nil` → the real activator), whose attach and other operations are
+      unchanged.
+    - *The plain backend's attach* (`PlainTerminalBackend(localClients:appActivator:)`, both
+      default `nil`, so every I-12c1 test and the I-12c1 behaviour are unchanged; I-12c3 passes
+      the attributor): after its own record (step 2), only for `attach(_:)` on This Mac (not a
+      move here or a create-and-attach), the revalidated session's clients are attributed once,
+      off the actor, with `indexInUse: false`; the first attributed client in client order
+      ends the attach `AttachState.appFocused(app:)` (kind `appFocused`; `isFocused` and
+      `isAttached` hold) with `AttachResult.localAttachment` and `appActivation`, published as
+      `requested` → `appFocused`, nothing written or opened, whatever the activation's outcome.
+      The two `MuxFinderUI` switches show it as `.focused` (I-12d writes the strings).
+    - *Remote sessions:* an SSH host's clients are never attributed (their processes run on
+      that host), so a remote session attached by hand in a plain terminal is "attached
+      somewhere" unless the plain backend's own record or D16's index says otherwise.
+    - **Verified** (hermetic, plus read-only real runs): on a private tmux server a plain
+      client on a pseudo-terminal of the test was discovered with that terminal and a creation
+      time of now, its process held that terminal and started before it, the walk ended in
+      iTerm2 or no terminal ancestor (never a refusal), a creation time 10 s early and another
+      terminal were refused, and a control client with no terminal was `incompleteClient`.
+      Real runs (2026-11-06; counts in `docs/TESTING.md` *Phase I-12c2*): `discover --local`
+      and `--ssh saturno-m4` show both fields for every client; `local-clients` traced This
+      Mac's one control-mode client to iTerm2. **Owed:** a client in Terminal and in Ghostty
+      traced for real (neither is used here; I-12c3's real runs), and the attributor wired
+      into the app (I-12c3).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -7123,6 +7225,83 @@ Calls for I-12c1 (the plain backend; 2026-11-06, before its worker):
   existing test passing unedited. No Apple event, no compile of a built-in script.
 - **Records.** D38 "Plain backend (I-12c1)", `docs/TESTING.md` *Phase I-12c1*. `CLAUDE.md`
   changes only if a command does (none expected).
+
+Calls for I-12c2 (open on this Mac; 2026-11-06, before its worker). Requirement 7 of
+`autoclaude/processed/110-other-terminal-apps.md`, as core only: nothing in `MuxFinderUI`,
+`AppEnvironment`, the self-tests or the existing probe commands' behaviour changes (I-12c3
+wires it, I-12d writes the strings).
+
+- **Discovery's client record** (`Tmux/ProbeScript.swift`, `ProbeReport`, `TmuxModels`): the
+  `list-clients` format gains `#{client_tty}` and `#{client_created}` after `client_pid`, still
+  read-only (D6, D12; the script stays static). The client model gains an optional terminal
+  path (kept only when it is an absolute path of printable ASCII without whitespace, at most
+  255 bytes) and an optional creation time (canonical decimal seconds); an unusable value is
+  nil, never a failed session or host. `discover` JSON shows both. Existing tests keep their
+  expectations; the worker may extend their client input lines with the new fields.
+- **The process table, read-only, behind a seam** (new files in `Terminals/`, names the
+  worker's, e.g. `ProcessAncestry`): per pid, its parent pid, kernel start time and controlling
+  terminal device (`sysctl` `KERN_PROC_PID`), its executable path (`proc_pidpath`) and, for a
+  registered app, its bundle identifier (`NSRunningApplication(processIdentifier:)`). Nothing
+  is signalled, launched or sent an Apple event; a fake table in tests.
+- **A local client's terminal app** (verified on Neptuno 2026-11-06: iTerm2 runs every
+  session's processes under its job server `~/Library/Application Support/iTerm2/iTermServer-3.7.7`,
+  whose parent is iTerm2 while it runs, and launchd after an iTerm2 restart; Terminal is
+  `Terminal → login → shell`; Ghostty is not installed here, its chain unverified): walk the
+  parent chain from the client's pid, at most 64 steps, stopping at pid 1 or 0 or a repeated
+  pid. The first ancestor whose bundle identifier is iTerm2's (`com.googlecode.iterm2`) or
+  that of any loaded definition names the app; an ancestor that is iTerm2's job server (an
+  executable named `iTermServer-*` in `~/Library/Application Support/iTerm2/` of the user's
+  real home, injected in tests) names iTerm2 whatever its parent. **Pid reuse is refused**:
+  the client's own process must have the controlling terminal whose device is the client
+  path's (`stat` `st_rdev`) and must not have started after `client_created` (one second of
+  rounding allowed); a client with no usable terminal path or creation time is unmapped. The
+  answer is typed: the app (its bundle identifier, and the loaded definition ids sharing it,
+  in loader order; iTerm2 needs none) or an unmapped reason (no terminal ancestor, process
+  gone, terminal mismatch, started after the client, unreadable, too deep). Only This Mac's
+  sessions are ever attributed; **an SSH host's clients never are** (their processes run on
+  that host): a remote session attached by hand in a plain terminal is "attached somewhere",
+  unless the plain backend's own record or D16's index says otherwise (documented in D38).
+- **Per session**, This Mac only: the local attachments, one per attributed client (app,
+  client pid, terminal path, control mode). With D16's index results beside them (iTerm2
+  chosen), a control-mode client attributed to iTerm2 is left to the index (so D16's mapping
+  and its unmapped kinds stay exactly as today); every other attributed client is "open in
+  <app> on this Mac". Without the index (iTerm2 not chosen, so never contacted), every
+  attributed client counts, iTerm2's control-mode clients included.
+- **The refresh engine**, additively: an optional attributor seam on `RefreshCoordinator`
+  (nil, the default, changes nothing, every existing test unedited); with it, This Mac's
+  snapshot sessions carry their local attachments (a new field defaulting to empty).
+- **Focus by the terminal's focus kind.** iTerm2 with D16's index: focus by connection,
+  unchanged. A session the plain backend opened: its own record's window (`.plainWindow`,
+  I-12c1). Any other attributed client: activation of that app (a new handle kind, e.g.
+  `.app(bundleIdentifier:)`) through a main-actor seam over `NSRunningApplication` (a running
+  app only: never `NSWorkspace` open, never a launch, never an Apple event; not running → a
+  typed outcome, nothing launched; macOS 14's cooperative activation may refuse, so the
+  outcome is recorded and never fails an attach).
+- **The plain backend's attach** gains the check I-12c1 left out, after its own records and
+  before any request is written: on This Mac, a session with an attributed local client
+  becomes a focus of that app (a new focused result carrying the app and the activation
+  outcome), nothing opened, as D16 never opens a duplicate; unmapped clients and a table that
+  cannot be read never block the attach (D16's unmapped kinds); the table is read once per
+  attach. Move here is unchanged (it attaches with `-d` whatever is attached). **The iTerm2
+  backend and the coordinator are unchanged** (requirement 12): no ancestry check in their
+  attach.
+- **Probe**, read-only, new: `muxfinder-probe local-clients [--builtin-directory <dir>]
+  [--user-directory <dir>]` discovers This Mac, attributes every client and prints JSON (per
+  client: session id, never its name; control mode; the app or the unmapped reason) and the
+  counts per app; contacts no iTerm2, launches and activates nothing; `--help` contacts
+  nothing. Its real run and `discover --local` / `--ssh saturno-m4` are the phase's only real
+  runs; record counts only.
+- **Tests, hermetic**: the parser's new fields (present, absent, unusable); the walk over a
+  fake table (Terminal's chain, an app chain, iTerm2's job server under iTerm2 and under
+  launchd, nested tmux, sshd, a cycle, the depth bound, a process gone mid-walk, a terminal
+  mismatch, a start after the client, two definitions sharing a bundle identifier); the per
+  session rule with and without the index; the refresh engine with and without the
+  attributor; the plain backend focusing another app instead of opening (own record first;
+  unknown never blocks; app not running opens nothing); the app activation's outcomes; SSH
+  clients never attributed.
+- **Records.** D38 "Open on this Mac (I-12c2)", a sentence in D16 pointing to it,
+  `docs/TESTING.md` *Phase I-12c2* (the real runs' counts), the `local-clients` command in
+  `CLAUDE.md` *Commands*.
 
 ## Deferred (explicitly out of scope for v1)
 

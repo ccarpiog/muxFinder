@@ -21,6 +21,8 @@ import Foundation
 /// sessions-exit   <list-sessions exit status>
 /// sessions-stderr <its first stderr line, printable ASCII, at most 200 bytes>
 /// client  <nonce> <session_id> <control_mode> <client_pid>   (only when sessions-exit is 0)
+/// tty     <nonce> <client_pid> <client_created> <client_tty, empty when over 255 bytes> <nonce>
+///                                                            (after its client)
 /// clients-exit    <list-clients exit status>                 (only when sessions-exit is 0)
 /// clients-stderr  <its first stderr line>                    (only when sessions-exit is 0)
 /// end     <nonce>
@@ -44,6 +46,22 @@ import Foundation
 ///   UTF-8, is empty or is too long. A report without `path` records (an older probe, a fake)
 ///   still parses, every folder unknown. Format 1 gained this record in Phase I-2a; the app
 ///   always sends the script with its parser, so the version did not change.
+/// - Each client's creation time (`#{client_created}`, whole seconds since 1970) and terminal
+///   (`#{client_tty}`, empty for a client with none) are a record of their own that the same
+///   `list-clients` format writes right after the client's line, framed like `path`: `tty`,
+///   the nonce, the client's pid, the creation time, the terminal, and the nonce again as the
+///   end mark (Phase I-12c2 review fix). tmux takes the terminal's name from what the client
+///   sends, so it is not trusted to hold no tab or line break: the parser takes everything up
+///   to the first tab, nonce and line break as the terminal, which can therefore neither end
+///   its record early, forge another record nor shift the pid or the creation time, both
+///   printed before it. These read-only facts let This Mac's clients be traced to the terminal
+///   app they run in (PLAN.md D38); an unusable terminal or creation time is only unknown
+///   (`ProbeReportParser.terminalPath(_:)`), never a failed report. A client line without its
+///   `tty` record (an older probe, a fake) still parses, both unknown. Format 1 gained the
+///   record in Phase I-12c2, for the same reason as `path`. tmux bounds the terminal as it
+///   does the path below, at `ProbeReportParser.maximumTerminalPathLength` (255) bytes, so a
+///   `tty` record whose fields the parser keeps is at most
+///   `ProbeReportParser.maximumTerminalRecordLength` bytes.
 /// - tmux bounds the path itself: `#{?#{e|>|:#{n:session_path},4096},,#{session_path}}` prints
 ///   a path longer than 4,096 bytes (`n:` counts bytes, control characters and invalid UTF-8
 ///   included; `ProbeReportParser.maximumStartDirectoryLength`) as nothing, which the parser
@@ -115,6 +133,8 @@ public enum ProbeScript {
       printf 'sessions-stderr\t%s\n' "$(muxfinder_ascii "${r%%"$nl"*}")"
       if [ "$s" = 0 ]; then
         f="client$tab$n$tab#{session_id}$tab#{client_control_mode}$tab#{client_pid}"
+        f="$f${nl}tty$tab$n$tab#{client_pid}$tab#{client_created}$tab"
+        f="$f#{?#{e|>|:#{n:client_tty},255},,#{client_tty}}$tab$n"
         muxfinder_tmux list-clients -F "$f"
         printf 'clients-exit\t%s\n' "$s"
         printf 'clients-stderr\t%s\n' "$(muxfinder_ascii "${r%%"$nl"*}")"

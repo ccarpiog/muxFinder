@@ -255,7 +255,8 @@ final class PlainBackendHarness {
 
   /// A harness for `loaded` (Terminal by default) whose discovery lists `sessions` (the
   /// fixture session on This Mac by default), whose runner answers `answer`, and whose
-  /// start-time reader answers `startTime`.
+  /// start-time reader answers `startTime`; `localClients` and `appActivator` are the
+  /// backend's open-on-this-Mac seams (none by default, as before Phase I-12c2).
   init(
     loaded: LoadedTerminalDefinition? = nil,
     sessions: [DiscoveredSession] = [PlainBackendSupport.session()],
@@ -268,7 +269,9 @@ final class PlainBackendHarness {
     },
     creator: FakeSessionCreator = FakeSessionCreator(.failure(.timedOut)),
     clock: any AttachClock = ManualAttachClock(),
-    configuration: AttachCoordinator.Configuration = AttachCoordinator.Configuration()
+    configuration: AttachCoordinator.Configuration = AttachCoordinator.Configuration(),
+    localClients: (any LocalClientAttributing)? = nil,
+    appActivator: (any TerminalAppActivating)? = nil
   ) throws {
     // The store's clock is the test clock, so a request written after virtual time passed is
     // still fresh when the played helper takes it.
@@ -290,9 +293,10 @@ final class PlainBackendHarness {
       tmux: PlainTmuxCommands(
         runner: runner, baseEnvironment: ["PATH": "/usr/bin:/bin", "TMUX": "/tmp/x,1,0"]),
       sessionCreator: creator, clock: clock, configuration: configuration,
-      processStartTime: startTime, diagnostics: diagnostics, onUpdate: { log.record($0) })
+      processStartTime: startTime, diagnostics: diagnostics, localClients: localClients,
+      appActivator: appActivator, onUpdate: { log.record($0) })
     windows.onOpen = { [weak self] token in self?.playHelper(token) }
-  } // End of init(loaded:sessions:discovery:answer:startTime:creator:clock:configuration:)
+  } // End of init(loaded:sessions:discovery:answer:startTime:creator:clock:configuration:…)
 
   /// What the helper does at an open: takes the request, writes the report and the result.
   private func playHelper(_ token: LaunchToken) {

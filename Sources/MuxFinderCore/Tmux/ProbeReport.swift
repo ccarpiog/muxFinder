@@ -47,7 +47,7 @@ public struct ProbeReport: Sendable, Hashable {
     } // End of init(id:createdAt:windowCount:attachedClientCount:lastActivityAt:server:name:…)
   }
 
-  /// One `client` line.
+  /// One `client` line, with its optional `tty` record.
   public struct ClientRecord: Sendable, Hashable {
     /// `#{session_id}` of the session the client is attached to.
     public var sessionID: TmuxSessionID
@@ -55,13 +55,28 @@ public struct ProbeReport: Sendable, Hashable {
     public var isControlMode: Bool
     /// `#{client_pid}`.
     public var pid: Int32
+    /// `#{client_tty}` from the client's `tty` record, when it had a usable one
+    /// (`ProbeReportParser.terminalPath(_:)`); `nil` for a client with no terminal, an unusable
+    /// value or no record.
+    public var terminalPath: String?
+    /// `#{client_created}` from the client's `tty` record, seconds since 1970, when it had a
+    /// canonical one; `nil` otherwise.
+    public var createdAt: Int64?
 
     /// Creates a client record.
-    public init(sessionID: TmuxSessionID, isControlMode: Bool, pid: Int32) {
+    public init(
+      sessionID: TmuxSessionID,
+      isControlMode: Bool,
+      pid: Int32,
+      terminalPath: String? = nil,
+      createdAt: Int64? = nil
+    ) {
       self.sessionID = sessionID
       self.isControlMode = isControlMode
       self.pid = pid
-    }
+      self.terminalPath = terminalPath
+      self.createdAt = createdAt
+    } // End of init(sessionID:isControlMode:pid:terminalPath:createdAt:)
   }
 
   /// The outcome of one listing command (`list-sessions` or `list-clients`).
@@ -194,6 +209,12 @@ public enum ProbeReportError: Error, Sendable, Hashable, CustomStringConvertible
 /// the report). A record whose id is not its session's, a second one, or one with no end mark
 /// fails the report like any malformed line. A path the parser cannot use as display text
 /// (`startDirectory(_:)`) is dropped and counted; the session is kept without a folder.
+///
+/// A client line may be followed the same way by its `tty` record (Phase I-12c2 review fix):
+/// `tty`, tab, the nonce, tab, the same client pid, tab, the creation time, tab, then the
+/// terminal up to the first tab, nonce and line break, whatever it holds. The same
+/// misplacements fail the report; a terminal or creation time the parser cannot use
+/// (`terminalPath(_:)`, `decimal(_:)`) is only `nil`, the client kept with every other field.
 public enum ProbeReportParser {
   /// The header line of format 1.
   public static let header = "MUXFINDER-PROBE \(ProbeScript.formatVersion)"
@@ -215,13 +236,23 @@ public enum ProbeReportParser {
   public static let maximumPathRecordLength =
     "path\t".utf8.count + 16 + 1 + 1 + TmuxSessionID.maximumDigits + 1
     + maximumStartDirectoryLength + 1 + 16 + 1
+  /// The longest terminal path kept, in bytes. `ProbeScript` prints a longer one as nothing.
+  public static let maximumTerminalPathLength = 255
+  /// The longest `tty` record of a report the parser accepts whole, in bytes: the tag, the
+  /// nonce twice, the longest pid (`Int32.max`, ten digits), the longest creation time kept
+  /// (18 digits, `decimal(_:)`), four tabs, the longest terminal the probe prints (`ProbeScript`
+  /// prints a longer one as nothing) and the line feed.
+  public static let maximumTerminalRecordLength =
+    "tty\t".utf8.count + 16 + 1 + 10 + 1 + 18 + 1 + maximumTerminalPathLength + 1 + 16 + 1
   /// The largest report within the parser's limits, in bytes: every line at the line cap
-  /// (with its line feed), as many session and client lines as accepted, and a `path` record
-  /// of the longest kind after every session. Discovery's output cap (`DiscoveryProbe`), so a
-  /// host with that many sessions in folders that long still reports them all.
+  /// (with its line feed), as many session and client lines as accepted, a `path` record of
+  /// the longest kind after every session and a `tty` record of the longest kind after every
+  /// client. Discovery's output cap (`DiscoveryProbe`), so a host with that many sessions in
+  /// folders that long still reports them all.
   public static let maximumReportSize =
     (fixedLineCount + maximumSessionCount + maximumClientCount) * (maximumLineLength + 1)
     + maximumSessionCount * maximumPathRecordLength
+    + maximumClientCount * maximumTerminalRecordLength
   /// Number of tab-separated fields before the name on a session line (tag and nonce
   /// included).
   static let sessionFixedFieldCount = 10
@@ -336,21 +367,54 @@ public enum ProbeReportParser {
     return text
   } // End of func startDirectory(_:)
 
-  /// Parses the client lines and the `clients-exit` / `clients-stderr` pair after them.
+  /// Parses the client lines, each with its optional `tty` record, and the `clients-exit` /
+  /// `clients-stderr` pair after them.
   static func parseClients(
     _ lines: inout LineReader,
     nonce: ArraySlice<UInt8>
   ) throws(ProbeReportError) -> ProbeReport.Listing<ProbeReport.ClientRecord> {
+    let ttyStart = Array("tty\t".utf8) + nonce + [tab]
+    let ttyEnd = [tab] + nonce + [newline]
     var records: [ProbeReport.ClientRecord] = []
-    while let line = try lines.peek(), line.starts(with: "client\t".utf8) {
+    var lastHasTerminal = false
+    while true {
+      if let found = try lines.record(startingWith: ttyStart, endingWith: ttyEnd) {
+        guard let last = records.indices.last, !lastHasTerminal else {
+          throw .malformed(line: found.line)
+        }
+        let fields = try terminalRecord(found.body, pid: records[last].pid, line: found.line)
+        lastHasTerminal = true
+        records[last].createdAt = decimal(fields.created)
+        records[last].terminalPath = terminalPath(fields.terminal)
+        continue
+      }
+      guard let line = try lines.peek(), line.starts(with: "client\t".utf8) else { break }
       _ = try lines.next()
       guard records.count < maximumClientCount else { throw .tooManyClients }
       records.append(try clientRecord(line, nonce: nonce, line: lines.lineNumber))
-    }
+      lastHasTerminal = false
+    } // End of loop over client lines and tty records
     let exitStatus = try lines.exitStatus(of: "clients-exit")
     let errorLine = try text(lines.value(of: "clients-stderr"))
     return ProbeReport.Listing(records: records, exitStatus: exitStatus, firstErrorLine: errorLine)
   } // End of func parseClients(_:nonce:)
+
+  /// The creation time and terminal of a `tty` record's `body` (what lies between
+  /// `tty<tab><nonce><tab>` and the end mark): the pid up to the first tab must be `pid`, the
+  /// client line the record follows; the creation time runs to the next tab (tmux prints both
+  /// before the terminal, so no terminal byte can move them); the terminal is the rest,
+  /// uninterpreted.
+  static func terminalRecord(
+    _ body: ArraySlice<UInt8>,
+    pid expected: Int32,
+    line lineNumber: Int
+  ) throws(ProbeReportError) -> (created: ArraySlice<UInt8>, terminal: ArraySlice<UInt8>) {
+    guard let pidEnd = body.firstIndex(of: tab),
+      let pid = processID(body[body.startIndex..<pidEnd]), pid == expected,
+      let createdEnd = body[(pidEnd + 1)...].firstIndex(of: tab)
+    else { throw .malformed(line: lineNumber) }
+    return (body[(pidEnd + 1)..<createdEnd], body[(createdEnd + 1)...])
+  } // End of func terminalRecord(_:pid:line:)
 
   /// Parses one `session` line. The name is everything after the tenth tab.
   static func sessionRecord(
@@ -384,7 +448,8 @@ public enum ProbeReportParser {
     )
   } // End of func sessionRecord(_:nonce:line:)
 
-  /// Parses one `client` line: exactly five fields, no remainder.
+  /// Parses one `client` line: exactly five fields. Its creation time and terminal come from
+  /// the `tty` record after it, if any (PLAN.md D38, Phase I-12c2).
   static func clientRecord(
     _ line: ArraySlice<UInt8>,
     nonce: ArraySlice<UInt8>,
@@ -398,6 +463,17 @@ public enum ProbeReportParser {
     else { throw .malformed(line: lineNumber) }
     return ProbeReport.ClientRecord(sessionID: id, isControlMode: controlMode == 1, pid: pid)
   } // End of func clientRecord(_:nonce:line:)
+
+  /// A client's terminal (`#{client_tty}`) as kept, or `nil` to drop it: an absolute path of
+  /// printable ASCII with no space (so no whitespace or control character), at most
+  /// `maximumTerminalPathLength` bytes. A client with no terminal prints nothing, which is
+  /// dropped too.
+  static func terminalPath(_ bytes: ArraySlice<UInt8>) -> String? {
+    guard bytes.first == UInt8(ascii: "/"), bytes.count <= maximumTerminalPathLength,
+      bytes.allSatisfy({ (0x21...0x7E).contains($0) })
+    else { return nil }
+    return String(decoding: bytes, as: UTF8.self)
+  }
 
   /// The tab byte.
   static let tab = UInt8(ascii: "\t")

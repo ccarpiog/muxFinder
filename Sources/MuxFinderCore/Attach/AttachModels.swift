@@ -294,10 +294,15 @@ public enum AttachState: Sendable, Hashable {
   /// Plain backend, `focused`'s counterpart: the backend's own attachment of the session still
   /// held it, so its window was brought forward instead of opening another.
   case plainFocused(client: PlainClientRecord)
+  /// Plain backend (PLAN.md D38, Phase I-12c2), D16's "never a duplicate": a tmux client of
+  /// the session on This Mac descends from `app` (process ancestry, `LocalClientAttributor`),
+  /// so that app was brought forward instead of opening a window (`AttachResult.appActivation`
+  /// says how that went; it never fails the attach).
+  case appFocused(app: LocalTerminalApp)
 
   /// A short machine-readable name: `requested`, `launched`, `stillWaiting`, `confirmed`,
   /// `focused` or `failed`; for the plain backend `plainLaunched`, `plainStillWaiting`,
-  /// `plainConfirmed` or `plainFocused`.
+  /// `plainConfirmed`, `plainFocused` or `appFocused`.
   public var kind: String {
     switch self {
     case .requested: return "requested"
@@ -310,6 +315,7 @@ public enum AttachState: Sendable, Hashable {
     case .plainStillWaiting: return "plainStillWaiting"
     case .plainConfirmed: return "plainConfirmed"
     case .plainFocused: return "plainFocused"
+    case .appFocused: return "appFocused"
     }
   } // End of var kind
 }
@@ -479,6 +485,12 @@ public struct AttachResult: Sendable, Hashable {
   /// existing attachment, went (`activation`'s counterpart; it never fails the attach). `nil`
   /// for iTerm2 and when no focus was asked for.
   public var plainWindowFocus: TerminalFocusResult?
+  /// Plain backend, `appFocused` (PLAN.md D38, Phase I-12c2): the session's client on This
+  /// Mac that process ancestry traced to the app brought forward; `nil` otherwise.
+  public var localAttachment: LocalAttachment?
+  /// Plain backend, `appFocused`: how bringing that app forward went (`activation`'s
+  /// counterpart; it never fails the attach); `nil` otherwise.
+  public var appActivation: TerminalAppActivation?
 
   /// Creates a result.
   public init(
@@ -493,7 +505,9 @@ public struct AttachResult: Sendable, Hashable {
     timings: AttachTimings = AttachTimings(),
     plainWindow: PlainTerminalWindow? = nil,
     plainClient: PlainClientRecord? = nil,
-    plainWindowFocus: TerminalFocusResult? = nil
+    plainWindowFocus: TerminalFocusResult? = nil,
+    localAttachment: LocalAttachment? = nil,
+    appActivation: TerminalAppActivation? = nil
   ) {
     self.key = key
     self.launchID = launchID
@@ -507,6 +521,8 @@ public struct AttachResult: Sendable, Hashable {
     self.plainWindow = plainWindow
     self.plainClient = plainClient
     self.plainWindowFocus = plainWindowFocus
+    self.localAttachment = localAttachment
+    self.appActivation = appActivation
   } // End of init(key:launchID:state:gatewaySessionID:connectionID:activation:burial:…)
 
   /// Whether the attach was confirmed (a new launch tab attached the session, or for the plain
@@ -519,10 +535,11 @@ public struct AttachResult: Sendable, Hashable {
   }
 
   /// Whether the attach focused an attachment that already existed in this Mac's iTerm2 (or,
-  /// for the plain backend, the backend's own attachment's window).
+  /// for the plain backend, the backend's own attachment's window, or the app a client of the
+  /// session on This Mac runs in).
   public var isFocused: Bool {
     switch state {
-    case .focused, .plainFocused: return true
+    case .focused, .plainFocused, .appFocused: return true
     default: return false
     }
   }

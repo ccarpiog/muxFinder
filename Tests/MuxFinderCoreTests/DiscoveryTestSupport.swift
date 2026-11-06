@@ -51,6 +51,19 @@ enum ReportBuilder {
     ["client", nonce, session, controlMode, pid].joined(separator: "\t")
   }
 
+  /// A `tty` record (Phase I-12c2 review fix): tag, nonce, client pid, creation time, the
+  /// terminal, and `end` (the nonce by default) as its end mark. A line break in `terminal`
+  /// makes it span lines, as tmux prints it.
+  static func tty(
+    _ terminal: String,
+    created: String = "1792600123",
+    pid: String = "5000",
+    nonce: String = ReportBuilder.nonce,
+    end: String? = nil
+  ) -> String {
+    ["tty", nonce, pid, created, terminal, end ?? nonce].joined(separator: "\t")
+  }
+
   /// The lines of a report. `clients == nil` leaves the client section out (as the probe does
   /// when `list-sessions` fails).
   static func lines(
@@ -169,13 +182,17 @@ func sessionID(_ raw: String) -> TmuxSessionID {
 ///   each line exactly 4,096 bytes (a long name of `n`), each followed by its path record with
 ///   the longest folder kept (`/` and 4,095 `x`), except `$999`, whose record is empty, as tmux
 ///   prints a folder over 4,096 bytes; and 1,000 clients, one per session.
+/// - `hostile-tty`: sessions like `sessions`, and two clients on `$0`, each with its `tty`
+///   record (Phase I-12c2 review fix): 5151 on `/dev/ttys001`, and the control client 5152,
+///   whose terminal holds a line break and a forged `clients-exit` line.
 ///
 /// It fails with exit 98 if `TMUX` or `TMUX_PANE` reached it, and 99 if `-u` is missing. Records
 /// are printed after the literal prefix of the `-F` format (tag and nonce), the way real tmux
 /// expands it. When the `list-sessions` format holds a line break (the probe's `path` record,
 /// PLAN.md D31), each session line is followed by its path record, framed by the literal prefix
 /// and suffix the format gives it: `$0` starts in `/Users/example/projects/site`, and `$7`'s
-/// path holds a line break and a forged `sessions-exit` line (the parser drops it).
+/// path holds a line break and a forged `sessions-exit` line (the parser drops it). The
+/// `list-clients` format's `tty` record gets the same prefix and suffix in `hostile-tty` mode.
 let fakeTmuxScript = #"""
   #!/bin/sh
   mode=${MUXFINDER_FAKE_MODE:-sessions}
@@ -251,6 +268,9 @@ let fakeTmuxScript = #"""
       printf '%s$7\t1700000001\t1\t0\t1700000101\t4242\t1699999999\t/private/tmp/tmux-501/default\ta;rm -rf ~ $(touch x) "q" \047q\047\tend\n' "$prefix"
       if [ -n "$pprefix" ]; then printf '%s$7\t/x\nsessions-exit\t0%s\n' "$pprefix" "$psuffix"; fi ;;
     clients-fail:list-clients) echo "lost server" >&2; exit 1 ;;
+    hostile-tty:list-clients)
+      printf '%s$0\t0\t5151\n%s5151\t1700000200\t/dev/ttys001%s\n' "$prefix" "$pprefix" "$psuffix"
+      printf '%s$0\t1\t5152\n%s5152\t1700000201\t/dev/tty\nclients-exit\t0%s\n' "$prefix" "$pprefix" "$psuffix" ;;
     *:list-clients) printf '%s$0\t1\t5151\n' "$prefix" ;;
     *) echo "unexpected call" >&2; exit 97 ;;
   esac

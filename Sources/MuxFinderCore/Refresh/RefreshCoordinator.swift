@@ -37,6 +37,12 @@ import Foundation
 ///   automatic check in progress and its follow-up: the cancelled check contacts iTerm2 no
 ///   further, its result is discarded, and a check started when the popover opens again runs
 ///   at once instead of waiting for it.
+/// - **Open on this Mac** (PLAN.md D38, Phase I-12c2). With a local client attributor
+///   configured, each attempt of This Mac traces its sessions' clients to terminal apps right
+///   after discovery, in the same task (read-only process ancestry, no iTerm2 contact), and the
+///   applied snapshot's sessions carry them (`HostSnapshot.Session.localAttachments`; with an
+///   index configured, iTerm2's control-mode clients are left to it). An SSH host is never
+///   attributed. Without an attributor (the default) nothing changes.
 /// - **`stop()`** cancels everything and returns once every task it started has ended.
 public actor RefreshCoordinator {
   /// Timing and concurrency (PLAN.md D20).
@@ -101,8 +107,9 @@ public actor RefreshCoordinator {
 
   /// How a probe task ended.
   private enum AttemptOutcome: Sendable {
-    /// Discovery returned a result.
-    case finished(DiscoveryResult)
+    /// Discovery returned a result, with its sessions' local attachments (none without an
+    /// attributor or for an SSH host).
+    case finished(DiscoveryResult, local: [SessionKey: [LocalAttachment]])
     /// Discovery was cancelled.
     case cancelled
   }
@@ -180,6 +187,8 @@ public actor RefreshCoordinator {
   private let discovery: any HostDiscovering
   /// Which sessions are attached in iTerm2; `nil` never checks.
   private let attachmentIndex: (any AttachmentIndexing)?
+  /// Traces This Mac's clients to terminal apps after each of its attempts; `nil` never does.
+  private let localClients: (any LocalClientAttributing)?
   /// The time source of every schedule and timestamp.
   private let clock: any AttachClock
 
@@ -242,16 +251,20 @@ public actor RefreshCoordinator {
   private(set) var indexPassesStarted = 0
 
   /// Creates an engine for the enabled hosts of `hosts`. Nothing runs until `start()`, a
-  /// request or `refreshOnce(includeAttachments:)`. Tests pass a fake discovery, index and clock.
+  /// request or `refreshOnce(includeAttachments:)`. Tests pass a fake discovery, index and clock
+  /// (and an attributor over a fake process table). `localClients` traces This Mac's clients
+  /// to terminal apps; `nil` (the default) never does.
   public init(
     hosts list: HostList,
     discovery: any HostDiscovering = DiscoveryProbe(),
     attachmentIndex: (any AttachmentIndexing)? = nil,
+    localClients: (any LocalClientAttributing)? = nil,
     clock: any AttachClock = SystemAttachClock(),
     configuration: Configuration = Configuration()
   ) {
     self.discovery = discovery
     self.attachmentIndex = attachmentIndex
+    self.localClients = localClients
     self.clock = clock
     self.configuration = configuration
     let enabled = list.enabledHosts
@@ -262,7 +275,7 @@ public actor RefreshCoordinator {
     hosts = entries
     hostOrder = enabled.map(\.id)
     configRevision = 1
-  } // End of init(hosts:discovery:attachmentIndex:clock:configuration:)
+  } // End of init(hosts:discovery:attachmentIndex:localClients:clock:configuration:)
 
   /// Cancels whatever is still running if the engine goes away without `stop()`.
   deinit {
@@ -514,8 +527,11 @@ public actor RefreshCoordinator {
       let generation = lastGeneration
       let host = entry.snapshot.host
       let discovery = self.discovery
+      let attributor = host.mode == .local ? localClients : nil
+      let indexInUse = attachmentIndex != nil
       let task = spawn { coordinator in
-        let outcome = await Self.probe(host, with: discovery)
+        let outcome = await Self.probe(
+          host, with: discovery, attributing: attributor, indexInUse: indexInUse)
         await coordinator?.attemptEnded(generation, outcome)
       }
       attempts[generation] = Attempt(
@@ -528,17 +544,27 @@ public actor RefreshCoordinator {
     } // End of loop over the queue while slots are free
   } // End of func startQueuedAttempts()
 
-  /// Runs discovery for `host`. `discover` throws only when cancelled.
+  /// Runs discovery for `host`, then, with `attributor` (This Mac only), traces the listed
+  /// sessions' clients to terminal apps (`indexInUse`: an attachment index is configured).
+  /// `discover` throws only when cancelled.
   private nonisolated static func probe(
     _ host: HostConfig,
-    with discovery: any HostDiscovering
+    with discovery: any HostDiscovering,
+    attributing attributor: (any LocalClientAttributing)?,
+    indexInUse: Bool
   ) async -> AttemptOutcome {
+    let result: DiscoveryResult
     do {
-      return .finished(try await discovery.discover(host))
+      result = try await discovery.discover(host)
     } catch {
       return .cancelled
     }
-  }
+    guard let attributor, case .ok(let sessions) = result.status else {
+      return .finished(result, local: [:])
+    }
+    let local = attributor.localAttachments(of: sessions, on: host, indexInUse: indexInUse)
+    return .finished(result, local: local)
+  } // End of func probe(_:with:attributing:indexInUse:)
 
   /// Handles the end of attempt `generation`: applies its result if it is still the host's
   /// current attempt under the same revision and newer than the last applied one, starts the
@@ -549,12 +575,14 @@ public actor RefreshCoordinator {
     var applied = false
     if !attempt.retired, var entry = hosts[attempt.hostID], entry.flight == generation {
       entry.flight = nil
-      if case .finished(let result) = outcome, entry.snapshot.configRevision == attempt.revision,
+      if case .finished(let result, let local) = outcome,
+        entry.snapshot.configRevision == attempt.revision,
         generation > entry.appliedGeneration
       {
         entry.appliedGeneration = generation
         entry.lastAttemptEndedAt = clock.now()
-        entry.snapshot.record(result, at: clock.date(), index: lastIndexSnapshot)
+        entry.snapshot.record(
+          result, at: clock.date(), index: lastIndexSnapshot, localAttachments: local)
         applied = true
       }
       if entry.followUp {

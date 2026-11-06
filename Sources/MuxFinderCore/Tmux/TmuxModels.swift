@@ -99,12 +99,28 @@ public struct ClientSummary: Sendable, Hashable, Codable {
   /// Whether the client is in control mode (`#{client_control_mode}`), as iTerm2's tmux
   /// integration uses. A control client does not by itself mean "open on this Mac".
   public var isControlMode: Bool
+  /// The client's terminal (`#{client_tty}`, such as `/dev/ttys003`), when discovery reported
+  /// a usable one: an absolute path of printable ASCII without whitespace, at most 255 bytes
+  /// (`ProbeReportParser.terminalPath(_:)`); `nil` for a client with none, an unusable value,
+  /// or an older probe. With `createdAt` it lets This Mac's clients be traced to their
+  /// terminal app (`LocalClientAttributor`, PLAN.md D38, Phase I-12c2).
+  public var terminalPath: String?
+  /// When tmux created the client, in whole seconds since 1970 by the server's clock
+  /// (`#{client_created}`), when discovery reported a canonical value; `nil` otherwise.
+  public var createdAt: Int64?
 
   /// Creates a client summary.
-  public init(pid: Int32, isControlMode: Bool) {
+  public init(
+    pid: Int32,
+    isControlMode: Bool,
+    terminalPath: String? = nil,
+    createdAt: Int64? = nil
+  ) {
     self.pid = pid
     self.isControlMode = isControlMode
-  }
+    self.terminalPath = terminalPath
+    self.createdAt = createdAt
+  } // End of init(pid:isControlMode:terminalPath:createdAt:)
 }
 
 /// A tmux session found by discovery.

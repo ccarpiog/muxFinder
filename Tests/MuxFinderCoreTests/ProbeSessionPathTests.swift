@@ -353,9 +353,10 @@ struct ProbeSessionPathTests {
 
   /// The output budget holds the largest report the parser accepts: the host, tmux and version
   /// lines at the 4,096-byte line cap, 1,000 sessions with the longest ids on lines at the cap,
-  /// each with a path record holding the longest folder kept, and 1,000 clients. Through a
-  /// runner that keeps stdout up to the request's cap, as the real one does, discovery lists
-  /// every session with its folder.
+  /// each with a path record holding the longest folder kept, and 1,000 clients, each with the
+  /// longest creation time accepted and a `tty` record holding the longest terminal kept.
+  /// Through a runner that keeps stdout up to the request's cap, as the real one does,
+  /// discovery lists every session with its folder and its client's terminal.
   @Test func theOutputBudgetHoldsTheLargestAcceptedReport() async throws {
     let filler = { (count: Int) in String(repeating: "n", count: count) }
     let ids = (0..<ProbeReportParser.maximumSessionCount).map {
@@ -368,8 +369,11 @@ struct ProbeSessionPathTests {
       sessions.append(B.session(id: id, name: filler(4096 - line.utf8.count)))
       sessions.append(B.path("/" + filler(4095), id: id))
     } // End of loop over sessions
+    let terminal = "/" + filler(ProbeReportParser.maximumTerminalPathLength - 1)
+    let record = B.tty(terminal, created: "999999999999999999", pid: "2147483647")
+    #expect(record.utf8.count + 1 == ProbeReportParser.maximumTerminalRecordLength)
     let clients = ids.prefix(ProbeReportParser.maximumClientCount).map {
-      B.client(session: $0, controlMode: "1", pid: "2147483647")
+      B.client(session: $0, controlMode: "1", pid: "2147483647") + "\n" + record
     }
     var lines = B.lines(sessions: sessions, clients: clients)
     lines[2] = "host\t" + filler(4096 - 5)
@@ -388,6 +392,11 @@ struct ProbeSessionPathTests {
     #expect(result.status.sessions.count == ProbeReportParser.maximumSessionCount)
     #expect(result.status.sessions.allSatisfy { $0.startDirectory?.utf8.count == 4096 })
     #expect(result.report?.droppedStartDirectoryCount == 0)
+    #expect(
+      result.status.sessions.allSatisfy {
+        $0.clients.map(\.terminalPath) == [terminal]
+          && $0.clients.map(\.createdAt) == [999_999_999_999_999_999]
+      })
     let over = DiscoveryProbe(
       runner: CappingRunner(
         output: Data(repeating: 0x0A, count: ProbeReportParser.maximumReportSize + 1)),

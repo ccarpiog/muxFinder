@@ -11,8 +11,11 @@ import Foundation
 /// (`PlainTerminalBackend`, Phase I-12c1) builds on the plain window layer
 /// (`PlainTerminalWindowLayer`, `PlainTerminalWindows`) and confirms, detaches and moves here
 /// through tmux; the result types carry its plain states and payloads alongside iTerm2's.
-/// "Open here" is not in the seam yet: I-12c2 adds it for every terminal, iTerm2 included,
-/// through discovery's `client_pid` / `client_tty` and process ancestry.
+/// "Open on this Mac" (Phase I-12c2) comes from process ancestry over discovery's
+/// `client_pid`, `client_tty` and `client_created` (`LocalClientAttributor`): the plain
+/// backend's attach brings such an app forward instead of opening a window (`appFocused`), and
+/// every backend focuses an `.app` handle by activating that app. iTerm2's backend attaches as
+/// before (no ancestry check).
 ///
 /// Nothing calls the seam yet: `AppModel`, `AppEnvironment.makeAttachCoordinator`, the
 /// self-tests, the probe and the refresh engine still call the coordinator directly (I-12c
@@ -64,7 +67,8 @@ public protocol TerminalBackend: Sendable {
 
   /// Brings forward an attachment this backend opened, by its terminal-neutral handle. A
   /// handle of another terminal's backend is refused (`handleOfAnotherTerminal`) with nothing
-  /// sent.
+  /// sent. An `.app` handle (a session open in that app on This Mac) belongs to no backend:
+  /// every backend activates the running app (`appActivation`), launching nothing.
   func focus(_ handle: TerminalAttachmentHandle) async -> TerminalFocusResult
 } // End of protocol TerminalBackend
 
@@ -84,12 +88,18 @@ public enum TerminalAttachmentHandle: Sendable, Hashable {
   /// Another terminal app's window, as `PlainTerminalWindows.open(_:helperPath:token:)`
   /// returned it.
   case plainWindow(PlainTerminalWindow)
+  /// A terminal app on This Mac that a client of the session runs in, as process ancestry
+  /// named it (PLAN.md D38, Phase I-12c2): brought forward by activating the running app
+  /// through `TerminalAppActivating` (no Apple event, never a launch), by any backend.
+  case app(LocalTerminalApp)
 
-  /// The terminal app the handle belongs to.
+  /// The terminal app the handle belongs to (for `.app`, the app's own terminal: iTerm2, or
+  /// its first definition's).
   public var terminal: LaunchTerminalApp {
     switch self {
     case .iTerm2LaunchTab: return .iterm2
     case .plainWindow(let window): return .plain(definitionID: window.definitionID)
+    case .app(let app): return app.terminal
     }
   }
 } // End of enum TerminalAttachmentHandle
@@ -105,15 +115,19 @@ public enum TerminalFocusResult: Sendable, Hashable {
   /// The handle belongs to another terminal's backend (a plain window given to iTerm2's, an
   /// iTerm2 launch tab given to a plain one): nothing was sent.
   case handleOfAnotherTerminal
+  /// An `.app` handle: how activating the running app went (`notRunning`: nothing launched;
+  /// `refused`: macOS's cooperative activation did not bring it forward).
+  case appActivation(TerminalAppActivation)
 
-  /// A short machine-readable name: `launchTab`, `plainWindowFocused`, `plainWindowFailed` or
-  /// `handleOfAnotherTerminal`.
+  /// A short machine-readable name: `launchTab`, `plainWindowFocused`, `plainWindowFailed`,
+  /// `handleOfAnotherTerminal` or `appActivation`.
   public var kind: String {
     switch self {
     case .launchTab: return "launchTab"
     case .plainWindowFocused: return "plainWindowFocused"
     case .plainWindowFailed: return "plainWindowFailed"
     case .handleOfAnotherTerminal: return "handleOfAnotherTerminal"
+    case .appActivation: return "appActivation"
     }
-  }
+  } // End of var kind
 } // End of enum TerminalFocusResult

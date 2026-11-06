@@ -184,8 +184,9 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
 - Discovery check (read-only, prints JSON; `--raw` prints the probe report):
   `swift run muxfinder-probe discover --local` or `discover --ssh saturno-m4`. Each session
   carries its start folder (`startDirectory`, PLAN.md D31) when usable, and
-  `startDirectoriesDropped` counts the rest; folders are the user's, so pipe the JSON through
-  `jq` and record counts only, never paths. Prove "no server" with
+  `startDirectoriesDropped` counts the rest; each client its `terminalPath` and `createdAt`
+  when known (PLAN.md D38); folders are the user's, so pipe the JSON through `jq` and record
+  counts only, never paths, terminals or pids. Prove "no server" with
   `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
 - Folder search check (read-only Spotlight, PLAN.md D36; writes nothing, never contacts
   iTerm2): `swift run muxfinder-probe folders --local | --ssh saturno-m4 --name <text>
@@ -257,6 +258,18 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   Terminal or Ghostty only while it shows `running` and `granted`. Nothing compiles a
   built-in script outside such a real run: compiling a `tell` block reads that app's
   dictionary.
+- Local clients check (read-only, prints JSON; contacts no iTerm2, sends no Apple event,
+  launches, activates and writes nothing; `--help` contacts nothing; PLAN.md D38 *Open on this
+  Mac*): `swift run muxfinder-probe local-clients [--builtin-directory <dir>]
+  [--user-directory <dir>]` discovers This Mac once and traces each tmux client to the
+  terminal app its process descends from (`LocalClientAttributor`: parent, start time and
+  controlling terminal by pid through `sysctl`, `proc_pidpath`, a registered app's bundle
+  identifier), printing per client its session id (never the name), control mode, and the app
+  (bundle identifier, definition ids) or the unmapped reason, then the counts per app and per
+  reason and the local attachments with and without D16's index. Definitions load as for
+  `terminals list`; run it from the repository root with `--user-directory` a private empty
+  folder (`mktemp -d /private/tmp/mfx.XXXXXX`, mode 0700), never creating the real one, and
+  record counts only.
 - Plain attach proof (PLAN.md D38; contacts no iTerm2 and no terminal app, opens no window,
   with `TMUX_TMPDIR` unset; `--help` contacts nothing): `swift run muxfinder-probe plain-proof
   --local | --ssh saturno-m4` (9 steps, about 1.5 s locally, 21 s on Saturno) creates its own

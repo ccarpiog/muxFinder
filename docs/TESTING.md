@@ -3671,3 +3671,47 @@ kept client on `PlainBoundCommandsTests.Server.detach`.
 **Owed:** the plain backend's real runs with Terminal and Ghostty and the remote plain attach
 (I-12c3's `e2e-plain`, under *Unattended-run rules* 8), and, as before, compiling and calling
 the built-in scripts for real (*Phase I-12b1*).
+
+### Phase I-12c2 — open on this Mac (2026-11-06)
+
+Process ancestry for requirement 7 (PLAN.md D38 *Open on this Mac (I-12c2)*), core only:
+discovery's `list-clients` output gains, after each client line, a nonce-framed `tty` record
+(`client_pid`, `client_created`, `client_tty`; a review fix); a read-only process table
+(`SystemProcessTable`) and `LocalClientAttributor` trace a client on This Mac to the terminal
+app it descends from; the per-session rule, the refresh engine's optional attributor, the
+`.app` focus handle and the plain backend's attach focusing such an app instead of opening a
+window; the read-only probe `local-clients`. Nothing in the app, the self-tests or the existing
+probe commands calls it yet (I-12c3), so no gallery, `--selftest` or `e2e-*` run is due.
+Hermetic tests use a fake process table, the fake activator, the existing plain backend and
+refresh fakes; one test reads the real process table for clients of a private tmux server. No
+Apple event, no terminal app launched or activated, no iTerm2 contact.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` (with `TMUX_TMPDIR` unset) | exit 0 (final tree, after the review fix): 1134 core tests in 112 suites (36 new in 5 suites, below) and 486 UI tests in 47 suites (unchanged); before the fix 1130 + 486 |
+| `ProbeClientFieldsTests` (9) | `swift test --filter ProbeClientFieldsTests` | The client line keeps its five fields; a `tty` record (`tty <nonce> <client_pid> <client_created> <client_tty> <nonce>`, a terminal over 255 bytes printed as nothing by tmux) follows each client. Present: both kept. Absent: no record, both `nil`; a six-field client line is still `malformed`. Unusable, one at a time, the client and the report kept: an empty terminal, a relative path, a space, a tab inside, an escape or a non-ASCII byte, 256 bytes (255 kept); a creation time empty, signed, padded, with a leading zero or not a number. **Review fix:** a full report through `DiscoveryProbe.discover` with 10 hostile terminals (line feeds, tabs, nonce-like text, forged lines): the host and its sessions discovered, that client's terminal `nil`, its pid, control mode and creation time intact, the other clients unaffected (failed `malformed` on all 7 line-feed cases on the old code); a misplaced or mismatched `tty` record fails the report like a misplaced `path`; the report's line count; the real script through the fake tmux's `hostile-tty` mode. The classified sessions' `ClientSummary` carries both; its JSON shows them and leaves an unknown one out; it decodes back |
+| `LocalClientAttributionTests` (14) | `swift test --filter LocalClientAttributionTests` | Over a fake table: Terminal's chain (`Terminal → login → zsh → tmux`) names Terminal with its definition id, four reads; an app chain matched without case; iTerm2's job server under iTerm2 and under launchd names iTerm2 (stopping there), one outside the folder or with no folder known does not; nested tmux and sshd have no terminal ancestor (launchd never read); a cycle stops at the repeated pid; an app 64 steps up is found, 65 is `tooDeep` (65 reads each); a process gone mid-walk, an unreadable entry and a parent started after its child end the walk; pid reuse refused (another terminal, no device, no controlling terminal, a start 1.5 s after `client_created`; 0.5 s and exactly 1 s allowed); no terminal path or creation time `incompleteClient` with no read; two definitions sharing a bundle identifier both listed in loader order; the per-session rule with and without the index; an SSH host's sessions never read; the app type and handle kinds; the real job server folder's shape |
+| `LocalClientsRealTests` (1) | `swift test --filter LocalClientsRealTests` | A `muxfinder-test-local-clients-*` session on a private server (`-f /dev/null`, `TMUX_TMPDIR` from `mkdtemp`): a plain client on a pseudo-terminal of the test was discovered with that terminal and a creation time of now; `SystemProcessTable` showed its controlling terminal equal to that path's `st_rdev`, the test as its parent, tmux as its executable, no bundle identifier and a start not after the client; the walk ended in iTerm2 or no terminal ancestor; a creation time 10 s early `startedAfterClient`, another terminal `terminalMismatch`; a `tmux -C` client on a pipe had no terminal path and was `incompleteClient`. Only that session killed, about 0.2 s |
+| `RefreshLocalAttachmentsTests` (3) | `swift test --filter RefreshLocalAttachmentsTests` | No attributor: sessions unchanged, no local attachments. With one: This Mac's session carries Terminal's client and iTerm2's control-mode client, one walk each; the SSH host's same clients are never attributed. With an index configured, iTerm2's control-mode client is left to it |
+| `PlainTerminalBackendOpenHereTests` (9) | `swift test --filter PlainTerminalBackendOpenHereTests` | A client traced to Terminal: `appFocused(Terminal)` (a focus, attached, not confirmed), the attachment and `activated` in the result, Terminal's bundle identifier activated, no request, file, window or tmux command, the table read once, states `requested` then `appFocused`. Ghostty's backend focuses Terminal, and iTerm2's control-mode client (first attributed in client order). `refused` and `notRunning` still end `appFocused`, nothing opened. A live own record is `plainFocused` with the table never read. A client whose process is gone, one with no terminal, and an unreadable table never block (opened and confirmed). Move here and an SSH host: no ancestry read, a window opened. An `.app` handle activates through the plain backend and iTerm2's backend (nothing sent to iTerm2's fake); the real activator answers `notRunning` for an app nobody runs and launches nothing |
+| Repeated runs | the five suites above 3 times | 32 tests in 5 suites passed every time, about 0.2 s |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| `local-clients --help` | `swift run muxfinder-probe local-clients --help` | exit 0, the usage only (nothing contacted) |
+| Real run: `local-clients` | `swift run muxfinder-probe local-clients --user-directory <private empty folder, mode 0700>` from the repository root, JSON counted with `jq` | exit 0, status `ok`; definitions `ghostty`, `terminal`, no problems; the job server folder known; 1 session, 1 client (control mode, terminal and creation time known), attributed to iTerm2: 1; unmapped: 0 for every reason; local attachments 1 without the index, 0 with it (left to D16's index) |
+| Real run: `discover --local` | `swift run muxfinder-probe discover --local`, counted with `jq` | exit 0, `ok`: 1 session, 1 client, 1 with `terminalPath`, 1 with `createdAt` (control mode 1), 37 ms |
+| Real run: `discover --ssh saturno-m4` | `swift run muxfinder-probe discover --ssh saturno-m4`, counted with `jq` | exit 0, `ok`: 1 session, 1 client, 1 with `terminalPath`, 1 with `createdAt` (control mode 1), 759 ms |
+| Leftovers | `pgrep -x Terminal`; `pgrep -x ghostty`; `pgrep -fl muxfinder-test` | exit 1 each: neither app ran, no test session or client left |
+
+Existing tests edited: one, by the review fix:
+`ProbeSessionPathTests.theOutputBudgetHoldsTheLargestAcceptedReport` gives each of its 1,000
+clients the longest `tty` record accepted and also expects every terminal and creation time
+back (its other expectations kept; `maximumReportSize` counts the new record). After the fix
+`discover --local` showed the same counts as above. Test support gained two defaulted
+parameters on
+`PlainBackendHarness` (`localClients`, `appActivator`; `nil` as before) and the shared
+`LocalClientSupport` fixtures. The two `MuxFinderUI` switches over `AttachState` gained
+`appFocused` (shown as `focused`) so they compile; no UI test changed.
+
+**Owed:** a client in Terminal and in Ghostty traced for real (neither is used on this Mac), and
+the attributor wired into the app with the terminal setting (I-12c3).
