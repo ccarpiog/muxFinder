@@ -60,14 +60,20 @@ public enum PreferencesFileProblem: Error, Sendable, Hashable, CustomStringConve
   public var description: String { message }
 }
 
-/// muxFinder's preferences (PLAN.md D32): today only the session switcher shortcut.
+/// muxFinder's preferences (PLAN.md D32): the session switcher shortcut and the folder search
+/// scope (D36).
 public struct Preferences: Sendable, Hashable {
   /// The session switcher's shortcut; `nil` when the hotkey is off.
   public var globalShortcut: GlobalShortcut?
+  /// Where New session's folder search looks; `home` unless the user chose the whole disk.
+  public var folderSearchScope: FolderSearchScope
 
   /// Preferences from their parts.
-  public init(globalShortcut: GlobalShortcut? = nil) {
+  public init(
+    globalShortcut: GlobalShortcut? = nil, folderSearchScope: FolderSearchScope = .standard
+  ) {
     self.globalShortcut = globalShortcut
+    self.folderSearchScope = folderSearchScope
   }
 }
 
@@ -243,6 +249,12 @@ public protocol PreferencesStoring: Sendable {
   func setGlobalShortcut(
     _ shortcut: GlobalShortcut?
   ) async throws(PreferencesStoreError) -> PreferencesChangeResult
+
+  /// Records `scope` as the folder search scope (PLAN.md D36) and keeps the result, with the
+  /// same refusal rule.
+  func setFolderSearchScope(
+    _ scope: FolderSearchScope
+  ) async throws(PreferencesStoreError) -> PreferencesChangeResult
 }
 
 /// Persists muxFinder's preferences as `preferences.json` in muxFinder's folder (PLAN.md D8,
@@ -252,24 +264,29 @@ public protocol PreferencesStoring: Sendable {
 /// `~/Library/Preferences`.
 ///
 /// The file is a JSON object, schema 1:
-/// `{"globalShortcut": {"keyCode": 49, "modifiers": ["control", "option"]}, "schemaVersion": 1}`,
-/// written pretty-printed with sorted keys and a final newline, at most `maximumFileSize`.
-/// Modifier names are `control`, `option`, `shift` and `command`. Other keys are ignored when
-/// read and kept as they are when the file is written. A missing or `null` `globalShortcut`
-/// means the hotkey is off; one that is not a usable shortcut (not an object, a key code that
-/// is not an integer up to `GlobalShortcut.maximumKeyCode`, an unknown modifier, a combination
-/// `GlobalShortcut.check` refuses) is left out and reported (`droppedShortcut`), so the hotkey
-/// is off too.
+/// `{"folderSearchScope": "disk", "globalShortcut": {"keyCode": 49, "modifiers": ["control",
+/// "option"]}, "schemaVersion": 1}`, written pretty-printed with sorted keys and a final
+/// newline, at most `maximumFileSize`. Modifier names are `control`, `option`, `shift` and
+/// `command`. Other keys are ignored when read and kept as they are when the file is written.
+/// A missing or `null` `globalShortcut` means the hotkey is off; one that is not a usable
+/// shortcut (not an object, a key code that is not an integer up to
+/// `GlobalShortcut.maximumKeyCode`, an unknown modifier, a combination `GlobalShortcut.check`
+/// refuses) is left out and reported (`droppedShortcut`), so the hotkey is off too.
+/// `folderSearchScope` is `home` or `disk` (PLAN.md D36); a missing value, or one that is
+/// neither (a newer muxFinder's, say), reads as `home` and stays in the file as it is until the
+/// scope is saved, like a key this muxFinder does not know (the file is still fully usable).
 ///
 /// It is loaded and written as D19 and D31 treat `hosts.json` and `directories.json`:
 /// - **Loading never writes anything**, not even the folder. No file gives empty preferences
 ///   (`notSavedYet`). A file that cannot be used (unsafe by D14's rules for files read, not
 ///   JSON, malformed, another schema version) gives empty preferences too, reported as
 ///   `invalid` with the problem, and stays exactly as it is.
-/// - **A change** (`setGlobalShortcut(_:)`, only when the user records or clears a shortcut)
-///   first reads the file as a load does, without the lock: a file that cannot be used refuses
-///   it, and a change that changes nothing (the same shortcut, or a clear with none) ends there,
-///   both writing nothing. Any other change takes an exclusive `flock` on `preferences.lock` in
+/// - **A change** (`setGlobalShortcut(_:)`, only when the user records or clears a shortcut;
+///   `setFolderSearchScope(_:)`, only when the user picks a scope) first reads the file as a
+///   load does, without the lock: a file that cannot be used refuses it, and a change that
+///   changes nothing (the same shortcut, a clear with none, the scope the file holds, or `home`
+///   with no value) ends there, both writing nothing. A change sets only its own key (and
+///   `schemaVersion`). Any other change takes an exclusive `flock` on `preferences.lock` in
 ///   the store's folder (waited for at most `lockWait`), reads the file again holding it, and
 ///   writes the result: the folder created (0700) or tightened and stripped of any ACL, a
 ///   temporary file (no ACL, 0600, flushed) published with one rename (`RENAME_SWAP` over a
@@ -290,6 +307,8 @@ public actor PreferencesStore: PreferencesStoring {
   public static let lockFileName = "preferences.lock"
   /// The file's key for the session switcher's shortcut.
   static let shortcutKey = "globalShortcut"
+  /// The file's key for the folder search scope (PLAN.md D36).
+  static let folderSearchScopeKey = "folderSearchScope"
   /// How long a change waits for the lock unless told otherwise.
   static let defaultLockWait: Duration = .seconds(2)
   /// How many backup names with the same timestamp a write tries.
@@ -418,6 +437,14 @@ public actor PreferencesStore: PreferencesStoring {
     case write(Data, Preferences)
   }
 
+  /// One change a store makes.
+  enum Change: Sendable, Hashable {
+    /// Record a shortcut, or clear it (`nil`).
+    case globalShortcut(GlobalShortcut?)
+    /// Record a folder search scope.
+    case folderSearchScope(FolderSearchScope)
+  }
+
   /// Records `shortcut` as the session switcher's shortcut, or clears it (`nil`), keeping every
   /// other key of the file, and writes the result under `preferences.lock` unless it is what
   /// the file holds already. A file that cannot be used refuses the change and is left as it
@@ -425,9 +452,23 @@ public actor PreferencesStore: PreferencesStoring {
   public func setGlobalShortcut(
     _ shortcut: GlobalShortcut?
   ) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    try apply(.globalShortcut(shortcut))
+  }
+
+  /// Records `scope` as the folder search scope (PLAN.md D36), keeping every other key of the
+  /// file, under the same rules as `setGlobalShortcut(_:)`: nothing is written when the file
+  /// holds that scope already, or holds none and `scope` is `home`.
+  public func setFolderSearchScope(
+    _ scope: FolderSearchScope
+  ) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    try apply(.folderSearchScope(scope))
+  }
+
+  /// Makes `change`: a first look without the lock, then the lock, a second look and the write.
+  func apply(_ change: Change) throws(PreferencesStoreError) -> PreferencesChangeResult {
     // A first look without the lock, so a change that writes nothing never creates the folder
     // or the lock file, and an unusable file's folder is never touched.
-    if case .unchanged(let result) = try plan(shortcut) { return result }
+    if case .unchanged(let result) = try plan(change) { return result }
     let directory = try openDirectoryForWriting()
     defer { Darwin.close(directory) }
     let lock: Int32
@@ -440,34 +481,46 @@ public actor PreferencesStore: PreferencesStoring {
       throw .lockUnavailable
     }
     defer { Darwin.close(lock) }
-    switch try plan(shortcut) {
+    switch try plan(change) {
     case .unchanged(let result): return result
     case .write(let data, let preferences): return try write(data, preferences, in: directory)
     }
-  } // End of func setGlobalShortcut(_:)
+  } // End of func apply(_:)
 
-  /// Reads the file as a load does and works out what setting `shortcut` comes to: a file that
-  /// cannot be used is `fileNotUsable`; the same shortcut (or a clear with none, with no
-  /// unusable value to remove) is `unchanged`.
-  func plan(_ shortcut: GlobalShortcut?) throws(PreferencesStoreError) -> Plan {
+  /// Reads the file as a load does and works out what `change` comes to: a file that cannot be
+  /// used is `fileNotUsable`; a change that leaves the file's meaning and its own key as they
+  /// are is `unchanged`. Only the change's key and `schemaVersion` are set in what is written.
+  func plan(_ change: Change) throws(PreferencesStoreError) -> Plan {
     let read = Self.reading(try lookAtFile())
     lastKnownContents = read.usable
     if case .invalid(let problem) = read.result.state { throw .fileNotUsable(problem) }
     var fields = read.fields ?? [:]
-    let preferences = Preferences(globalShortcut: shortcut)
-    let hadEntry = fields[Self.shortcutKey] != nil && !(fields[Self.shortcutKey] is NSNull)
-    if read.result.preferences.globalShortcut == shortcut, shortcut != nil || !hadEntry {
-      return .unchanged(PreferencesChangeResult(preferences: preferences, wrote: false))
+    var preferences = read.result.preferences
+    switch change {
+    case .globalShortcut(let shortcut):
+      preferences.globalShortcut = shortcut
+      let hadEntry = fields[Self.shortcutKey] != nil && !(fields[Self.shortcutKey] is NSNull)
+      if read.result.preferences.globalShortcut == shortcut, shortcut != nil || !hadEntry {
+        return .unchanged(PreferencesChangeResult(preferences: preferences, wrote: false))
+      }
+      if let shortcut {
+        fields[Self.shortcutKey] =
+          [
+            "keyCode": Int(shortcut.keyCode), "modifiers": shortcut.modifiers.names,
+          ] as [String: Any]
+      } else {
+        fields[Self.shortcutKey] = nil
+      }
+    case .folderSearchScope(let scope):
+      preferences.folderSearchScope = scope
+      let stored = fields[Self.folderSearchScopeKey]
+      let absent = stored == nil || stored is NSNull
+      if stored as? String == scope.rawValue || (absent && scope == .standard) {
+        return .unchanged(PreferencesChangeResult(preferences: preferences, wrote: false))
+      }
+      fields[Self.folderSearchScopeKey] = scope.rawValue
     }
     fields["schemaVersion"] = Self.schemaVersion
-    if let shortcut {
-      fields[Self.shortcutKey] =
-        [
-          "keyCode": Int(shortcut.keyCode), "modifiers": shortcut.modifiers.names,
-        ] as [String: Any]
-    } else {
-      fields[Self.shortcutKey] = nil
-    }
     return .write(try Self.encode(fields), preferences)
   } // End of func plan(_:)
 
@@ -640,7 +693,11 @@ public actor PreferencesStore: PreferencesStoring {
       shortcut = Self.shortcut(from: value)
       dropped = shortcut == nil
     }
-    return .preferences(Preferences(globalShortcut: shortcut), fields: fields, dropped: dropped)
+    // An unknown scope reads as the default and is kept as it is, like an unknown key.
+    let scope = (fields[folderSearchScopeKey] as? String).flatMap(FolderSearchScope.init(rawValue:))
+    return .preferences(
+      Preferences(globalShortcut: shortcut, folderSearchScope: scope ?? .standard),
+      fields: fields, dropped: dropped)
   } // End of static func decode(_:)
 
   /// The usable shortcut in a `globalShortcut` value, or `nil`.
@@ -757,6 +814,17 @@ public actor InMemoryPreferencesStore: PreferencesStoring {
     if let failure { throw failure }
     let changed = preferences.globalShortcut != shortcut
     preferences.globalShortcut = shortcut
+    if changed { changeCount += 1 }
+    return PreferencesChangeResult(preferences: preferences, wrote: false)
+  }
+
+  /// Keeps `scope` in memory; fails with `failure` when one is set.
+  public func setFolderSearchScope(
+    _ scope: FolderSearchScope
+  ) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    if let failure { throw failure }
+    let changed = preferences.folderSearchScope != scope
+    preferences.folderSearchScope = scope
     if changed { changeCount += 1 }
     return PreferencesChangeResult(preferences: preferences, wrote: false)
   }

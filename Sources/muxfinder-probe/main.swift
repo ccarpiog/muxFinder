@@ -10,6 +10,7 @@ let usage = """
   commands:
     help    Show this help.
   \(DiscoverCommand.usage)
+  \(FoldersCommand.usage)
   \(HostsCommand.usage)
   \(ProfilesCommand.usage)
   \(RefreshCommand.usage)
@@ -35,6 +36,8 @@ case "help", "-h", "--help":
   print(usage)
 case "discover":
   exit(await DiscoverCommand.run(Array(arguments.dropFirst())))
+case "folders":
+  exit(await FoldersCommand.run(Array(arguments.dropFirst())))
 case "hosts":
   exit(await HostsCommand.run(Array(arguments.dropFirst())))
 case "profiles":

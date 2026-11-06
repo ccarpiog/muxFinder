@@ -106,6 +106,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   interpolated data. Locally, use `posix_spawn` with argv only and never a login shell; a
   static script runs as `/bin/sh -c <script> muxfinder <arg1> …`, data only as argv. This requires
   a POSIX-compatible login shell on remote hosts (zsh or bash, the macOS default); document it.
+  The folder-search script (D36) is a D3 user with no argument at all: the string is
+  `/bin/sh -c '<static script>' muxfinder`, and its data, the queries, arrive afterwards on
+  standard input as data lines (an id, a scope token, escaped name text) that the script
+  splits with parameter expansion, checks, and places into its one fixed predicate as a
+  quoted word, never as shell source and never through `eval`.
 - **D4 — Session identity.** `SessionKey = (hostID, socketPath, serverPID, serverStartTime,
   sessionID)`. `session_created` is kept for revalidation. Names are display data only, and all
   targets use `$N` ids. Before attaching, the helper's guard script checks that
@@ -151,9 +156,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
 - **D10 — UI language is English, sentence case** ("New session", "Move here", "Refresh").
 - **D11 — Tests.** `swift test` is hermetic: fakes for the process runner, the clock and
   iTerm2; no ssh; tmux only on a private, test-owned socket directory, never the user's server.
-  Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `attach`,
-  `new-session`, `e2e-*`, `hosts`, `profiles`, `refresh`; all but `discover`, `hosts`,
-  `profiles` and `refresh` open real iTerm2 windows) and the app binary run from the shell (D22: the preview window and the
+  Real-world checks run only through `muxfinder-probe` subcommands (`discover`, `folders`,
+  `attach`, `new-session`, `e2e-*`, `hosts`, `profiles`, `refresh`; all but `discover`,
+  `folders`, `hosts`, `profiles` and `refresh` open real iTerm2 windows) and the app binary run from the shell (D22: the preview window and the
   menu bar item check, neither of which contacts iTerm2),
   are run explicitly during verification, and their results are recorded in
   `docs/TESTING.md`. A mocked attachment is never reported as a real integration result.
@@ -2557,7 +2562,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Sources/MuxFinderApp/AppDelegate.swift`; tests `Tests/MuxFinderCoreTests/GlobalShortcutTests.swift`,
   `PreferencesStoreTests.swift`, `Tests/MuxFinderUITests/GlobalShortcutModelTests.swift`,
   `GlobalShortcutAppTests.swift`, `SwitcherContentTests.swift`, `SwitcherControllerTests.swift`,
-  `SwitcherModelTests.swift`).
+  `SwitcherModelTests.swift`; extended in Phase I-10a with the folder search scope, D36:
+  `PreferencesStore.swift`, test `FolderSearchScopePreferenceTests.swift`).
   - **The value** (`GlobalShortcut`): a virtual key code (Carbon's `kVK_…` numbering, the
     key's position whatever the layout, as `NSEvent.keyCode` gives it; at most 127) and the
     modifiers ⌃⌥⇧⌘ (`GlobalShortcut.Modifiers`, stored by name). No default: the hotkey is off
@@ -2589,18 +2595,26 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     folder (and `DynamicProfiles/muxFinder.json`), tests then use a private folder like the
     other stores and never `~/Library/Preferences`, and the app shell check's empty
     `CFFIXED_USER_HOME` isolates it without relying on `cfprefsd`. Schema 1:
-    `{"globalShortcut": {"keyCode": 49, "modifiers": ["control", "option"]},
-    "schemaVersion": 1}`, pretty-printed, sorted keys, final newline, at most 64 KiB. Other
-    keys are ignored when read and **kept** when written (the object read is written back with
-    only `globalShortcut` and `schemaVersion` set), so a later setting or a newer muxFinder's
-    key survives. Loading never writes; a missing file or a missing or `null` value is "off";
+    `{"folderSearchScope": "disk", "globalShortcut": {"keyCode": 49, "modifiers": ["control",
+    "option"]}, "schemaVersion": 1}`, pretty-printed, sorted keys, final newline, at most
+    64 KiB. Other keys are ignored when read and **kept** when written (the object read is
+    written back with only the changed key and `schemaVersion` set), so a later setting or a
+    newer muxFinder's key survives. **`folderSearchScope`** (Phase I-10a, D36;
+    `setFolderSearchScope(_:)`, `Preferences.folderSearchScope`): `home` or `disk`; a missing
+    or `null` value, or any other (a newer muxFinder's, a number), reads as `home` and is kept
+    in the file as it is until the scope is saved, like an unknown key (the file stays fully
+    usable, so the write that replaces it keeps no backup); choosing `home` with no value, or
+    the value the file holds, writes nothing; a change applies to the next query. Schema 1
+    did not change: an older muxFinder ignores the key and keeps it. Loading never writes; a
+    missing file or a missing or `null` shortcut is "off";
     a value that is not a usable shortcut (not an object, a key code that is not an integer
     up to 127, an unknown modifier, a combination `check` refuses) is left out
     (`droppedShortcut`, a notice "Record a new one") with the file usable; a file that cannot
     be used (D14's rules for files read, not JSON, not an object with an integer
     `schemaVersion`, another schema version) leaves the hotkey off and is left as it is, and
     every change refuses it (`fileNotUsable`), as D31 does. Written only when the user records
-    or clears a shortcut, and not at all when nothing changes; a write takes `preferences.lock`
+    or clears a shortcut or picks a folder search scope, and not at all when nothing changes; a
+    write takes `preferences.lock`
     (`PrivateStorage.acquireLock`, 2 s, `busy`), reads the file again under it and publishes
     with D31's rename and backup rules (`preferences.backup-<UTC>.json` for a displaced file
     this store did not last read as fully usable). `InMemoryPreferencesStore` for tests.
@@ -3010,6 +3024,194 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     has; never pass `--replace` without the user's agreement.
   - **History:** 0.1.0 (1), 2026-11-04; 0.2.0 (2), 2026-11-06 (New session's keyboard host
     picker, its own window and the folder drop, Phases I-8 and I-9).
+
+- **D36 — Folder search over Spotlight** (decided by the orchestrator for Phase I-10,
+  2026-11-06, from `autoclaude/processed/100-folder-search-spotlight.md`; the core in Phase
+  I-10a: code in `Sources/MuxFinderCore/FolderSearch/` (`FolderSearchText.swift`,
+  `FolderSearchScript.swift`, `FolderSearchOutput.swift`, `FolderSearchTransport.swift`,
+  `FolderSearchChannel.swift`, `FakeFolderSearchTransport.swift`),
+  `Sources/MuxFinderCore/Process/StreamingProcess.swift`, `Config/PreferencesStore.swift`
+  (D32), `Sources/muxfinder-probe/FoldersCommand.swift`; tests
+  `Tests/MuxFinderCoreTests/FolderSearchTextTests.swift`, `FolderSearchOutputTests.swift`,
+  `FolderSearchScriptTests.swift`, `FolderSearchTransportTests.swift`,
+  `FolderSearchChannelTests.swift`, `FolderSearchScopePreferenceTests.swift`,
+  `FolderSearchTestSupport.swift`).
+  - **What:** folder names only, case- and diacritic-insensitive "contains"
+    (`kMDItemContentType == "public.folder" && kMDItemFSName == "*<text>*"cd`), found by
+    Spotlight (`mdfind`) on the host itself, so the host needs no muxFinder: SSH hosts over
+    discovery's noninteractive ssh (key authentication, BatchMode), This Mac locally.
+  - **One script, both kinds of host** (`FolderSearchScript.script`, a `StaticShellScript`):
+    This Mac runs it as `/bin/sh -c <script> muxfinder` by argv, not through
+    `NSMetadataQuery`, so one implementation of the header, the noise rule, the limit and the
+    answer format serves both and one set of tests covers both. It takes no argument (D3);
+    its standard input is the query stream and closing it ends the script.
+  - **Query lines** (`FolderSearchScript.queryLine(id:scope:name:)`): `<id> <scope> <name
+    text>` and a line feed; the id decimal digits (at most 18), the scope `home` or `disk`,
+    the name text as `FolderSearchText` escapes it. The script splits the line with parameter
+    expansion and checks it (a line without a usable id is skipped; otherwise `error
+    malformed` for missing fields, `scope` for another scope, `length` for 0 or more than 512
+    bytes, `text` for a control character, an unescaped `"`, `*` or `?`, or a `\` not
+    followed by one of `\ " * ?`), then builds the one fixed predicate itself and passes it
+    to `mdfind -0` as one quoted argument, after `-onlyin "$HOME"` for `home`. No `eval`: the
+    channel can ask nothing but this folder-name question.
+  - **Escaping** (`FolderSearchText.nameText(for:)`, pure): the scalars `\`, `"`, `*` and `?`
+    get a backslash (scalars, not `Character`s, so a `*` with a combining mark is still
+    escaped); everything else is kept as typed, leading and trailing whitespace included.
+    Refused: fewer than 2 `Character`s (`tooShort`, the channel stays idle), a C0 or C1
+    control, DEL, U+2028 or U+2029 (`controlCharacter`), more than 255 bytes of UTF-8
+    (`tooLong`), checked before escaping (so at most 510 bytes escaped, under the script's
+    512). **Verified on this Mac against `mdfind`, by counts** (a scratch APFS disk image
+    with indexing turned on, 12 synthetic folders; `docs/TESTING.md`, Phase I-10a): each
+    escaped special character matched exactly its one folder; unescaped, `*` acted as a
+    wildcard; an unescaped `"` or a lone trailing `\` made a different predicate silently
+    (exit 0, no message), hence the script's refusal; `cd` folded case and diacritics both
+    ways, NFC and NFD alike; spaces count; `mdfind` reads its argument as UTF-8 whatever the
+    locale (`LC_ALL=C` and an empty environment gave the same counts); a `'` between letters
+    matched nothing mid-word, with or without a backslash (Spotlight's own word matching, for
+    I-10b's "Missing a folder?", not an escaping matter).
+  - **The header** (first, once, NUL-terminated records): `muxfinder-folders 1`, `home
+    <$HOME>` (without a trailing slash; empty unless absolute), `mdfind yes|no` (`command
+    -v`), `index home on|off|unknown` (`mdutil -s` of the volume `df -P "$HOME"` names:
+    `mdutil -s "$HOME"` itself says "unknown indexing state", verified; `/System/Volumes/Data`
+    on this Mac), `index disk on|off|unknown` (`mdutil -s /`; "Indexing enabled" is `on`, any
+    "disabled" `off`, anything else or no `mdutil` `unknown`), `readable Desktop|Documents|
+    Downloads yes|no|missing` (`ls` of the folder, output discarded, since `[ -r ]` does not
+    see macOS's privacy protection), `ready`. `FolderSearchHeader.unavailability(for:)`: no
+    `mdfind` is `noSpotlight`, the home scope without a home `noHomeFolder`, indexing `off` for
+    the scope's volume `indexingOff`; `unknown` is searched.
+  - **Answers:** the kept paths (each starts with `/`, NUL-terminated, so a line feed in a
+    name is kept), then one end record that never starts with `/`: `end <id> ok <count>`,
+    `end <id> limited 50`, `end <id> error <code>` (also `unavailable`, `home`, `search` when
+    `mdfind` failed or the pipeline broke, `timeout` when `mdfind` ran past the deadline).
+  - **The noise rule** (fixed, in the script's `f`): left out when (a) it is the home's
+    `Library` or below, and with `disk` any `/Users/<name>/Library` and below and the system
+    roots `/System`, `/Library`, `/private`, `/usr`, `/bin`, `/sbin`, `/opt`, `/cores`, `/dev`
+    and below (`/Applications`, `/Volumes` stay); (b) any component starts with `.`; (c) any
+    component is `node_modules`, `DerivedData`, `Pods` or `__pycache__`; (d) any component but
+    the last ends in `.app`, `.framework`, `.bundle`, `.plugin`, `.kext`, `.photoslibrary`,
+    `.xcodeproj`, `.xcworkspace` or `.xcassets`. `build`, `dist`, `target` stay. Matching is
+    exact (case-sensitive) on the path's bytes, in the C locale.
+  - **The pipeline, the limit and the deadline** (three stages per query; the detail is in
+    `FolderSearchScript`'s comment): the **producer** `sh -c "$k"` (its own process, so `$$`
+    is its pid) writes `@<its pid>` first, runs `mdfind -0 …` in the background under a
+    **4 s deadline** (`FolderSearchScript.searchDeadline`: a `sleep` timer that signals it)
+    and writes the status marker `!<status>` after every path, or, at the deadline, kills
+    `mdfind` (SIGKILL), reaps it and writes `\0!timeout` (the NUL ends a record `mdfind` may
+    have left unfinished); the **filter** `xargs -0 -n 256 sh -c "$f"` applies the noise rule
+    and passes `@…` and `!…` through; the **answer stage** `xargs -0 -n 52 sh -c "$g"` runs
+    `g` once, as soon as 52 records are in (`@` and 51 kept paths, the limit, or 50 and the
+    marker) or at the end of its input. `g` first sends the producer SIGTERM, which kills and
+    reaps a `mdfind` still running (the limit stops it explicitly, also when everything after
+    the 51st kept folder is left out and the filter writes nothing more) or releases a
+    producer that is done; then it writes at most 50 paths and the end record (`limited` when
+    a 51st was kept, `ok` for marker `0`, `error timeout`, else `error search`) and exits 255,
+    which stops `xargs`. After its last record the producer closes its output and waits at
+    most 1 s (`FolderSearchScript.answerSignalWait`) for that signal, so the pid `g` signals
+    is still the producer's; its timers are reaped before it exits. Once `mdfind` is gone the
+    filter reaches the end of its input (its later writes fail); the script reads the next
+    line only once all three stages have ended, and writes `error search` itself only when no
+    `g` ran (`xargs` exit 0). The deadline is below the channel's 5 s answer wait, so a slow
+    Spotlight gets the host's `error timeout` on a process that stays usable. Stub `mdfind`s
+    that print endless kept paths, 51 kept then endless left-out ones, or block are stopped,
+    each with no stub left (tested). **Tools the script relies on**, all in the default macOS
+    userland and on the noninteractive SSH `PATH`: `/bin/sh` (bash 3.2 in POSIX mode on
+    macOS; the tests also run it under `dash`), `mdfind`, `mdutil`, `df -P`, `tail`, `ls`,
+    `wc -c`, `xargs -0 -n`, `sleep` and shell builtins (`trap`, `wait`, `kill`). Behaviors
+    verified on macOS: `wait` returns at once when a trapped signal arrives (bash and dash);
+    `xargs -0` keeps line feeds inside arguments, drops empty records, does not run its
+    utility on empty input (exit 0), and exits 1 whatever failed (an invocation's 255, a
+    signal or another status), so only exit 0 says that no `g` ran; `xargs -x` with `-n` runs
+    one argument per invocation on macOS, so it is not used (52 arguments are far below
+    `xargs`'s default size).
+  - **Disconnects:** over SSH, `close()` ends only the local ssh; on the host the script then
+    finds its standard input at its end and its standard output gone. Idle in `read`, it
+    ends at once. A query blocked in `mdfind` cannot see either while it waits (watching
+    standard input during a query would need a second reader of it, which POSIX `sh` cannot
+    have without consuming query lines, so it is not attempted): the deadline bounds it.
+    **Worst case, a host-side query lives 4 s past its start**, plus the milliseconds its
+    stages take to end (then `g` signals the producer and its first write fails, and the
+    script's next read finds the end of input), 5 s if the answer stage never ran (the
+    producer's 1 s wait); no `mdfind`, filter or timer outlives it. Tested by closing the
+    pipes of a script whose stub `mdfind` blocks, with no signal sent: the stub and the
+    script were gone after about 4 s, under bash and dash. The script (from the header's last
+    record on), the producer and `g` stop at a failed write, so with SIGPIPE ignored they end
+    just the same (checked by hand).
+  - **Parser** (`FolderSearchOutputParser`, incremental): up to 64 KiB before the header are
+    skipped (a login shell's greeting; the header's first record may end a garbage record);
+    then the header strictly in order; then path records and end records; anything else is
+    `unexpectedRecord`. Bounded: one record at most 16 KiB (a longer path is read to its end,
+    left out and counted, like one that is not UTF-8; a longer header record is `badHeader`),
+    one answer at most 50 path records (`tooManyPaths`), an `ok` count equal to the records
+    before it and a `limited` one equal to 50 (`countMismatch`); an output that ends inside a
+    record, the header or an answer is `truncated`. Ids are reported as written; the channel
+    drops the ones it does not wait for. Paths are kept as found (a line feed included);
+    I-10b must pass each through `Validation.workingDirectory` before offering it.
+  - **Transport** (`FolderSearchTransport`; `ProcessFolderSearchTransport` in the app and the
+    probe, `FakeFolderSearchTransport` in tests): This Mac's environment is this process's
+    with `PATH` the system search path (so `mdfind` resolves in `/usr/bin` as on an SSH host)
+    and without `TMUX`/`TMUX_PANE`; ssh gets `/usr/bin/ssh <D6 options> -T -- <destination>
+    <D3 string>` with discovery's environment, no `-n` (standard input is the query stream),
+    nothing that weakens host-key checking, the destination validated first. The process is a
+    `StreamingProcess` (spawned like the runner's children: argv only, its own process group,
+    default signals, descriptors 0–2 only); one dispatch queue reads standard output through
+    the parser, so only parsed events are buffered and the first protocol error stops the
+    reading; the events wait for their reader in a bounded buffer
+    (`ProcessFolderSearchTransport.eventLimit`, 8, with room kept for the overflow error and
+    the end): more waiting at once (a host writing answers nobody asked for, or a stalled
+    reader) is `protocolError(.eventOverflow)`, after which the connection stops reading and
+    ends the process as `close()` does, the end still delivered last (a flood of valid answers
+    with no reader is tested); standard error keeps 4 KiB, used only to classify ssh's own
+    failures (exit 255, `ErrorClassifier.sshFailureStatus`), never logged. `close()` closes
+    standard input (the script ends at end of input), waits 2 s, sends the group SIGTERM,
+    then SIGKILL 2 s later, and returns once the child is reaped; a child that exits by
+    itself is reaped once its pipes close (at most 500 ms later), after SIGKILL to whatever is
+    left of its group. No child outlives the channel (checked in tests and after every real
+    run); if muxFinder dies, the closed pipe ends the script too (on an SSH host as
+    *Disconnects* says).
+  - **The channel** (`FolderSearchChannel`, an actor; clock `AttachClock`, transport
+    injected; state `FolderSearchState`, read or streamed by `updates()`): `search(_:scope:on:)`
+    on every edit; the first searchable text opens the script at once (before its debounce);
+    the query is sent 150 ms after the last call (`Configuration.debounce`), only for the
+    latest text, only once the header is in; at most one query in flight; an answer to an
+    older text or to an id not waited for is dropped and counted (`droppedReplies`) and the
+    latest text goes at once; the same text while its query is in flight changes nothing,
+    and asked again once answered it is searched again. Waits: the header within 10 s of the
+    start (discovery's 5 s connect timeout plus 5 s), each answer within 5 s of its line. A
+    dead process, a timeout, an open or a write that fails, or a protocol error ends the
+    process and counts one failure; only an answer resets the count. The first failure in a
+    row opens a new process at once for the latest text (or, when nothing is pending, on the
+    next query); a failure with one before it is reported (`failed`, with a code and message
+    that hold no path) and stands until the text, scope or host changes, each change then
+    making one new attempt; so an unreachable host shows its problem after at most two
+    connect timeouts. The header's unavailability is shown at once and no query is sent; the
+    script's own `unavailable`/`home` answers show the same, `search`, `timeout`
+    (`searchTimedOut`) and the refusals show as failures without a reopen. A quiet minute
+    without a request closes the process (not a failure); a host change closes it and forgets
+    the header and the failures; `close()` ends everything and returns once every process is
+    reaped. Results stay in memory only, never on disk.
+  - **The scope** (D32): `preferences.json`'s `folderSearchScope`, `home` (the default, also
+    when absent or unknown) or `disk`; I-10b passes it with each query, so a change applies to
+    the next one.
+  - **Probe:** `muxfinder-probe folders --local | --ssh <dest> --name <text> [--name …]
+    [--scope home|disk] [--count-only | --paths] [--repeat <n>]` runs one channel, prints
+    the header (the home only as present or absent), each query's status, count and latency,
+    the open time, a latency summary and the child processes left after the close; names
+    only by number and length; `--paths` only by hand, never in unattended runs; SIGINT and
+    SIGTERM close the channel first (exit 128 + n); `--help` contacts nothing.
+  - **Found in the real runs** (`docs/TESTING.md`, Phase I-10a): on an open channel a query
+    answers in about 0.2–0.4 s on this Mac and on Saturno (median 0.31–0.39 s; a broad
+    fragment's first query up to 1.7 s, its repeat 0.56 s), about the time of `mdfind`
+    itself (0.23 s for `-count`); opening takes 0.06–0.1 s here and 0.8–0.9 s on Saturno
+    (the SSH connection); a close takes 15 ms here and about 60 ms over SSH. Both hosts index
+    `/` and the home's volume, and Desktop, Documents and Downloads were readable over SSH on
+    Saturno. The three-stage pipeline keeps those times (0.12–0.46 s here, 0.26–0.41 s on
+    Saturno; about 16 ms of its own per query with a stub `mdfind`), with no process left on
+    either side.
+  - **Left to I-10b:** on This Mac the readability `ls` runs as muxFinder's child, so the
+    first search may make macOS ask the user for access to Desktop, Documents or Downloads
+    (TCC); whether to skip those checks for This Mac (or explain the prompt) is I-10b's
+    call. The channel searches the text as given (the directory list's filter trims it; the
+    folder search keeps spaces); the home folder for `~/…` shortening comes from the header.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -5131,6 +5333,129 @@ the drop) and items 17, 18 and 20–22 describe the window; `README.md` and
 `docs/ARCHITECTURE.md` describe the window and the drop (`docs/REQUIREMENTS.md`, the verbatim
 brief, has no inline form to change). Tests and changed tests: `docs/TESTING.md`, *Phase
 I-9b*. 815 core + 431 UI tests pass.
+
+### Phase I-10 — New session: search the host's folders by name (high)
+
+From the inbox (2026-11-06). The specification, with the user's request verbatim, the user's
+decisions (this Mac runs Spotlight on the host over discovery's noninteractive ssh, no
+muxFinder needed there; live as you type through one channel; folder names only,
+case- and diacritic-insensitive "contains"; a home-folder / whole-disk setting, default home;
+This Mac too; a fixed noise rule; hosts without Spotlight say so; "Missing a folder?"), the
+findings (counts and timings on Saturno), the requirements and the acceptance, is
+`autoclaude/processed/100-folder-search-spotlight.md`. Recorded as **D36** (D3, D31, D32 and
+D34 edited). The user authorized read-only Spotlight queries on Saturno and this Mac for runs
+(unattended-run rule 3): counts and timings only, never a folder name or path. Split, as the
+item suggests:
+
+- **I-10a — the core (high).** The static folder-search script, its query and answer
+  formats, the escaping of typed text, the answer parser, the noise rule, the channel (its
+  process transport, local and over ssh, and its state machine), the search scope preference
+  in `preferences.json`, the probe command `folders`, real `--count-only` runs on this Mac and
+  Saturno recorded in `docs/TESTING.md`, D36 recorded and D3 / D32 edited, `README.md`'s and
+  `docs/ARCHITECTURE.md`'s core parts, `CLAUDE.md`'s probe line. No UI.
+- **I-10b — the UI (routine).** The "Folders on <host>" section in New session's directory
+  list (requirement 3), wiring the channel to the window (open on the first query, close with
+  the window, a host change, a quiet minute, quit), the Settings › Directories setting and the
+  "Missing a folder?" explanation with its links, VoiceOver announcements, galleries and
+  screenshots, `docs/MANUAL-CHECKLIST.md`'s new item, D31 / D34 edited, the rest of the docs.
+
+The orchestrator's calls, made before the first worker (the item's "decide and record"):
+
+- **One script, both kinds of host.** This Mac runs the same static script as SSH hosts, as
+  `/bin/sh -c <script> muxfinder <args…>` by argv (D3's local form), not `NSMetadataQuery`: one
+  implementation of the header, the noise rule, the limit and the answer format, so one set of
+  tests covers both. SSH hosts get D3's single string with discovery's noninteractive options
+  (BatchMode, its connect timeout), stdin kept open as the query stream.
+- **The channel asks folder-name questions only.** A query line carries only a query id
+  (decimal digits), a scope token (`home` or `disk`) and the escaped name text; the script
+  builds the fixed predicate itself (`kMDItemContentType == "public.folder" && kMDItemFSName ==
+  "*<text>*"cd`) and passes it to `mdfind` as one quoted argument, never through `eval`, so the
+  channel cannot be used for any other Spotlight query or command. A malformed line (bad id,
+  unknown scope, over the length limit) gets an error answer for its id, or is skipped when it
+  has no usable id; the script keeps reading.
+- **Escaping and limits.** A pure Swift function turns the typed text into the name text: `\`,
+  `"`, `*` and `?` are backslash-escaped, control characters (C0, DEL, C1, and line or
+  paragraph separators) refuse the query, and text over 255 UTF-8 bytes (a folder name's
+  maximum) refuses it; leading and trailing whitespace is kept (it is part of a name). Queries
+  need at least 2 characters (counted as `Character`s). The worker verifies the escaping on
+  this Mac against real `mdfind` by counts only, and records what it found.
+- **Answers.** Every answer, for every query, ends with an end record that cannot be mistaken
+  for a path (`mdfind` prints absolute paths, so any record not starting with `/` is
+  unambiguous) carrying the query id and a status (ok with the count, limited, or the error).
+  Paths are NUL-separated (`mdfind -0`), so a newline in a name is kept. At most **50**
+  folders per answer after the noise rule, and the script stops `mdfind` once it has them.
+  The header comes first, once: the host's home folder, whether `mdfind` exists, the indexing
+  state of the volume each scope searches (`mdutil -s`), and whether `~/Desktop`, `~/Documents`
+  and `~/Downloads` are readable. Its framing and the parser are tested with truncated and
+  hostile input (an answer cut short, a stale id, an oversized record, garbage between
+  records); every buffer is bounded.
+- **The noise rule (fixed, in the script).** A folder is left out when (a) it is the home's
+  `Library` or below it; with the whole-disk scope also any `/Users/<name>/Library` and
+  below, and the system roots `/System`, `/Library`, `/private`, `/usr`, `/bin`, `/sbin`,
+  `/opt`, `/cores`, `/dev` and below (`/Applications` and `/Volumes` stay); (b) any component
+  of its path starts with `.` (hidden folders and everything under them, such as `.git`,
+  `.build`, `.venv`, `.Trash`); (c) any component is `node_modules`, `DerivedData`, `Pods` or
+  `__pycache__` (the folder itself and everything under it); (d) any component but the last
+  ends in `.app`, `.framework`, `.bundle`, `.plugin`, `.kext`, `.photoslibrary`,
+  `.xcodeproj`, `.xcworkspace` or `.xcassets` (inside a package). Folders named `build`,
+  `dist` or `target` stay: they are common real folder names. The rule is tested hermetically
+  by running the real script with stub `mdfind` and `mdutil` first on `PATH` that print
+  synthetic paths (no Spotlight, no real folder names), which also tests the header, the limit,
+  the early stop and the end records. Remote hosts resolve `mdfind` and `mdutil` through the
+  noninteractive `PATH`, which holds `/usr/bin`.
+- **The channel.** A core type with an injected clock and transport: debounce about 150 ms
+  after typing pauses, then sends only the latest text; at most one query in flight, answers to
+  older ids dropped; a result cache is never written to disk; every wait bounded (the connect
+  and header within discovery's connect timeout plus a margin, each answer within 5 s);
+  a timed-out or dead channel is ended (stdin closed, then the process terminated after a
+  grace period, never left running) and reopens once on the next query, a second failure in a
+  row reporting the problem until the text or host changes. Closing (window closed, host
+  changed, a quiet minute, app quit) closes stdin, which ends the script. A host without
+  `mdfind`, or with indexing off for the searched volume, is reported from the header and no
+  query is sent. The probe and I-10b use this type; I-10b only wires it.
+- **The scope preference.** `preferences.json` (D32's store, under its lock, with its unusable-
+  file rules) gains the folder search scope, `home` (the default, also when absent) or
+  `disk`; an unknown value is treated as absent, never rewritten until a save. A change
+  applies to the next query.
+- **Probe and real runs.** `muxfinder-probe folders --local | --ssh <dest> --name <text>
+  [--scope home|disk] [--count-only] [--repeat <n>]` prints the header's facts (home folder
+  shown only as "present", never its path, unless paths are asked for), each query's count,
+  status and latency, and the channel's open time; `--paths` alone prints paths, and is never
+  used in unattended runs. Real runs on this Mac and Saturno with `--count-only`, a few names
+  each, both scopes, one channel with several queries, are recorded in `docs/TESTING.md`
+  (counts and timings only).
+
+**Outcome of I-10a (2026-11-06).** The core is in `Sources/MuxFinderCore/FolderSearch/`, with
+`Process/StreamingProcess.swift` for the long-lived process, the scope in `PreferencesStore`
+and the probe's `folders` command; D36 records it, D3, D11 and D32 were edited. As decided
+above, with what the work settled: the script validates every query line itself (an
+unescaped `"`, `*` or `?`, or a stray `\`, is `error text`), because `mdfind` silently accepts
+a predicate an unescaped quote or a trailing backslash bends (verified by counts on synthetic
+folders on a scratch disk image, the only way to have Spotlight index names that differ by
+one special character without touching the user's folders); the home's volume for `mdutil -s`
+comes from `df -P`, since `mdutil -s "$HOME"` cannot say; the readability checks use `ls`,
+since `[ -r ]` does not see macOS's privacy protection; `xargs -x` is avoided (on macOS it
+runs one argument per invocation). The channel opens the script on the first searchable text,
+before the debounce, so the SSH connection is ready by the time the query goes; only an answer
+resets the failure count, so a script whose header arrives but whose queries time out is
+reported after the second failure instead of reopening forever. The adversarial review
+(`docs/reviews/phase-I-10a.md`) led to the three-stage pipeline: a 4 s deadline on the host
+for every query (an SSH close ends only the local ssh, and a blocked `mdfind` could not see
+the disconnect), an explicit stop at the limit (left-out folders after the 51st kept one
+made the filter write nothing, so SIGPIPE never reached `mdfind`), and a bounded event
+buffer in the transport (D36). Hermetic: 64 new tests in 6 suites (the real script under
+stub `mdfind` and `mdutil`, under bash and dash, with a name holding a line feed, the 50
+limit with noise interleaved and amid endless noise, the deadline and a disconnect seen from
+the host; the parser on hostile input; real local processes, the D3 string through zsh and
+bash, a flood with a stalled reader; the channel over a fake transport and a gated clock;
+the preference on private folders). Real: `folders --count-only` on this Mac and
+Saturno, both scopes, 8 to 10 queries per channel, about 0.2–0.4 s per query on an open
+channel, no process left on either side, interrupts closing the channel. Left to I-10b, besides
+its own items: This Mac's readability checks may make macOS ask for access to Desktop,
+Documents and Downloads the first time the app searches This Mac (TCC), so I-10b decides
+whether to skip them there; paths with control characters reach the parser's output and need
+`Validation.workingDirectory` before they are offered; the "Missing a folder?" text can say
+that a `'` inside a word finds nothing (Spotlight's matching).
 
 ## Deferred (explicitly out of scope for v1)
 

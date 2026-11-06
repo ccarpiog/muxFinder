@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D34); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D36); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -12,10 +12,11 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | Target | What it holds |
 |---|---|
 | `MuxFinderCore` (library) | All logic, no SwiftUI, fully unit-testable. |
-| ├ `Process/` | `ProcessRunner` over `posix_spawn` (argv only, own process group, hard timeouts, bounded output). |
+| ├ `Process/` | `ProcessRunner` over `posix_spawn` (argv only, own process group, hard timeouts, bounded output); `StreamingProcess`, a long-lived child with its standard input kept open and its output handed over as it arrives (D36). |
 | ├ `Shell/` | POSIX single-quoting for the one remote command string, input validation. |
-| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), the session switcher shortcut (`GlobalShortcut`, `PreferencesStore` on `preferences.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
+| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), the session switcher shortcut and the folder search scope (`GlobalShortcut`, `PreferencesStore` on `preferences.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
 | ├ `Tmux/` | tmux locator, the static discovery script and its parser, session identity, error classification, session creation commands. |
+| ├ `FolderSearch/` | Folder search over Spotlight (D36): the static script, `FolderSearchText` (escaping and limits), `FolderSearchOutputParser`, the local and SSH transport and its fake, and the `FolderSearchChannel` actor. |
 | ├ `Refresh/` | `RefreshCoordinator` actor (concurrency limit, cadence, backoff, stale results dropped), `HostSnapshot`, sleep/wake and network events. |
 | ├ `ITerm2/` | The hand-written iTerm2 API client: WebSocket over iTerm2's Unix socket, a minimal protobuf codec, typed requests, the `ITerm2Integration` protocol and its fake. |
 | ├ `Launch/` | The launch protocol shared with the helper: request and result files, the guard script, remote launch strings, `LaunchHelper` itself (with its launch tab restore, `TerminalStatusRequest`), profile mode. |
@@ -26,7 +27,7 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the New session window (`NewSessionWindow`, `NewSessionWindowController`, the folder drop's `FolderDrop` and `FolderDropView`), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
 | `MuxFinderApp` (executable) | Entry point, the menu bar app's shell (a plain `NSApplication` with muxFinder's own main menu, `MainMenu`; no SwiftUI `App` or scene, D33) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
 | `muxfinder-launch` (executable) | The helper iTerm2 runs in a launch tab: `attach <id>`, `ssh-setup <id>`, `profile <host id>`. Bundled next to the app. |
-| `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, iTerm2 queries, single attaches and detaches, the `e2e-*` real runs, host list and profile checks. Not bundled. |
+| `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, folder search, iTerm2 queries, single attaches and detaches, the `e2e-*` real runs, host list and profile checks. Not bundled. |
 
 Tests: `Tests/MuxFinderCoreTests` and `Tests/MuxFinderUITests` (Swift Testing), hermetic: fakes
 for processes, clocks and iTerm2, no ssh, tmux only on private sockets (PLAN.md D11).
@@ -151,6 +152,45 @@ switcher"). The pieces, each behind a seam so tests use fakes:
 `--report-hotkey-registration` registers fixed test combinations on F19 and J in its own
 process, checks that a second registration is refused as taken, and unregisters everything
 before it exits; no event is posted.
+
+## Folder search over Spotlight (D36)
+
+The core of a search of a host's folders by name, run by Spotlight on the host itself, so the
+host needs no muxFinder. Today `muxfinder-probe folders` drives it.
+
+- **The script** (`FolderSearchScript.script`, static): This Mac runs it as `/bin/sh -c
+  <script> muxfinder` by argv, an SSH host through discovery's noninteractive ssh with the D3
+  string and `-T` (no `-n`: standard input is the query stream). It writes a header once (the
+  home folder, whether `mdfind` exists, `mdutil -s` for the home's volume and for `/`, whether
+  Desktop, Documents and Downloads can be listed), then answers one query line at a time
+  until its standard input closes. A line is `<id> <home|disk> <escaped name text>`; the
+  script checks it and builds the one fixed predicate itself, `kMDItemContentType ==
+  "public.folder" && kMDItemFSName == "*<text>*"cd`, passed to `mdfind -0` as one argument
+  (after `-onlyin "$HOME"` for `home`), never through `eval`. Paths come NUL-separated (a line
+  feed in a name is kept), filtered by a fixed noise rule (`~/Library`, hidden folders,
+  `node_modules` and the like, the inside of packages, and system folders for the whole disk),
+  at most 50, then an end record with the id and `ok`, `limited` or an error. Each query is
+  three stages: a producer that runs `mdfind` under a 4 s deadline (then kills it and answers
+  `error timeout`), the noise filter, and an answer stage that signals the producer as soon as
+  a 51st folder is kept (stopping `mdfind`) or the producer is done, then writes the answer.
+  So a search never outlives its deadline on the host, also after an SSH disconnect.
+- **Escaping** (`FolderSearchText`, pure): `\`, `"`, `*` and `?` get a backslash; control
+  characters, more than 255 bytes and fewer than 2 characters are refused. Verified against
+  `mdfind` by counts on synthetic folders.
+- **Parsing** (`FolderSearchOutputParser`): NUL-separated records, a skipped preamble (a login
+  shell's greeting), the header in order, then paths and end records; every buffer bounded
+  (16 KiB a record, 50 paths an answer), anything else a protocol error.
+- **Transport** (`ProcessFolderSearchTransport` over `StreamingProcess`): output parsed on the
+  process's own queue, so only parsed events are buffered, at most 8 waiting for their reader
+  (more is `eventOverflow`: reading stops and the process is ended); closing ends standard
+  input, then terminates the group after 2 s and returns once the child is reaped.
+- **Channel** (`FolderSearchChannel` actor, injected clock and transport): opens on the first
+  searchable text, sends only the latest text 150 ms after typing pauses and only after the
+  header, one query in flight, older answers dropped; the header within 10 s and each answer
+  within 5 s; a failure reopens once, a second in a row is reported until the text, scope or
+  host changes; a quiet minute or a host change closes the script; a host without Spotlight or
+  with indexing off is reported from the header and no query is sent. Results stay in memory.
+- **Scope:** `preferences.json`'s `folderSearchScope`, `home` (default) or `disk` (D32).
 
 ## The session switcher (D32)
 
@@ -380,7 +420,9 @@ use a fake.
 - No shell or AppleScript source is ever built from runtime values. Local processes get argv
   arrays. The one place a shell must parse data, the remote ssh command, is
   `/bin/sh -c '<static script>' muxfinder '<arg1>' '<arg2>' …` with every argument
-  single-quoted (D3). tmux words are escaped for tmux's own parser where needed (D18).
+  single-quoted (D3). tmux words are escaped for tmux's own parser where needed (D18). The
+  folder search script takes its queries on standard input as data lines it checks and puts
+  into its one fixed predicate as a quoted word, never as shell source (D3, D36).
 - Host names, session names, paths and directories are validated and treated as data;
   discovery output is framed and length-checked, so a session name or start folder cannot
   break the parser.
@@ -437,3 +479,5 @@ All in `PLAN.md` *Decisions*:
 | | | D32 | Session switcher shortcut and panel |
 | | | D33 | The menu bar app on a plain `NSApplication` |
 | | | D34 | New session in its own window, with folder drop |
+| | | D35 | Version numbers |
+| | | D36 | Folder search over Spotlight |

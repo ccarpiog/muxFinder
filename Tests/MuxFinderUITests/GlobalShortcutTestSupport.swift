@@ -211,4 +211,12 @@ actor ScriptedPreferencesStore: PreferencesStoring {
     if let changeFailure { throw changeFailure }
     return PreferencesChangeResult(preferences: Preferences(globalShortcut: shortcut), wrote: true)
   }
+
+  /// Fails or succeeds as told; the scope is not recorded (these tests are about the shortcut).
+  func setFolderSearchScope(
+    _ scope: FolderSearchScope
+  ) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    if let changeFailure { throw changeFailure }
+    return PreferencesChangeResult(preferences: Preferences(folderSearchScope: scope), wrote: true)
+  }
 }

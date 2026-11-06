@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T00:12:10Z",
+  "updated": "2026-11-06T09:19:33Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -632,6 +632,39 @@
       "added": "2026-11-05T22:33:20Z",
       "started": "2026-11-05T23:37:54Z",
       "status_since": "2026-11-06T00:12:10Z"
+    },
+    {
+      "id": "I-10",
+      "title": "New session: search the host's folders by name",
+      "status": "in_progress",
+      "risk": "high",
+      "summary": "Spotlight folder search in New session, split into I-10a (core, done) and I-10b (UI, queued).",
+      "added": "2026-11-06T07:27:19Z",
+      "started": "2026-11-06T07:27:19Z",
+      "status_since": "2026-11-06T07:27:19Z"
+    },
+    {
+      "id": "I-10a",
+      "title": "Folder search core: script, channel, escaping, parser, probe",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-10",
+      "summary": "Static Spotlight script, folder-name query channel, escaping, bounded parser, scope preference and a folders probe; real runs here and on Saturno.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-10a.md",
+      "narrative": "docs/progress-archive/i-10a.md",
+      "added": "2026-11-06T07:27:19Z",
+      "started": "2026-11-06T07:27:19Z",
+      "status_since": "2026-11-06T09:19:33Z"
+    },
+    {
+      "id": "I-10b",
+      "title": "Folder search UI: list section, setting, explanation, galleries",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-10",
+      "summary": "Folders on host section in the directory list, the home or whole-disk setting, Missing a folder? and galleries.",
+      "added": "2026-11-06T07:27:19Z",
+      "status_since": "2026-11-06T07:27:19Z"
     }
   ]
 }

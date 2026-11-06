@@ -84,16 +84,23 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   login item, hotkey or iTerm2; one normal
   window with every popover state, or with `--preview-gallery settings` every Settings window
   state, with `--preview-gallery onboarding` every onboarding window state, with
-  `--preview-gallery attach` every session-action state, or with `--preview-gallery switcher`
-  every session switcher state, from synthetic data, shown without taking the focus):
+  `--preview-gallery attach` every session-action state, with `--preview-gallery switcher`
+  every session switcher state, or with `--preview-gallery new-session` every New session
+  window state, from synthetic data, shown without taking the focus):
   `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures [--preview-gallery
-  popover|settings|onboarding|attach|switcher] [--appearance light|dark]` prints `muxFinder
-  preview window <n> …`; capture only that window with `screencapture -x -o -l <n> <file.png>`, then
+  popover|settings|onboarding|attach|switcher|new-session] [--appearance light|dark]` prints
+  `muxFinder preview window <n> …`; capture only that window with `screencapture -x -o -l <n>
+  <file.png>`, then
   `kill -TERM` it (exit 0). With a locked screen or a sleeping display `screencapture` fails:
   add `--preview-snapshot <file.png>`, which sizes the window to its content and renders it
   into the PNG from inside the app, then quits. Screenshots live in `docs/screenshots/` (`popover-states-*.png`,
   `settings-states-*.png`, `onboarding-states-*.png`, `attach-states-*.png`,
-  `switcher-states-*.png`); never capture the screen or another app's window.
+  `switcher-states-*.png`, `new-session-states-*.png`); never capture the screen or another
+  app's window. `--preview-fixtures --preview-key-view-loop popover|switcher` (a read-only
+  keyboard-focus diagnostic, PLAN.md Phase I-6) shows no gallery: it shows muxFinder's real
+  New session window over that entry point's synthetic fixture and makes it key (it takes the
+  focus for about 10 s), prints the form's key view loop, then quits: 0 the form's fields
+  found, 1 not found, 2 usage, 3 its 30 s watchdog.
 - Login item check (read-only; registers nothing, opens no window or menu bar item, reads no
   host list, never contacts iTerm2):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-login-item-status` prints
@@ -113,11 +120,14 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   as a normal launch may, PLAN.md D26, and never reads `preferences.json`, registers the
   session switcher shortcut or builds the switcher panel, D32; contacts no iTerm2 while no host is enabled and the
   popover stays closed; never through `open`/LaunchServices):
-  `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints the windows
-  of muxFinder's own status item (PLAN.md D30; AppKit's replicas included) after 2 s (macOS 27
+  `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints, after 2 s,
+  the windows of muxFinder's own status item (PLAN.md D30; AppKit's replicas included), then
+  every other window of the app (title, class, visibility, level; only onboarding may be
+  visible, PLAN.md D33), the launch's Apple event and the main menu (macOS 27
   draws the item outside the app, so `CGWindowList` does not show it under the app's pid);
   without a `hosts.json` it also shows the onboarding
-  window, which contacts nothing; then `kill -TERM <pid>` must exit 0 with no child left
+  window, which contacts nothing; nothing else may be visible; then `kill -TERM <pid>` must
+  exit 0 with no child left
   and no `hosts.json` or `preferences.json` created. The user's real `hosts.json` exists, so run it only with
   `CFFIXED_USER_HOME=$(mktemp -d)` in front: the app then reads an empty private home (no
   host turned on, nothing refreshed). See `docs/TESTING.md` (Phases 8, 9b, 14 and I-1b).
@@ -177,6 +187,16 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `startDirectoriesDropped` counts the rest; folders are the user's, so pipe the JSON through
   `jq` and record counts only, never paths. Prove "no server" with
   `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, never by stopping a real server.
+- Folder search check (read-only Spotlight, PLAN.md D36; writes nothing, never contacts
+  iTerm2): `swift run muxfinder-probe folders --local | --ssh saturno-m4 --name <text>
+  [--name <text> …] [--scope home|disk] [--count-only] [--repeat <n>]` opens one channel
+  (the static script; over discovery's noninteractive ssh for a host), asks every name in
+  turn on it, and prints the header's facts (the home folder only as present), each query's
+  status, count and latency, the channel's open time and the child processes left after its
+  close (`--help` contacts nothing; SIGINT/SIGTERM close the channel first). Counts only:
+  `--paths` prints folder paths, which are the user's, so never use it in unattended runs,
+  and use neutral 2–3 letter fragments ("do", "pro") as names, never one that would reveal a
+  folder; record counts and timings only, never a path or name. Only `saturno-m4` remotely.
 - Host configuration check (read-only, prints JSON; creates no folder or file, runs no ssh,
   never contacts iTerm2): `swift run muxfinder-probe hosts show [--config <path>]` (the host
   list and its load state: `saved`, `notSavedYet` with the onboarding defaults, or `invalid`
@@ -186,9 +206,9 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   fixtures or logs). Test a save only through `HostStore` on a private folder, never on
   `~/Library/Application Support/muxFinder/hosts.json`, a directory-list change only
   through `DirectoryStore` (or `InMemoryDirectoryStore`) on a private folder, never on the
-  real `directories.json` there (PLAN.md D31), and a shortcut change only through
-  `PreferencesStore` (or `InMemoryPreferencesStore`) on a private folder, never on the real
-  `preferences.json` and never through `UserDefaults` (PLAN.md D32).
+  real `directories.json` there (PLAN.md D31), and a shortcut or folder search scope change
+  only through `PreferencesStore` (or `InMemoryPreferencesStore`) on a private folder, never
+  on the real `preferences.json` and never through `UserDefaults` (PLAN.md D32, D36).
 - Persistent profile checks (read-only, print JSON; write no file, never contact iTerm2):
   `swift run muxfinder-probe profiles show [--config <path>] [--helper <path>]` prints the
   `DynamicProfiles/muxFinder.json` document the app would install for the host list (loaded

@@ -46,7 +46,7 @@ Other deliverables of the brief:
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
 | Unit tests | Tested hermetically | `swift test` (*Phase I-8* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's reports of 2026-10-24, 2026-11-04 and 2026-11-05, PLAN.md Phases 13, 14 and I-1 to I-8):
+Added after the brief (the user's reports of 2026-10-24, 2026-11-04, 2026-11-05 and 2026-11-06, PLAN.md Phases 13, 14 and I-1 to I-10):
 
 | Requirement | Status | Evidence |
 |---|---|---|
@@ -64,6 +64,7 @@ passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the
 | New session: typing in Directory filters the directory list, combo-box style, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34): each section keeps the entries that contain the trimmed text (case and diacritics ignored; an exact match always), on This Mac also with the home folder written `~` or spelled out; "No matching directories" apart from "Nothing to pick yet"; the actions never filtered; typing opens the list while something matches, highlighting nothing, and closes a list it opened when nothing matches or the field is cleared, a list the button or ⌥↓ opened staying; Esc keeps the text; ↓/⌥↓ highlight the first match and the arrows stay in the rows shown; Return with nothing highlighted creates; a pick never reopens it; a host change re-filters; VoiceOver hears the match count (PLAN.md Phase I-7, D31). | Tested hermetically and in the preview renders (both appearances). Typing, the keys, VoiceOver and a creation in the real popover and switcher: by a person (checklist 21). | Phase I-7, 2026-11-04 (*Phase I-7* below): `DirectoryFilterContentTests` and `DirectoryFilterModelTests` (`DirectoryFilterTests.swift`); `docs/screenshots/attach-states-*.png` and `switcher-states-*.png` regenerated and inspected. |
 | New session: the Host picker from the keyboard, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34), with macOS's keyboard navigation on: ⇧Tab from Name reaches it; while it (an `NSPopUpButton`) has the focus, the panels' key monitor leaves ↑, ↓ and ⌥↓ to it (Space already reached it), Return still creates and Esc still closes the panel; while a menu tracks every key is the menu's; with the directory list open the list keeps its highlight and Return and Esc their list meaning; with any other focus nothing changes; a host picked from the menu acts as a click (PLAN.md Phase I-8, D30, D31, D32). | Read in process in the real panels (`--preview-key-view-loop`: the first responder after the window's own step back from Name and the monitor's route for each key, before and after the fix; no event, no menu opened) and tested hermetically (the routing as a pure function, the menu tracking observer, a pick through the picker's binding). What AppKit's pop-up button does with each key, the menu opening from the panel, and a creation on the host picked: by a person (checklist 22). | Phase I-8, 2026-11-05 (*Phase I-8* below): before the fix ↑/↓/⌥↓ went to the panel's handler with the picker focused (↑/↓ swallowed, ⌥↓ opening the directory list), after it to the picker; `PanelKeyRouteTests`, `MenuTrackingObserverTests`, `HostPickerBindingTests` (`HostPickerKeyboardTests.swift`). |
 | The New session window and a folder dropped from Finder (PLAN.md Phase I-9, D34): one titled, floating, non-activating window opened from the popover and the switcher, which close as it opens; it stays above other apps on every Space and beside full-screen apps until Create succeeds, Cancel, Esc, ⌘W or its close button, which drop the draft; an opening while it shows brings it forward unchanged; a failure after closing brings it back, not key. One folder dragged onto the Directory field or its button fills the field as a pick, `~/…` under This Mac's home folder, absolute elsewhere, whether or not the field is being edited (the field editor never inserts text of its own); a file, an app, several items, text or a link are refused with no "+"; a highlight while a folder hovers; the field's VoiceOver hint mentions the drop. | Tested hermetically: the model, placement and keys over fake surfaces (Phase I-9a), the drop as a pure function, in the model, and its AppKit drop target in the real window, never shown, over private pasteboards; the window's states rendered in both appearances. The real window over other apps and Spaces, a real drag from Finder, the keys, VoiceOver and a creation: by a person (checklist 23). | Phases I-9a and I-9b, 2026-11-05 (*Phases I-9a and I-9b* below): `NewSessionWindowTests`, `FolderDropFunctionTests`, `FolderDropModelTests`, `FolderDropTargetTests` (`FolderDropTests.swift`); `docs/screenshots/new-session-states-*.png`. |
+| New session's folder search, the core (PLAN.md Phase I-10, D36; the list section, the setting and "Missing a folder?" are Phase I-10b's): one static script on This Mac and over discovery's noninteractive ssh, folder names only (case- and diacritic-insensitive "contains"), typed text escaped and bounded, a fixed noise rule, at most 50 folders, a header that says when Spotlight is missing or indexing is off, one channel with a 150 ms debounce, one query in flight and bounded waits, and the home or whole-disk scope in `preferences.json`. | Tested hermetically and for real (core only) | Hermetic: the real script under stub `mdfind`/`mdutil` (bash and dash), the parser, the transport with real local processes, the channel over a fake transport and clock, the preference on private folders. Real: escaping by counts against `mdfind` on synthetic folders, and `folders --count-only` runs on this Mac and Saturno, both scopes, several queries per channel, no process left (*Phase I-10a* below). |
 
 ## Unit tests (`swift test`)
 
@@ -3086,3 +3087,91 @@ still gives clicks to the field; muxFinder's code uses no private API.
 | New session gallery | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery new-session --appearance light --preview-snapshot docs/screenshots/new-session-states-light.png`, then `dark` | exit 0 both; 3448 × 3760 px, 13 states in window-like frames, inspected (the drop highlight cropped with `sips` into `/tmp`): editing as the popover and as the switcher open it (the name from the filter), an invalid name, the directory list open with a highlighted row, nothing to pick, saved already, an unusable file, filtered by typing, no matching directories, creating (fields off), a name taken with "Open existing", a failed creation, and a folder dragged over Directory (an accent ring just outside the field); readable in both appearances |
 | Attach and switcher galleries | `--preview-gallery attach` and `switcher`, light and dark, with `--preview-snapshot docs/screenshots/<gallery>-states-<appearance>.png` | exit 0 all four, regenerated and inspected now that their inline form states are gone (Phase I-9a): attach 3136 × 3386 px (was 3136 × 6104), the 11 session-action states and the context menu card; switcher 3448 × 2260 px (was 3448 × 3120), its 8 states, "New session…" rows but no form |
 | Popover gallery | `--preview-gallery popover --appearance light --preview-snapshot <png in /tmp>` | exit 0, 4672 × 2200 px as in Phases I-6 to I-8; it holds no New session state and I-9 changed nothing in it, so `popover-states-*.png` were not regenerated |
+
+### Phase I-10a — folder search core (2026-11-06)
+
+The core of New session's folder search (PLAN.md Phase I-10, D36; D3 and D32 edited): the
+static script run through `/bin/sh` on This Mac and through discovery's noninteractive ssh on
+a host, the escaping of typed text, the answer parser, the process transport, the channel's
+state machine, the search scope preference and the probe command `folders`. No UI (Phase
+I-10b). Hermetic tests run the real script with stub `mdfind` and `mdutil` first on `PATH`,
+printing synthetic paths, under `/bin/sh` (bash) and `dash`. Real runs used `--count-only`
+(never `--paths`), neutral fragments ("do", "pro", "ab", "es") and improbable ones ("qx",
+"wkz") as names, on this Mac and `saturno-m4` only: counts and timings below, never a folder
+name or path. No real `hosts.json`, `directories.json` or `preferences.json` was read or
+written, nothing went through LaunchServices, and iTerm2 and tmux were not involved.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors`; `swift build --build-tests -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0; exit 0 |
+| Unit tests | `swift test` | exit 0: 879 core tests in 87 suites (64 new in 6 suites: `FolderSearchTextTests`, `FolderSearchOutputTests`, `FolderSearchScriptTests`, `FolderSearchTransportTests`, `FolderSearchChannelTests`, `FolderSearchScopePreferenceTests`) and 431 UI tests in 43 suites (unchanged; `ScriptedPreferencesStore` gained the new store requirement). The folder search suites passed 6 runs in a row (about 4.3 s each). |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| Probe help | `muxfinder-probe folders --help` | exit 0, usage only, nothing contacted |
+
+**After the adversarial review** (`docs/reviews/phase-I-10a.md`; PLAN.md D36, *The
+pipeline, the limit and the deadline* and *Disconnects*). The stub `mdfind` is now one
+long-lived process, as the real one is (`endless` loops in the shell, `hang` is `exec sleep
+30`), records its pid in `mdfind.pids` (`FolderSearchSandbox.noStubLeft(within:)` checks each
+with `kill(pid, 0)`), and has two new modes: `noise` (the paths file, then hidden folders
+forever) and `hang-once` (blocks on its first call only). Each new test below was run against
+the code without its fix and failed there:
+
+| Test | What it proves | Without the fix |
+|---|---|---|
+| `FolderSearchScriptTests.stopsAtTheLimitAmidEndlessNoise` (bash, dash) | 51 kept folders, then endless left-out ones: two queries answer `limited` with the first 50 in well under the deadline (under 1 s in the suite), no stub left | the old script hung until the run's 15 s timeout; without only `g`'s signal, each query waited for the deadline (10 s for two) |
+| `FolderSearchScriptTests.answersATimeoutForABlockedSearch` (bash, dash) | a blocked `mdfind` is killed at the 4 s deadline, the query gets `error timeout`, the same script answers the next query, no stub left | timed out at 15 s with no answer |
+| `FolderSearchScriptTests.deadlinesMatchTheScript` | `searchDeadline` (4 s) and `answerSignalWait` (1 s) are the script's `u 4` and `u 1`, and the deadline is below the channel's 5 s answer wait | — |
+| `FolderSearchTransportTests.aDisconnectEndsABlockedSearchOnTheHost` (bash, dash) | the host side of a closed SSH channel: the script's pipes closed with no signal while its stub `mdfind` blocks; the stub is gone and the script exits by itself after about 4 s, its group empty | the stub was still running after 8 s and the script had not exited |
+| `FolderSearchTransportTests.failsOnAFloodWithAStalledReader` | endless valid answers with nobody reading (event limit 4): the connection ends the process by itself, and the reader then gets the header, 4 answers, `eventOverflow` and the end, last | the process kept running and the buffer kept growing |
+
+Changed: `stopsAnEndlessSearch` also checks that no stub is left; `passesThePredicateAsOneArgument`
+expects `mdfind.pids` among the sandbox's files; `FolderSearchChannelTests.reportsTheScriptsErrors`
+covers `error timeout` (`searchTimedOut`, no reopen). By hand, outside the tests: a Python
+harness closed the pipes of the real script under each stub mode with SIGPIPE ignored and
+not: the stub was gone at 4.0 s (`hang`, and `noise` with only 50 kept) or at once, the script
+exited by itself each time and its group was empty; 40 queries with a stub `mdfind` took
+about 16 ms each of the pipeline's own time.
+
+**Real runs after the fixes** (`folders --count-only`, neutral fragments as above):
+
+| Run | Queries | Open | Answers | Latency min / median / max | After the close |
+|---|---|---|---|---|---|
+| This Mac, home | 6 (3 names × 2) | 164 ms | 4 limited (50), 2 ok 0 | 243 / 301 / 457 ms | closed in 15 ms; 0 children |
+| This Mac, disk | 2 | 53 ms | 2 limited (50) | 118 / 258 / 258 ms | closed in 25 ms; 0 children; `pgrep -x mdfind` 0, no script, producer or answer stage left |
+| `saturno-m4`, home | 6 (3 names × 2) | 892 ms | 4 limited (50), 2 ok 0 | 264 / 314 / 407 ms | closed in 57 ms; 0 children here; on Saturno `pgrep -x mdfind` 0 and no script, producer or answer stage left |
+
+**Escaping against real `mdfind`, by counts** (a 16 MB scratch APFS image attached with
+`-nobrowse`, indexing turned on for it, holding 12 synthetic folders whose names differ in one
+character; detached and deleted afterwards). Each escaped special character matched exactly
+its one folder: `\*` 1, `\?` 1, `\"` 1, `\\` 1. Unescaped, `*` acted as a wildcard (2
+matches) and `?` happened to match 1; escaping makes both literal whatever Spotlight's wildcard
+rules are. An unescaped `"` or a lone trailing `\` gave a different predicate silently (exit 0,
+no message, 0 matches), which is why the script refuses both. `cd` folded case and diacritics both ways (`e`, `é` typed as NFC and as NFD, `AEZ`: 2
+each). An inner space matched 1, a trailing space 0, a leading one 1. `LC_ALL=C` and an
+empty environment gave the same counts (`mdfind` reads its argument as UTF-8). A `'` between
+letters matched nothing (with or without a backslash), while the same name was found by its
+start or by exact name: Spotlight's own word matching, not escaping. End to end through the
+probe (`--scope disk`, which includes the scratch volume), the same synthetic names gave 1, 1,
+1, 1, 2, 2, 1, 0 and 12 (the name with a line feed among them), 178–191 ms each.
+
+**Real runs** (one channel per run; latency is from the query line to its end record, open is
+from the start to the header):
+
+| Run | Queries | Open | Answers | Latency min / median / max | After the close |
+|---|---|---|---|---|---|
+| This Mac, home | 8 (4 names × 2) | 106 ms | 8 limited (50) | 317 / 388 / 1729 ms (the slowest the first "es"; its repeat 563 ms) | closed in 15 ms; 0 children; `pgrep -f 'muxfinde[r]-folders'` 0 |
+| This Mac, disk | 8 (4 names × 2) | 66 ms | 8 limited (50) | 284 / 311 / 719 ms | closed in 15 ms; 0 children |
+| This Mac, home | 3 ("qx", "wkz", "do") | 63 ms | ok 0, ok 0, limited (50) | 208 / 229 / 321 ms | closed in 15 ms; 0 children |
+| `saturno-m4`, home | 10 (5 names × 2) | 911 ms | 8 limited (50), 2 ok 0 | 240 / 392 / 918 ms (first query 1376 ms from the call, open included) | closed in 59 ms; 0 children |
+| `saturno-m4`, disk | 10 (5 names × 2) | 781 ms | 8 limited (50), 2 ok 0 | 255 / 341 / 689 ms | closed in 64 ms; 0 children here; on Saturno `pgrep -f 'muxfinde[r]-folders'` 0 and `pgrep -x mdfind` 0 |
+| This Mac, interrupted | `--repeat 50`, SIGINT after 1.5 s; then SIGTERM | 75 ms | 3 and 4 answers | — | exit 130 and 143; channel closed in 194 and 266 ms (a query was in flight); 0 children, 0 left |
+
+Header on both hosts: home present, `mdfind` yes, indexing on for the home's volume and for
+`/`, Desktop, Documents and Downloads readable (on Saturno over SSH too). For comparison, raw
+`mdfind -onlyin "$HOME" -count` for the three fragments on this Mac took 0.23–0.24 s, and
+the script itself, outside the app, answered in 0.24–0.27 s per query after a 68 ms header:
+the channel adds little; a query's time is Spotlight's, and the first query for a broad
+fragment is slower than its repeat. The first interrupt run exposed a probe bug (the signal
+only took effect once every query had run, since the task group waited for the queries'
+task, which cancellation does not interrupt); the signal now cancels the queries at once.

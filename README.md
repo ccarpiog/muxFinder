@@ -62,6 +62,19 @@ asks for it again.
 The app icon and the menu bar icon are generated files in `Resources/`; their sources and the
 script that regenerates them are in `scripts/dev/icon/`.
 
+**Folder search from the command line.** `swift run muxfinder-probe folders --local --name
+<text>` (or `--ssh <destination>`) searches the folder names on This Mac or a host through
+Spotlight: `mdfind` runs on that host, over the same noninteractive ssh as discovery, so the
+host needs no muxFinder of its own. It is read-only, and by default prints only how many
+folders matched and how long each search took (`--paths` prints the folders; `--name` can be
+given several times, and `--repeat <n>` asks each again, all through one connection). It
+finds folders whose name contains the text, ignoring case and accents, at most 50, in the
+home folder (`--scope disk`: the whole disk). It leaves out `~/Library`, hidden folders and
+everything in them, `node_modules`, `DerivedData`, `Pods`, `__pycache__`, the inside of apps
+and other packages, and with the whole disk also other users' `Library` folders and system
+folders such as `/System`, `/Library` and `/usr`. A host without Spotlight, or with indexing
+off, says so; Spotlight's own privacy exclusions apply.
+
 ## Install on each Mac
 
 Install muxFinder on every Mac you want to open sessions from. Either build it on that Mac:
@@ -338,6 +351,6 @@ delete the app and `~/Library/Application Support/muxFinder`.
 - `docs/TESTING.md`: unit tests, real checks and the tested vs expected-to-work matrix.
 - `docs/MANUAL-CHECKLIST.md`: the checks owed to a person.
 - `docs/INTEGRATION-PROOF.md`: what the attach path does against the real iTerm2.
-- `PLAN.md`: the plan and every design decision (D1–D29).
+- `PLAN.md`: the plan and every design decision (D1–D36).
 
 License: MIT (`LICENSE`).

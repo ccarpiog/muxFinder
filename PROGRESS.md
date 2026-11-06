@@ -49,12 +49,13 @@ file.
 | I-9a | New session window: the model and the window — one titled floating non-activating "New session" panel from the popover and the switcher, draft out of `panel`, failure after close brings it back (D34; D22, D25, D30–D33 edited; spec `autoclaude/processed/90-new-session-own-window.md`) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-9a.md` | `docs/progress-archive/i-9a.md` |
 
 | I-9b | New session window: the folder drop — pure `FolderDrop`, a drop view over the Directory row ahead of the field editor, `~/…` under This Mac's home, files/packages/several refused; `--preview-gallery new-session`, screenshots, checklist 23 (D34 extended) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-9b.md` | `docs/progress-archive/i-9b.md` |
+| I-10a | Folder search core: one static Spotlight script for This Mac and SSH hosts (header, folder-name queries on stdin, noise rule, 50 limit, 4 s host deadline, end records), escaping, bounded parser, streaming transport, channel state machine, scope in `preferences.json`, probe `folders`; real `--count-only` runs here and on Saturno (D36; D3, D11, D32 edited; spec `autoclaude/processed/100-folder-search-spotlight.md`) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-10a.md` | `docs/progress-archive/i-10a.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-10 | New session: search the host's folders by name (Spotlight over noninteractive SSH, live as you type; "Folders on <host>" section, home/whole-disk setting, "Missing a folder?") — high, to be split I-10a (core: remote script, channel, escaping, parsing, probe `folders`) and I-10b (UI: section, setting, explanation, galleries) | `autoclaude/processed/100-folder-search-spotlight.md` | next (nothing else queued) |
+| I-10b | Folder search UI (routine): the "Folders on <host>" section in New session's directory list, wiring the I-10a channel to the window, Settings › Directories "Search folders in: Home folder / Whole disk", "Missing a folder?" with its links, VoiceOver, galleries and screenshots, checklist item, D31/D34 edited, docs | `autoclaude/processed/100-folder-search-spotlight.md` (requirements 3–6, 8, 9; UI acceptance) and `PLAN.md` *Phase I-10* | next (nothing else queued) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -78,15 +79,15 @@ Mac, are recorded in the item and in commit `f1b11ac`).
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8 and I-9 (a, b) are complete and
-reviewed. **Phase I-9b — New session window: the folder drop, galleries and docs (routine):
-complete** 2026-11-06 (`docs/progress-archive/i-9b.md`; D34 extended). The user released
-0.2.0 (build 2) in `f1b11ac`. **Queued: I-10** (folder search, from the inbox; *Next action*
-0). Also remaining: the manual checklist (the user's) and the three `CLAUDE.md` notes owed
-(*Open risks*). Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8, I-9 (a, b) and I-10a are
+complete and reviewed. The user released 0.2.0 (build 2) in `f1b11ac`. **Phase I-10a —
+folder search core (high): complete** 2026-11-06 (`docs/progress-archive/i-10a.md`; D36).
+I-10 was split into I-10a/I-10b in `PLAN.md` *Phase I-10* before the first worker. **Queued:
+I-10b** (the UI; *Next action* 0). Also remaining: the manual checklist (the user's). Phase
+13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
-I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
+I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10b.
 
 ## Acceptance
 
@@ -119,6 +120,13 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   13 states incl. the 7 required, light and dark, inspected; attach and switcher screenshots
   regenerated; checklist 23 new, 17, 18, 20–22 updated; real drags owed (checklist 23) —
   `docs/progress-archive/i-9b.md`.
+- Phase I-10a: all criteria met, 2026-11-06 — the core types and probe `folders`; 64 hermetic
+  folder-search tests (escaping, parser incl. a newline in a name, the noise rule, limit and
+  end records through the real script with stub `mdfind`/`mdutil`, the channel with a fake
+  transport and clock, the scope preference), 879 core + 431 UI pass; real `--count-only`
+  runs on this Mac and Saturno recorded in `docs/TESTING.md` *Phase I-10a* (open channel
+  0.12–0.46 s per query after the fixes; opening 0.8–0.9 s on Saturno), nothing left running;
+  D36 recorded; the three owed `CLAUDE.md` notes applied — `docs/progress-archive/i-10a.md`.
 
 ## Decisions
 
@@ -134,64 +142,9 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   (11a–11c, incl. iTerm2's `New Bookmarks` mirror handling); **D27** install / uninstall
   (12a). 10b and 12b changed no code: the orchestrator ran the real checks; the 9b "Set up SSH
   in iTerm2…" real round trip is owed to the user (interactive login outside the run rules).
-- Phase 13 planning: the user's uncommitted `PLAN.md`/`PROGRESS.md`/`PROGRESS.json` edits
-  (listed in the runner's preflight file) were the plan for Phases 13 and 14; committed verbatim
-  as `d03e146` before any phase work so the run could checkpoint. The preflight file still
-  names those three paths; they are committed, and the tree was clean when 13b started.
-- Phases 13a–13c: new **D29** (bury after confirmation and `.activated`, race closed by
-  order, helper restore with DSR acknowledgment, buried-tab list in memory only, recovery 15 s
-  after a clean result; `e2e-bury` through the coordinator; harness judgements in
-  `Attach/LaunchTabChecks.swift`) — `docs/progress-archive/13{a,b,c}.md`.
-- Phase 14: D22 gained a *Look* bullet (opaque fixed per-scheme palette in
-  `Views/PopoverStyle.swift`, because the system window background resolves differently
-  inside a real window; new `HostStatusLabel.Tone.muted` for `.unreachable` only; row state
-  "attached, location unknown" whenever the iTerm2 attachment check did not work, so a row is
-  "elsewhere" only on a working check). The app shell check runs under an empty
-  `CFFIXED_USER_HOME` now that the user's real `hosts.json` exists (`CLAUDE.md` edited) —
-  `docs/progress-archive/14.md`.
-- Phase I-1: split into I-1a/I-1b in `PLAN.md` before the first worker. An in-process
-  `performClick(_:)` on muxFinder's own button is not UI scripting (bounded: ≤ 3 s open, a few
-  runs, never through `open`); SwiftUI private internals and synthesized mouse events stay out.
-  So the current `MenuBarExtra` popover cannot be opened unattended: the before-frame is
-  deferred for good, and I-1b must measure the after-frame through its own button action
-  (exit 0). Recommended for I-1b (*Verified facts*): own `NSStatusItem` + `NSPanel`, anchored
-  at the click point, snapping to the button's rect — `docs/progress-archive/i-1a.md`.
-- Phase I-1b: new **D30** (own `NSStatusItem` + borderless non-activating `NSPanel`, because
-  `MenuBarExtra` gives no position hook and its button takes no action; the anchor rule; the
-  toggle rules with press identity by the hardware press count; `PopoverHeightLimit`; D22 and
-  D28 edited). The SwiftUI `App` keeps only the main menu (empty `Settings` scene, its menu item
-  removed) — `docs/progress-archive/i-1b.md`.
-- Phase I-2: split into I-2a/I-2b in `PLAN.md` before the first worker. New **D31**
-  (`directories.json` apart from `hosts.json`, under its own `directories.lock`; every mutation
-  refuses an unusable file and leaves it untouched, the specification's "left as it is"; the
-  `path` record framed by a per-run nonce passed as data; a path over 4,096 bytes printed
-  empty by tmux and dropped; discovery's stdout cap sized to the parser's limit, stderr 1 MiB;
-  recording on `onCreated` only; the self-tests' in-memory store). The lock and backup helpers
-  moved into `PrivateStorage`, shared with `hosts.json` and `profiles.lock` —
-  `docs/progress-archive/i-2a.md`.
-- Phase I-2b: **D31** extended. The list is drawn inside the popover, not a `Menu`/`NSMenu`,
-  so its keys go through `PopoverKey.openList` and `AppModel.handle(_:)` and the galleries can
-  render it. Settings' Save is a three-way `mergeSaved` run by the store under its lock, and
-  list rows compare byte for byte. `--preview-snapshot` fits the window to its content first.
-  Step 26 of the install-script check matches the readers' pids — `docs/progress-archive/i-2b.md`.
-- Phase I-3: split into I-3a/I-3b in `PLAN.md` before the first worker, with three calls:
-  `--report-hotkey-registration` allowed (own-process Carbon registration posts no event, so it
-  is not UI scripting; bounded); the shortcut in `preferences.json` under the support folder,
-  not the defaults domain (`CLAUDE.md`'s ownership rule, hermetic tests, `CFFIXED_USER_HOME`);
-  the recorder applies at once. New **D32** (I-3a part): ⌥-only shortcuts warn instead of being
-  refused, since macOS 27.2 registered them; a failed unregistration keeps the hotkey and its
-  handle; an unusable file found by a save turns the hotkey off with "Try again" —
-  `docs/progress-archive/i-3a.md`.
-- Phase I-3b: **D32** extended. The switcher reuses the popover's `PopoverPanelWindow` at the
-  floating level: 540 pt wide, centered on the display with the focus, top 18 % down. The
-  popover's panel host, observers and key view are shared, not copied. The popover reports a
-  new visibility before its panel shows, so a swap is never a close to the engine. The interim
-  popover toggle is removed, and `.shortcut` became `.switcherOpened`. D22's visibility rule
-  and D30 are edited — `docs/progress-archive/i-3b.md`.
-- Phases I-4 to I-9: new **D33** (I-4, plain `NSApplication`) and **D34** (I-9a, the New
-  session window); D30–D32 edited by I-5 to I-8; I-9 split into I-9a/I-9b with the
-  orchestrator's calls in `PLAN.md` *Phase I-9* — verbatim in
-  `docs/progress-archive/head-i-4-i-9a.md`.
+- Phase 13 planning to I-9a: their decision lines moved verbatim to
+  `docs/progress-archive/decisions-13-i-9a.md` (D29 to D34; the splits of 13, I-1, I-2, I-3
+  and I-9).
 - Phase I-9b: the orchestrator's calls in `PLAN.md` *Phase I-9* ("calls for I-9b"): the drop
   target is the Directory row only (the user's "onto Directory"); one non-package folder URL,
   everything else refused with no "+"; the path as dropped, `~` by whole components; the fill
@@ -200,6 +153,15 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   switcher's `formFiltered`/`formNoMatches` fixtures retired as duplicates of the window's
   states. `docs/REQUIREMENTS.md` left as it is (the verbatim brief, never inline) —
   `docs/progress-archive/i-9b.md`.
+- Phase I-10: split into I-10a/I-10b in `PLAN.md` before the first worker, with the
+  orchestrator's calls there: one static script for This Mac and SSH hosts (not
+  `NSMetadataQuery`); the channel carries only id, scope and escaped name text, the script
+  builds the fixed predicate; the fixed noise rule (a)–(d) in the script, tested through the
+  real script with stub tools; at most 50 folders; the scope in `preferences.json`. New
+  **D36** (D3, D11, D32 edited) adds the worker's and the review's: refusal of unescaped
+  `" * ? \`, a 4 s host-side deadline per query (worst-case host lifetime after a disconnect
+  about 4–5 s), the explicit stop at the limit, an 8-event transport queue —
+  `docs/progress-archive/i-10a.md`.
 
 ## Open risks / deviations
 
@@ -207,58 +169,24 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   `docs/progress-archive/open-risks-13-i-2a.md` (iTerm2's auto-hide setting's "on" branch only
   proven by 13a's old harness; the real popover, its keys, focus and clicks unseen, checklist
   15–16; load-sensitive private-server tests; the race's dangerous order unforced).
-- I-2b: the list highlight drops on a field edit, not on a click back into the field.
-  `NewSessionDraft.directory`'s observer still compares with `String ==`. Real keys in the
-  non-activating panel and creating from each source are unverified (checklist 17). The full
-  `swift test` fails in private-tmux-server suites under extreme machine load (~500, another
-  project's simulator run). Install-script step 35 can fail while the user's installed app
-  writes its `launch/` folder — `docs/progress-archive/i-2b.md`.
-- I-3a: no key was pressed, so whether a real press fires the Carbon handler (dispatcher
-  target, registration on the application target) and whether macOS 27.2 delivers ⌥-only
-  shortcuts are checklist 18's. The flag briefly registers the plain-letter ⌥J and ⌥⇧J
-  system-wide. Leaving the General tab mid-recording is tested in the model only. The
-  uninstall dry-run text does not name `preferences.json` — `docs/progress-archive/i-3a.md`.
-- I-3b: no press and no real panel (checklist 18). A press on another display's copy of the
-  status item, when its outside close comes first, still sends a closed/opened pair. A creation
-  failure that comes during an unconfirmed Move here closes that confirmation when the switcher
-  opens. "Detach from this Mac" on a pinned row whose host is gone does nothing. Beyond the spec:
-  a key-hint footer — `docs/progress-archive/i-3b.md`.
-- I-4: **`CLAUDE.md` note owed** — once the user has committed their own `CLAUDE.md` edit, its
-  `--report-menu-bar-item` note should say the check also prints every other window, the
-  launch event and the main menu, and that only onboarding may be visible (exact wording in
-  `docs/progress-archive/i-4.md`). Real Finder/login launches and the Edit shortcuts in the real
-  panels are checklist 19. A closed stdout still raises `SIGPIPE` in the shell check (as
-  before; not ignored, since children would inherit it). One worker run named a nonexistent
-  `CFFIXED_USER_HOME`; nothing real was read or written — `docs/progress-archive/i-4.md`.
-- I-5: a real double click (long and short lists, a session already open here) is checklist
-  18's. A ⌘-Tab right after an activating click leaves the switcher up for the rest of the
-  double-click interval. The popover's panel carries the unused `minimumContentHeight` —
-  `docs/progress-archive/i-5.md`.
-- I-6: real Tab presses are checklist 20's. **Second `CLAUDE.md` note owed**: its
-  `--preview-fixtures` paragraph should say `--preview-key-view-loop popover|switcher` shows a
-  real panel and makes it key for ~10 s (exits 0/1/2/3) — wording in
-  `docs/progress-archive/i-6.md`. The stalled-pipe case of the review fix was not run.
-- I-7: a button-opened list with text in the field shows only the matches (the spec's pure
-  rule). "Sessions on <host>" is capped at 10 before filtering. VoiceOver says nothing on a host
-  change and was never on in a check; real typing, keys and VoiceOver are checklist 21's —
-  `docs/progress-archive/i-7.md`.
-- I-8: what ↑/↓ and ⌥↓ do on a closed picker, whether the menu's tracking notifications fire
-  for it in the non-activating panel, and VO-Space are unverified until a real press
-  (checklist 22). Tests pick a host through the picker's binding, not the real menu (SwiftUI
-  builds no pop-up button in a never-shown panel) — `docs/progress-archive/i-8.md`.
-- I-9a: no real window shown, moved, typed into or dragged (floating, Spaces, full screen, key
-  without activation, ⌘W, height growth: I-9b's checklist item). ⌘R/⌘F in the window beep;
-  ⌘N is swallowed. The committed attach and switcher screenshots show the inline form until
-  I-9b. One first `swift test` run had 1 core-suite issue (core untouched), not reproduced in
-  three reruns. A **third `CLAUDE.md` note owed**: the `--preview-fixtures` paragraph should
-  add `--preview-gallery new-session` (every New session window state) to its gallery list
-  and `new-session-states-*.png` to its screenshot list (made concrete by I-9b) —
-  `docs/progress-archive/i-9a.md`, `i-9b.md`.
+- I-2b to I-9a: their open risks moved verbatim to
+  `docs/progress-archive/open-risks-i-2b-i-9a.md` (real keys, clicks, presses, drags and
+  windows unverified, checklist 15–23; load-sensitive private-server tests). The three
+  `CLAUDE.md` notes owed there by I-4, I-6 and I-9a were applied by I-10a.
 - I-9b: no real drag was made; that the drop view gets drags ahead of the field editor in the
   real window rests on one throwaway probe of the worker's (deleted; the shipped code uses no
   private API) — checklist 23. The popover gallery's committed screenshot predates I-6 (32 px
   shorter than it renders now; not regenerated, I-9 did not change it). The worker ran one
   read-only `git log`, against its brief — `docs/progress-archive/i-9b.md`.
+- I-10a: to verify the escaping by counts the worker mounted its own 16 MB scratch disk image
+  with Spotlight indexing on, queried synthetic folders, then detached and deleted it (none
+  left mounted, `hdiutil info`): beyond rule 3's "read-only queries", no folder of the user's
+  touched — noted for the user. Handed to I-10b: the readability check may raise a macOS
+  access prompt on This Mac (decide whether to skip it locally); paths with a newline must pass
+  `Validation.workingDirectory` before being offered; a mid-word `'` finds nothing; an
+  unreachable host shows its problem after up to ~10 s. One fix-worker `swift test` run had 3
+  `PopoverHeightLimitTests` failures, not reproduced. The fix worker ran one read-only `git
+  diff --stat` — `docs/progress-archive/i-10a.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -313,13 +241,23 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   verified: checklist 23's real drags, click-through, keys and VoiceOver while Directory is
   being edited) — `docs/reviews/phase-I-9b.md`.
 
+- Phase I-10a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
+  blocker (a blocked remote search outliving the ssh close → 4 s host deadline) + 2
+  should-fix (limit stop without SIGPIPE; bounded event queue); a review-fix worker fixed all
+  three, each regression failing with its fix reverted; re-verified by the orchestrator —
+  `docs/reviews/phase-I-10a.md`.
+
 ## Next action
 
-0. **Phase I-10 (queued, high).** Split it into I-10a (core) and I-10b (UI) in `PLAN.md`
-   before the first worker, with the next free decision number (D36; D35 is the user's
-   version rule), then run I-10a. Specification: `autoclaude/processed/100-folder-search-spotlight.md`.
-1. The `CLAUDE.md` notes I-4, I-6 and I-9a owe (*Open risks*) can now be applied:
-   `CLAUDE.md` holds no uncommitted edit of the user's since `f1b11ac`.
+0. **Phase I-10b (queued, routine): the folder search UI.** Poll the inbox first. Then run
+   one worker on `PLAN.md` *Phase I-10* (the I-10b bullet, the orchestrator's calls, "Outcome
+   of I-10a", D36) and the specification's requirements 3–6, 8, 9 and UI acceptance
+   (`autoclaude/processed/100-folder-search-spotlight.md`), wiring the existing
+   `FolderSearchChannel` (`Sources/MuxFinderCore/FolderSearch/`); first make the calls the
+   *Open risks* I-10a bullet hands over (readability check on This Mac, newline paths through
+   `Validation.workingDirectory`) and record them in `PLAN.md`. Galleries use synthetic paths
+   only; real `folders --count-only` runs need nothing new unless the core changes.
+1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -335,134 +273,24 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 ## Key paths
 
 - Plan: `PLAN.md`; brief: `docs/REQUIREMENTS.md`; conventions: `CLAUDE.md`; real checks:
-  `docs/TESTING.md`.
-- Core library:
-  `Sources/MuxFinderCore/{Process,Shell,Config,Diagnostics,Tmux,ITerm2,Launch,Attach,Concurrency}/`.
-- Launch helper: `Sources/muxfinder-launch/` (`muxfinder-launch attach <uuid>`); remote argv
-  and D3 string: `Sources/MuxFinderCore/Launch/RemoteLaunch.swift` (D17).
-- Attachment index: `Sources/MuxFinderCore/Attach/AttachmentIndex.swift` (D16).
-- Refresh engine: `Sources/MuxFinderCore/Refresh/` (`RefreshCoordinator`, `HostSnapshot`,
-  `RefreshSystemEvents`; D20); host list: `Sources/MuxFinderCore/Config/` (D19).
-- New session directories (D31, I-2a): `Sources/MuxFinderCore/Config/{DirectoryLists,
-  DirectoryStore}.swift`, path record in `Tmux/{ProbeScript,ProbeReport}.swift`, recording in
-  `Sources/MuxFinderUI/Model/AppModelSessions.swift`; tests
-  `Tests/MuxFinderCoreTests/{DirectoryStore,ProbeSessionPath}Tests.swift`,
-  `Tests/MuxFinderUITests/DirectoryRecordingTests.swift`. Picker and Settings tab (I-2b):
-  `Sources/MuxFinderUI/Model/{DirectoryPicker,AppModelDirectories,SettingsModelDirectories}.swift`,
-  `Views/{DirectoryPickerViews,Settings/DirectoriesSettingsView}.swift`; tests
-  `Tests/MuxFinderUITests/{DirectoryPicker,SettingsDirectories}Tests.swift`.
-- Session creation: `Sources/MuxFinderCore/Tmux/TmuxCommands.swift`, `Tmux/CreatedSession.swift`
-  (D18); `createAndAttach` in `Attach/AttachCoordinator.swift`; probe
-  `Sources/muxfinder-probe/NewSessionCommand.swift`.
-- Move here (D21): `moveHere(_:confirmation:)` in `Attach/AttachCoordinator.swift`,
-  `MoveHereConfirmation` in `Attach/AttachModels.swift`, `moveHereScript` in
-  `Launch/RemoteLaunch.swift`; e2e plain control client `Sources/muxfinder-probe/E2EControlClient.swift`.
-- Menu bar app (D22): `Sources/MuxFinderUI/` (`Model/AppModel.swift`, `PopoverContent.swift`,
-  `Views/`, `Preview/PreviewFixtures.swift`), `Sources/MuxFinderApp/` (entry point, app
-  delegates); tests `Tests/MuxFinderUITests/`; bundle script `scripts/build-app.sh` →
-  `build/muxFinder.app`; screenshots `docs/screenshots/`.
-- Settings window (D23): `Sources/MuxFinderUI/Model/{SettingsModel,SettingsEnvironment,
-  HostDraft,SettingsResults,LoginItem,FixIt,DiagnosticsReport}.swift`, `Views/Settings/`
-  (`SettingsWindowController`), `Preview/{SettingsFixtures,SettingsGallery}.swift`; tests
-  `Tests/MuxFinderUITests/{HostEditorTests,SettingsGeneralTests}.swift`.
-- Onboarding and SSH setup (D24): `Sources/MuxFinderUI/Model/{OnboardingModel,
-  SSHSetupActions}.swift`, `Views/Onboarding/`, `Preview/Onboarding{Fixtures,Gallery}.swift`;
-  `Sources/MuxFinderCore/Launch/SSHSetup.swift`, `Attach/{LaunchTab,SSHSetupLauncher}.swift`;
-  probe `Sources/muxfinder-probe/SSHSetupCommand.swift`; tests
-  `Tests/MuxFinderCoreTests/SSHSetupTests.swift`, `Tests/MuxFinderUITests/OnboardingTests.swift`.
-- Attach UX (D25): `Sources/MuxFinderUI/Model/{AppModelSessions,SessionProblem,
-  SessionPanels}.swift`, `Views/SessionPanelViews.swift`, `Preview/Attach{Fixtures,
-  Gallery}.swift`; self-tests `Sources/MuxFinderUI/SelfTest/{SelfTestDriver,
-  SelfTestSeams}.swift`, `Sources/MuxFinderApp/SelfTestAppDelegate.swift`; tests
-  `Tests/MuxFinderUITests/{AttachFlowTests,SelfTestDriverTests}.swift`.
-- Persistent profiles (D26): `Sources/MuxFinderCore/Profiles/{PersistentProfiles,
-  PersistentProfileInstaller,ITerm2ProfileSnapshot,PersistentProfileRun}.swift`, helper mode
-  `Sources/MuxFinderCore/Launch/{ProfileLaunch,LaunchHelperProfile,LoginShell}.swift`, probe
-  `Sources/muxfinder-probe/{ProfilesCommand,E2EProfileCommand}.swift`; golden files
-  `Tests/MuxFinderCoreTests/Fixtures/profiles/`. Settings side (11c):
-  `Sources/MuxFinderUI/Model/{PersistentProfileFiles,PersistentProfilesContent,
-  SettingsModelProfiles}.swift`, `Views/Settings/ProfilesSettingsView.swift`; tests
-  `Tests/MuxFinderUITests/PersistentProfilesSettingsTests.swift`.
-- Probe CLI: `Sources/muxfinder-probe/` (`discover`, `iterm2 status | list-sessions |
-  list-connections | list-profiles | attachments`, `attach --local|--ssh <dest> --session`,
-  `detach --connection --gateway`, `e2e-local`, `e2e-remote <dest>`, `hosts show |
-  suggestions`, `refresh --once`; shared harness
-  `E2ERun.swift`).
-- Launch tab bury (D29, 13a): client `Sources/MuxFinderCore/ITerm2/ITerm2Property.swift`
-  (`setBuried`, `buryLaunchTab`, `sessionProperty`); helper restore
-  `Sources/MuxFinderCore/Launch/{TerminalStatusRequest,NonBlockingTerminal,
-  TerminalReturnReader}.swift` and `LaunchHelper.swift`; spike harness
-  `Sources/muxfinder-probe/E2EBury{Command,Run,Support}.swift` (`e2e-bury --local | --ssh
-  saturno-m4`); tests `Tests/MuxFinderCoreTests/LaunchTabRestoreTests.swift`.
-- Coordinator bury and recovery (D29, 13b): `Sources/MuxFinderCore/Attach/
-  AttachCoordinatorBurial.swift` (step 10, race check, buried-tab watch, `BuriedTabTimer`),
-  `AttachResult.burial` / `LaunchTabBurial` in `Attach/AttachModels.swift`,
-  `LaunchRequestStore.peekResult` in `Launch/LaunchStore.swift`, e2e recorder
-  `Sources/MuxFinderCore/ITerm2/RecordingITerm2Integration.swift`; tests
-  `Tests/MuxFinderCoreTests/{LaunchTabBurialTests,RecordingITerm2IntegrationTests}.swift`.
-  13c harness judgements: `Sources/MuxFinderCore/Attach/LaunchTabChecks.swift`
-  (`BuryRaceOutcome`, `KilledLaunchTabWatch`, `GatewayPlace`), tests `LaunchTabChecksTests`;
-  shared "left by itself" check `checkLaunchTabLeft` in `Sources/muxfinder-probe/E2ESupport.swift`.
-- Popover placement (I-1a): `Sources/MuxFinderUI/Model/{PopoverPlacement,
-  PopoverWindowIdentification,NonblockingLineWriter}.swift`, diagnostic
-  `Sources/MuxFinderApp/PopoverPlacement{Report,Inspection}.swift`; tests
-  `Tests/MuxFinderUITests/{PopoverPlacement,PopoverWindowIdentification,
-  NonblockingLineWriter}Tests.swift`.
-- Menu bar item and popover panel (D30, I-1b): `Sources/MuxFinderUI/Model/{PopoverAnchoring,
-  PopoverController}.swift`, `Views/{MenuBarPopover,MenuBarIcon}.swift` (`PopoverHeightLimit`
-  in `MenuBarPopover.swift`); tests `Tests/MuxFinderUITests/{PopoverAnchoring,
-  PopoverController,PopoverHeightLimit}Tests.swift`.
-- Popover look (D22 *Look*, 14): palette, contrast helpers and state marks
-  `Sources/MuxFinderUI/Views/PopoverStyle.swift`; row-state mapping in
-  `Model/PopoverContent.swift`; tests `Tests/MuxFinderUITests/{PopoverStyleTests,
-  PopoverContentTests}.swift`.
-- Integration proof (local and over SSH, final): `docs/INTEGRATION-PROOF.md`.
-- Packaging (D27): `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/lib/app-copies.sh`,
-  hermetic check `scripts/dev/test-install-scripts.sh`; app flag `--remove-persistent-profiles`
-  (`Sources/MuxFinderCore/Profiles/PersistentProfileRemoval.swift`). User docs: `README.md`,
-  `docs/ARCHITECTURE.md`, `docs/MANUAL-CHECKLIST.md`, matrix at the top of `docs/TESTING.md`.
-- Global shortcut (D32, I-3a): `Sources/MuxFinderCore/Config/{GlobalShortcut,
-  PreferencesStore}.swift`, `Sources/MuxFinderUI/Model/{GlobalShortcutLabel,HotkeyRegistrar,
-  GlobalShortcutModel}.swift`, `Views/Settings/ShortcutRecorderView.swift`, flag
-  `Sources/MuxFinderApp/HotkeyRegistrationReport.swift`; tests
-  `Tests/MuxFinderCoreTests/{GlobalShortcut,PreferencesStore}Tests.swift`,
-  `Tests/MuxFinderUITests/{GlobalShortcutModel,GlobalShortcutApp}Tests.swift`.
-- Session switcher (D32, I-3b): `Sources/MuxFinderUI/Model/{SwitcherContent,SwitcherController,
-  AppModelSwitcher}.swift`, `Views/{SwitcherView,SessionSwitcher}.swift`, gallery
-  `Preview/Switcher{Fixtures,Gallery}.swift` (`--preview-gallery switcher`,
-  `docs/screenshots/switcher-states-*.png`); tests
-  `Tests/MuxFinderUITests/{SwitcherContent,SwitcherController,SwitcherModel}Tests.swift`.
-  One click (I-5): `clickSwitcherItem(_:)` and `SwitcherClickSequence` in
-  `Model/AppModelSwitcher.swift`, the mouse monitor in `Views/SessionSwitcher.swift`,
-  `holdForClick()` in `Model/SwitcherController.swift`; tests
-  `Tests/MuxFinderUITests/SwitcherClickTests.swift`.
-- App shell (D33, I-4): main menu `Sources/MuxFinderUI/Views/MainMenu.swift`, shell report
-  `Sources/MuxFinderUI/Model/AppShellReport.swift`, entry `Sources/MuxFinderApp/{MuxFinderMenuBarApp,
-  AppDelegate}.swift`; tests `Tests/MuxFinderUITests/{MainMenu,AppShellReport}Tests.swift`.
-- Panel key routing (I-8): `PanelKeyRoute`, `PanelFirstResponder`, `MenuTrackingObserver` in
-  `Sources/MuxFinderUI/Model/PanelKeyRouting.swift`, used by `PanelKeyTrackingView`
-  (`Views/PopoverWindowBridge.swift`); diagnostic `Preview/KeyViewLoopReport.swift`; tests
-  `Tests/MuxFinderUITests/HostPickerKeyboardTests.swift`.
-- New session window (I-9a, D34): model `Sources/MuxFinderUI/Model/AppModelNewSession.swift`,
-  placement and sizing `Model/NewSessionWindowController.swift`, the panel
-  `Views/NewSessionWindow.swift` (built by the app shell only); inline-form fixtures kept for
-  I-9b in `Preview/AttachFixtures.swift` and `Preview/SwitcherFixtures.swift`; tests
-  `Tests/MuxFinderUITests/NewSessionWindowTests.swift`. Folder drop (I-9b): pure
-  `Model/FolderDrop.swift`, drop view `Views/FolderDropView.swift` (over the Directory row in
-  `Views/DirectoryPickerViews.swift`), gallery `Preview/NewSessionGallery.swift`
-  (`--preview-gallery new-session`, `docs/screenshots/new-session-states-*.png`); tests
-  `Tests/MuxFinderUITests/FolderDropTests.swift`.
-- Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
-- iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
+  `docs/TESTING.md`; overview: `docs/ARCHITECTURE.md`.
+- Phases 1 to I-9b: their key paths moved verbatim to
+  `docs/progress-archive/key-paths-1-i-9b.md`.
+- Folder search core (I-10a, D36): `Sources/MuxFinderCore/FolderSearch/` (`FolderSearchText`
+  escaping, `FolderSearchScript` the static script, `FolderSearchOutput` the parser,
+  `FolderSearchTransport`, `FolderSearchChannel`, `FakeFolderSearchTransport`),
+  `Sources/MuxFinderCore/Process/StreamingProcess.swift`, the scope in
+  `Config/PreferencesStore.swift`, probe `Sources/muxfinder-probe/FoldersCommand.swift`; tests
+  `Tests/MuxFinderCoreTests/FolderSearch*Tests.swift` and `FolderSearchTestSupport.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-8 (final tree, orchestrator, 2026-11-05): `swift build` exit 0; `swift test` 815
-  core tests in 81 suites passed and `swift test --filter MuxFinderUITests` 390 UI tests in 39
-  suites passed; `swift format lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0,
-  `codesign --verify --deep --strict build/muxFinder.app` exit 0 —
-  `docs/progress-archive/i-8.md`.
+- Phase I-10a (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `swift test` 879 core tests in 87 suites and 431 UI tests in
+  43 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
+  build/muxFinder.app` exit 0; no `mdfind` or probe process left. Workers: `-warnings-as-errors`
+  builds exit 0; real `folders --count-only` on this Mac and Saturno — `docs/progress-archive/i-10a.md`.
 - Phase I-9a (final tree, orchestrator, 2026-11-05): `swift build` exit 0; `swift test` exit
   0, 815 core tests in 81 suites and 406 UI tests in 40 suites; `swift format lint -r Sources
   Tests` exit 0; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
@@ -495,8 +323,9 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 - Phase I-5: `8f08b99`, pushed. Phase I-6: `26cef52`, pushed. Inbox triage (I-7): `79bea34`,
   pushed. Phase I-7: `84a0adf`, pushed. Inbox triage (I-8): `f9e2b04`. Phase I-8: `b8ffe91`,
   pushed. Inbox triage (I-9 queued, item 99 deferred): `8588893`; phase summaries `223ab3a`,
-  `99c224f`, pushed. Phase I-9a: `da48655`, pushed. Phase I-9b: the commit carrying this
-  checkpoint ("Phase I-9b: drop a Finder folder on New session's Directory"), pushed (SHA
-  and push result in the run's status line and the next checkpoint).
-- The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
-  note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.
+  `99c224f`, pushed. Phase I-9a: `da48655`, pushed. Phase I-9b: `c32558c`, pushed.
+- The user's release commit `f1b11ac` ("Release 0.2.0 (build 2)", 2026-11-06) committed their
+  `CLAUDE.md` and `nonamedownloads.json`; the tree was clean when this run started (empty
+  preflight file). Inbox triage (I-10): `faa47a6`.
+- Phase I-10a: the commit carrying this checkpoint ("Phase I-10a: folder search core"),
+  pushed (SHA and push result in the run's status line and the next checkpoint).
