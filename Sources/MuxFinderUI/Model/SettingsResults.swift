@@ -125,8 +125,12 @@ public enum ProfileChoices: Sendable, Hashable {
   /// Listing failed: the field is free text; the error may have a fix-it.
   case failed(ITerm2Error?)
   /// iTerm2 is not the chosen terminal (PLAN.md D38, Phase I-12c3a), so it was not asked: the
-  /// field is free text.
+  /// field is free text, kept and editable, captioned `usedOnlyWithITerm2` (Phase I-12d1).
   case notUsedWithThisTerminal
+
+  /// The caption of an iTerm2-only field while another terminal is chosen (PLAN.md D38, Phase
+  /// I-12d1; requirement 9).
+  public static let usedOnlyWithITerm2 = "Used only with iTerm2."
 
   /// The choices for a listing result.
   public init(_ result: ProfileListResult) {
@@ -159,8 +163,7 @@ public enum ProfileChoices: Sendable, Hashable {
       return "muxFinder couldn't list iTerm2's profiles.\(reason) Type a profile name, or leave "
         + "it empty for iTerm2's default profile."
     case .notUsedWithThisTerminal:
-      return "iTerm2 isn't the terminal chosen in muxFinder's settings, so its profiles aren't "
-        + "listed. Type a profile name, or leave it empty for iTerm2's default profile."
+      return Self.usedOnlyWithITerm2
     }
   } // End of var note
 

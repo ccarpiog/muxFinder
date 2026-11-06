@@ -27,6 +27,11 @@ import MuxFinderCore
 ///   chosen terminal (PLAN.md D38, Phase I-12c3a): otherwise the file is left as it is, neither
 ///   written nor removed, and only its status is read; the rewrite resumes when iTerm2 is
 ///   chosen again (`AppModel` then asks for the launch's rewrite).
+/// - **With a plain terminal chosen** (PLAN.md D38, Phase I-12d1; requirement 11): the tab
+///   shows each saved host's persistent work command for that terminal's own "run command"
+///   setting (`persistentWorkContent`, with Copy through the general pasteboard; nothing else
+///   is written); the iTerm2 part collapses to one line, "Remove profiles" offered while
+///   muxFinder's own file is installed and "Install profiles" refused.
 /// - **At launch** (`keepProfilesCurrentAtLaunch(_:)`, normal mode only, `AppModel.start()`):
 ///   an out-of-date installed file is updated (the helper moved, say); a missing or current
 ///   file, an unusable helper path or any refusal writes nothing. Each outcome is logged by
@@ -40,11 +45,34 @@ extension SettingsModel {
   /// loading). Operations read it once, when asked for, never after an `await`.
   var profileHosts: HostList { isProfileListSaved ? hosts : HostList() }
 
-  /// What the Persistent profiles tab shows.
+  /// What the Persistent profiles tab shows with iTerm2's wording; with a plain choice
+  /// "Install profiles" is off (`persistentWorkContent` is shown instead).
   public var persistentProfilesContent: PersistentProfilesContent {
-    PersistentProfilesContent(
+    var content = PersistentProfilesContent(
       status: profileStatus, hosts: hosts, isListSaved: isProfileListSaved, isDirty: isDirty,
       isRunning: profileOperations > 0, result: profileResult)
+    if !terminalWording.isITerm2 { content.canInstall = false }
+    return content
+  }
+
+  /// What the Persistent profiles tab shows with a plain terminal chosen (PLAN.md D38, Phase
+  /// I-12d1); `nil` with iTerm2's wording (the tab as before).
+  public var persistentWorkContent: PersistentWorkContent? {
+    guard !terminalWording.isITerm2 else { return nil }
+    return PersistentWorkContent(
+      wording: terminalWording, hosts: hosts, isListSaved: isProfileListSaved,
+      helper: persistentWorkHelper, profileStatus: profileStatus,
+      isRunning: profileOperations > 0, result: profileResult)
+  }
+
+  /// "Copy" next to a host's persistent work command: puts it on the general pasteboard
+  /// (through `SettingsEnvironment.copyText`; nothing else is written) and says so. Does
+  /// nothing for a host without a line, or for a fixture.
+  public func copyPersistentWorkCommand(for hostID: UUID) {
+    guard let environment, let line = persistentWorkContent?.lines.first(where: { $0.id == hostID })
+    else { return }
+    environment.copyText(line.command)
+    persistentWorkNotice = "Copied the command for \(line.hostName)."
   }
 
   /// The window's opening and "Check again": reads the file's status for the saved hosts as

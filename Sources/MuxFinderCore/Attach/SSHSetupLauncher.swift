@@ -15,9 +15,16 @@ public enum SSHSetupFailure: Error, Sendable, Hashable {
   case iTerm2(ITerm2Error)
   /// The caller was cancelled before the tab was asked for; the request was withdrawn.
   case cancelled
-  /// iTerm2 is not the chosen terminal (PLAN.md D38, Phase I-12c3a), so iTerm2 was not
-  /// contacted and nothing was written or started.
+  /// The terminal setting is not known yet, or no opener is wired for the chosen terminal
+  /// (PLAN.md D38, Phase I-12c3a; since Phase I-12d1 a resolved plain choice opens a window of
+  /// its own terminal instead): nothing was contacted, written or started.
   case notUsedWithThisTerminal
+  /// The chosen plain terminal's window could not be opened (PLAN.md D38, Phase I-12d1); the
+  /// request was withdrawn.
+  case terminalWindow(PlainTerminalWindowError)
+  /// The chosen terminal cannot be used now (not installed, too old, of unknown version, or no
+  /// such definition; PLAN.md D38): nothing was contacted, written or started.
+  case terminalUnavailable(TerminalChoiceUnavailable)
 
   /// A short machine-readable name, for diagnostics.
   public var kind: String {
@@ -29,8 +36,10 @@ public enum SSHSetupFailure: Error, Sendable, Hashable {
     case .iTerm2(let error): return "iTerm2.\(error.kind)"
     case .cancelled: return "cancelled"
     case .notUsedWithThisTerminal: return "notUsedWithThisTerminal"
+    case .terminalWindow(let error): return "terminalWindow.\(error.kind)"
+    case .terminalUnavailable(let failure): return "terminalUnavailable.\(failure.kind)"
     }
-  }
+  } // End of var kind
 
   /// The user-facing explanation.
   public var message: String {
@@ -48,17 +57,27 @@ public enum SSHSetupFailure: Error, Sendable, Hashable {
     case .cancelled:
       return "Opening the tab was cancelled."
     case .notUsedWithThisTerminal:
-      return "iTerm2 isn't the terminal chosen in muxFinder's settings."
+      return "Still reading the terminal setting. Try again in a moment."
+    case .terminalWindow(let error):
+      return error.message
+    case .terminalUnavailable:
+      return "The terminal chosen in muxFinder's settings can't be used now. Choose another in "
+        + "Settings › General."
     }
   } // End of var message
 }
 
-/// How "Set up SSH in iTerm2…" ended (PLAN.md D24).
+/// How "Set up SSH in iTerm2…" ended (PLAN.md D24), or "Set up SSH in <terminal>…" in a plain
+/// terminal (PLAN.md D38, Phase I-12d1).
 public enum SSHSetupResult: Sendable, Hashable {
   /// iTerm2 opened the tab, whose iTerm2 session is `sessionID`; ssh runs in it through the
   /// helper. Whether ssh then connects is for the user to see in the tab.
   case opened(sessionID: String)
-  /// No tab was opened.
+  /// The chosen plain terminal opened `window`, running the helper's `ssh-setup` mode; the
+  /// window's open is the result (nothing is confirmed after it). Whether ssh then connects is
+  /// for the user to see in the window.
+  case openedWindow(PlainTerminalWindow)
+  /// No tab or window was opened.
   case failed(SSHSetupFailure)
 }
 
@@ -209,7 +228,7 @@ public struct SSHSetupLauncher: SSHSetupOpening {
     guard let diagnostics else { return }
     let milliseconds = Int(duration / .milliseconds(1))
     switch result {
-    case .opened:
+    case .opened, .openedWindow:
       await diagnostics.record(
         .launch, outcome: .success, hostID: hostID.uuidString, durationMs: milliseconds,
         detail: "ssh setup tab opened")

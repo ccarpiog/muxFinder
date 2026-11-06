@@ -18,8 +18,10 @@ public struct OnboardingFixture: Sendable, Identifiable {
   public var fileChanged = false
   /// Why a host could not be turned on, by host id.
   public var enableRefusals: [UUID: String] = [:]
-  /// "Set up SSH in iTerm2…" lines, by host id.
+  /// "Set up SSH in iTerm2…" lines, by host id (worded for `terminal`'s choice).
   public var sshSetupStates: [UUID: SSHSetupState] = [:]
+  /// The Terminal step's picker and the applied choice's wording (PLAN.md D38, Phase I-12d1).
+  public var terminal = TerminalPickerFixtures.iTerm2Chosen
 
   /// A fixture of `drafts` with `configure` applied.
   public init(
@@ -128,8 +130,31 @@ public enum OnboardingFixtures {
     $0.saveError = HostStoreError.directoryNotOwnedByUser.errorDescription
   }
 
+  /// No iTerm2 installed (PLAN.md D38, Phase I-12d1; requirement 10): Terminal, the default,
+  /// preselected; no Python API step, the plain-mode step and its permission line instead.
+  public static let noITerm2 = OnboardingFixture(
+    id: "no-iterm2", title: "No iTerm2 installed: Terminal", drafts: examples
+  ) {
+    $0.terminal = TerminalPickerFixtures.terminalNotAskedNoITerm2
+  }
+
+  /// Ghostty chosen: Saturno's ssh set up in a Ghostty window, Sirio's window opening.
+  public static let ghostty = OnboardingFixture(
+    id: "ghostty", title: "Ghostty chosen, SSH set up in Ghostty", drafts: examples
+  ) {
+    $0.terminal = TerminalPickerFixtures.ghosttyChosen
+    $0.edit(neptunoID) {
+      $0.mode = .local
+      $0.isEnabled = true
+    }
+    $0.edit(saturnoID) { $0.sshDestination = "saturno.example" }
+    $0.edit(sirioID) { $0.sshDestination = "sirio.example" }
+    $0.sshSetupStates = [saturnoID: .opened, sirioID: .opening]
+  }
+
   /// Every fixture, in the preview window's order.
   public static let all = [
-    examplesShown, filledIn, validation, sshSetup, saving, fileChanged, saveFailed,
+    examplesShown, filledIn, validation, sshSetup, saving, fileChanged, saveFailed, noITerm2,
+    ghostty,
   ]
 }

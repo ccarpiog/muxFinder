@@ -2,8 +2,9 @@ import Foundation
 import os
 
 /// An app inspector for tests and previews (PLAN.md D38, Phase I-12b3): it answers a snapshot
-/// and a permission status set by the test, records every read, and never asks LaunchServices,
-/// `NSRunningApplication` or the Automation permission.
+/// and a permission status set by the test (for every app, or per bundle identifier since Phase
+/// I-12d1), records every read, and never asks LaunchServices, `NSRunningApplication` or the
+/// Automation permission.
 public final class FakeTerminalAppInspector: TerminalAppInspecting {
   /// Mutable state.
   private struct State {
@@ -11,6 +12,10 @@ public final class FakeTerminalAppInspector: TerminalAppInspecting {
     var snapshot: TerminalAppSnapshot
     /// The permission status answered for every bundle identifier.
     var status: Int32
+    /// Snapshots answered for one bundle identifier (lowercased) instead of `snapshot`.
+    var snapshots: [String: TerminalAppSnapshot] = [:]
+    /// Statuses answered for one bundle identifier (lowercased) instead of `status`.
+    var statuses: [String: Int32] = [:]
     /// The bundle identifiers whose snapshot was read, in order.
     var snapshotReads: [String] = []
     /// The bundle identifiers whose permission was read, in order.
@@ -38,11 +43,23 @@ public final class FakeTerminalAppInspector: TerminalAppInspecting {
     state.withLock { $0.status = status }
   }
 
+  /// Makes later snapshot reads of `bundleIdentifier` (compared without regard to case) answer
+  /// `snapshot`, whatever the others answer.
+  public func setSnapshot(_ snapshot: TerminalAppSnapshot, for bundleIdentifier: String) {
+    state.withLock { $0.snapshots[bundleIdentifier.lowercased()] = snapshot }
+  }
+
+  /// Makes later permission reads of `bundleIdentifier` (compared without regard to case)
+  /// answer `status`, whatever the others answer.
+  public func setStatus(_ status: Int32, for bundleIdentifier: String) {
+    state.withLock { $0.statuses[bundleIdentifier.lowercased()] = status }
+  }
+
   /// The snapshot, recording the read.
   public func snapshot(bundleIdentifier: String) -> TerminalAppSnapshot {
     state.withLock { state in
       state.snapshotReads.append(bundleIdentifier)
-      return state.snapshot
+      return state.snapshots[bundleIdentifier.lowercased()] ?? state.snapshot
     }
   }
 
@@ -50,7 +67,7 @@ public final class FakeTerminalAppInspector: TerminalAppInspecting {
   public func automationStatus(bundleIdentifier: String) -> Int32 {
     state.withLock { state in
       state.permissionReads.append(bundleIdentifier)
-      return state.status
+      return state.statuses[bundleIdentifier.lowercased()] ?? state.status
     }
   }
 

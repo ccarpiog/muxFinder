@@ -84,6 +84,9 @@ enum SSHSetupCommand {
       switch result {
       case .opened(let sessionID):
         (opened, self.sessionID, failure, message) = (true, sessionID, nil, nil)
+      case .openedWindow:
+        // iTerm2's launcher never answers a plain window (PLAN.md D38, Phase I-12d1).
+        (opened, sessionID, failure, message) = (true, nil, nil, nil)
       case .failed(let reason):
         (opened, sessionID, failure, message) = (false, nil, reason.kind, reason.message)
       }

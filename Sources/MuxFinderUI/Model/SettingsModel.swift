@@ -34,7 +34,13 @@ import Observation
 ///   generation. `shutdown()` (from `AppModel.shutdown()`) refuses new work, cancels every
 ///   probe and the opening, and returns once they have ended.
 /// - **iTerm2:** profiles are listed only while iTerm2 runs (`ITerm2ProfileSource`) and is the
-///   chosen terminal (`terminal`, PLAN.md D38); otherwise the profile field is free text.
+///   chosen terminal (`terminal`, PLAN.md D38); otherwise the profile field is free text, kept
+///   and editable, captioned "Used only with iTerm2."
+/// - **Terminal** (PLAN.md D38, Phase I-12d1): Settings › General's picker is `AppModel`'s
+///   (`terminalPicker`, read at the window's opening and on "Check again"); the strings that
+///   name the terminal follow `terminalWording` ("Set up SSH in Terminal…"); with a plain
+///   choice the Persistent profiles tab shows each host's persistent work command
+///   (`persistentWorkContent`) and Diagnostics names the chosen terminal.
 /// - **Persistent profiles** (PLAN.md D26, `SettingsModelProfiles.swift`): the Persistent
 ///   profiles tab shows the status of `DynamicProfiles/muxFinder.json` for the saved host list,
 ///   installs and removes it, a save while muxFinder's file is installed updates it, and the app
@@ -204,6 +210,17 @@ public final class SettingsModel {
   /// `notUsedWithThisTerminal`, or `notLoaded` while not resolved), shows no iTerm2 check
   /// problem, and a save leaves `DynamicProfiles/muxFinder.json` as it is (D26).
   public private(set) var terminal = TerminalChoiceResolution.iTerm2
+  /// The applied terminal choice's wording (PLAN.md D38, Phase I-12d1; set by `AppModel`, or a
+  /// fixture's): what "Set up SSH in iTerm2…" and the other terminal strings name.
+  public internal(set) var terminalWording = TerminalWording.iTerm2
+  /// Settings › General's terminal picker: `AppModel`'s (shared with onboarding), a fixture's,
+  /// or an inert one.
+  public internal(set) var terminalPicker: TerminalPickerModel
+  /// The bundle's helper path as found when the window opened (`SettingsEnvironment.helperPath`;
+  /// a fixture's), for the plain persistent work commands; `nil` before.
+  public internal(set) var persistentWorkHelper: Result<LaunchHelperPath, LaunchHelperPathError>?
+  /// What the last "Copy" of a persistent work command did.
+  public internal(set) var persistentWorkNotice: String?
   /// SSH destination suggestions from `~/.ssh/config`.
   public private(set) var suggestions: [String] = []
   /// The login item status, last read.
@@ -304,8 +321,10 @@ public final class SettingsModel {
   public init(environment: SettingsEnvironment) {
     self.environment = environment
     isPreview = false
-    sshSetup = SSHSetupActions(opener: environment.sshSetup)
+    sshSetup = SSHSetupActions(
+      opener: environment.sshSetup, plainOpener: environment.plainSSHSetup)
     globalShortcut = GlobalShortcutModel(environment: nil)
+    terminalPicker = .inert()
   }
 
   /// A model that shows `fixture` and never runs anything.
@@ -345,16 +364,33 @@ public final class SettingsModel {
     folderSearchScope = fixture.folderSearchScope
     folderSearchScopeProblem = fixture.folderSearchScopeProblem
     isFolderSearchScopeFileUsable = fixture.isFolderSearchScopeFileUsable
-    sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
+    sshSetup = SSHSetupActions(
+      opener: nil, states: fixture.sshSetupStates,
+      wordings: fixture.sshSetupStates.mapValues { _ in fixture.terminal.wording })
     globalShortcut = GlobalShortcutModel(fixture: fixture.globalShortcut)
+    terminalPicker = TerminalPickerModel(fixture: fixture.terminal)
+    terminalWording = fixture.terminal.wording
+    persistentWorkHelper = fixture.persistentWorkHelperPath.map(Self.validatedHelper)
+    persistentWorkNotice = fixture.persistentWorkNotice
   } // End of init(fixture:)
+
+  /// `path` as a helper path, or why it is not one (fixtures).
+  static func validatedHelper(_ path: String) -> Result<LaunchHelperPath, LaunchHelperPathError> {
+    do throws(LaunchHelperPathError) {
+      return .success(try LaunchHelperPath(validating: path))
+    } catch {
+      return .failure(error)
+    }
+  }
 
   // MARK: - Window
 
-  /// The window opened: reads the login item status, loads the host list, then the profiles,
-  /// the SSH suggestions, the log, the persistent profile file's status, the saved
-  /// directories and the folder search scope, in a task the model owns (`windowDidClose()` cancels it), and returns once that task has ended. Does nothing
-  /// for a fixture, while already open, or after `shutdown()`.
+  /// The window opened: reads the login item status, the terminal apps for the picker (no
+  /// Apple event, no prompt) and the bundle's helper path, loads the host list, then the
+  /// profiles, the SSH suggestions, the log, the persistent profile file's status, the saved
+  /// directories and the folder search scope, in a task the model owns (`windowDidClose()`
+  /// cancels it), and returns once that task has ended. Does nothing for a fixture, while
+  /// already open, or after `shutdown()`.
   public func windowDidOpen() async {
     guard environment != nil, !isWindowOpen, !isShutDown else { return }
     isWindowOpen = true
@@ -367,9 +403,12 @@ public final class SettingsModel {
 
   /// The opening's work. Each step after the host list starts only while the window opened as
   /// `generation` is still open and the opening not cancelled, so a window closed meanwhile
-  /// asks iTerm2 nothing.
+  /// asks iTerm2 nothing. The terminal picker's reading starts first (its permissions read off
+  /// the main actor) and is awaited with the last steps, or until it is dropped.
   private func open(generation: Int) async {
     refreshLoginItemStatus()
+    if isCurrentWindow(generation) { terminalPicker.windowOpened(.settings) }
+    persistentWorkHelper = environment?.helperPath?() ?? .failure(.notFound)
     await reloadHosts()
     guard isCurrentWindow(generation) else { return }
     async let profiles: Void = loadProfiles()
@@ -378,7 +417,8 @@ public final class SettingsModel {
     async let files: Void = checkProfiles()
     async let directories: Void = loadDirectories()
     async let scope: Void = loadFolderSearchScope()
-    _ = await (profiles, names, log, files, directories, scope)
+    async let picker: Void = terminalPicker.readingFinished()
+    _ = await (profiles, names, log, files, directories, scope, picker)
   }
 
   /// Whether work started for the window opened as `generation` may go on: that window is
@@ -388,9 +428,10 @@ public final class SettingsModel {
   }
 
   /// The window closed: cancels its opening (a profile request in progress with it) and the
-  /// probes, drops their late results, forgets dialogs and unsaved changes (the next opening
-  /// reloads the list), and stops the shortcut recorder (the saved hotkey is registered again,
-  /// PLAN.md D32).
+  /// probes, drops their late results (the terminal picker's reading too, unless onboarding
+  /// still shows the picker), forgets dialogs and unsaved changes (the next opening reloads the
+  /// list), and stops the shortcut recorder (the saved hotkey is registered again, PLAN.md
+  /// D32).
   public func windowDidClose() {
     globalShortcut.cancelRecording()
     guard isWindowOpen else { return }
@@ -400,11 +441,13 @@ public final class SettingsModel {
     openTask = nil
     cancelProbes()
     sshSetup.cancelAll()
+    terminalPicker.windowClosed(.settings)
     if profileChoices == .loading { profileChoices = .notLoaded }
     pendingSelection = nil
     pendingRemoval = nil
     shownExplanation = nil
     copyNotice = nil
+    persistentWorkNotice = nil
   } // End of func windowDidClose()
 
   /// The window stopped being the key window: the shortcut recorder stops listening and the
@@ -1109,8 +1152,25 @@ public final class SettingsModel {
         refreshState: refreshState,
         loginItem: loginItemStatus,
         events: diagnosticEvents,
-        globalShortcut: globalShortcut.diagnosticsCode))
+        globalShortcut: globalShortcut.diagnosticsCode,
+        terminal: terminalDiagnostics?.terminal,
+        iTerm2CheckNote: terminalDiagnostics.map { _ in "not used with \(terminalWording.name)" }
+      ))
   } // End of func diagnosticsReport()
+
+  /// The chosen terminal for Diagnostics (PLAN.md D38, Phase I-12d1), with a choice other than
+  /// iTerm2: its name, version and permission state as the picker last read them, and what
+  /// iTerm2's rows read ("Not used with Terminal"). `nil` with iTerm2 chosen (or not resolved
+  /// yet): the tab and the report are as they were.
+  public var terminalDiagnostics: (terminal: String, iTerm2: String)? {
+    let wording = terminalWording
+    guard !wording.isITerm2 else { return nil }
+    guard let row = terminalPicker.chosenRow else { return (wording.name, wording.notUsedWith) }
+    var text = row.name + (row.version.map { " " + $0 } ?? "")
+    if let permission = row.permission { text += "; permission: " + permission.text }
+    if let reason = row.unavailableReason { text += "; " + reason }
+    return (text, wording.notUsedWith)
+  } // End of var terminalDiagnostics
 
   /// "Copy diagnostics": puts the report on the pasteboard.
   public func copyDiagnostics() async {

@@ -62,23 +62,23 @@ public struct TerminalAppFacts: Sendable, Hashable {
     inspector: any TerminalAppInspecting = WorkspaceTerminalAppInspector()
   ) -> TerminalAppFacts {
     let snapshot = inspector.snapshot(bundleIdentifier: definition.bundleIdentifier)
-    let versionCheck = Self.versionCheck(of: snapshot, minimum: definition.minimumVersion)
-    let automation: Automation
-    if definition.needsAutomationPermission {
-      let status = inspector.automationStatus(bundleIdentifier: definition.bundleIdentifier)
-      automation = .permission(AutomationPermission(status: status), status: status)
-    } else {
-      automation = .notNeeded
-    }
     return TerminalAppFacts(
-      installed: snapshot.url != nil,
-      path: snapshot.url.map(WorkspaceTerminalAppInspector.displayPath),
-      version: snapshot.version,
-      versionCheck: versionCheck,
-      running: snapshot.running,
-      automation: automation
-    )
+      definition: definition, snapshot: snapshot,
+      automation: automation(for: definition, inspector: inspector))
   } // End of static func read(for:inspector:)
+
+  /// The Automation permission's state for `definition`'s app through `inspector`, read without
+  /// a prompt; `notNeeded` (nothing read) for an `exec` definition. Not tied to the main actor:
+  /// `AEDeterminePermissionToAutomateTarget` may take a while, so the terminal picker calls it
+  /// off the main actor.
+  public static func automation(
+    for definition: TerminalDefinition,
+    inspector: any TerminalAppInspecting
+  ) -> Automation {
+    guard definition.needsAutomationPermission else { return .notNeeded }
+    let status = inspector.automationStatus(bundleIdentifier: definition.bundleIdentifier)
+    return .permission(AutomationPermission(status: status), status: status)
+  } // End of static func automation(for:inspector:)
 
   /// The version check of `snapshot` against `minimum`: `notInstalled` when LaunchServices found
   /// no app, else `meets`, `tooOld` or `unknown` (a missing or unreadable version, never a
@@ -96,6 +96,28 @@ public struct TerminalAppFacts: Sendable, Hashable {
     }
   }
 } // End of struct TerminalAppFacts
+
+/// Facts from their two halves (an extension, so the memberwise initializer stays).
+extension TerminalAppFacts {
+  /// The facts for `definition` from its app's `snapshot` (read on the main actor) and the
+  /// permission's `automation` (`automation(for:inspector:)`, which may be read off it): what
+  /// `read(for:inspector:)` answers when both are read at once (the terminal picker reads the
+  /// permission off the main actor, PLAN.md D38, Phase I-12d1).
+  public init(
+    definition: TerminalDefinition,
+    snapshot: TerminalAppSnapshot,
+    automation: Automation
+  ) {
+    self.init(
+      installed: snapshot.url != nil,
+      path: snapshot.url.map(WorkspaceTerminalAppInspector.displayPath),
+      version: snapshot.version,
+      versionCheck: Self.versionCheck(of: snapshot, minimum: definition.minimumVersion),
+      running: snapshot.running,
+      automation: automation
+    )
+  } // End of init(definition:snapshot:automation:)
+} // End of extension TerminalAppFacts
 
 /// What LaunchServices and the running applications say about one bundle identifier.
 public struct TerminalAppSnapshot: Sendable, Hashable {

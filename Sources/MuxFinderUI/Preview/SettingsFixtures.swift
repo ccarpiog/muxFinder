@@ -78,6 +78,16 @@ public struct SettingsFixture: Sendable, Identifiable {
   /// The General tab's session switcher shortcut (PLAN.md D32).
   public var globalShortcut = GlobalShortcutFixture()
 
+  /// The General tab's terminal picker and the applied choice's wording (PLAN.md D38, Phase
+  /// I-12d1).
+  public var terminal = TerminalPickerFixtures.iTerm2Chosen
+  /// The bundle's helper path the plain persistent work commands run (synthetic).
+  public var persistentWorkHelperPath: String? = TerminalPickerFixtures.helperPath
+  /// What the last "Copy" of a persistent work command did.
+  public var persistentWorkNotice: String?
+  /// The gallery frame's height, when it differs from its tab's.
+  public var galleryHeight: Double?
+
   /// A fixture of `hosts` with `configure` applied.
   public init(
     id: String, title: String, hosts: HostList,
@@ -463,12 +473,124 @@ public enum SettingsFixtures {
       hostID: host?.uuidString, outcome: outcome, durationMs: milliseconds, detail: detail)
   }
 
+  // MARK: - Terminal (PLAN.md D38, Phase I-12d1)
+
+  /// The height of a terminal picker fixture's frame: the General tab's Terminal section.
+  static let terminalHeight = 470.0
+
+  /// A General tab fixture showing the terminal picker as `picker`.
+  static func terminal(
+    _ id: String, _ title: String, _ picker: TerminalPickerFixture
+  ) -> SettingsFixture {
+    SettingsFixture(id: id, title: title, hosts: hostList) {
+      $0.tab = .general
+      $0.loginItemStatus = .enabled
+      $0.terminal = picker
+      $0.profileChoices = picker.wording.isITerm2 ? $0.profileChoices : .notUsedWithThisTerminal
+      $0.galleryHeight = terminalHeight
+    }
+  } // End of static func terminal(_:_:_:)
+
+  /// iTerm2 chosen (the default when installed).
+  public static let terminalITerm2 = terminal(
+    "terminal-iterm2", "Terminal: iTerm2 chosen", TerminalPickerFixtures.iTerm2Chosen)
+  /// Terminal chosen and allowed.
+  public static let terminalAllowed = terminal(
+    "terminal-allowed", "Terminal: Terminal chosen, allowed",
+    TerminalPickerFixtures.terminalAllowed)
+  /// Terminal chosen and not allowed, with "Allow in System Settings…".
+  public static let terminalNotAllowed = terminal(
+    "terminal-not-allowed", "Terminal: Terminal chosen, not allowed",
+    TerminalPickerFixtures.terminalNotAllowed)
+  /// Terminal chosen and not asked yet, with no iTerm2 installed.
+  public static let terminalNotAsked = terminal(
+    "terminal-not-asked", "Terminal: not asked yet, no iTerm2",
+    TerminalPickerFixtures.terminalNotAskedNoITerm2)
+  /// Terminal chosen while it is not running.
+  public static let terminalNotRunning = terminal(
+    "terminal-not-running", "Terminal: checked when the app is running",
+    TerminalPickerFixtures.terminalNotRunning)
+  /// Terminal chosen with an unknown permission status.
+  public static let terminalUnknown = terminal(
+    "terminal-unknown", "Terminal: permission unknown", TerminalPickerFixtures.terminalUnknown)
+  /// Ghostty chosen.
+  public static let terminalGhostty = terminal(
+    "terminal-ghostty", "Terminal: Ghostty chosen", TerminalPickerFixtures.ghosttyChosen)
+  /// Ghostty chosen but too old.
+  public static let terminalUnavailable = terminal(
+    "terminal-unavailable", "Terminal: chosen terminal too old",
+    TerminalPickerFixtures.unavailable)
+  /// Definition problems, and a stored terminal no definition has.
+  public static let terminalProblems = terminal(
+    "terminal-problems", "Terminal: definition problems", TerminalPickerFixtures.problems)
+  /// A change waiting for a session action.
+  public static let terminalPending = terminal(
+    "terminal-pending", "Terminal: change waits for an action", TerminalPickerFixtures.pending)
+  /// A change the preferences file refused.
+  public static let terminalSaveRefused = terminal(
+    "terminal-save-refused", "Terminal: change not saved", TerminalPickerFixtures.saveRefused)
+
+  /// Saturno in the editor with Terminal chosen: "Set up SSH in Terminal…" and the window it
+  /// opened, the iTerm2 profile kept and captioned "Used only with iTerm2.", and the persistent
+  /// profile's note for Terminal.
+  public static let hostsPlain = SettingsFixture(
+    id: "hosts-plain", title: "Host editor with Terminal chosen", hosts: profileHostList
+  ) {
+    var saturno = profileHostList.hosts[1]
+    saturno.iTermProfileName = "Work"
+    $0.hosts = try! HostList([profileHostList.hosts[0], saturno, Fixtures.sirio, vega])
+    $0.select(saturno)
+    $0.terminal = TerminalPickerFixtures.terminalAllowed
+    $0.profileChoices = .notUsedWithThisTerminal
+    $0.refreshState = refreshState
+    $0.sshSetupStates = [saturno.id: .opened]
+  }
+
+  /// The Persistent profiles tab with Terminal chosen: each opted-in host's command with Copy,
+  /// where to paste it, and iTerm2's profiles still installed (Remove offered).
+  public static let profilesPlain = profiles(
+    "profiles-plain", "Persistent work in Terminal"
+  ) {
+    $0.terminal = TerminalPickerFixtures.terminalAllowed
+    $0.profileChoices = .notUsedWithThisTerminal
+    $0.profileStatus = .current
+    $0.persistentWorkNotice = "Copied the command for Saturno."
+  }
+
+  /// The Persistent profiles tab with Ghostty chosen: where to paste in Ghostty's config file,
+  /// no iTerm2 profiles installed.
+  public static let profilesGhostty = profiles(
+    "profiles-ghostty", "Persistent work in Ghostty"
+  ) {
+    $0.terminal = TerminalPickerFixtures.ghosttyChosen
+    $0.profileChoices = .notUsedWithThisTerminal
+    $0.profileStatus = .notInstalled
+  }
+
+  /// The Diagnostics tab with Terminal chosen: the terminal's row and iTerm2's "Not used with
+  /// Terminal".
+  public static let diagnosticsPlain = SettingsFixture(
+    id: "diagnostics-plain", title: "Diagnostics with Terminal chosen", hosts: hostList
+  ) {
+    $0.tab = .diagnostics
+    $0.terminal = TerminalPickerFixtures.terminalNotAllowed
+    $0.profileChoices = .notUsedWithThisTerminal
+    $0.refreshState = Fixtures.state(Fixtures.overviewHosts)
+    $0.diagnosticEvents =
+      Array(events.prefix(1)) + [
+        event(-60, .settings, .info, nil, 0, "terminal set: plain terminal (stored)")
+      ]
+  }
+
   /// Every fixture, in the preview window's order.
   public static let all = [
     hosts, validation, thisMac, testFailed, invalidFile, newHost, profileEditor,
     profilesNotInstalled, profilesCurrent, profilesStale, profilesUnavailable, directories,
     directoriesUnusable, folderSearch, folderSearchUnusable, diagnostics, loginEnabled,
     loginNotRegistered, loginRequiresApproval, loginNotFound, shortcutNone, shortcutRecording,
-    shortcutWarning, shortcutSet, shortcutTaken,
+    shortcutWarning, shortcutSet, shortcutTaken, terminalITerm2, terminalAllowed,
+    terminalNotAllowed, terminalNotAsked, terminalNotRunning, terminalUnknown, terminalGhostty,
+    terminalUnavailable, terminalProblems, terminalPending, terminalSaveRefused, hostsPlain,
+    profilesPlain, profilesGhostty, diagnosticsPlain,
   ]
 }

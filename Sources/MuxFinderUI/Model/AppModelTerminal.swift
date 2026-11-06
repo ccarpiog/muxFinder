@@ -13,12 +13,20 @@ import MuxFinderCore
 ///   iTerm2, what waited for it runs (Settings' profile list while its window is open, D26's
 ///   launch rewrite). Without `AppEnvironment.terminal` the choice is iTerm2 from the start
 ///   and nothing is read.
-/// - **One setter:** `setTerminal(_:)` (Phase I-12d's picker calls it) writes the setting and
-///   resolves it again; no file watcher. A change while any session action is pending is
-///   applied once none is, never cancelling one; the next action uses the new choice.
+/// - **One setter:** `setTerminal(_:)` (the picker in Settings › General and onboarding,
+///   `terminalPicker`, Phase I-12d1) writes the setting and resolves it again; no file watcher.
+///   A change while any session action is pending is applied once none is, never cancelling
+///   one; the next action uses the new choice, and the picker says it waits.
+/// - **Resolved again after each picker reading** (`resolveTerminalAgain()`: a window's opening
+///   or "Check again"): the stored setting, unchanged and not saved again, so a plain or
+///   unavailable choice follows its app becoming usable (or not); never another terminal, and
+///   with iTerm2 chosen nothing changes.
+/// - **Wording** (Phase I-12d1): `terminalWording` names the applied choice everywhere the UI
+///   names the terminal (`TerminalWording`); with iTerm2 every string is as before.
 /// - **Gating** (requirement 7): applying a choice turns the engine's D16 checks on only for
-///   iTerm2, tells Settings (the profile list, the iTerm2 problem, D26's rewrite after a save)
-///   and the three "Set up SSH in iTerm2…" owners (the popover's, Settings', onboarding's), and,
+///   iTerm2, tells Settings (the profile list, the iTerm2 problem, D26's rewrite after a save,
+///   the wording), the picker, and the three "Set up SSH in iTerm2…" owners (the popover's,
+///   Settings', onboarding's: iTerm2's tab, or a plain terminal's window), and,
 ///   when iTerm2 becomes the choice again, asks for D26's launch rewrite. Work started under an
 ///   earlier iTerm2 choice (a buried tab's recovery inside the coordinator) finishes; nothing new
 ///   starts.
@@ -87,12 +95,48 @@ extension AppModel {
       detail: "terminal set: \(Self.terminalLogText(resolution, stored: id))")
     if hasPendingSessionActions {
       pendingTerminalChoice = resolution
+      terminalPicker.setPending(resolution)
     } else {
       pendingTerminalChoice = nil
       applyTerminalChoice(resolution)
     }
     return .success(resolution)
   } // End of func setTerminal(_:)
+
+  /// The picker read the apps again (a window's opening or "Check again"): resolves the stored
+  /// setting again through the same path as `setTerminal(_:)` (nothing saved) and takes the
+  /// result only when it changed and names the same terminal as the selected choice (a waiting
+  /// change's, else the applied one), so the user's choice is never replaced by another
+  /// terminal. A plain or unavailable choice only: with iTerm2 chosen, or before the launch's
+  /// resolution, nothing changes. Applied at once, or, while a session action is pending, once
+  /// none is (`pendingTerminalChoice`), as a change is. Does nothing for a fixture, after
+  /// `shutdown()`, or without `AppEnvironment.terminal`.
+  func resolveTerminalAgain() {
+    guard let terminal = environment?.terminal, lifecycle != .stopped,
+      let catalog = terminalDefinitions
+    else { return }
+    let selected = pendingTerminalChoice ?? terminalChoice
+    switch selected {
+    case .plain, .unavailable: break
+    case .iTerm2, .unresolved: return
+    }
+    let resolution = terminal.resolve(stored: storedTerminal, catalog: catalog)
+    guard resolution != selected, resolution.terminalID == selected.terminalID else { return }
+    let diagnostics = environment?.diagnostics
+    let detail =
+      "terminal resolved again: \(Self.terminalLogText(resolution, stored: storedTerminal))"
+    Task {
+      await diagnostics?.record(
+        .settings, outcome: resolution.chosen == nil ? .failure : .info, detail: detail)
+    }
+    if hasPendingSessionActions {
+      pendingTerminalChoice = resolution
+      terminalPicker.setPending(resolution)
+    } else {
+      pendingTerminalChoice = nil
+      applyTerminalChoice(resolution)
+    }
+  } // End of func resolveTerminalAgain()
 
   /// Applies `resolution` everywhere it gates iTerm2 (see the extension's comment). The
   /// engine's change goes through the request queue (at launch the engine is not built yet:
@@ -112,16 +156,26 @@ extension AppModel {
 
   /// Makes `resolution` the choice and tells the gates that need no engine: Settings (its
   /// profile list, iTerm2 problem and D26 update after a save; a profile list deferred while
-  /// the window was open runs once iTerm2 is the choice) and the three "Set up SSH in iTerm2…"
-  /// owners (the popover's, Settings', onboarding's). `init(environment:)` sets `unresolved`
-  /// through it, so nothing there contacts iTerm2 before the stored choice is known.
+  /// the window was open runs once iTerm2 is the choice; the wording), the picker (the applied
+  /// choice, a waiting one, the definitions) and the three "Set up SSH in iTerm2…" owners (the
+  /// popover's, Settings', onboarding's). `init(environment:)` sets `unresolved` through it, so
+  /// nothing there contacts iTerm2 before the stored choice is known.
   func setTerminalGates(_ resolution: TerminalChoiceResolution) {
     terminalChoice = resolution
-    let usesITerm2 = resolution.usesITerm2
+    let wording = TerminalWording(resolution, catalog: terminalDefinitions)
     settings.setTerminal(resolution)
-    sshSetup.setUsesITerm2(usesITerm2)
-    settings.sshSetup.setUsesITerm2(usesITerm2)
-    onboarding.sshSetup.setUsesITerm2(usesITerm2)
+    settings.terminalWording = wording
+    terminalPicker.update(
+      choice: resolution, pending: pendingTerminalChoice, catalog: terminalDefinitions)
+    sshSetup.setTerminal(resolution, wording: wording)
+    settings.sshSetup.setTerminal(resolution, wording: wording)
+    onboarding.sshSetup.setTerminal(resolution, wording: wording)
+  } // End of func setTerminalGates(_:)
+
+  /// The applied choice's wording (`TerminalWording`): iTerm2's for iTerm2, while the choice is
+  /// not resolved yet and for a fixture.
+  public var terminalWording: TerminalWording {
+    TerminalWording(terminalChoice, catalog: terminalDefinitions)
   }
 
   /// Whether any session action is pending: an open, move here, detach or "Detach other

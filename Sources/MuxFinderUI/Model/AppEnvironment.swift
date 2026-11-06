@@ -153,7 +153,9 @@ public struct AppEnvironment: Sendable {
   /// seams: the same probe for Detect and Test connection, the same client for the profile
   /// list, `~/.ssh/config` suggestions (read-only), `SMAppService.mainApp`, the general
   /// pasteboard, `NSWorkspace` for URLs, "Set up SSH in iTerm2…" (`SSHSetupLauncher` over
-  /// the same client, the launch store and the bundled helper), and the persistent profile
+  /// the same client, the launch store and the bundled helper; with a plain terminal chosen,
+  /// `PlainSSHSetupLauncher` over the plain window layer below, PLAN.md D38), the bundled
+  /// helper's path for the plain persistent work commands, and the persistent profile
   /// file (`PersistentProfileFiles` over iTerm2's `DynamicProfiles` folder, PLAN.md D26). The
   /// session actions run on the chosen terminal's backend (PLAN.md D38, Phase I-12c3a), built
   /// at the first action and kept per terminal id: iTerm2's is `ITerm2TerminalBackend` over one
@@ -231,7 +233,13 @@ public struct AppEnvironment: Sendable {
       sshSetup: sshSetup,
       persistentProfiles: PersistentProfileFiles(),
       directories: directories,
-      preferences: usesGlobalShortcut ? preferences : nil)
+      preferences: usesGlobalShortcut ? preferences : nil,
+      plainSSHSetup: { loaded in
+        PlainSSHSetupLauncher(
+          loaded: loaded, windows: plainWindows.windows, store: LaunchStore(),
+          diagnostics: diagnostics)
+      },
+      helperPath: { SSHSetupLauncher.locateStandardHelper() })
     return AppEnvironment(
       loadHosts: { try await store.load() },
       makeEngine: { hosts in

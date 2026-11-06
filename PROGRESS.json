@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T22:41:20Z",
+  "updated": "2026-11-06T23:47:50Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -850,12 +850,36 @@
     {
       "id": "I-12d",
       "title": "Other terminals: Settings, strings, onboarding, galleries",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "routine",
       "parent": "I-12",
-      "summary": "Adds the Terminal setting, strings that follow the chosen terminal, onboarding without iTerm2 and persistent work commands.",
+      "summary": "Split into I-12d1 (Settings, onboarding, SSH setup) and I-12d2 (popover, switcher, session states).",
       "added": "2026-11-06T13:06:57Z",
-      "status_since": "2026-11-06T13:06:57Z"
+      "started": "2026-11-06T22:43:40Z",
+      "status_since": "2026-11-06T22:43:40Z"
+    },
+    {
+      "id": "I-12d1",
+      "title": "Other terminals: Settings, onboarding and SSH setup",
+      "status": "done",
+      "risk": "routine",
+      "parent": "I-12d",
+      "summary": "Adds the Terminal picker, onboarding without iTerm2, SSH setup in plain terminals and per-host persistent work commands.",
+      "review": "docs/reviews/phase-I-12d1.md",
+      "narrative": "docs/progress-archive/i-12d1.md",
+      "added": "2026-11-06T22:43:40Z",
+      "started": "2026-11-06T22:43:40Z",
+      "status_since": "2026-11-06T23:47:43Z"
+    },
+    {
+      "id": "I-12d2",
+      "title": "Other terminals: popover, switcher and session states",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-12d",
+      "summary": "Makes every session action, state and error name the chosen terminal, with galleries per terminal.",
+      "added": "2026-11-06T22:43:40Z",
+      "status_since": "2026-11-06T22:43:40Z"
     },
     {
       "id": "I-12e",

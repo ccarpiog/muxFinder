@@ -1,10 +1,12 @@
 import MuxFinderCore
 import SwiftUI
 
-/// The onboarding window's content (PLAN.md Phase 9b, D24): the welcome, the example hosts with
-/// their names, SSH destinations, "Set up SSH in iTerm2…", the This Mac choice and the
-/// turned-on switches, then what to expect, the scope line and the iTerm2 requirements, and
-/// "Not now" and "Save hosts" at the bottom.
+/// The onboarding window's content (PLAN.md Phase 9b, D24, D38): the welcome, the Terminal step
+/// (the picker), the example hosts with their names, SSH destinations, "Set up SSH in
+/// <terminal>…", the This Mac choice and the turned-on switches, then what to expect, the scope
+/// line, and iTerm2's requirements with iTerm2 chosen or what plain mode means and the
+/// permission line otherwise (`OnboardingModel.steps`), and "Not now" and "Save hosts" at the
+/// bottom.
 public struct OnboardingView: View {
   /// The window's size when it first opens, in points.
   public static let defaultSize = CGSize(width: 780, height: 760)
@@ -37,16 +39,28 @@ public struct OnboardingView: View {
     }
   } // End of var body
 
-  /// The welcome, the hosts, what to expect and the iTerm2 requirements.
+  /// The welcome, then each step in the model's order.
   private var sections: some View {
     VStack(alignment: .leading, spacing: 16) {
       header
-      hostsSection
-      expectationsSection
-      iTermSection
+      ForEach(model.steps, id: \.self) { step in
+        stepView(step)
+      }
     }
     .padding(20)
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  /// One step's section.
+  @ViewBuilder
+  private func stepView(_ step: OnboardingStep) -> some View {
+    switch step {
+    case .terminal: terminalSection
+    case .hosts: hostsSection
+    case .goodToKnow: expectationsSection
+    case .iTerm2API: iTermSection
+    case .plainMode: plainModeSection
+    }
   }
 
   /// The title and the introduction.
@@ -59,7 +73,7 @@ public struct OnboardingView: View {
       VStack(alignment: .leading, spacing: 4) {
         Text(OnboardingText.title)
           .font(.title2.bold())
-        Text(OnboardingText.introduction)
+        Text(model.terminalWording.introduction)
           .foregroundStyle(.secondary)
       }
     }
@@ -112,12 +126,10 @@ public struct OnboardingView: View {
           )
           .labelsHidden()
           .accessibilityLabel("SSH destination of \(draft.trimmedName)")
-          Button("Set up SSH in iTerm2…") { model.setUpSSH(for: draft.id) }
+          Button(model.terminalWording.setUpSSHTitle) { model.setUpSSH(for: draft.id) }
             .fixedSize()
             .disabled(!model.canSetUpSSH(draft.id))
-            .help(
-              "Open a new iTerm2 window running ssh to this destination, so you can sign in or "
-                + "accept its host key")
+            .help(model.terminalWording.setUpSSHHelp)
         }
       } else {
         Text("This Mac: checked directly, without SSH")
@@ -154,7 +166,7 @@ public struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 4) {
           ForEach(lines, id: \.self) { IssueText(text: $0) }
           if let setup {
-            SSHSetupLine(state: setup)
+            SSHSetupLine(state: setup, wording: model.sshSetup.wording(for: draft.id))
           }
         }
         .gridCellColumns(4)
@@ -174,10 +186,27 @@ public struct OnboardingView: View {
     }
   }
 
-  /// What iTerm2 needs.
+  /// What iTerm2 needs (only with iTerm2 chosen).
   private var iTermSection: some View {
     SettingsSection(title: "iTerm2") {
       ForEach(OnboardingText.iTermRequirements, id: \.self) { line in
+        BulletLine(text: line)
+      }
+    }
+  }
+
+  /// The Terminal step: the picker Settings › General shows (PLAN.md D38, Phase I-12d1).
+  private var terminalSection: some View {
+    SettingsSection(title: "Terminal") {
+      TerminalPickerView(picker: model.terminalPicker)
+    }
+  }
+
+  /// What plain mode means and the permission line, in place of iTerm2's step with another
+  /// terminal chosen.
+  private var plainModeSection: some View {
+    SettingsSection(title: model.terminalWording.name) {
+      ForEach(model.plainModeLines, id: \.self) { line in
         BulletLine(text: line)
       }
     }
@@ -238,11 +267,14 @@ struct BulletLine: View {
   }
 }
 
-/// A "Set up SSH in iTerm2…" line: a spinner while the tab opens, what happened, and a fix-it
-/// for an iTerm2 error.
+/// A "Set up SSH in iTerm2…" line: a spinner while the tab or window opens, what happened
+/// (naming the terminal the request was made in), and a fix-it for an iTerm2 error or a
+/// terminal macOS doesn't let muxFinder control.
 struct SSHSetupLine: View {
   /// The state shown.
   let state: SSHSetupState
+  /// The terminal the line names.
+  var wording = TerminalWording.iTerm2
   /// Performs the fix-it, if any (`nil`: no button).
   var perform: ((FixIt) -> Void)?
   /// The explaining fix-it whose text is shown, if any.
@@ -257,9 +289,9 @@ struct SSHSetupLine: View {
             .controlSize(.mini)
         }
         if state.isProblem {
-          IssueText(text: state.message)
+          IssueText(text: state.message(in: wording))
         } else {
-          NoteText(text: state.message)
+          NoteText(text: state.message(in: wording))
         }
       }
       if let fixIt = state.fixIt {

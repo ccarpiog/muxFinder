@@ -1,16 +1,21 @@
 import SwiftUI
 
-/// The General tab: launch at login (`SMAppService.mainApp` through the model's seam), with
-/// the status's explanation, its fix-it and any error; the session switcher shortcut's
-/// recorder (PLAN.md D32); and a note on what quitting does.
+/// The General tab: the terminal sessions open in (PLAN.md D38, Phase I-12d1); launch at login
+/// (`SMAppService.mainApp` through the model's seam), with the status's explanation, its fix-it
+/// and any error; the session switcher shortcut's recorder (PLAN.md D32); and a note on what
+/// quitting does.
 struct GeneralSettingsView: View {
   /// The model shown.
   let model: SettingsModel
 
   /// The sections.
   var body: some View {
+    let wording = model.terminalWording
     ScrollView {
       VStack(alignment: .leading, spacing: 14) {
+        SettingsSection(title: "Terminal") {
+          TerminalPickerView(picker: model.terminalPicker)
+        }
         SettingsSection(title: "Startup") {
           if let content = model.launchAtLogin {
             Toggle(
@@ -32,9 +37,10 @@ struct GeneralSettingsView: View {
         SettingsSection(title: "About muxFinder") {
           NoteText(
             text: "muxFinder lists the tmux sessions on your Macs (each Mac's default tmux "
-              + "server) and opens them in iTerm2.")
+              + "server) and opens them in \(wording.name).")
           NoteText(
-            text: "Quitting muxFinder leaves your tmux sessions and iTerm2 tabs running.")
+            text: "Quitting muxFinder leaves your tmux sessions and \(wording.name) "
+              + "\(wording.place)s running.")
         }
       } // End of VStack holding the sections
       .padding(14)
@@ -42,8 +48,10 @@ struct GeneralSettingsView: View {
   } // End of var body
 }
 
-/// The Diagnostics tab: the last iTerm2 check's problem with its fix-it, the operation log
-/// (newest first), "Refresh" and "Copy diagnostics".
+/// The Diagnostics tab: with a terminal other than iTerm2 chosen, that terminal's row (version
+/// and permission) and iTerm2's "Not used with …" (PLAN.md D38, Phase I-12d1); the last iTerm2
+/// check's problem with its fix-it, the operation log (newest first), "Refresh" and "Copy
+/// diagnostics".
 struct DiagnosticsSettingsView: View {
   /// The model shown.
   let model: SettingsModel
@@ -55,6 +63,19 @@ struct DiagnosticsSettingsView: View {
         text: "Recent operations, newest first. muxFinder records outcomes and timings only: "
           + "no terminal contents, window titles or commands. Copied diagnostics name hosts by "
           + "their display names, never by SSH destination.")
+      if let terminal = model.terminalDiagnostics {
+        VStack(alignment: .leading, spacing: 4) {
+          FieldRow(label: "Terminal") {
+            Text(terminal.terminal)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          FieldRow(label: "iTerm2") {
+            Text(terminal.iTerm2)
+              .foregroundStyle(.secondary)
+          }
+        }
+        .accessibilityElement(children: .contain)
+      }
       if let problem = model.iTermProblem {
         VStack(alignment: .leading, spacing: 6) {
           MessageLine(

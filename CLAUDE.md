@@ -301,7 +301,8 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `<uuid>.report.json` (its terminal, its attach child's pid and start time) right after the
   spawn, writes no `Disinter` or status report request, and holds the 10 s minimum only with
   the request's `keepsMinimumLifetime`; `muxfinder-launch ssh-setup <uuid>`
-  ("Set up SSH in iTerm2…", PLAN.md D24) takes only an ssh setup request (`"kind":"sshSetup"`;
+  ("Set up SSH in iTerm2…", PLAN.md D24, run in iTerm2's tab or, with another terminal chosen,
+  in that terminal's window, D38) takes only an ssh setup request (`"kind":"sshSetup"`;
   each mode refuses the other kind with 72) and runs plain interactive
   `/usr/bin/ssh -- <destination>`, so never run it by hand with a real request: it starts a
   real ssh login. `muxfinder-launch profile <host id>` (a "Persistent work" profile's tab,

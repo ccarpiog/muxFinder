@@ -5,7 +5,10 @@ import SwiftUI
 /// iTerm2, the profiles the saved hosts make, "Install profiles", "Remove profiles" and "Check
 /// again" with why they are off, the last result, and how to use the profiles (making one the
 /// default, what is not adopted, a second tab, the parent warning). Everything shown comes from
-/// `SettingsModel.persistentProfilesContent`.
+/// `SettingsModel.persistentProfilesContent`. With a plain terminal chosen (PLAN.md D38, Phase
+/// I-12d1) it shows `SettingsModel.persistentWorkContent` instead: each host's persistent work
+/// command with Copy and where to paste it, and iTerm2's part in one line ("Remove profiles"
+/// while muxFinder's file is installed).
 struct ProfilesSettingsView: View {
   /// The model shown.
   let model: SettingsModel
@@ -31,17 +34,98 @@ struct ProfilesSettingsView: View {
     + "parent and no command of its own would start this host's tmux session too. muxFinder "
     + "can't change those profiles; give them a parent, or keep another profile as the default."
 
+  /// The copy on windows started otherwise, with a plain terminal chosen.
+  static let plainNotAdoptedText =
+    "Only windows that run the command work inside tmux. Other windows and apps are not moved "
+    + "into tmux."
+  /// The copy on running the command again, with a plain terminal chosen.
+  static let plainSecondWindowText =
+    "Running the command again while its session is open attaches that same session once more, "
+    + "so both windows show the same work."
+
   /// The sections.
   var body: some View {
-    let content = model.persistentProfilesContent
     ScrollView {
       VStack(alignment: .leading, spacing: 14) {
-        fileSection(content)
-        usageSection
+        if let work = model.persistentWorkContent {
+          workSection(work)
+          iTerm2Line(work)
+          plainUsageSection
+        } else {
+          fileSection(model.persistentProfilesContent)
+          usageSection
+        }
       }
       .padding(14)
     }
   } // End of var body
+
+  /// With a plain terminal chosen: each host's command with Copy, and where to paste it.
+  private func workSection(_ work: PersistentWorkContent) -> some View {
+    SettingsSection(title: work.title) {
+      NoteText(text: work.introduction)
+      MessageLine(text: work.whereToPaste, systemImage: "info.circle", tint: .secondary)
+      if let problem = work.problem { IssueText(text: problem) }
+      if let note = work.emptyNote {
+        NoteText(text: note)
+      }
+      ForEach(work.lines) { line in
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(line.hostName)
+              .font(.callout.weight(.medium))
+            Spacer(minLength: 8)
+            Button("Copy") { model.copyPersistentWorkCommand(for: line.id) }
+              .controlSize(.small)
+              .help("Copy \(line.hostName)'s command to the clipboard")
+          }
+          Text(line.command)
+            .font(.caption.monospaced())
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.1)))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(line.hostName)'s command")
+      } // End of loop over the hosts' commands
+      if let notice = model.persistentWorkNotice {
+        MessageLine(text: notice, systemImage: "checkmark.circle.fill", tint: .green)
+      }
+    } // End of SettingsSection holding the commands
+  } // End of func workSection(_:)
+
+  /// With a plain terminal chosen: iTerm2's profiles in one line, "Remove profiles" while
+  /// muxFinder's file is installed, and the last result.
+  private func iTerm2Line(_ work: PersistentWorkContent) -> some View {
+    SettingsSection(title: "Profiles in iTerm2") {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        NoteText(text: work.iTerm2Line)
+        Spacer(minLength: 8)
+        if work.canRemoveITerm2Profiles || work.isRunning {
+          Button("Remove profiles") { Task { await model.removeProfiles() } }
+            .controlSize(.small)
+            .disabled(!work.canRemoveITerm2Profiles)
+        }
+      }
+      if let result = work.resultText {
+        if work.resultIsProblem {
+          IssueText(text: result)
+        } else {
+          MessageLine(text: result, systemImage: "checkmark.circle.fill", tint: .green)
+        }
+      }
+    } // End of SettingsSection "Profiles in iTerm2"
+  } // End of func iTerm2Line(_:)
+
+  /// With a plain terminal chosen: how the command behaves.
+  private var plainUsageSection: some View {
+    SettingsSection(title: "Using persistent work") {
+      NoteText(text: Self.plainNotAdoptedText)
+      NoteText(text: Self.plainSecondWindowText)
+    }
+  }
 
   /// The file's status, the profiles, the buttons and the result.
   private func fileSection(_ content: PersistentProfilesContent) -> some View {

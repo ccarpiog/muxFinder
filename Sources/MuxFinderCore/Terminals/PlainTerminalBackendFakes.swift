@@ -31,6 +31,8 @@ public final class FakePlainTerminalWindowLayer: PlainTerminalWindowLayer {
   public var onOpen: (@MainActor (LaunchToken) throws(PlainTerminalWindowError) -> Void)?
   /// How many run policy checks were asked for.
   public private(set) var runPolicyChecks = 0
+  /// Every "Set up SSH in <terminal>…" open, in order (failed ones too; Phase I-12d1).
+  public private(set) var sshSetupOpens: [Open] = []
   /// When set, every run policy check fails with it (still counted).
   public var runPolicyFailure: PlainTerminalWindowError?
 
@@ -111,3 +113,23 @@ public final class FakePlainTerminalWindowLayer: PlainTerminalWindowLayer {
 /// `e2e-plain`'s close seam (Phase I-12c3b). Declared here, next to the class, since the
 /// protocol is `Sendable`.
 extension FakePlainTerminalWindowLayer: PlainTerminalWindowClosing {}
+
+/// "Set up SSH in <terminal>…"'s window seam (Phase I-12d1). Declared here, next to the class,
+/// since the protocol is `Sendable`. Its opens are recorded apart from the attaches'
+/// (`sshSetupOpens`), so an attach's counts never include them.
+extension FakePlainTerminalWindowLayer: PlainSSHSetupWindowOpening {
+  /// Records the open in `sshSetupOpens`, then fails with `openFailure`, or answers a window
+  /// `fake-ssh-window-<n>` (the n-th such open) with `tty`. `onOpen` does not run (no attach
+  /// helper to play).
+  public func openSSHSetup(
+    _ loaded: LoadedTerminalDefinition,
+    helperPath: String,
+    token: LaunchToken
+  ) throws(PlainTerminalWindowError) -> PlainTerminalWindow {
+    sshSetupOpens.append(
+      Open(definitionID: loaded.definition.id, helperPath: helperPath, token: token))
+    if let openFailure { throw openFailure }
+    return PlainTerminalWindow(
+      openedBy: loaded, windowID: "fake-ssh-window-\(sshSetupOpens.count)", tty: tty)
+  } // End of func openSSHSetup(_:helperPath:token:)
+}

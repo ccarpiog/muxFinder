@@ -48,7 +48,9 @@ public struct PlainTerminalWindow: Sendable, Hashable {
 ///   loaded definition with the same id opened (an override, or a reload with other contents)
 ///   is `definitionChanged`; both before anything is read, compiled or sent.
 /// - **Open.** The launch command from `TerminalLaunchCommand` for the helper path, the mode
-///   word `LaunchHelperMode.attachPlain` and the token, checked before anything else happens.
+///   word `LaunchHelperMode.attachPlain` (or `sshSetup` for "Set up SSH in <terminal>…",
+///   `openSSHSetup(_:helperPath:token:)`, Phase I-12d1) and the token, checked before anything
+///   else happens.
 ///   `appleScript`: the script compiled once per loaded definition for this layer's lifetime
 ///   (a failed compile is not kept, so a later request compiles again), then `muxfinder_open`
 ///   through `TerminalScriptCalls`, its reply read strictly. `exec`: the argv
@@ -141,11 +143,35 @@ public final class PlainTerminalWindows {
     helperPath: String,
     token: LaunchToken
   ) throws(PlainTerminalWindowError) -> PlainTerminalWindow {
+    try openWindow(loaded, helperPath: helperPath, mode: .attachPlain, token: token)
+  }
+
+  /// "Set up SSH in <terminal>…" (PLAN.md D24, D38, Phase I-12d1): opens a new window of
+  /// `loaded`'s app running `<helperPath> ssh-setup <token>` and returns it, exactly as
+  /// `open(_:helperPath:token:)` opens an attach's (the same facts gate, launch command checks,
+  /// compile-once script or spawn, and window record); only the helper's mode word differs.
+  public func openSSHSetup(
+    _ loaded: LoadedTerminalDefinition,
+    helperPath: String,
+    token: LaunchToken
+  ) throws(PlainTerminalWindowError) -> PlainTerminalWindow {
+    try openWindow(loaded, helperPath: helperPath, mode: .sshSetup, token: token)
+  }
+
+  /// The open both public opens share: a new window of `loaded`'s app running
+  /// `<helperPath> <mode> <token>`, `mode` one of the two modes that take a launch token from
+  /// a window (`attach-plain`, `ssh-setup`).
+  private func openWindow(
+    _ loaded: LoadedTerminalDefinition,
+    helperPath: String,
+    mode: LaunchHelperMode,
+    token: LaunchToken
+  ) throws(PlainTerminalWindowError) -> PlainTerminalWindow {
     let definition = loaded.definition
     let facts = try checkedFacts(for: definition, requiringRunning: false)
     try enforcePolicy(for: definition, facts: facts)
     let command = TerminalLaunchCommand(
-      helperPath: helperPath, mode: LaunchHelperMode.attachPlain.word, token: token.rawValue)
+      helperPath: helperPath, mode: mode.word, token: token.rawValue)
     switch definition.open {
     case .appleScript(_, let form):
       do throws(TerminalLaunchCommandError) {
@@ -170,7 +196,7 @@ public final class PlainTerminalWindows {
       try spawn(definition, command: command, appPath: facts.path)
       return PlainTerminalWindow(openedBy: loaded, windowID: nil, tty: nil)
     }
-  } // End of func open(_:helperPath:token:)
+  } // End of func openWindow(_:helperPath:mode:token:)
 
   /// Starts an `exec` definition's program: its argv for `command`, its executable inside the
   /// app at `appPath`.
@@ -426,3 +452,7 @@ extension PlainTerminalWindows: PlainTerminalWindowLayer {}
 /// `e2e-plain`'s close (Phase I-12c3b): `close(_:of:)`, unchanged. Declared here, next to the
 /// class, since the protocol is `Sendable`.
 extension PlainTerminalWindows: PlainTerminalWindowClosing {}
+
+/// "Set up SSH in <terminal>…"'s window (Phase I-12d1): `openSSHSetup(_:helperPath:token:)` and
+/// `checkRunPolicy(for:)`. Declared here, next to the class, since the protocol is `Sendable`.
+extension PlainTerminalWindows: PlainSSHSetupWindowOpening {}

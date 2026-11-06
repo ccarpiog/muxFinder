@@ -3,10 +3,12 @@ import SwiftUI
 
 /// The host editor (PLAN.md Phase 9a): name, This Mac or SSH, destination with suggestions and
 /// "Set up SSH in iTerm2…" (D24, under the connection test's result instead when that test
-/// needed a sign-in or had a host key problem), turned on, the tmux path with "Detect", the
-/// iTerm2 profile, the persistent profile's switch, default session name and parent profile
-/// (D26), "Test connection", and Remove, Revert and Save. Inline errors come from the model's
-/// `HostDraftIssues`; the whole editor is disabled while the list is not editable.
+/// needed a sign-in or had a host key problem; named after the chosen terminal, D38), turned
+/// on, the tmux path with "Detect", the iTerm2 profile (kept and editable with another terminal
+/// chosen, captioned "Used only with iTerm2."), the persistent profile's switch, default
+/// session name and parent profile (D26), "Test connection", and Remove, Revert and Save.
+/// Inline errors come from the model's `HostDraftIssues`; the whole editor is disabled while
+/// the list is not editable.
 struct HostEditorView: View {
   /// The model shown.
   let model: SettingsModel
@@ -74,7 +76,7 @@ struct HostEditorView: View {
             text: "A host name, user@host, or a Host alias from your SSH configuration. "
               + "muxFinder uses your own SSH settings and keys.")
           if !model.connectionTestOffersSSHSetup {
-            sshSetupControls(title: "Set up SSH in iTerm2…", draft: draft)
+            sshSetupControls(title: model.terminalWording.setUpSSHTitle, draft: draft)
           }
         }
       }
@@ -153,6 +155,7 @@ struct HostEditorView: View {
     _ draft: HostDraft, issues: HostDraftIssues?
   ) -> some View {
     let settings = draft.persistentProfile
+    let wording = model.terminalWording
     let profile =
       draft.trimmedName.isEmpty
       ? "a “Persistent work” profile" : "“\(PersistentProfiles.namePrefix)\(draft.trimmedName)”"
@@ -162,10 +165,17 @@ struct HostEditorView: View {
           "Persistent profile",
           isOn: Binding(
             get: { settings.isEnabled }, set: { model.setPersistentProfileEnabled($0) }))
-        NoteText(
-          text: "Adds \(profile) to iTerm2's profiles: its tabs run inside this host's tmux "
-            + "session, so work started there keeps running after the tab closes. Install it "
-            + "in the Persistent profiles tab.")
+        if wording.isITerm2 {
+          NoteText(
+            text: "Adds \(profile) to iTerm2's profiles: its tabs run inside this host's tmux "
+              + "session, so work started there keeps running after the tab closes. Install it "
+              + "in the Persistent profiles tab.")
+        } else {
+          NoteText(
+            text: "Gives this host a persistent work command for \(wording.name): windows that "
+              + "run it work inside this host's tmux session, so work started there keeps "
+              + "running after the window closes. Copy it from the Persistent profiles tab.")
+        }
       }
       FieldRow(label: "Session") {
         TextField(
@@ -186,6 +196,7 @@ struct HostEditorView: View {
         NoteText(
           text: "Colors, fonts and other settings come from this profile. Without one, iTerm2 "
             + "uses its default profile.")
+        if !wording.isITerm2 { NoteText(text: ProfileChoices.usedOnlyWithITerm2) }
       }
     } // End of SettingsSection "Persistent profile"
   } // End of func persistentProfileSection(_:issues:)
@@ -232,7 +243,7 @@ struct HostEditorView: View {
         if case .finished(let result) = model.connectionTest {
           ConnectionTestResultView(result: result)
           if model.connectionTestOffersSSHSetup {
-            sshSetupControls(title: "Set up SSH in iTerm2 first", draft: draft)
+            sshSetupControls(title: model.terminalWording.setUpSSHFirstTitle, draft: draft)
           }
         }
         NoteText(
@@ -276,11 +287,11 @@ struct HostEditorView: View {
     VStack(alignment: .leading, spacing: 4) {
       Button(title) { model.setUpSSH() }
         .disabled(!model.canSetUpSSH)
-        .help(
-          "Open a new iTerm2 window running ssh to this destination, so you can sign in or "
-            + "accept its host key")
+        .help(model.terminalWording.setUpSSHHelp)
       if let state = model.sshSetup.states[draft.id] {
-        SSHSetupLine(state: state, perform: model.perform, shownExplanation: model.shownExplanation)
+        SSHSetupLine(
+          state: state, wording: model.sshSetup.wording(for: draft.id), perform: model.perform,
+          shownExplanation: model.shownExplanation)
       }
     }
   } // End of func sshSetupControls(title:draft:)

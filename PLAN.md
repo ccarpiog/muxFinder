@@ -1274,7 +1274,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     "Open Settings" placeholder button) calls `AppEnvironment.presentSettings`, which calls
     `NSApp.activate()` (an accessory app stays behind the active app otherwise) and brings the
     window to the front. Opening a closed window calls `SettingsModel.windowDidOpen()`, which
-    runs the opening (login item status, host list, then profiles, suggestions, log and the
+    runs the opening (login item status, the terminal picker's reading of the apps and the
+    helper's path, D38 *The UI (I-12d1)*, host list, then profiles, suggestions, log and the
     persistent profile file's status, D26) in a
     task the model owns; closing it calls `windowDidClose()`: the opening is cancelled (with
     the profile request inside it, so the iTerm2 client stops before its next contact, and a
@@ -1301,7 +1302,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     (`SystemLoginItem`, `SMAppService.mainApp`), the `DiagnosticsLog` (one per app, shared with
     the iTerm2 client, which records its connections in it), the pasteboard, `openURL`, the
     versions, the clock, `SSHSetupOpening` (`SSHSetupLauncher`, D24; the onboarding window
-    and the popover use it from here too), and `PersistentProfileManaging`
+    and the popover use it from here too; `plainSSHSetup` makes a plain terminal's
+    `PlainSSHSetupLauncher`, and `helperPath` finds the helper for the plain persistent work
+    commands, D38 *The UI (I-12d1)*), and `PersistentProfileManaging`
     (`PersistentProfileFiles`, D26). `AppEnvironment` gained `openURL`,
     `presentSettings`, `presentOnboarding` (D24), `settings` and `diagnostics`. Tests pass
     fakes for every one; saves are also tested through a real `HostStore` in a private folder.
@@ -1372,9 +1375,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     model is `AppModel`'s `GlobalShortcutModel` (`SettingsModel.globalShortcut`), inert in
     every mode but normal mode.
   - **Diagnostics:** the tab lists the `DiagnosticsLog` entries newest first (host ids shown as
-    display names) and the last iTerm2 check's problem with its fix-it. "Copy diagnostics"
+    display names) and the last iTerm2 check's problem with its fix-it; with a terminal other
+    than iTerm2 chosen, a "Terminal" row (name, version, permission) and "iTerm2: Not used with
+    Terminal" above them (D38 *The UI (I-12d1)*). "Copy diagnostics"
     (`DiagnosticsReport`) is plain text: muxFinder's and macOS's versions, the launch-at-login
-    status, the load state, the iTerm2 check (kind, time, counts), each host by display name
+    status, the load state, the iTerm2 check (kind, time, counts; "not used with Terminal" with
+    a plain choice, and then a `Terminal:` line after the shortcut's), each host by display name
     and id with its mode, on or off, whether a tmux path or profile is set (never which), its
     popover label and status kind, times, session count and failures in a row, then the log
     (ISO 8601, UTC), with a line for the session switcher shortcut's state by kind after the
@@ -1392,13 +1398,15 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     Settings, General › Magic, "Enable Python API") that never opens iTerm2; launch at login
     waiting for approval gets "Open Login Items settings". The popover's iTerm2-check notice
     and session failures (`SessionActivity.failed(message:fixIt:)`), Settings' profile note
-    and Diagnostics tab, and a failed "Set up SSH in iTerm2…" line (D24) show them. The
+    and Diagnostics tab, and a failed "Set up SSH in iTerm2…" line (D24; also a plain
+    terminal's window macOS refused, D38) show them. The
     Automation URL was not opened in an unattended run.
   - **Preview fixtures:** `--preview-fixtures --preview-gallery settings` shows
-    `SettingsFixtures.all` (23 states: the persistent profile fields and tab's, the
-    Directories tab's (D31) and the session switcher recorder's, empty, recording with a
-    refusal, the ⌘ warning, set and taken (D32), included; General frames 420 pt tall) in the
-    same plain preview window, with the same
+    `SettingsFixtures.all` (40 states: the persistent profile fields and tab's, the
+    Directories tab's (D31), the session switcher recorder's, empty, recording with a
+    refusal, the ⌘ warning, set and taken (D32), and the terminal picker's and the plain
+    choice's (D38 *The UI (I-12d1)*) included; General frames 720 pt tall, the picker's 470 pt)
+    in the same plain preview window, with the same
     `--appearance` and `--preview-snapshot` flags; screenshots
     `docs/screenshots/settings-states-{light,dark}.png`. Synthetic data only (`*.example`
     destinations, invented profile and suggestion names, a fixed log).
@@ -1416,15 +1424,19 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     class for its editing keys and ⌘W; `NSApp.activate()` brings it forward). Never for a
     `saved` list; an `invalid` file keeps D23's banner and the popover's notice; an unreadable
     folder shows nothing. Closing it without saving brings it back at the next launch, while
-    the list is still not saved. Preparing and opening it reads nothing more, contacts no
-    iTerm2 and runs no ssh or tmux; the examples are turned off, so the engine discovers
-    nothing either.
-  - **Content:** the examples (D19's defaults: Saturno, Neptuno and Sirio, SSH, no
-    destination, turned off) as rows with the name, the SSH destination (This Mac's row says it
-    is checked directly), "Set up SSH in iTerm2…", a "This Mac" checkbox and "Turned on"; then
-    the brief's four expectations one line each, the scope line (default tmux server only) and
-    the iTerm2 requirements (the Python API on; the one-time Automation permission)
-    (`OnboardingText`). The tmux path, the profile, adding and removing hosts stay in Settings.
+    the list is still not saved. Preparing it reads nothing more; opening it reads only the
+    terminal picker's facts (LaunchServices and the Automation permission without a prompt,
+    D38 *The UI (I-12d1)*); it contacts no iTerm2 and runs no ssh or tmux; the examples are
+    turned off, so the engine discovers nothing either.
+  - **Content** (`OnboardingModel.steps`): the Terminal step, the picker Settings › General
+    shows (D38 *The UI (I-12d1)*); the examples (D19's defaults: Saturno, Neptuno and Sirio,
+    SSH, no destination, turned off) as rows with the name, the SSH destination (This Mac's row
+    says it is checked directly), "Set up SSH in iTerm2…" (named after the chosen terminal), a
+    "This Mac" checkbox and "Turned on"; then the brief's four expectations one line each, the
+    scope line (default tmux server only) and, with iTerm2 chosen, the iTerm2 requirements (the
+    Python API on; the one-time Automation permission), otherwise what plain mode means and
+    the chosen terminal's permission line (`OnboardingText`). It works with no iTerm2
+    installed. The tmux path, the profile, adding and removing hosts stay in Settings.
   - **Editing** reuses D23's `HostDraft` and `HostDraftIssues` (name required, at most 50
     characters and unique among the rows; a destination empty or valid, required to turn an
     SSH host on, `setEnabled(_:for:)` refusing with the reason). This Mac is exclusive and
@@ -1478,12 +1490,15 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     question there, then check the host again." or "muxFinder couldn't open ssh in iTerm2.
     <reason>", with D23's fix-it for an iTerm2 error. The log records the outcome kind,
     duration and host id, never the destination. Rejected: a second iTerm2 route (AppleScript
-    or typed text), and waiting for the helper's result (the login can last hours).
+    or typed text), and waiting for the helper's result (the login can last hours). With a
+    plain terminal chosen, `PlainSSHSetupLauncher` writes the same request and opens a window of
+    that terminal running `<helper> ssh-setup <uuid>` instead (`openedWindow`; D38 *The UI
+    (I-12d1)*), and the lines name that terminal.
   - **Where it is offered (`SSHSetupActions`, one per window):** each onboarding row with an
     SSH destination that passes validation (the destination as typed; nothing is saved for
-    it); the Settings host editor under the destination ("Set up SSH in iTerm2…"), replaced
-    by "Set up SSH in iTerm2 first" under a Test connection result of "Sign-in needed" or "Host
-    key problem"; the popover under a host whose last check failed `authFailed` or
+    it); the Settings host editor under the destination ("Set up SSH in iTerm2…", or in the
+    chosen terminal, D38), replaced by "Set up SSH in iTerm2 first" under a Test connection
+    result of "Sign-in needed" or "Host key problem"; the popover under a host whose last check failed `authFailed` or
     `hostKeyProblem` ("Set up SSH in iTerm2 first"; "Retry" forgets its line). One request
     per host at a time while its line shows; each line waits for one request's result only,
     so changing the destination or mode (or "Retry") forgets the line and drops the result of
@@ -1498,9 +1513,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     must end at least 10 s old, and an unattended run first needs a way to close its own tab
     by the printed session id) is owed to a real-run window.
   - **Preview fixtures:** `--preview-fixtures --preview-gallery onboarding` shows
-    `OnboardingFixtures.all` (7 states: the examples, This Mac chosen with a tab opened,
+    `OnboardingFixtures.all` (9 states: the examples, This Mac chosen with a tab opened,
     validation errors, a tab opening and one failing with its fix-it, saving, a list saved
-    elsewhere, a failed save); screenshots `docs/screenshots/onboarding-states-{light,dark}.png`.
+    elsewhere, a failed save, no iTerm2 installed with Terminal chosen, Ghostty chosen with
+    its windows); screenshots `docs/screenshots/onboarding-states-{light,dark}.png`.
     The popover's "Host problems" and Settings' "Test connection and a fix-it" fixtures show the
     action too.
 
@@ -1887,7 +1903,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       back the stored value unchanged; both are checked whether or not the profile is on, as
       `HostList` checks. An error is inline (the validation's sentence) and blocks Save; a
       parent iTerm2 does not list is a warning. A host without the fields saves back byte for
-      byte (tested through `HostStore` in a private folder).
+      byte (tested through `HostStore` in a private folder). With a plain terminal chosen the
+      parent field says "Used only with iTerm2." and the switch's note speaks of the terminal's
+      persistent work command (D38 *The UI (I-12d1)*).
     - **Where:** its own tab, "Persistent profiles", between Hosts and General (decided: the
       status, three buttons, results and four paragraphs of copy would crowd General): the
       status line, the profile names the saved hosts make, "Install profiles", "Remove
@@ -1898,7 +1916,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       and Remove stays offered. Install is off, with a note, while the list is not saved
       (examples, an unusable or changed file), while no saved host has its profile on, and
       while the status is unavailable; Remove only while muxFinder's own file is there; every
-      button while an operation runs.
+      button while an operation runs. With a plain terminal chosen the tab shows each saved
+      host's persistent work command for that terminal instead, the iTerm2 part collapsed to
+      one line with Remove while muxFinder's file is installed and Install not offered (D38
+      *The UI (I-12d1)*).
     - **Seam:** `SettingsEnvironment.persistentProfiles` (`PersistentProfileManaging`:
       `status(for:)`, `install(_:)`, `update(_:)`, `remove()`), production
       `PersistentProfileFiles` (the
@@ -4440,6 +4461,139 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       for the rest). **Owed** (to the user,
       `docs/MANUAL-CHECKLIST.md` item 26): `e2e-plain --terminal terminal|ghostty --local |
       --ssh saturno-m4` with the app running and `granted`.
+  - **The UI (I-12d1)** (2026-11-06; requirements 8–11; code in `Sources/MuxFinderUI/Model/`:
+    `TerminalWording.swift`, `TerminalPicker.swift` (`TerminalPermissionLabel`,
+    `TerminalPickerRow`, `TerminalPickerProblem`, `TerminalPickerReading`,
+    `TerminalPickerContent`, `TerminalPickerFixture`, `TerminalPickerModel`),
+    `PersistentWorkContent.swift`; `Views/Settings/TerminalPickerView.swift`;
+    `Preview/TerminalPickerFixtures.swift`; in the core `Terminals/PlainSSHSetupLauncher.swift`
+    (`PlainSSHSetupWindowOpening`, `PlainSSHSetupLauncher`); changed: `PlainTerminalWindows`
+    (`openSSHSetup(_:helperPath:token:)`), `TerminalAppFacts` (`automation(for:inspector:)`,
+    `init(definition:snapshot:automation:)`), `Attach/SSHSetupLauncher.swift` (the new result and
+    failure cases), `TerminalChoice.displayID(_:)` (now public), the fakes
+    (`FakeTerminalAppInspector`'s per-app answers, `FakePlainTerminalWindowLayer.sshSetupOpens`),
+    the probe's `SSHSetupCommand.swift` (the new result case), and in `MuxFinderUI`
+    `SSHSetupActions.swift`, `SettingsEnvironment.swift`, `AppEnvironment.swift`,
+    `AppModel.swift`, `AppModelTerminal.swift`, `SettingsModel.swift`,
+    `SettingsModelProfiles.swift`, `SettingsResults.swift`, `OnboardingModel.swift`,
+    `DiagnosticsReport.swift`, the General, Diagnostics, host editor, Persistent profiles,
+    onboarding and popover host section views, the Settings and onboarding fixtures and
+    galleries; tests in `TerminalPickerTests` and the core's `PlainSSHSetupLauncherTests`;
+    `docs/TESTING.md` *Phase I-12d1*, `docs/MANUAL-CHECKLIST.md` item 27). It does what the
+    calls for I-12d1 say; the popover's session strings and the attach states are I-12d2's.
+    **The worker's calls:**
+    - *One source of wording*, `TerminalWording`: the display name, a kind by bundle
+      identifier (`iTerm2`, `terminalApp` for `com.apple.Terminal`, `ghostty` for
+      `com.mitchellh.ghostty`, `other`, compared without regard to case) and the place ("tab"
+      or "window"), with every string built from them ("Set up SSH in Terminal…", its "first"
+      form and help, the ssh setup lines, "Not used with Terminal", onboarding's introduction
+      and permission line). It follows the **applied** choice (`AppModel.terminalWording`,
+      `SettingsModel.terminalWording`, set in `setTerminalGates(_:)`): iTerm2's wording for
+      iTerm2, while the choice is `unresolved` (today's strings) and for an unavailable
+      `iterm2`; an unavailable definition's own name; an id no definition has reads "the chosen
+      terminal". With iTerm2 every string is byte for byte as before (tested).
+    - *The picker* is one `TerminalPickerModel`, `AppModel.terminalPicker`, shared by Settings ›
+      General (its first section, "Terminal", above Startup) and onboarding's Terminal step; a
+      model built without `AppEnvironment.terminal` gets an inert one (iTerm2, nothing read or
+      chosen). It shows custom radio rows rather than a SwiftUI `Picker` (each row holds two or
+      three lines and, under it, a button). `TerminalPickerContent.make` is pure: iTerm2 first
+      when installed (its note "Native tmux: each tmux window opens as an iTerm2 tab or
+      window.", no permission label: iTerm2's Automation is the cookie's, covered by D23's
+      fix-its), then each loaded definition whose version check is `meets`, by display name
+      (`localizedStandardCompare`, ties by id); the selected row (a waiting change's, else the
+      applied choice's) is listed whatever its state, with its reason as a sentence ending in a
+      period ("Ghostty 1.2 is older than 1.3.", "Ghostty isn't installed.", "Can't read
+      Ghostty's version.", "No terminal named “warp”." on a row named by the quoted id,
+      "iTerm2 isn't installed."). "Allow in System Settings…" sits under every `denied` or
+      `notDetermined` row, not only the selected one. The loader's problems are listed under
+      "Terminal definitions not used", file name and reason. **Reading**
+      (`TerminalPickerReading`: iTerm2's snapshot and every definition's `TerminalAppFacts`,
+      the permission without a prompt) happens only when the Settings or onboarding window
+      opens and on "Check again"; a window that opens before the setting was read gets its
+      reading when the definitions arrive (the resolution, not a timer). LaunchServices'
+      snapshots are taken on the main actor and the Automation permissions read in a detached
+      task (`TerminalAppFacts.automation(for:inspector:)`), so a slow
+      `AEDeterminePermissionToAutomateTarget` never holds Settings or onboarding; the result is
+      shown when it arrives only while it is the newest reading: a newer "Check again", the last
+      picker window closing (Settings and onboarding share the picker) or quitting drops it
+      (Settings' opening waits for the reading or its drop). Until the first reading arrives the
+      picker shows "Reading the terminal setting…" with no rows (onboarding's plain-mode step
+      shows its permission line meanwhile); on "Check again" the earlier rows stay until the new
+      reading replaces them (decided: no "Checking…" label, the read normally takes
+      milliseconds). After each reading shown, `AppModel.resolveTerminalAgain()` resolves the
+      stored setting again through `TerminalEnvironment.resolve` (as `setTerminal(_:)` does;
+      nothing saved) and takes the result only when it changed and names the same terminal as
+      the selected choice, for a plain or unavailable choice only (with iTerm2 chosen nothing
+      changes): Ghostty 1.2 upgraded to 1.3.1 is applied on "Check again", one that became
+      unusable shows unavailable again, and while a session action is pending the result waits
+      as a change does (the review of I-12d1). **Choosing** stores the
+      row's explicit id (never the absent default) through `AppModel.setTerminal(_:)`; a refused
+      save shows `PreferencesStoreError.errorDescription` and changes nothing; a change held by
+      a pending action is selected at once with "Applies when the current action ends." while
+      every other string keeps the applied choice until it is applied.
+    - *Set up SSH in a plain terminal:* `PlainTerminalWindows.openSSHSetup(_:helperPath:token:)`
+      shares the attach's open (facts, launch command, compile-once script or spawn, window
+      record) with only the mode word `ssh-setup` in place of `attach-plain`;
+      `PlainSSHSetupLauncher` (behind `PlainSSHSetupWindowOpening`) refuses This Mac, an invalid
+      destination and a missing helper first, asks the layer's run policy, writes D24's
+      `SSHSetupRequest` unchanged, opens one window and withdraws the request on any failure
+      after the write, or on a cancellation, checked again on the main actor right before the
+      window opens (closing Settings or onboarding, or quitting, can cancel while the open waits
+      for the main actor; the review of I-12d1); it answers the new
+      `SSHSetupResult.openedWindow(_:)` (the open is the
+      result, nothing confirmed after it) or `SSHSetupFailure.terminalWindow(_:)`. The app's
+      opener is `SettingsEnvironment.plainSSHSetup`, over the one plain window layer and
+      `LaunchStore()`. `SSHSetupActions` asks the opener the resolution names: iTerm2's for
+      iTerm2, the plain one for a plain choice, none while `unresolved`
+      (`notUsedWithThisTerminal`, its line reworded to "Still reading the terminal setting. Try
+      again in a moment." and shown without a terminal's name) or unavailable (the new
+      `terminalUnavailable`, "…can't be used now. Choose another in Settings › General.").
+      Decided: a plain choice with **no plain opener wired** (the tests of other parts; the app
+      always wires one) keeps the earlier refusal, so `aPlainChoiceNeverContactsITerm2` stands
+      as written. Each line names the terminal its request was made in (`wordings`); a change
+      of choice clears only the lines that refused for the previous one. A plain window macOS
+      refused (`permissionDenied`) offers "Open Automation settings". The helper's `ssh-setup`
+      mode is unchanged (it runs in any terminal; its 10 s hold stays).
+    - *Host editor:* the iTerm2 profile field keeps its value and stays editable; with another
+      choice its caption is `ProfileChoices.notUsedWithThisTerminal`'s note, now "Used only
+      with iTerm2.", and the parent profile field gets the same line; the persistent profile
+      switch's note speaks of the terminal's persistent work command.
+    - *Persistent profiles tab* with a plain choice (`PersistentWorkContent`): decided, "per
+      enabled host" is per saved host whose **persistent profile** is on (`profile-plain`
+      refuses any other, `notOptedIn`), in host-list order, from the saved list only (as
+      Install). The command is D3's extension through `TerminalCommandText`: `exec '<helper>'
+      'profile-plain' '<host id>'`, the helper path read when the window opens
+      (`SettingsEnvironment.helperPath`, `LaunchHelperPath.locate()` in the app; a missing or
+      unusable one is the tab's problem line). Where to paste: Terminal, "Settings › Profiles
+      › Shell › Run command" with "Run inside shell" kept on (the quoting and `exec` need the
+      shell); Ghostty, after “command = ” in its config file; any other, a generic sentence.
+      Copy goes through `SettingsEnvironment.copyText` (the general pasteboard; "Copied the
+      command for Saturno."). The iTerm2 part is one line, "Remove profiles" while muxFinder's
+      own file is installed (the status is still read when the window opens; no iTerm2
+      contact), and Install refused (`canInstall` false), so nothing writes `DynamicProfiles`
+      with a plain choice but the user's Remove.
+    - *Diagnostics* with a choice other than iTerm2: the tab shows a "Terminal" row (name,
+      version, permission as the picker last read it, or its reason) and "iTerm2: Not used
+      with Terminal"; the report's iTerm2 check line reads "not used with Terminal" and a
+      `Terminal:` line follows the shortcut's. Decided: with iTerm2 chosen (or not resolved
+      yet) neither appears, so iTerm2's report is as before.
+    - *Onboarding:* `OnboardingModel.steps` is the Terminal step first (decided: before the
+      hosts, since it names the terminal their "Set up SSH" opens), the hosts, "Good to know",
+      then iTerm2's Python API step with iTerm2's wording, else the plain-mode step titled with
+      the terminal's name: what plain mode means and, for an AppleScript terminal, the
+      permission line (none for an `exec` one). The introduction names the terminal. Opening
+      the window reads the picker's facts; it still contacts no iTerm2.
+    - *The popover's "Set up SSH in iTerm2 first"* and its line follow the choice too (one
+      wording source; the rest of the popover is I-12d2's).
+    - **Verified** (hermetic; `docs/TESTING.md` *Phase I-12d1*): 16 UI tests and 4 core tests,
+      every existing expectation unchanged (no existing test's wiring changed either). The
+      galleries: 15 new Settings states (the picker's eleven, the host editor, two Persistent
+      profiles tabs and Diagnostics with a plain choice; General frames 720 pt, picker frames
+      470 pt) and 2 new onboarding states (no iTerm2; Ghostty), light and dark. `pgrep -x
+      Terminal` and `pgrep -x ghostty` empty before and after; no Apple event, no prompt.
+      **Owed** (`docs/MANUAL-CHECKLIST.md` item 27): the picker's real permission states, "Set up
+      SSH" in Terminal and Ghostty (a real login and an Apple event), pasting the persistent
+      work command into Terminal and Ghostty.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -7057,7 +7211,7 @@ extended for Terminal's command text). Split before the first worker:
 - **I-12d — UI (routine).** Settings › General "Terminal" (requirement 8), strings following
   the choice (9), onboarding without iTerm2 (10), persistent work's per-host command with
   Copy (11), the app never contacting iTerm2 when it is not the choice, galleries light and
-  dark.
+  dark. **Split into I-12d1 and I-12d2** (below, after the calls for I-12c3b).
 - **I-12e — docs (routine).** `docs/REQUIREMENTS.md` addendum 13, `docs/TERMINALS.md`
   ("Adding a terminal", later candidates, the Ghostty control-mode note), README,
   ARCHITECTURE, TESTING, MANUAL-CHECKLIST, `CLAUDE.md` commands and the extended safety
@@ -7731,6 +7885,119 @@ plain real runs to the user; iTerm2's runs are its real regression.
   refusals, the regression results, and *Owed* with the exact commands per terminal and host);
   `docs/MANUAL-CHECKLIST.md` (the `e2e-plain` runs beside the existing Terminal/Ghostty items);
   `CLAUDE.md` *Commands* for `e2e-plain`.
+
+Calls for I-12d (the UI; 2026-11-06, at its selection). I-12d is too wide for one worker
+(Settings, onboarding, SSH setup, every session string, four galleries per terminal), so it is
+**split into I-12d1 and I-12d2**, both routine. Common to both:
+
+- **Strings follow the resolved choice** through one source of terminal wording in
+  `MuxFinderUI` (the worker names it): the display name ("iTerm2", "Terminal", "Ghostty", a
+  user definition's `name`), the place ("tab" in iTerm2, "window" otherwise) and the verbs
+  built from them. Sentence case, English. With iTerm2 chosen every existing string, state and
+  test expectation is unchanged (requirement 12); existing tests may change how they wire the
+  model, never what they expect.
+- **No real terminal-app run** (*Unattended-run rules* 8): `pgrep -x Terminal` and `pgrep -x
+  ghostty` are read before and after and must not change; no Apple event, no permission prompt.
+  Permission states in the UI are read only with `AEDeterminePermissionToAutomateTarget`
+  without a prompt (`AutomationPermission`), at the window's opening and on an explicit "Check
+  again", never on a timer. Screenshots only through `--preview-fixtures --preview-snapshot`
+  (synthetic fixtures, light and dark, `docs/screenshots/`); never a real window of another app.
+- **No new dependency, no core behaviour change** beyond what is listed; core additions
+  additive, hermetically tested.
+
+**I-12d1 — Settings, onboarding and SSH setup (routine).**
+
+- **Settings › General "Terminal"** (requirement 8): a picker listing iTerm2 when installed,
+  then each loaded definition whose app is installed and meets its minimum version (Terminal
+  always; Ghostty from 1.3), user definitions by their `name`; each row with its permission
+  state (`granted` "Allowed", `denied` "Not allowed", `notDetermined` "Not asked yet",
+  `targetNotRunning` "Checked when the app is running", `other` "Unknown", an `exec`
+  definition "Not needed") and a one-line note of plain mode under every plain row ("Plain
+  tmux: windows and panes stay inside one terminal window."). Choosing calls
+  `AppModel.setTerminal(_:)`: a refused save shows the store's error beside the picker and
+  keeps the old choice; a change held by a pending action says "Applies when the current
+  action ends." An unavailable current choice stays selected and is shown with its reason
+  ("Ghostty isn't installed", "Ghostty 1.2 is older than 1.3", "No terminal named …",
+  "Can't read Ghostty's version"), never replaced. Definition problems (the loader's, kept since
+  I-12c3a) are listed under the picker, file name and reason only. "Allow in System Settings…"
+  opens Privacy & Security › Automation (an URL open, no Apple event) for a `denied` or
+  `notDetermined` row.
+- **Host editor:** the iTerm2 profile field keeps its value and stays editable; with a plain
+  choice its caption says "Used only with iTerm2." "Set up SSH in iTerm2…" follows the choice
+  ("Set up SSH in Terminal…", "… in Ghostty…").
+- **SSH setup in a plain terminal:** an additive core path that opens the helper's existing
+  `ssh-setup <uuid>` mode (D24's request unchanged) in a window of the chosen plain terminal
+  through `PlainTerminalWindows` (the same facts gate, compile-once and window binding as an
+  attach; no confirmation: the window's open is the result), wired through
+  `SSHSetupActions` in place of `notUsedWithThisTerminal` for a resolved plain choice. While
+  the choice is still `unresolved` the line keeps today's refusal, reworded to "Still reading
+  the terminal setting. Try again in a moment." Hermetic tests over the window layer's fakes;
+  no real run (it would be an interactive login and an Apple event: owed to the user).
+- **Persistent profiles tab** (requirement 11): with iTerm2 chosen, unchanged. With a plain
+  choice, per enabled host the command for that terminal's own "run command" setting, built
+  from the bundle's helper path (POSIX single-quoted, D3) and `profile-plain <host id>`, with
+  a Copy button (the general pasteboard; nothing else written), and where to paste it
+  (Terminal: "Settings › Profiles › Shell › Run command"; Ghostty: "`command = ` in Ghostty's
+  config file"; a user definition: the generic sentence). muxFinder never writes another
+  terminal's settings. The iTerm2 section collapses to one line: Remove stays offered while
+  muxFinder's own `DynamicProfiles/muxFinder.json` exists (the user's explicit action, as
+  today); Install is offered only with iTerm2 chosen.
+- **Diagnostics:** with a plain choice the iTerm2 rows read "Not used with Terminal" (the
+  choice's name) in place of today's neutral placeholder, and a row shows the chosen terminal,
+  its version and its permission state (as the picker reads them).
+- **Onboarding** (requirement 10): a "Terminal" step before the API step with the same picker
+  (default preselected, iTerm2 first when installed); the iTerm2 Python API step and its
+  check appear only with iTerm2 chosen; with a plain choice a short plain-mode explanation and
+  the permission line take their place ("macOS asks once, the first time muxFinder opens a
+  Terminal window."). Onboarding works with no iTerm2 installed (the fixture proves it).
+- **Galleries** (`--preview-gallery settings` and `onboarding`, light and dark): the picker's
+  states (iTerm2 chosen; Terminal chosen with each permission state; Ghostty chosen;
+  unavailable choice; definition problems; pending change; refused save), the host editor and
+  Persistent profiles tab with a plain choice, onboarding without iTerm2 and with a plain
+  choice. Screenshots replaced in `docs/screenshots/settings-states-*.png` and
+  `onboarding-states-*.png`.
+- **Tests, hermetic:** the picker's rows from installed apps and definitions (Ghostty below
+  its minimum left out unless it is the current choice), every permission label, the
+  unavailable reasons, the refused save and the pending note; the plain persistent-work
+  command's quoting and per-host lines; SSH setup's plain path over fakes (request written,
+  window opened once, nothing sent to iTerm2) and its `unresolved` refusal; onboarding's steps
+  per choice; the never-contact proof (`aPlainChoiceNeverContactsITerm2`) still passing.
+- **Records:** D38 "The UI (I-12d1)", D23/D24/D26 sentences the change invalidates,
+  `docs/TESTING.md` *Phase I-12d1*, `docs/MANUAL-CHECKLIST.md` (the picker's real permission
+  states, SSH setup in Terminal and Ghostty, pasting the persistent work command).
+
+**I-12d2 — the popover, the switcher and the session states (routine).**
+
+- **Actions and states** (requirement 9): "Open in <terminal>", "Show window" in plain mode
+  and "Show tab" in iTerm2, "Detach" and "Move here" unchanged, the launch's pending and
+  failure lines naming the choice; the "earlier launch pending" refusal names the terminal of
+  the launch that holds it (I-12c3a's open risk); a session with local attachments in another
+  app on this Mac (`SessionRow.localAttachments`) shows "Open in Terminal on this Mac" and its
+  focus action ("Show in Terminal"), with iTerm2 chosen too (I-12c3a's call: Open still opens
+  in iTerm2).
+- **Errors:** "Ghostty's AppleScript is turned off" (with where to turn it on),
+  "muxFinder isn't allowed to control Terminal" with "Open System Settings…" to Privacy &
+  Security › Automation, "Terminal isn't running and couldn't be opened", the unavailable
+  choice ("The chosen terminal, Ghostty, isn't installed." with "Open Settings"), the plain
+  name refusal ("Terminal windows can't attach a session whose name has { [ or ]."); every
+  `PlainTerminalWindowError` and plain `AttachFailure` case mapped, none falling to a generic
+  line.
+- **Detach other clients**, plain wording: a run stopped partway says "Stopped after
+  detaching N" when the count is known and "Some may have been detached" when it is not
+  (I-12c1's open risk), never "none detached" when that is unproven.
+- **Detach from another terminal's records** (I-12c3a's open risk): while a session has a
+  record kept for a terminal that is not chosen, its row offers "Detach (opened in <that
+  terminal>)" through that terminal's cached backend; nothing else of that backend is used.
+- **Galleries** (`--preview-gallery popover`, `attach` and `switcher`, light and dark): each
+  of iTerm2, Terminal and Ghostty for the row actions, pending, confirmed, focused, failed
+  (each new error), local attachment in another app, unavailable choice. Screenshots in
+  `docs/screenshots/{popover,attach,switcher}-states-*.png`.
+- **Tests, hermetic:** strings per terminal for every action and state, each error mapping,
+  the detach-others wording, the other-terminal detach routed to its own backend, and every
+  existing popover/switcher expectation unchanged under iTerm2.
+- **Records:** D38 "The UI (I-12d2)", D25/D32/D37 sentences the change invalidates,
+  `docs/TESTING.md` *Phase I-12d2*, `docs/MANUAL-CHECKLIST.md` (real Open, Show window,
+  Detach, Move here in Terminal and Ghostty, the errors).
 
 ## Deferred (explicitly out of scope for v1)
 

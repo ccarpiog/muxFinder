@@ -70,8 +70,8 @@ public struct ITerm2ProfileSource: ITerm2ProfileListing {
 }
 
 /// What the Settings window runs on (PLAN.md D23), and with it the onboarding window and the
-/// popover's "Set up SSH in iTerm2…" (D24), the persistent profile file (D26) and the saved
-/// directories (D31). `AppEnvironment.production()` wires the real ones; tests pass fakes, so
+/// popover's "Set up SSH in iTerm2…" (D24; in a plain terminal's window too, D38), the
+/// persistent profile file (D26) and the saved directories (D31). `AppEnvironment.production()` wires the real ones; tests pass fakes, so
 /// `swift test` never saves the real `hosts.json` or `directories.json`, runs a probe, contacts
 /// iTerm2, opens a tab, changes a login item, opens System Settings, touches the pasteboard or
 /// writes in iTerm2's `DynamicProfiles`.
@@ -101,6 +101,15 @@ public struct SettingsEnvironment: Sendable {
   /// Opens "Set up SSH in iTerm2…" tabs (`SSHSetupLauncher`, PLAN.md D24), for the Settings
   /// host editor, the onboarding window and the popover; `nil` offers no action.
   public var sshSetup: (any SSHSetupOpening)?
+  /// Makes "Set up SSH in <terminal>…"'s opener for a plain terminal's loaded definition
+  /// (`PlainSSHSetupLauncher` over the app's one plain window layer, PLAN.md D38, Phase
+  /// I-12d1), for the same three owners; `nil` (the tests of other parts) keeps a plain choice
+  /// refused as before.
+  public var plainSSHSetup: SSHSetupActions.PlainOpenerMaker?
+  /// Finds the bundle's helper (`muxfinder-launch`) for the persistent work commands the
+  /// Persistent profiles tab shows with a plain terminal chosen (PLAN.md D38, Phase I-12d1);
+  /// read when the window opens. `nil` (the tests of other parts) reads as a missing helper.
+  public var helperPath: (@Sendable () -> Result<LaunchHelperPath, LaunchHelperPathError>)?
   /// muxFinder's persistent profile file in iTerm2's `DynamicProfiles` (PLAN.md D26): the
   /// Persistent profiles tab, the update after a save and the rewrite at launch go through it
   /// only (`PersistentProfileFiles` in production).
@@ -130,7 +139,9 @@ public struct SettingsEnvironment: Sendable {
     sshSetup: (any SSHSetupOpening)? = nil,
     persistentProfiles: any PersistentProfileManaging,
     directories: (any DirectoryStoring)? = nil,
-    preferences: (any PreferencesStoring)? = nil
+    preferences: (any PreferencesStoring)? = nil,
+    plainSSHSetup: SSHSetupActions.PlainOpenerMaker? = nil,
+    helperPath: (@Sendable () -> Result<LaunchHelperPath, LaunchHelperPathError>)? = nil
   ) {
     self.store = store
     self.discovery = discovery
@@ -147,6 +158,8 @@ public struct SettingsEnvironment: Sendable {
     self.persistentProfiles = persistentProfiles
     self.directories = directories
     self.preferences = preferences
+    self.plainSSHSetup = plainSSHSetup
+    self.helperPath = helperPath
   } // End of init(store:discovery:profiles:sshSuggestions:loginItem:diagnostics:…)
 
   /// Puts `text` on the general pasteboard as plain text.

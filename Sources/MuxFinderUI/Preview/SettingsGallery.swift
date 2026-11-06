@@ -20,8 +20,9 @@ public struct SettingsGallery: View {
 
   /// How many states each row holds.
   public static let columns = 3
-  /// The height of a General tab's frame, which needs less room than the others.
-  static let generalHeight: CGFloat = 420
+  /// The height of a General tab's frame: the Terminal section, launch at login and the
+  /// session switcher.
+  static let generalHeight: CGFloat = 720
 
   /// The states, each with its own model (made once).
   @State private var entries: [Entry]
@@ -55,7 +56,9 @@ public struct SettingsGallery: View {
   /// One state: its title above a window-like frame.
   private func card(_ entry: Entry) -> some View {
     let size = SettingsView.defaultSize
-    let height = entry.fixture.tab == .general ? Self.generalHeight : size.height
+    let height =
+      entry.fixture.galleryHeight.map { CGFloat($0) }
+      ?? (entry.fixture.tab == .general ? Self.generalHeight : size.height)
     return VStack(alignment: .leading, spacing: 8) {
       Text(entry.fixture.title)
         .font(.headline)

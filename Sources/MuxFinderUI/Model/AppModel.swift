@@ -320,6 +320,10 @@ public final class AppModel {
   public let onboarding: OnboardingModel
   /// The popover's "Set up SSH in iTerm2…" (no action for a fixture or without settings seams).
   public let sshSetup: SSHSetupActions
+  /// The terminal picker Settings › General and onboarding's Terminal step share (PLAN.md D38,
+  /// Phase I-12d1): kept current by `setTerminalGates(_:)`, choosing through `setTerminal(_:)`;
+  /// inert for a fixture or without `AppEnvironment.terminal`.
+  public let terminalPicker: TerminalPickerModel
   /// The session switcher shortcut (PLAN.md D32; inert without
   /// `AppEnvironment.globalShortcut`). Settings › General shows the same model.
   public let shortcut: GlobalShortcutModel
@@ -491,9 +495,17 @@ public final class AppModel {
       environment.settings.map {
         OnboardingModel(
           environment: OnboardingEnvironment(
-            store: $0.store, sshSetup: $0.sshSetup, diagnostics: $0.diagnostics))
+            store: $0.store, sshSetup: $0.sshSetup, plainSSHSetup: $0.plainSSHSetup,
+            diagnostics: $0.diagnostics))
       } ?? OnboardingModel(fixture: OnboardingFixtures.blank)
-    sshSetup = SSHSetupActions(opener: environment.settings?.sshSetup)
+    sshSetup = SSHSetupActions(
+      opener: environment.settings?.sshSetup, plainOpener: environment.settings?.plainSSHSetup)
+    terminalPicker =
+      environment.terminal.map { terminal in
+        TerminalPickerModel(
+          inspector: terminal.inspector,
+          openURL: environment.settings?.openURL ?? environment.openURL)
+      } ?? .inert()
     shortcut = GlobalShortcutModel(
       environment: environment.globalShortcut, diagnostics: environment.diagnostics)
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
@@ -506,6 +518,10 @@ public final class AppModel {
     }
     onboarding.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
     onboarding.onOpenSettings = { [weak self] in self?.openSettings() }
+    settings.terminalPicker = terminalPicker
+    onboarding.terminalPicker = terminalPicker
+    terminalPicker.setter = { [weak self] id in await self?.setTerminal(id) }
+    terminalPicker.didRead = { [weak self] in self?.resolveTerminalAgain() }
     // Not resolved until `start()` has read the setting: Settings (the menu shows it before the
     // model starts), onboarding and "Set up SSH in iTerm2…" contact no iTerm2 meanwhile.
     if environment.terminal != nil { setTerminalGates(.unresolved) }
@@ -543,6 +559,7 @@ public final class AppModel {
     settings = SettingsModel(fixture: SettingsFixtures.blank)
     onboarding = OnboardingModel(fixture: OnboardingFixtures.blank)
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
+    terminalPicker = .inert()
     shortcut = GlobalShortcutModel(fixture: GlobalShortcutFixture())
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     commandSink.finish()
@@ -735,13 +752,15 @@ public final class AppModel {
     return report
   } // End of func shutdown()
 
-  /// The part of `shutdown()` that never waits for a session action: Settings, onboarding,
-  /// the popover's "Set up SSH in iTerm2…" requests, the session switcher shortcut (its save
-  /// in progress awaited, its hotkey unregistered, PLAN.md D32) and New session's folder search
-  /// (its channel closed and its processes reaped, D36) stop concurrently with the engine's
-  /// chain (the start in progress, the request queue, the system events adapter, the
-  /// engine and its updates).
+  /// The part of `shutdown()` that never waits for a session action: the terminal picker's
+  /// reading under way is dropped first (Settings' opening may wait for it); then Settings,
+  /// onboarding, the popover's "Set up SSH in iTerm2…" requests, the session switcher shortcut
+  /// (its save in progress awaited, its hotkey unregistered, PLAN.md D32) and New session's
+  /// folder search (its channel closed and its processes reaped, D36) stop concurrently with
+  /// the engine's chain (the start in progress, the request queue, the system events adapter,
+  /// the engine and its updates).
   private func stopSubsystems() async {
+    terminalPicker.shutdown()
     async let settingsStopped: Void = settings.shutdown()
     async let onboardingStopped: Void = onboarding.shutdown()
     async let sshSetupStopped: Void = sshSetup.shutdown()

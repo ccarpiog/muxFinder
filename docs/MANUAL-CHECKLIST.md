@@ -747,6 +747,44 @@ launch either or send it an Apple event without the permission already granted
   close that window yourself once nothing runs in it, and end a session with
   `/opt/homebrew/bin/tmux kill-session -t '=<name>'` (on Saturno through `ssh saturno-m4`).
 
+## 27. Other terminal apps: the picker, "Set up SSH" and persistent work
+
+Owed by Phase I-12d1 (PLAN.md D38 *The UI (I-12d1)*): the picker, "Set up SSH" in a plain
+terminal and the persistent work commands were tested over stand-ins only, since a real
+permission read is muxFinder's own, "Set up SSH" starts a real ssh login in a real window
+through an Apple event, and the commands only work once pasted into the terminal's settings.
+Use the installed app (item 1), opened from Finder.
+
+- **Do, the picker:** open Settings › General. Check that the Terminal section lists iTerm2
+  (when installed), Terminal and Ghostty (only if 1.3 or later), each with its version, and
+  under Terminal and Ghostty "Permission: …" and "Plain tmux: windows and panes stay inside one
+  terminal window." With Terminal not running its permission reads "Checked when the app is
+  running"; open Terminal yourself and choose "Check again": it reads "Not asked yet" (or
+  "Allowed" / "Not allowed" if you answered before). On a "Not asked yet" or "Not allowed" row,
+  "Allow in System Settings…" opens System Settings › Privacy & Security › Automation. Choose
+  Terminal, then iTerm2 again; while a session is opening, choose another terminal: it says
+  "Applies when the current action ends."
+- **Do, "Set up SSH":** with Terminal chosen and running, in Settings › Hosts select Saturno
+  and choose "Set up SSH in Terminal…" (allow macOS's prompt the first time: "muxFinder" wants
+  to control Terminal). Then the same with Ghostty chosen ("Set up SSH in Ghostty…").
+- **Do, persistent work:** with Terminal chosen, turn on "Persistent profile" for This Mac and
+  Saturno in the Hosts tab and save. In the Persistent profiles tab choose Copy next to Saturno
+  and paste it in Terminal › Settings › Profiles › (a new profile) › Shell › Run command, "Run
+  inside shell" on; open a window with that profile. With Ghostty chosen, put the copied command
+  after `command = ` in Ghostty's config file and open a new Ghostty window.
+- **Expect:** the picker's states as described, and the Automation pane opening. "Set up SSH"
+  opens a new window of that terminal running ssh to Saturno (sign in or accept the host key
+  there; the line in Settings says the terminal opened a window, then "check the host
+  again"); closing it after ssh ends is the terminal's own setting. The persistent work window
+  attaches (or creates) Saturno's default session with plain tmux; closing the window keeps the
+  session running; opening another attaches the same session. No iTerm2 window or profile is
+  touched while another terminal is chosen; the "Profiles in iTerm2" line offers Remove only
+  while muxFinder's own profiles are installed.
+- **Undo:** choose iTerm2 again in Settings › General; clear the Run command (or delete the
+  profile) in Terminal and the `command = ` line in Ghostty's config; turn the persistent
+  profiles off again if you turned them on only for this; end a test session with
+  `/opt/homebrew/bin/tmux kill-session -t '=<name>'` if you made one.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -777,3 +815,4 @@ launch either or send it an Apple event without the permission already granted
 | 24 | | | |
 | 25 | | | |
 | 26 | | | |
+| 27 | | | |

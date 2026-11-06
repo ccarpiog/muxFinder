@@ -90,17 +90,21 @@ struct HostSectionView: View {
     } // End of VStack holding the messages
   } // End of var messages
 
-  /// "Set up SSH in iTerm2 first" under a sign-in or host key problem (PLAN.md D24), and what
-  /// it did.
+  /// "Set up SSH in iTerm2 first" (named after the chosen terminal, PLAN.md D38) under a
+  /// sign-in or host key problem (PLAN.md D24), and what it did.
   private var sshSetupLine: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Button("Set up SSH in iTerm2 first") { model.setUpSSH(hostID: section.id) }
+    let wording = model.terminalWording
+    return VStack(alignment: .leading, spacing: 4) {
+      Button(wording.setUpSSHFirstTitle) { model.setUpSSH(hostID: section.id) }
         .controlSize(.small)
         .disabled(section.sshSetup == .opening)
         .help(
-          "Open a new iTerm2 window running ssh to this host, so you can sign in or check its key")
+          "Open a new \(wording.name) window running ssh to this host, so you can sign in or "
+            + "check its key")
       if let state = section.sshSetup {
-        SSHSetupLine(state: state, perform: model.perform, shownExplanation: model.shownExplanation)
+        SSHSetupLine(
+          state: state, wording: model.sshSetup.wording(for: section.id), perform: model.perform,
+          shownExplanation: model.shownExplanation)
       }
     }
   } // End of var sshSetupLine

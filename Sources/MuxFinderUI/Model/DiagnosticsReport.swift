@@ -4,9 +4,11 @@ import MuxFinderCore
 /// The plain text "Copy diagnostics" puts on the pasteboard (PLAN.md D23).
 ///
 /// It holds muxFinder's and macOS's versions, the launch-at-login status, how the host list
-/// loaded, the last iTerm2 check, the session switcher shortcut's state by kind (PLAN.md D32;
-/// never the combination), each host's display name, id, mode, on/off state and status, and
-/// the operation log. Content rules:
+/// loaded, the last iTerm2 check (with a plain terminal chosen, "not used with Terminal" in its
+/// place), the session switcher shortcut's state by kind (PLAN.md D32; never the combination),
+/// the chosen terminal with its version and permission state when it is not iTerm2 (PLAN.md
+/// D38, Phase I-12d1), each host's display name, id, mode, on/off state and status, and the
+/// operation log. Content rules:
 ///
 /// - Hosts appear by display name and id only. SSH destinations, tmux paths, iTerm2 profile
 ///   names and node names are the user's data and are left out (the report says whether a tmux
@@ -38,6 +40,12 @@ public enum DiagnosticsReport {
     public var events: [DiagnosticEvent]
     /// The session switcher shortcut's state by kind (`GlobalShortcutModel.diagnosticsCode`).
     public var globalShortcut: String?
+    /// The chosen terminal, its version and permission state, when it is not iTerm2
+    /// (`SettingsModel.terminalDiagnostics`); `nil` leaves the line out.
+    public var terminal: String?
+    /// What the iTerm2 check line reads in place of the check ("not used with Terminal") while
+    /// another terminal is chosen; `nil`: the check as recorded.
+    public var iTerm2CheckNote: String?
 
     /// Creates an input.
     public init(
@@ -49,7 +57,9 @@ public enum DiagnosticsReport {
       refreshState: RefreshState?,
       loginItem: LoginItemStatus?,
       events: [DiagnosticEvent],
-      globalShortcut: String? = nil
+      globalShortcut: String? = nil,
+      terminal: String? = nil,
+      iTerm2CheckNote: String? = nil
     ) {
       self.appVersion = appVersion
       self.systemVersion = systemVersion
@@ -60,6 +70,8 @@ public enum DiagnosticsReport {
       self.loginItem = loginItem
       self.events = events
       self.globalShortcut = globalShortcut
+      self.terminal = terminal
+      self.iTerm2CheckNote = iTerm2CheckNote
     } // End of init(appVersion:systemVersion:generatedAt:hosts:hostListStatus:…)
   }
 
@@ -70,6 +82,9 @@ public enum DiagnosticsReport {
 
   /// The report for `input`, ending with a line break.
   public static func text(_ input: Input) -> String {
+    let check =
+      input.iTerm2CheckNote.map(clean)
+      ?? attachmentLine(input.refreshState?.attachmentCheck)
     var lines = [
       "muxFinder diagnostics",
       "Generated: \(timestamp(input.generatedAt))",
@@ -77,11 +92,11 @@ public enum DiagnosticsReport {
       "macOS: \(clean(input.systemVersion))",
       "Launch at login: \(input.loginItem?.code ?? "unknown")",
       "Host list: \(hostListLine(input.hostListStatus, hosts: input.hosts))",
-      "iTerm2 check: \(attachmentLine(input.refreshState?.attachmentCheck))",
+      "iTerm2 check: \(check)",
       "Session switcher shortcut: \(clean(input.globalShortcut ?? "unknown"))",
-      "",
-      "Hosts (\(input.hosts.hosts.count)):",
     ]
+    if let terminal = input.terminal { lines.append("Terminal: \(clean(terminal))") }
+    lines += ["", "Hosts (\(input.hosts.hosts.count)):"]
     let snapshots = Dictionary(
       (input.refreshState?.hosts ?? []).map { ($0.host.id, $0) }, uniquingKeysWith: { $1 })
     for host in input.hosts.hosts {

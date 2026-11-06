@@ -3,13 +3,17 @@ import MuxFinderCore
 import Observation
 
 /// What the onboarding window runs on (PLAN.md D24): the same `HostStore` the app loads with
-/// (so the save keeps D19's rules), "Set up SSH in iTerm2…" and the operation log. Tests pass
-/// fakes, so `swift test` never saves the real `hosts.json`, opens a tab or contacts iTerm2.
+/// (so the save keeps D19's rules), "Set up SSH in iTerm2…" (or in the chosen plain terminal,
+/// D38) and the operation log. Tests pass fakes, so `swift test` never saves the real
+/// `hosts.json`, opens a tab or window or contacts iTerm2.
 public struct OnboardingEnvironment: Sendable {
   /// The host list file.
   public var store: any HostListPersisting
   /// Opens "Set up SSH in iTerm2…" tabs; `nil` offers no action.
   public var sshSetup: (any SSHSetupOpening)?
+  /// Makes a plain terminal's "Set up SSH in <terminal>…" opener (PLAN.md D38, Phase I-12d1);
+  /// `nil` keeps a plain choice refused.
+  public var plainSSHSetup: SSHSetupActions.PlainOpenerMaker?
   /// The operation log, if any.
   public var diagnostics: DiagnosticsLog?
 
@@ -17,12 +21,28 @@ public struct OnboardingEnvironment: Sendable {
   public init(
     store: any HostListPersisting,
     sshSetup: (any SSHSetupOpening)? = nil,
+    plainSSHSetup: SSHSetupActions.PlainOpenerMaker? = nil,
     diagnostics: DiagnosticsLog? = nil
   ) {
     self.store = store
     self.sshSetup = sshSetup
+    self.plainSSHSetup = plainSSHSetup
     self.diagnostics = diagnostics
   }
+}
+
+/// The onboarding window's steps, in order (PLAN.md D24, D38, Phase I-12d1; requirement 10).
+public enum OnboardingStep: String, Sendable, Hashable, CaseIterable {
+  /// The terminal picker (the default preselected, iTerm2 first when installed).
+  case terminal
+  /// The example hosts.
+  case hosts
+  /// What to expect, and the scope line.
+  case goodToKnow
+  /// iTerm2's Python API and its Automation permission: only with iTerm2 chosen.
+  case iTerm2API
+  /// What plain tmux means and the permission line: with any other choice.
+  case plainMode
 }
 
 /// The fixed text of the onboarding window (PLAN.md Phase 9 *Onboarding*): the brief's four
@@ -49,6 +69,11 @@ public enum OnboardingText {
   /// The scope line.
   public static let scope =
     "muxFinder shows each Mac's default tmux server only, not servers started with tmux -L or -S."
+  /// What plain mode means, for the terminal named `name` (PLAN.md D38, Phase I-12d1).
+  public static func plainMode(_ name: String) -> String {
+    "muxFinder opens each session in a new \(name) window with plain tmux: tmux's status bar, "
+      + "prefix keys and copy mode. The session's windows and panes stay inside that one window."
+  }
   /// The iTerm2 requirements.
   public static let iTermRequirements = [
     "iTerm2's Python API must be on: in iTerm2, choose Settings › General › Magic and turn on "
@@ -75,8 +100,14 @@ public enum OnboardingText {
 ///   was loaded with, so a file that appeared since (Settings saved, say) is never replaced:
 ///   the save is refused and the window says so. Closing the window, or "Not now", writes
 ///   nothing; onboarding then shows again at the next launch.
-/// - **Nothing runs by itself:** preparing or opening the window reads nothing, contacts no
-///   iTerm2 and runs no ssh or tmux; only "Set up SSH in iTerm2…" opens a tab, when clicked.
+/// - **The terminal** (PLAN.md D38, Phase I-12d1; requirement 10): the Terminal step's picker
+///   is `AppModel`'s (`terminalPicker`); iTerm2's Python API step shows only with iTerm2
+///   chosen, a plain-mode explanation and the permission line otherwise (`steps`). Onboarding
+///   works with no iTerm2 installed.
+/// - **Nothing runs by itself:** preparing the window reads nothing; opening it reads only the
+///   terminal apps' facts and permissions (LaunchServices and `AutomationPermission`, no Apple
+///   event or prompt), contacts no iTerm2 and runs no ssh or tmux; only "Set up SSH in
+///   iTerm2…" opens a tab (or a window of the chosen terminal), when clicked.
 @MainActor
 @Observable
 public final class OnboardingModel {
@@ -103,6 +134,9 @@ public final class OnboardingModel {
   public private(set) var isWindowOpen = false
   /// "Set up SSH in iTerm2…" for the drafts.
   public let sshSetup: SSHSetupActions
+  /// The Terminal step's picker: `AppModel`'s (shared with Settings › General), a fixture's,
+  /// or an inert one.
+  public internal(set) var terminalPicker: TerminalPickerModel
   /// Whether this model renders a fixture.
   public let isPreview: Bool
 
@@ -123,7 +157,9 @@ public final class OnboardingModel {
   public init(environment: OnboardingEnvironment) {
     self.environment = environment
     isPreview = false
-    sshSetup = SSHSetupActions(opener: environment.sshSetup)
+    sshSetup = SSHSetupActions(
+      opener: environment.sshSetup, plainOpener: environment.plainSSHSetup)
+    terminalPicker = .inert()
   }
 
   /// A model that shows `fixture` and never runs anything.
@@ -136,7 +172,10 @@ public final class OnboardingModel {
     saveError = fixture.saveError
     fileChanged = fixture.fileChanged
     enableRefusals = fixture.enableRefusals
-    sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
+    sshSetup = SSHSetupActions(
+      opener: nil, states: fixture.sshSetupStates,
+      wordings: fixture.sshSetupStates.mapValues { _ in fixture.terminal.wording })
+    terminalPicker = TerminalPickerModel(fixture: fixture.terminal)
   }
 
   // MARK: - Showing
@@ -161,10 +200,36 @@ public final class OnboardingModel {
     return true
   } // End of func prepare(_:)
 
-  /// The window opened.
+  /// The window opened: the Terminal step's picker starts reading the apps' facts and
+  /// permissions (no Apple event, no prompt; the permissions off the main actor).
   public func windowDidOpen() {
     isWindowOpen = true
+    terminalPicker.windowOpened(.onboarding)
   }
+
+  // MARK: - Terminal
+
+  /// The applied terminal choice's wording.
+  public var terminalWording: TerminalWording { terminalPicker.wording }
+
+  /// The window's steps, in order: the Terminal step, the hosts and what to expect, then
+  /// iTerm2's Python API step with iTerm2 chosen, else the plain-mode step.
+  public var steps: [OnboardingStep] {
+    [.terminal, .hosts, .goodToKnow, terminalWording.isITerm2 ? .iTerm2API : .plainMode]
+  }
+
+  /// The plain-mode step's lines for the applied choice: what plain mode means, and, for a
+  /// terminal muxFinder controls with Apple events, the permission line (none for an `exec`
+  /// terminal, which needs no permission). Empty with iTerm2.
+  public var plainModeLines: [String] {
+    let wording = terminalWording
+    guard !wording.isITerm2 else { return [] }
+    var lines = [OnboardingText.plainMode(wording.name)]
+    if terminalPicker.chosenRow?.permission != .notNeeded {
+      lines.append(wording.permissionLine)
+    }
+    return lines
+  } // End of var plainModeLines
 
   /// The window closed: requests for ssh tabs still running are cancelled and their lines
   /// forgotten. Nothing is written; without a save, onboarding shows again at the next launch.
@@ -172,6 +237,7 @@ public final class OnboardingModel {
     guard isWindowOpen else { return }
     isWindowOpen = false
     sshSetup.cancelAll()
+    terminalPicker.windowClosed(.onboarding)
     if !didSave, environment != nil {
       Task { await record(.info, detail: "onboarding closed without saving") }
     }

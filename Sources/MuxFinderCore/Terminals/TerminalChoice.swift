@@ -208,8 +208,9 @@ public enum TerminalChoice {
   } // End of static func resolve(stored:iTerm2Installed:definitions:versionCheck:)
 
   /// `id` as a message shows it: quoted, printable ASCII only (anything else is `?`), at most
-  /// `maximumDisplayedIDLength` characters.
-  static func displayID(_ id: String) -> String {
+  /// `maximumDisplayedIDLength` characters (public since Phase I-12d1: the picker names an
+  /// unknown stored id with it).
+  public static func displayID(_ id: String) -> String {
     var shown = ""
     for scalar in id.unicodeScalars.prefix(maximumDisplayedIDLength) {
       shown.unicodeScalars.append((0x20...0x7E).contains(scalar.value) ? scalar : "?")
