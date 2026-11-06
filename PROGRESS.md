@@ -58,7 +58,8 @@ file.
 | Phase | Title | Specification | Position |
 |---|---|---|---|
 | I-11b | Detach other clients, the UI (routine): the popover's "Detach other clients…" item and offer rule, D25-style confirmation, refresh and recovery, optional hint, galleries, README, checklist, D37's UI part — `PLAN.md` *Phase I-11* | `autoclaude/processed/105-detach-other-clients.md` | next; before I-12 (the user's order) |
-| I-12 | Other terminal apps (high, a group): Terminal.app and Ghostty in plain tmux beside iTerm2's control mode, terminal seam, JSON definitions, helper plain mode, confirmation, Settings › General "Terminal", strings, onboarding without iTerm2, docs; split into sub-phases (the item suggests a–e) in `PLAN.md` before its first worker | `autoclaude/processed/110-other-terminal-apps.md` | after I-11 (last) |
+| I-12 | Other terminal apps (high, a group): Terminal.app and Ghostty in plain tmux beside iTerm2's control mode, terminal seam, JSON definitions, helper plain mode, confirmation, Settings › General "Terminal", strings, onboarding without iTerm2, docs; split into sub-phases (the item suggests a–e) in `PLAN.md` before its first worker | `autoclaude/processed/110-other-terminal-apps.md` | after I-11 |
+| I-13 | Update check (high, a group): GitHub `releases/latest` check at launch and daily (toggle on by default), popover notice and icon dot, one-click Update (download, SHA-256, `ditto`, Developer ID + notarization check, D27-style swap, relaunch), hand-written, no Sparkle; split a (core) / b (UI) in `PLAN.md` before its first worker | `autoclaude/processed/120-update-check-github.md` | after I-12 (last) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -81,7 +82,12 @@ edit of PLAN.md rule 3 and `CLAUDE.md` allowing read-only Spotlight queries on S
 Mac, are recorded in the item and in commit `f1b11ac`). 2026-11-06 09:21 (start of the
 iteration), two items triaged: `105-detach-other-clients.md` → I-11, `110-other-terminal-apps.md`
 → I-12, both queued, high as proposed, I-11 ahead of I-12 as the user asked (no instruction to
-the run in either; their user decisions are recorded in the items).
+the run in either; their user decisions are recorded in the items). 2026-11-06 12:27 (start of
+the iteration), one item triaged: `120-update-check-github.md` → I-13, queued after I-12, high
+as proposed (no instruction to the run in it; its user decisions are recorded in the item). At
+I-13's selection settle first whether *Unattended-run rules* 3 ("no other host") lets a run
+make the item's read-only GitHub GETs (`update check`, `update verify`); if not, those real
+runs are owed to the user.
 
 ## Current phase
 

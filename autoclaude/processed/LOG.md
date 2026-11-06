@@ -15,3 +15,4 @@ up. The item itself is in this directory, unchanged.
 - 2026-11-06 07:24 · 100-folder-search-spotlight.md · queued · phase I-10 — New session: search the host's folders by name (Spotlight over SSH)
 - 2026-11-06 09:21 · 105-detach-other-clients.md · queued · phase I-11 — Detach other clients (high)
 - 2026-11-06 09:21 · 110-other-terminal-apps.md · queued · phase I-12 — Other terminal apps: Terminal.app and Ghostty (high)
+- 2026-11-06 12:25 · 120-update-check-github.md · queued · phase I-13 — Update check against GitHub releases with one-click update (high)
