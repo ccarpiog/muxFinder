@@ -7,12 +7,14 @@ import os
 /// published state on the main actor, and turns the popover's clicks and keys into engine
 /// requests.
 ///
-/// - **Start:** `start()` loads the host list (never writing it), builds the engine for it,
-///   subscribes to `RefreshCoordinator.updates()`, starts the sleep/wake/network adapter and
-///   then the engine's cadence. Nothing contacts iTerm2 at start. With
-///   `AppEnvironment.rewritesProfilesAtLaunch` (normal mode only) and a list loaded as `saved`,
-///   Settings brings an installed, out-of-date persistent profile file up to date in the
-///   background (`SettingsModel.keepProfilesCurrentAtLaunch(_:)`, PLAN.md D26).
+/// - **Start:** `start()` resolves the terminal setting (PLAN.md D38, `AppModelTerminal.swift`),
+///   loads the host list (never writing it), builds the engine for it (its attachment checks
+///   off unless iTerm2 is the chosen terminal), subscribes to `RefreshCoordinator.updates()`,
+///   starts the sleep/wake/network adapter and then the engine's cadence. Nothing contacts
+///   iTerm2 at start. With `AppEnvironment.rewritesProfilesAtLaunch` (normal mode only), a list
+///   loaded as `saved` and iTerm2 chosen, Settings brings an installed, out-of-date persistent
+///   profile file up to date in the background (`SettingsModel.keepProfilesCurrentAtLaunch(_:)`,
+///   PLAN.md D26).
 /// - **Popover and switcher:** `popoverDidOpen()` / `popoverDidClose()` and the session
 ///   switcher's `switcherDidOpen()` / `switcherDidClose()` tell the engine, which refreshes at
 ///   once and every 15 s while either one is visible and runs attachment checks only then
@@ -42,16 +44,25 @@ import os
 ///   host key problem offers it in the popover (`setUpSSH(hostID:)`), through `sshSetup`.
 /// - **Fix-its:** an error with a fix-it (`FixIt`) shows its button; `perform(_:)` opens the
 ///   System Settings pane through `AppEnvironment.openURL` or shows the explanation.
-/// - **Session actions** (PLAN.md D25, D37, `AppModelSessions.swift`): Open (a click or
+/// - **Session actions** (PLAN.md D25, D37, D38, `AppModelSessions.swift`): Open (a click or
 ///   Return), "Move here…" and "Detach other clients…" (each after the user confirms its
-///   dialog), "Detach from this Mac", New session and "Show tab" run on one
-///   `AttachCoordinator` that `AppEnvironment.makeAttachCoordinator` builds at the first
-///   action. Each session has at most one action at a time: clicks while
+///   dialog), "Detach from this Mac", New session and "Show tab" run on the chosen terminal's
+///   `TerminalBackend`, which `AppEnvironment.makeTerminalBackend` builds at the first action
+///   and the model keeps per terminal id (iTerm2's is `ITerm2TerminalBackend` over the attach
+///   coordinator, so with iTerm2 chosen every behaviour is as before). An unavailable choice
+///   ends every action in its own failure, nothing written, launched or sent
+///   (`SessionProblem.terminalUnavailable(_:)`). Each session has at most one action at a time:
+///   clicks while
 ///   one is pending are ignored (a New session's attach is its session's action from the moment
-///   the session was created). The coordinator's updates and each action's result reach the
+///   the session was created). The backends' updates and each action's result reach the
 ///   model through one ordered stream, so the row's activity follows the core's states and
 ///   "Confirmed" appears only once the core confirmed the attachment. A session that vanished or
 ///   changed meanwhile gets a banner and its host is refreshed.
+/// - **Terminal setting** (PLAN.md D38, Phase I-12c3a; `AppModelTerminal.swift`): resolved at
+///   launch and through one setter (`setTerminal(_:)`); a change while a session action is
+///   pending is applied once none is. Every iTerm2 contact follows the choice: the engine's
+///   attachment checks, Settings' profile list and iTerm2 problem, "Set up SSH in iTerm2…" (the
+///   popover's, Settings' and onboarding's) and D26's rewrite run only while iTerm2 is chosen.
 /// - **Session switcher shortcut** (PLAN.md D32): `shortcut` loads `preferences.json` and
 ///   registers the saved hotkey at the start of `start()` (normal mode only: without
 ///   `AppEnvironment.globalShortcut` nothing is read or registered), and `shutdown()`
@@ -100,6 +111,9 @@ public final class AppModel {
     case refresh(UUID)
     /// Settings saved a new host list.
     case setHosts(HostList)
+    /// The terminal choice changed: D16's attachment checks on (iTerm2 chosen) or off (PLAN.md
+    /// D38, Phase I-12c3a).
+    case setAttachmentChecks(Bool)
     /// Resumes the continuation once every earlier request was handled (tests).
     case barrier(CheckedContinuation<Void, Never>)
   }
@@ -143,6 +157,9 @@ public final class AppModel {
     let target: AttachTarget?
     /// The task awaiting the coordinator.
     let task: Task<Void, Never>
+    /// The terminal id of the backend it runs on (`ChosenTerminal.id`): whose records its
+    /// result changes (PLAN.md D38, Phase I-12c3a review fix).
+    var terminalID: String?
   }
 
   /// What reaches the model from the coordinator and the actions, in order.
@@ -168,8 +185,10 @@ public final class AppModel {
   struct PendingCreation {
     /// Tells creations apart.
     let id: Int
-    /// The task awaiting `AttachCoordinator.createAndAttach(_:onCreated:)`.
+    /// The task awaiting the backend's `createAndAttach(_:onCreated:)`.
     let task: Task<Void, Never>
+    /// The terminal id of the backend it runs on (`ChosenTerminal.id`).
+    var terminalID: String?
   }
 
   /// How many finished actions `finishedActions` keeps.
@@ -369,15 +388,39 @@ public final class AppModel {
   @ObservationIgnored private let commands: AsyncStream<EngineCommand>
   /// Feeds `commands`.
   @ObservationIgnored private let commandSink: AsyncStream<EngineCommand>.Continuation
-  /// The attach coordinator, once the first action built it.
-  @ObservationIgnored var attacher: AttachCoordinator?
-  /// Why the attach coordinator could not be built, once that failed.
-  @ObservationIgnored var attacherProblem: String?
+  /// The terminal setting as last resolved (PLAN.md D38, Phase I-12c3a): `unresolved` until
+  /// `start()` resolves it (so nothing contacts iTerm2 before the stored choice is known), and
+  /// always iTerm2 without `AppEnvironment.terminal` (and for a fixture).
+  public internal(set) var terminalChoice = TerminalChoiceResolution.iTerm2
+  /// A resolved change of the setting waiting for the pending session actions to end
+  /// (`setTerminal(_:)`); `nil` when none waits.
+  public internal(set) var pendingTerminalChoice: TerminalChoiceResolution?
+  /// The terminal definitions as loaded at launch, with their problems (Phase I-12d shows
+  /// them); `nil` before, and without `AppEnvironment.terminal`.
+  public internal(set) var terminalDefinitions: TerminalDefinitionCatalog?
+  /// The stored terminal setting as last read or set (`nil`: absent, so the default).
+  @ObservationIgnored var storedTerminal: String?
+  /// The terminal backends built so far, by terminal id (`ChosenTerminal.id`); each is built
+  /// at the first action that needs it and kept for the model's life.
+  @ObservationIgnored var backends: [String: any TerminalBackend] = [:]
+  /// Why the last session action could not get a backend (the choice is unavailable, or the
+  /// backend could not be built); `nil` when it got one or none was asked for.
+  @ObservationIgnored var backendProblem: SessionProblem?
+  /// Each backend's records, by terminal id (`ChosenTerminal.id`) and session (PLAN.md D38,
+  /// Phase I-12c3a review fix): a plain backend's attachment (its window, confirmed or brought
+  /// forward) or the app a session was found open in on this Mac. Only plain results set it; a
+  /// result changes only the records of the backend it ran on, so a backend's records stay its
+  /// own across a change of terminal (reachable again once it is chosen again).
+  public internal(set) var terminalAttachmentsByTerminal:
+    [String: [SessionKey: TerminalAttachmentHandle]] = [:]
+  /// The host list as last loaded as `saved` or saved since: what D26's rewrite uses when
+  /// iTerm2 becomes the chosen terminal again (`nil` while the list is not known to be saved).
+  @ObservationIgnored var savedHosts: HostList?
   /// The action in progress per session.
   @ObservationIgnored var runningActions: [SessionKey: RunningAction] = [:]
   /// The New session whose session is being created.
   @ObservationIgnored var creation: PendingCreation?
-  /// "Open existing" lookups (`AttachCoordinator.currentSession(named:on:)`) that have not
+  /// "Open existing" lookups (the backend's `currentSession(named:on:)`) that have not
   /// ended, by number; a cancelled one stays until it ended, so quitting waits for its probe.
   @ObservationIgnored var lookups: [Int: Task<Void, Never>] = [:]
   /// The lookup the New session window waits for, if any.
@@ -463,6 +506,9 @@ public final class AppModel {
     }
     onboarding.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
     onboarding.onOpenSettings = { [weak self] in self?.openSettings() }
+    // Not resolved until `start()` has read the setting: Settings (the menu shows it before the
+    // model starts), onboarding and "Set up SSH in iTerm2…" contact no iTerm2 meanwhile.
+    if environment.terminal != nil { setTerminalGates(.unresolved) }
   } // End of init(environment:)
 
   /// A model that renders `fixture` and never runs anything.
@@ -518,7 +564,7 @@ public final class AppModel {
       sshSetupStates: sshSetup.states,
       notes: notes,
       banners: banners,
-      attachedHere: Set(attachedHere.keys),
+      attachedHere: Set(selectedAttachedHere.keys),
       pending: Set(runningActions.keys))
   } // End of var content
 
@@ -537,15 +583,19 @@ public final class AppModel {
 
   /// The body of `start()`. Stops building as soon as `shutdown()` was called; whatever it
   /// built by then, `shutdown()` stops once this returns. The session switcher shortcut is
-  /// loaded and registered first (PLAN.md D32; nothing without `AppEnvironment.globalShortcut`).
+  /// loaded and registered first (PLAN.md D32; nothing without `AppEnvironment.globalShortcut`),
+  /// then the terminal setting is resolved (PLAN.md D38; nothing read without
+  /// `AppEnvironment.terminal`).
   /// A list loaded as `notSavedYet` shows the onboarding window first
   /// (`OnboardingModel.prepare(_:)` decides; it reads nothing).
   private func performStart(_ environment: AppEnvironment) async {
     await shortcut.start()
     guard lifecycle == .starting else { return }
+    await resolveTerminalAtLaunch(environment)
+    guard lifecycle == .starting else { return }
     let (hosts, loaded) = await loadHostList(environment)
     guard lifecycle == .starting else { return }
-    if environment.rewritesProfilesAtLaunch, loaded?.state == .saved {
+    if environment.rewritesProfilesAtLaunch, loaded?.state == .saved, terminalChoice.usesITerm2 {
       settings.keepProfilesCurrentAtLaunch(hosts)
     }
     if let loaded, onboarding.prepare(loaded) {
@@ -561,6 +611,8 @@ public final class AppModel {
     let events = environment.makeSystemEvents(engine)
     systemEvents = events
     events?.start()
+    // Before the cadence starts, so no check runs while iTerm2 is not the chosen terminal.
+    await engine.setAttachmentChecksEnabled(terminalChoice.usesITerm2)
     await engine.start()
     let commands = self.commands
     commandTask = Task { [weak self] in
@@ -594,6 +646,7 @@ public final class AppModel {
     }
     hostListStatus = status
     knownHostIDs = status == .saved ? Set(list.hosts.map(\.id)) : nil
+    savedHosts = status == .saved ? list : nil
     await environment.diagnostics?.record(
       .settings, outcome: status == .saved || status == .notSavedYet ? .info : .failure,
       detail: "host list at launch: \(SettingsModel.statusCode(status)), "
@@ -617,6 +670,7 @@ public final class AppModel {
     case .refreshAll: await engine.retryAll()
     case .refresh(let hostID): await engine.retry(hostID)
     case .setHosts(let list): await engine.setHosts(list)
+    case .setAttachmentChecks(let enabled): await engine.setAttachmentChecksEnabled(enabled)
     case .barrier: break
     }
   } // End of func perform(_:on:)
@@ -637,6 +691,7 @@ public final class AppModel {
   func hostListSaved(_ list: HostList) {
     hostListStatus = .saved
     knownHostIDs = Set(list.hosts.map(\.id))
+    savedHosts = list
     send(.setHosts(list))
   }
 

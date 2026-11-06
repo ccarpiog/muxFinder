@@ -1104,8 +1104,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     engine's `RefreshState`, the search text, per-session activities, the selection and
     `now`; every displayed rule lives there and is tested without SwiftUI.
   - **Model and engine:** `AppModel` (`@Observable @MainActor`) runs on an `AppEnvironment`
-    (host loading, engine, system-events and attach-coordinator factories, wall clock,
-    terminate), so tests pass fakes. `start()` loads the list with `HostStore.load()` (never writes; an unusable folder
+    (host loading, engine, system-events and terminal-backend factories, the terminal setting
+    (D38), wall clock, terminate), so tests pass fakes. `start()` loads the list with `HostStore.load()` (never writes; an unusable folder
     gives an empty list and a notice), in normal mode only and for a list loaded as `saved`
     has Settings bring an installed, out-of-date persistent profile file up to date in the
     background (`AppEnvironment.rewritesProfilesAtLaunch`, D26; the only write at launch),
@@ -1172,8 +1172,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     popover, the session switcher or the Settings window opens while iTerm2 runs, when the user
     chooses "Set up SSH in iTerm2…", and when the user acts on a session (D25); never at
     launch, once neither the popover nor the switcher shows (a cookie request, connection or
-    identity question the check had not made by then is never made), or while iTerm2 is not
-    running. Tested
+    identity question the check had not made by then is never made), while iTerm2 is not
+    running, or while iTerm2 is not the chosen terminal (D38 *Onto the seam (I-12c3a)*: the
+    checks are off, and the profile list, "Set up SSH in iTerm2…" and session actions do not
+    reach it). Tested
     through the real `ITerm2APIClient` with counting and gated cookie providers, a fake
     running check and fake connectors.
   - **Popover visibility and keys:** `PopoverController` (D30) tells the model the popover is
@@ -1508,13 +1510,15 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Views/SessionPanelViews.swift`, `Preview/Attach{Fixtures,Gallery}.swift`, `SelfTest/`;
   `Sources/MuxFinderApp/SelfTestAppDelegate.swift`; `AttachCoordinator.showLaunchTab(_:)`,
   `currentSession(named:on:)` and `createAndAttach(_:onCreated:)`'s `onCreated`).
-  - **Seam:** `AppEnvironment.makeAttachCoordinator` builds one `AttachCoordinator` at the
-    first session action (never at launch), with the model's update handler. The app's is over
-    the shared `ITerm2APIClient`, `DiscoveryProbe`, `LaunchStore` and the bundled helper
-    (`LaunchHelperPath.locate()`) with the standard existing-attachment check (D16); when it
-    throws (the helper is missing or on a path iTerm2 cannot be given), the row says why and
-    offers nothing to retry. Tests build it over a fake iTerm2 integration (the UI tests'
-    `SimulatedITerm2`: launch tabs and tmux connections as state, identity answers,
+  - **Seam:** `AppEnvironment.makeTerminalBackend` builds the chosen terminal's
+    `TerminalBackend` at the first session action that needs it (never at launch), with the
+    model's update handler, and the model keeps one per terminal id (D38 *Onto the seam
+    (I-12c3a)*). iTerm2's is `ITerm2TerminalBackend` over one `AttachCoordinator` over the
+    shared `ITerm2APIClient`, `DiscoveryProbe`, `LaunchStore` and the bundled helper
+    (`LaunchHelperPath.locate()`) with the standard existing-attachment check (D16); when the
+    maker throws (the helper is missing or on a path iTerm2 cannot be given), the row says why
+    and offers nothing to retry. Tests build iTerm2's over a fake iTerm2 integration (the UI
+    tests' `SimulatedITerm2`: launch tabs and tmux connections as state, identity answers,
     `detach-client` closing the connection), fake discovery, an in-memory launch store and a
     virtual clock; the index gets a clock whose question timeout never fires.
   - **State machine (`AppModel`):** at most one action per session (`runningActions`); a
@@ -1920,12 +1924,17 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       file is updated to its profiles at once (a rename, a profile turned on or off; edits that
       do not change the document write nothing); with no host's profile left on that removes
       the file (installer semantics, accepted). Onboarding saves are not followed (they cannot turn a profile on;
-      the next launch handles a file left over).
+      the next launch handles a file left over). Only while iTerm2 is the chosen terminal
+      (D38 *Onto the seam (I-12c3a)*): otherwise only the status is read.
     - **At launch:** only the menu bar app in normal mode (`AppLaunchOptions
       .rewritesProfilesAtLaunch`, passed to `AppEnvironment.production`; never with
       `--preview-fixtures`, `--selftest`, `--report-login-item-status`,
       `--report-menu-bar-item` or unusable arguments, and the self-tests' and tests'
-      environments leave it off) and only for a list loaded as `saved`: `stale` updates the
+      environments leave it off), only for a list loaded as `saved`, and only while iTerm2 is
+      the chosen terminal (D38 *Onto the seam (I-12c3a)*: with a plain or unavailable choice
+      `muxFinder.json` is left as it is, neither written nor removed, and the hosts' profile
+      settings stay in `hosts.json`; when iTerm2 becomes the choice again while the app runs,
+      the same rewrite runs for the saved list): `stale` updates the
       file to the regenerated document (an empty one removes the file, accepted; a file gone by
       then is not created again, "stale, notInstalled"); `notInstalled`, `current`,
       `unavailable` (an unusable helper, a refusal) write nothing. In the
@@ -2738,8 +2747,16 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     in the file as it is until the scope is saved, like an unknown key (the file stays fully
     usable, so the write that replaces it keeps no backup); choosing `home` with no value, or
     the value the file holds, writes nothing; a change (Settings › Directories' "Search
-    folders in", Phase I-10b, D31) applies to the next query. Schema 1
-    did not change: an older muxFinder ignores the key and keeps it. Loading never writes; a
+    folders in", Phase I-10b, D31) applies to the next query. **`terminal`** (Phase I-12c3a,
+    D38; `TerminalSettingStoring.setTerminal(_:)`, `Preferences.terminal`): the terminal
+    sessions open in, `iterm2` or a terminal definition's id, stored as given; a missing or
+    `null` value is the default, resolved and never written (iTerm2 when installed, otherwise
+    Terminal; `TerminalChoice`); a value that is not a string reads as the empty id, which
+    names no terminal, so the choice is unavailable rather than replaced by the default;
+    setting the value the file holds, or removing an absent one, writes nothing. The app reads
+    it at launch and writes it only through `AppModel.setTerminal(_:)`, in normal mode only.
+    Schema 1 did not change: an older muxFinder ignores these keys and keeps them. Loading
+    never writes; a
     missing file or a missing or `null` shortcut is "off";
     a value that is not a usable shortcut (not an object, a key code that is not an integer
     up to 127, an unknown modifier, a combination `check` refuses) is left out
@@ -2747,7 +2764,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     be used (D14's rules for files read, not JSON, not an object with an integer
     `schemaVersion`, another schema version) leaves the hotkey off and is left as it is, and
     every change refuses it (`fileNotUsable`), as D31 does. Written only when the user records
-    or clears a shortcut or picks a folder search scope, and not at all when nothing changes; a
+    or clears a shortcut, picks a folder search scope or changes the terminal, and not at all
+    when nothing changes; a
     write takes `preferences.lock`
     (`PrivateStorage.acquireLock`, 2 s, `busy`), reads the file again under it and publishes
     with D31's rename and backup rules (`preferences.backup-<UTC>.json` for a displaced file
@@ -4167,6 +4185,134 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       Mac's one control-mode client to iTerm2. **Owed:** a client in Terminal and in Ghostty
       traced for real (neither is used here; I-12c3's real runs), and the attributor wired
       into the app (I-12c3).
+  - **Onto the seam (I-12c3a)** (2026-11-06; requirements 7, 8 and 12; code in
+    `Sources/MuxFinderCore/Terminals/TerminalChoice.swift` (`ChosenTerminal`,
+    `TerminalChoiceUnavailable`, `TerminalChoiceResolution`, `TerminalChoice`),
+    `AttachCommandOptions.swift` (`AttachCommandOptions`, `PlainRunGate`),
+    `Sources/MuxFinderUI/Model/TerminalEnvironment.swift` (`TerminalEnvironment`,
+    `TerminalCatalogCache`), `AppModelTerminal.swift`; changed: `Config/PreferencesStore.swift`
+    (`Preferences.terminal`, `TerminalSettingStoring`), `Refresh/RefreshCoordinator.swift`
+    (`setAttachmentChecksEnabled(_:)`), `PlainTerminalBackend.swift` (the name refusal),
+    `TerminalAppFacts.swift` (`versionCheck(of:minimum:)`), `Attach/AttachModels.swift`
+    (`unsupportedSessionName`), `Shell/Validation.swift`, `Attach/SSHSetupLauncher.swift`
+    (`notUsedWithThisTerminal`), and in `MuxFinderUI` `AppEnvironment.swift`, `AppModel*.swift`,
+    `SessionProblem.swift`, `SettingsModel*.swift`, `SettingsResults.swift`,
+    `SSHSetupActions.swift`, `PopoverContent.swift`, `SelfTest/SelfTestDriver.swift`; the
+    probe's `AttachCommand.swift` and `NewSessionCommand.swift`; tests in
+    `TerminalChoiceTests`, `TerminalSeamCoreTests` (`RefreshAttachmentChecksTests`,
+    `PlainTerminalBackendNameTests`, `AttachCommandOptionsTests`) and the UI's
+    `TerminalSeamTests`; `docs/TESTING.md` *Phase I-12c3a*). It does what the calls for
+    I-12c3a say. **The worker's calls:**
+    - *The resolution* is `TerminalChoice.resolve(stored:iTerm2Installed:definitions:
+      versionCheck:)`, pure: absent → `iterm2` when installed, else `terminal`
+      (`candidateID`), resolved like a stored value; `iterm2` needs iTerm2 installed, else
+      `unavailable(notInstalled)` (never Terminal instead); a definition id needs a loaded
+      definition (`unknownID`), its app installed (`notInstalled`) and a version meeting the
+      minimum (`versionTooOld`, and **`versionUnknown`** for a missing or unreadable version,
+      a reason the calls did not list: the window layer's open refuses it too, so it is never
+      a pass). Only the candidate definition's app is asked (LaunchServices'
+      `TerminalAppFacts.versionCheck(of:minimum:)`; no permission read, no event).
+      `TerminalChoiceUnavailable` (an `Error`: the id, the reason, a neutral sentence quoting
+      the id cut to printable ASCII) is the typed failure; the model shows it as
+      `SessionProblem.terminalUnavailable(_:)` ("Open Settings"; I-12d writes the sentence).
+    - *The key* `terminal` in `preferences.json` (D32): a string kept as stored; a value that
+      is not a string reads as the empty id (so unavailable, never the default); written only
+      by the setter through a new `TerminalSettingStoring` (a sub-protocol of
+      `PreferencesStoring`, so the existing test fakes of `PreferencesStoring` needed no
+      change); `nil` removes the key. A preferences file that cannot be read or used at launch
+      gives the default, as an absent value does (the hotkey's own notice reports the file).
+      The setting is read only in normal mode (`usesGlobalShortcut`): the other modes,
+      `--report-menu-bar-item` included, resolve the default (definitions and LaunchServices
+      read, `preferences.json` not); the self-tests, the placement diagnostic and the tests of
+      other parts have no `AppEnvironment.terminal`, so iTerm2 is forced and nothing is read.
+    - *The environment:* `makeTerminalBackend: @MainActor (ChosenTerminal, UpdateHandler)
+      throws -> any TerminalBackend` replaces `makeAttachCoordinator` (main actor so the plain
+      window layer is made lazily, on the main actor, at the first plain build), and
+      `terminal: TerminalEnvironment?` (the store, the definitions loader, the inspector). The
+      definitions load once through `TerminalCatalogCache`, shared by the choice, the plain
+      backends and the engine's `LocalClientAttributor` (production's `makeEngine` passes it
+      as `localClients` whatever the choice). `AppModel` keeps `backends[terminal id]`, builds
+      at the first action that needs one, and `backendProblem` replaces `attacherProblem`.
+    - *Gating iTerm2* (requirement 7), applied by one `applyTerminalChoice(_:)`: the engine's
+      D16 checks through a new `RefreshCoordinator.setAttachmentChecksEnabled(_:)` (the engine
+      keeps its index; off is an engine built without one: a check in flight retired, its
+      waiters resumed, `notChecked`, no attachments, attribution with `indexInUse` false),
+      set before the cadence starts and later through the model's request queue (a toggle
+      rather than a rebuilt engine: no second engine, subscription or adapter); Settings'
+      `terminal` (the profile list answers `ProfileChoices.notUsedWithThisTerminal` without
+      asking, `iTermProblem` is nil, D26's update after a save reads the status only); the
+      popover's, Settings' and onboarding's `SSHSetupActions.usesITerm2` (`open` then shows
+      `SSHSetupFailure.notUsedWithThisTerminal`, the opener never asked; this is onboarding's
+      only iTerm2 contact); D26's launch rewrite only with iTerm2 chosen, and run again when
+      iTerm2 becomes the choice while the app runs (the saved list the model keeps). "Show
+      tab" goes through the chosen backend once built (a plain one refuses an iTerm2 launch
+      tab, nothing sent). Persistent profiles' Install and Remove stay the user's explicit
+      actions (no iTerm2 contact; I-12d decides the tab's plain state). Proven by
+      `TerminalSeamTests.aPlainChoiceNeverContactsITerm2` over a counting iTerm2 under the
+      engine's real `AttachmentIndex`, the coordinator and every Settings seam.
+    - *Changing the choice:* `AppModel.setTerminal(_:)` saves first (a refused save changes
+      nothing and returns the store's error), resolves again (definitions as loaded at launch,
+      LaunchServices now) and applies at once, or, while any session action is pending (an
+      action, a creation, an "Open existing" lookup or a focus), keeps it as
+      `pendingTerminalChoice` and applies it once the last one ends.
+    - *The model's plain results:* `plainConfirmed`/`plainFocused` record the window in
+      `terminalAttachments` (so `canDetach` and "Detach other clients…"'s count hold for it and
+      `showWindow(for:)` focuses it), `appFocused` records the `.app` handle;
+      `focus(_:for:)` brings a handle forward through the chosen backend (an `.app` through the
+      activator), its outcome a note (`SessionProblem.focusNote(_:)`). Rows carry
+      `SessionRow.localAttachments` (no view yet).
+    - *The name refusal:* `PlainTerminalBackend.supportsName(_:)` is
+      `CreatedSession.formatLiteral(_:) != nil`; attach and move here fail
+      `unsupportedSessionName` up front (no state published, as the backend's other refusals
+      before a launch) and again after revalidation for a renamed session;
+      create-and-attach refuses a valid such name before creating
+      (`invalidName(sessionNameNotSupportedByTerminal)`, shown in the New session window).
+    - *Probe:* `attach` and `new-session` run on `ITerm2TerminalBackend`; `attach --terminal
+      <id>` (parsing and the gate in the core, `AttachCommandOptions`, `PlainRunGate`) loads
+      definitions as `terminals list`, refuses with exit 2 an unknown definition and, before
+      discovery or any event, an app not installed, too old, not running, or (AppleScript
+      definitions) whose permission does not read `granted`; otherwise it attaches through
+      `PlainTerminalBackend` (the real window layer, This Mac's attributor) and prints the
+      window, the client record (no session name or socket path) and an app focus as JSON.
+      `--help` contacts nothing; `--profile` and the definition folders go with one terminal
+      kind only. `detach` and the `e2e-*` harnesses stay on the coordinator.
+    - **Review fixes** (adversarial review, `docs/reviews/phase-I-12c3a.md`; hermetic
+      regressions, each seen failing with its fix reverted):
+      1. *Unresolved launches across backends:* `TerminalBackend.hasUnresolvedLaunch(for:)`
+         (read-only: a running launch, or an ended one that may still attach with no helper
+         result peeked; nothing settled, taken or sent) lets `AppModel` refuse an Open or a
+         Move here of a session while any other cached backend holds such a launch of it, with
+         `earlierLaunchPending` and nothing written, opened or sent (detaches are not refused:
+         they start no attach).
+      2. *Startup:* `TerminalChoiceResolution.unresolved` is the model's choice from its
+         creation until launch has read the setting (only with `AppEnvironment.terminal`), and
+         gates iTerm2 like a choice that is not iTerm2 (no backend, Settings' profile list
+         `notLoaded`, no iTerm2 problem, every "Set up SSH in iTerm2…" refused, no D26 update
+         after a save), so Settings opened before the model starts contacts nothing; once it
+         resolves to iTerm2 the deferred work runs (`SettingsModel.setTerminal(_:)` lists the
+         profiles while the window is open, `SSHSetupActions.setUsesITerm2(_:)` clears the
+         lines that said iTerm2 was not chosen, D26's launch rewrite as before).
+      3. *The probe's gate at the side effects:* `PlainRunPolicy` (`interactive`, the app's
+         default, or `unattended`, the probe's) is carried by `PlainTerminalWindows`, which
+         under `unattended` applies `PlainRunGate` again to fresh facts right before every
+         Apple event (open, focus, close) and `exec` spawn and, through
+         `checkRunPolicy(for:)`, for `PlainTerminalBackend` right before it writes a request;
+         a refusal is `terminalWindow(unattendedRunRefused)` (the request withdrawn when one
+         was written, nothing sent or launched), which the probe maps to exit 2
+         (`PlainRunGate.refusal(of:)`) after its early check before discovery.
+      4. *Records per backend:* `terminalAttachmentsByTerminal` keeps each backend's records
+         by terminal id and session (a result, detach or "not attached here" changes only the
+         records of the backend its action ran on, `RunningAction.terminalID`), and
+         `terminalAttachments`, `canDetach(_:)`, "Detach other clients…", "Show window" and the
+         rows' iTerm2 records (`attachedHere`, only while iTerm2 is chosen) come from the chosen
+         terminal's records only, so another terminal's record is kept for when it is chosen
+         again and never routed to the chosen backend.
+    - **Verified** (hermetic, plus the real runs in `docs/TESTING.md` *Phase I-12c3a*): both
+      self-tests passed through the seam's iTerm2 path from a fresh bundle, the app shell check
+      with a private home left it empty, and `attach --terminal terminal` refused with exit 2
+      while Terminal did not run (nothing written or sent). **Owed:** the plain real runs
+      (I-12c3b's `e2e-plain`, under *Unattended-run rules* 8) and the picker and strings
+      (I-12d).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -7137,7 +7283,8 @@ three workers' worth, so:
   contacting iTerm2 when it is not the choice; probe `attach --terminal <id>` and `e2e-plain
   --terminal terminal|ghostty --local | --ssh saturno-m4` (its real runs only through the gate
   of *Unattended-run rules* 8, else owed); iTerm2's `e2e-*` runs and self-tests rerun as
-  regression (requirement 12). Its calls are written at its selection.
+  regression (requirement 12). **Split into I-12c3a and I-12c3b** (below, after the calls for
+  I-12c2).
 
 Calls for I-12c1 (the plain backend; 2026-11-06, before its worker):
 
@@ -7302,6 +7449,102 @@ wires it, I-12d writes the strings).
 - **Records.** D38 "Open on this Mac (I-12c2)", a sentence in D16 pointing to it,
   `docs/TESTING.md` *Phase I-12c2* (the real runs' counts), the `local-clients` command in
   `CLAUDE.md` *Commands*.
+
+**I-12c3 split, and the orchestrator's calls** (2026-11-06, before its first worker). I-12c3 is
+two workers' worth, so:
+
+- **I-12c3a — onto the seam (high).** The terminal setting, the app, the self-tests, the
+  refresh engine's attributor and the probe's one-off commands onto `TerminalBackend`;
+  hermetic tests, then the two self-tests real (the seam's iTerm2 path) as regression. Calls
+  below.
+- **I-12c3b — the plain runs (high).** `e2e-plain --terminal terminal|ghostty --local | --ssh
+  saturno-m4` (its own `muxfinder-test-*` sessions and its own windows only, cleaned up at the
+  end), its real runs only through the gate of *Unattended-run rules* 8 (else owed, with the
+  exact command), and iTerm2's `e2e-*` runs as regression (requirement 12). Its calls are
+  written at its selection.
+
+Calls for I-12c3a (onto the seam; 2026-11-06, before its worker):
+
+- **The terminal setting.** `preferences.json` gains an optional `terminal` (a terminal id:
+  `iterm2`, or a loaded definition's id), read and written only through `PreferencesStore`
+  under D32's rules (its lock, its refusal of unusable files and its merging save unchanged).
+  Absent, the default is resolved and never written: iTerm2 when installed (LaunchServices by
+  bundle identifier, as `terminals list` finds it), otherwise `terminal`. The resolution is
+  typed and pure over its inputs (the stored value, iTerm2's presence, the loaded definitions
+  with their app facts): `iterm2`, a plain definition, or **unavailable** with a reason
+  (unknown id, app not installed, version below the definition's minimum). An unavailable
+  choice is never silently replaced (requirement 8): session actions end in a new typed
+  failure naming the choice and the reason, nothing written, launched or sent; I-12d writes
+  its sentence and the picker.
+- **One backend per terminal id.** `AppEnvironment` hands the model a `TerminalBackend` maker
+  instead of an `AttachCoordinator` maker: `iterm2` → `ITerm2TerminalBackend` over today's
+  coordinator, built exactly as today (same client, launch store, helper, bury on, the app
+  activator for `.app` handles); a plain definition → `PlainTerminalBackend` with its loaded
+  definition, `PlainTerminalWindows` over the real `NSAppleScript` runner, the helper, the
+  launch store, discovery, the remote runners, and the `LocalClientAttributor` and app
+  activator passed in (I-12c2 left them off by default). Built lazily at the first session
+  action, as today, and cached per terminal id for the app's life, so switching back reuses
+  the earlier backend (no record lost, never two coordinators on one iTerm2). Definitions load
+  once at launch (built-ins from the bundle's `Resources/Terminals/`; the user's from
+  `~/Library/Application Support/muxFinder/terminals/`, read only, never created), their
+  problems kept for I-12d to show.
+- **The app never contacts iTerm2 when it is not the choice** (requirement 7). Every iTerm2
+  contact in the app is gated on the resolved choice: the API client and its connection, D16's
+  `AttachmentIndex`, the profile list (`ITerm2ProfileSource`), Settings' iTerm2 diagnostics,
+  onboarding's API check, and D26's persistent-profile rewrite at launch and after a save
+  (with a plain choice the existing `DynamicProfiles/muxFinder.json` is left as it is, neither
+  written nor removed; the rewrite resumes when iTerm2 is chosen; the hosts' profile settings
+  stay in `hosts.json`). Where a view needs a value, a neutral "not used with this terminal"
+  state; I-12d writes the strings. Work started under an earlier iTerm2 choice (a buried tab's
+  recovery) finishes; nothing new starts. A test proves it over the environment's seams: with
+  a plain choice the iTerm2 seams are never called.
+- **The refresh engine** gets the attributor for This Mac in both cases
+  (`RefreshCoordinator(localClients:)`): with iTerm2 chosen beside D16's index (its
+  control-mode clients left to the index, I-12c2's rule), with a plain choice without the
+  index. The model carries each session's local attachments into its rows' state (a field, no
+  new UI; I-12d draws it), and focusing an `.app` handle goes through the activator.
+- **The model moves onto `TerminalBackend`** for every session action: Open, Move here,
+  Detach, New session, Detach other clients, Show tab or window, state updates, current
+  session by name. With iTerm2 chosen every behaviour, state, banner, string and test
+  expectation is unchanged (requirement 12); existing UI tests may change how they wire the
+  model (an `ITerm2TerminalBackend` over their coordinator fake), never their expectations.
+  Plain results reach the model's states as I-12c1's minimal switches treat them (I-12d writes
+  the strings).
+- **Changing the choice while the app runs.** The model re-resolves through one setter (I-12d's
+  picker will call it); no new file watcher. A change while any session action is pending is
+  applied once none is, never cancelling one; the next action uses the new choice's backend.
+- **Plain-only refusal** (I-12c1's open question): a session name containing `{`, `[` or `]`
+  is refused up front by the plain backend with a typed failure, before anything is written or
+  opened, since D38's bound commands cannot check it. The iTerm2 backend is unchanged.
+- **The iTerm2 backend's attach never consults ancestry** (I-12c2's open question, settled by
+  requirement 12). With iTerm2 chosen, a session open by hand in Terminal on this Mac shows so
+  in the model's local attachments and Open still opens it in iTerm2 as today; I-12d may offer
+  that row its app's focus.
+- **Self-tests** (`--selftest attach-local`, `new-session-local`, `--selftest-keep`) build their
+  model through the same `TerminalBackend` path with iTerm2 forced (never reading the user's
+  `preferences.json`, as today); steps, output and exit codes unchanged.
+- **Probe one-offs.** `attach`, `new-session` and `detach` keep today's iTerm2 behaviour by
+  default. `attach --terminal <id>` loads definitions as `terminals list` does
+  (`--builtin-directory`, `--user-directory`); `--terminal iterm2` is today's path; for a plain
+  id it attaches through `PlainTerminalBackend` and prints the result as JSON (the client
+  record a later bound detach needs). Before any Apple event it applies *Unattended-run rules*
+  8 itself: the app running and its permission reading `granted` without a prompt, else exit 2
+  with the reason, nothing written or sent. `--help` contacts nothing. The `e2e-*` harnesses
+  keep calling the coordinator directly (they test its internals).
+- **Tests, hermetic**: the resolution (default both ways, round trip, each unavailable reason,
+  a stored `iterm2` with iTerm2 gone); the environment's backend choice, the cache and the
+  never-contact proof; the model's actions through the seam (iTerm2 over the coordinator fake,
+  plain over I-12c1's fakes) and the pending-change rule; the refresh attributor wired; the
+  name refusal; the probe's argument parsing and its gate over fake facts. Every existing
+  test passes with its expectations unedited.
+- **Real runs** (the gate of `PROGRESS.md` *Next action* 3: thread count 38 or lower, leftover
+  checks after): `--selftest attach-local` and `--selftest new-session-local` from a fresh
+  `scripts/build-app.sh` bundle (the seam's iTerm2 path), `--report-menu-bar-item` with a
+  private home, read-only `terminals list` and `local-clients`. No plain real run here (that
+  is I-12c3b's `e2e-plain`, under the gate).
+- **Records.** D38 "Onto the seam (I-12c3a)", D32 (the `terminal` key), D26 (the rewrite only
+  with iTerm2 chosen), sentences of D22/D25 the change invalidates, `docs/TESTING.md` *Phase
+  I-12c3a*, `CLAUDE.md` *Commands* for `attach --terminal`.
 
 ## Deferred (explicitly out of scope for v1)
 

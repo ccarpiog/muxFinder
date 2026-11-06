@@ -7,7 +7,8 @@ import MuxFinderCore
 /// and attaches it through the real path, the way the app's "New session" does, then prints
 /// the outcome as JSON. It opens a real iTerm2 window and leaves the session attached. A
 /// session created a moment ago cannot be attached anywhere yet, so, unlike `attach`, it asks
-/// none of iTerm2's tmux connections anything.
+/// none of iTerm2's tmux connections anything. It runs on the terminal seam
+/// (`ITerm2TerminalBackend` over the attach coordinator, PLAN.md D38).
 enum NewSessionCommand {
   /// Usage lines for this subcommand.
   static let usage = """
@@ -46,10 +47,11 @@ enum NewSessionCommand {
       return EX_UNAVAILABLE
     }
     let client = ITerm2APIClient()
-    let coordinator = AttachCoordinator(
-      iTerm2: client, discovery: DiscoveryProbe(), store: LaunchStore(), helperPath: helperPath,
-      onUpdate: { update in printError("state: \(update.state.kind)") })
-    let result = await coordinator.createAndAttach(request)
+    let backend = ITerm2TerminalBackend(
+      coordinator: AttachCoordinator(
+        iTerm2: client, discovery: DiscoveryProbe(), store: LaunchStore(), helperPath: helperPath,
+        onUpdate: { update in printError("state: \(update.state.kind)") }))
+    let result = await backend.createAndAttach(request)
     await client.disconnect()
     guard ITerm2Command.printJSON(Output(result)) else { return EX_SOFTWARE }
     return result.isAttached ? 0 : 1

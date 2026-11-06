@@ -124,6 +124,9 @@ public enum ProfileChoices: Sendable, Hashable {
   case iTermNotRunning
   /// Listing failed: the field is free text; the error may have a fix-it.
   case failed(ITerm2Error?)
+  /// iTerm2 is not the chosen terminal (PLAN.md D38, Phase I-12c3a), so it was not asked: the
+  /// field is free text.
+  case notUsedWithThisTerminal
 
   /// The choices for a listing result.
   public init(_ result: ProfileListResult) {
@@ -155,6 +158,9 @@ public enum ProfileChoices: Sendable, Hashable {
       let reason = error?.errorDescription.map { " " + $0 } ?? ""
       return "muxFinder couldn't list iTerm2's profiles.\(reason) Type a profile name, or leave "
         + "it empty for iTerm2's default profile."
+    case .notUsedWithThisTerminal:
+      return "iTerm2 isn't the terminal chosen in muxFinder's settings, so its profiles aren't "
+        + "listed. Type a profile name, or leave it empty for iTerm2's default profile."
     }
   } // End of var note
 

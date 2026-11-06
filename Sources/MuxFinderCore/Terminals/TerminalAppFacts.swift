@@ -62,17 +62,7 @@ public struct TerminalAppFacts: Sendable, Hashable {
     inspector: any TerminalAppInspecting = WorkspaceTerminalAppInspector()
   ) -> TerminalAppFacts {
     let snapshot = inspector.snapshot(bundleIdentifier: definition.bundleIdentifier)
-    let versionCheck: VersionCheck
-    if snapshot.url == nil {
-      versionCheck = .notInstalled
-    } else {
-      switch TerminalVersion.meets(installed: snapshot.version, minimum: definition.minimumVersion)
-      {
-      case true?: versionCheck = .meets
-      case false?: versionCheck = .tooOld
-      case nil: versionCheck = .unknown
-      }
-    }
+    let versionCheck = Self.versionCheck(of: snapshot, minimum: definition.minimumVersion)
     let automation: Automation
     if definition.needsAutomationPermission {
       let status = inspector.automationStatus(bundleIdentifier: definition.bundleIdentifier)
@@ -89,6 +79,22 @@ public struct TerminalAppFacts: Sendable, Hashable {
       automation: automation
     )
   } // End of static func read(for:inspector:)
+
+  /// The version check of `snapshot` against `minimum`: `notInstalled` when LaunchServices found
+  /// no app, else `meets`, `tooOld` or `unknown` (a missing or unreadable version, never a
+  /// pass). Pure; `read(for:inspector:)` and the terminal choice's resolution (PLAN.md D38,
+  /// Phase I-12c3a) both use it.
+  public static func versionCheck(
+    of snapshot: TerminalAppSnapshot,
+    minimum: TerminalVersion
+  ) -> VersionCheck {
+    guard snapshot.url != nil else { return .notInstalled }
+    switch TerminalVersion.meets(installed: snapshot.version, minimum: minimum) {
+    case true?: return .meets
+    case false?: return .tooOld
+    case nil: return .unknown
+    }
+  }
 } // End of struct TerminalAppFacts
 
 /// What LaunchServices and the running applications say about one bundle identifier.

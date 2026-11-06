@@ -241,7 +241,7 @@ struct PopoverPlacementTests {
     #expect(loaded == .inMemory(HostList()))
     #expect(loaded.hosts.hosts.isEmpty)
     #expect(environment.settings == nil)
-    #expect(environment.makeAttachCoordinator == nil)
+    #expect(environment.makeTerminalBackend == nil)
     #expect(!environment.rewritesProfilesAtLaunch)
   } // End of func diagnosticFlag()
 }

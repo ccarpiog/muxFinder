@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MuxFinderCore
 
@@ -6,12 +7,22 @@ import MuxFinderCore
 /// (discovery, the existing-attachment check, launch request, a new iTerm2 window running
 /// `muxfinder-launch`, which runs tmux or `ssh -t`, connection confirmation, identity check,
 /// activation) and prints the outcome as JSON. It opens a real iTerm2 window and leaves the
-/// session attached, or brings forward the tab of an existing attachment of the session.
+/// session attached, or brings forward the tab of an existing attachment of the session. It
+/// runs on the terminal seam: `ITerm2TerminalBackend` over the attach coordinator.
+///
+/// With `--terminal <id>` other than `iterm2` (PLAN.md D38, Phase I-12c3a) it attaches through
+/// `PlainTerminalBackend` instead: definitions load as `terminals list` loads them, and before
+/// anything is written, opened or sent it applies *Unattended-run rules* 8 itself
+/// (`PlainRunGate`): the app must run and, for an AppleScript definition, its Automation
+/// permission must read granted without a prompt; otherwise it exits 2 with the reason. The
+/// window layer checks the same again right before the request write and every Apple event or
+/// spawn (`PlainRunPolicy.unattended`), also exit 2.
 enum AttachCommand {
   /// Usage lines for this subcommand.
   static let usage = """
       attach --local | --ssh <destination> --session <$id> [--tmux-path <path>]
              [--profile <name>]
+             [--terminal <id> [--builtin-directory <dir>] [--user-directory <dir>]]
           Attach one session of the default tmux server of this Mac (--local) or of a remote
           host (--ssh; the launch tab runs ssh -t there, so a password prompt appears in it)
           in a new iTerm2 window, the way the app does, and print the outcome as JSON (state
@@ -22,6 +33,17 @@ enum AttachCommand {
           --session    The session's id, such as '$3' (quote it for the shell).
           --tmux-path  Use this tmux executable only (the host's override).
           --profile    Open the tab with this iTerm2 profile instead of the default one.
+          --terminal   iterm2 (the default, as above) or a terminal definition's id, such as
+                       terminal or ghostty: attach in a new window of that app with a plain
+                       tmux client, as the app does with that terminal chosen, and print the
+                       result as JSON with the client record a bound detach needs. Definitions
+                       load as for terminals list (--builtin-directory, --user-directory).
+                       Before anything is written, opened or sent, and again right before
+                       the request is written and each Apple event or start: the app must be
+                       running and, for an AppleScript definition, its Automation permission
+                       must read granted without a prompt (Unattended-run rules 8); otherwise
+                       exit 2 with the reason. A session that is open in a terminal on this
+                       Mac already is brought forward instead (state appFocused).
       detach --connection <id> --gateway <session id> [--launch-id <uuid>]
           Send detach-client on one iTerm2 tmux connection, wait for it to close and print
           the outcome as JSON. The ids come from attach's JSON (connectionID and
@@ -32,25 +54,27 @@ enum AttachCommand {
           clean detach exits 0).
     """
 
-  /// Parsed options.
-  struct Options {
-    /// The session to attach.
-    var sessionID: TmuxSessionID
-    /// The host: "This Mac", or the remote host by its destination.
-    var host: HostConfig
-  }
+  /// The exit status of a plain run refused before anything happened (an unknown definition,
+  /// or *Unattended-run rules* 8).
+  static let refusedStatus: Int32 = 2
 
   /// Runs the subcommand with the arguments after `attach` and returns the exit status.
   static func run(_ arguments: [String]) async -> Int32 {
-    let options: Options
-    do {
-      options = try parse(arguments)
-    } catch let error as DiscoverCommand.UsageError {
+    let options: AttachCommandOptions
+    do throws(AttachCommandUsageError) {
+      switch try AttachCommandOptions.parse(arguments) {
+      case .help:
+        print("usage:\n\(usage)")
+        return 0
+      case .attach(let parsed):
+        options = parsed
+      }
+    } catch {
       printError("muxfinder-probe: \(error.message)\n\nusage:\n\(usage)")
       return EX_USAGE
-    } catch {
-      printError("muxfinder-probe: \(error)")
-      return EX_USAGE
+    }
+    if case .plain(let definitionID) = options.terminal {
+      return await runPlain(options, definitionID: definitionID)
     }
     let helperPath: LaunchHelperPath
     do throws(LaunchHelperPathError) {
@@ -61,28 +85,107 @@ enum AttachCommand {
     }
     let discovery = DiscoveryProbe()
     let found: DiscoveredSession
+    switch await discover(options, with: discovery) {
+    case .success(let session): found = session
+    case .failure(let status): return status.code
+    }
+    let client = ITerm2APIClient()
+    let backend = ITerm2TerminalBackend(
+      coordinator: AttachCoordinator(
+        iTerm2: client, discovery: discovery, store: LaunchStore(), helperPath: helperPath,
+        onUpdate: { update in printError("state: \(update.state.kind)") }))
+    let result = await backend.attach(AttachTarget(host: options.host, session: found))
+    await client.disconnect()
+    guard ITerm2Command.printJSON(AttachOutput(result)) else { return EX_SOFTWARE }
+    return result.isAttached ? 0 : 1
+  } // End of func run(_:)
+
+  /// An exit status as an error.
+  struct ExitStatus: Error {
+    /// The status.
+    let code: Int32
+  }
+
+  /// The session `options` names, as discovery lists it now (read-only), or the exit status
+  /// after printing why there is none.
+  static func discover(
+    _ options: AttachCommandOptions,
+    with discovery: DiscoveryProbe
+  ) async -> Result<DiscoveredSession, ExitStatus> {
     do {
       let result = try await discovery.discover(options.host)
       guard
         let session = result.status.sessions.first(where: { $0.key.sessionID == options.sessionID })
       else {
         printError("muxfinder-probe: no session \(options.sessionID) (\(result.status.kind))")
-        return EX_UNAVAILABLE
+        return .failure(ExitStatus(code: EX_UNAVAILABLE))
       }
-      found = session
+      return .success(session)
     } catch {
       printError("muxfinder-probe: discovery was cancelled")
-      return EX_SOFTWARE
+      return .failure(ExitStatus(code: EX_SOFTWARE))
     }
-    let client = ITerm2APIClient()
-    let coordinator = AttachCoordinator(
-      iTerm2: client, discovery: discovery, store: LaunchStore(), helperPath: helperPath,
+  } // End of static func discover(_:with:)
+
+  /// `attach --terminal <id>` for a plain definition: loads the definitions, applies
+  /// *Unattended-run rules* 8 (`PlainRunGate`, exit 2 with the reason, nothing written, opened
+  /// or sent), then discovers the session and attaches it through `PlainTerminalBackend` over
+  /// the real window layer with the `unattended` policy (the gate again right before the
+  /// request is written and before every Apple event or spawn; a refusal there also exits 2,
+  /// its request withdrawn), with This Mac's client attributor as the app passes it.
+  static func runPlain(_ options: AttachCommandOptions, definitionID: String) async -> Int32 {
+    let builtIn =
+      options.builtInDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }
+      ?? TerminalsCommand.repositoryBuiltInDirectory()
+    let user =
+      options.userDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }
+      ?? AppPaths.standard.terminalDefinitionsDirectory
+    let catalog = TerminalDefinitionLoader(builtInDirectory: builtIn, userDirectory: user).load()
+    guard let loaded = catalog.definition(withID: definitionID) else {
+      printError(
+        "muxfinder-probe: no usable terminal definition \(definitionID) "
+          + "(\(catalog.definitions.count) loaded, \(catalog.problems.count) problems)")
+      return refusedStatus
+    }
+    let facts = await MainActor.run { TerminalAppFacts.read(for: loaded.definition) }
+    if let refusal = PlainRunGate.check(loaded.definition, facts: facts) {
+      printError("muxfinder-probe: not attaching in \(definitionID): \(refusal.message)")
+      return refusedStatus
+    }
+    let helperPath: LaunchHelperPath
+    do throws(LaunchHelperPathError) {
+      helperPath = try LaunchHelperPath.locate()
+    } catch {
+      printError("muxfinder-probe: \(error.message)")
+      return EX_UNAVAILABLE
+    }
+    let discovery = DiscoveryProbe()
+    let found: DiscoveredSession
+    switch await discover(options, with: discovery) {
+    case .success(let session): found = session
+    case .failure(let status): return status.code
+    }
+    // The gate again at every side effect: the app may quit, or its permission change, while
+    // discovery runs (`PlainRunPolicy.unattended`).
+    let windows = await MainActor.run {
+      PlainTerminalWindows(
+        runner: NSAppleScriptRunner(), inspector: WorkspaceTerminalAppInspector(),
+        spawner: DetachedTerminalProcessSpawner(), activator: RunningApplicationActivator(),
+        policy: .unattended)
+    }
+    let backend = PlainTerminalBackend(
+      loaded: loaded, windows: windows, helperPath: helperPath, store: LaunchStore(),
+      discovery: discovery,
+      localClients: LocalClientAttributor(definitions: catalog.definitions),
       onUpdate: { update in printError("state: \(update.state.kind)") })
-    let result = await coordinator.attach(AttachTarget(host: options.host, session: found))
-    await client.disconnect()
+    let result = await backend.attach(AttachTarget(host: options.host, session: found))
+    if let refusal = PlainRunGate.refusal(of: result) {
+      printError("muxfinder-probe: not attaching in \(definitionID): \(refusal.message)")
+      return refusedStatus
+    }
     guard ITerm2Command.printJSON(AttachOutput(result)) else { return EX_SOFTWARE }
     return result.isAttached ? 0 : 1
-  } // End of func run(_:)
+  } // End of static func runPlain(_:definitionID:)
 
   /// Runs `detach` with the arguments after it and returns the exit status: 0 when the
   /// connection closed.
@@ -135,58 +238,9 @@ enum AttachCommand {
     return result.connectionClosed ? 0 : 1
   } // End of func runDetach(_:)
 
-  /// Parses the subcommand's arguments.
-  static func parse(_ arguments: [String]) throws -> Options {
-    var mode: HostConfig.ConnectionMode?
-    var destination = ""
-    var sessionID: TmuxSessionID?
-    var tmuxPath: String?
-    var profile: String?
-    var remaining = arguments[...]
-    while let argument = remaining.popFirst() {
-      switch argument {
-      case "--local":
-        guard mode == nil else {
-          throw DiscoverCommand.UsageError(message: "use either --local or --ssh")
-        }
-        mode = .local
-      case "--ssh":
-        guard mode == nil else {
-          throw DiscoverCommand.UsageError(message: "use either --local or --ssh")
-        }
-        guard let value = remaining.popFirst() else {
-          throw DiscoverCommand.UsageError(message: "--ssh needs a destination")
-        }
-        mode = .ssh
-        destination = value
-      case "--session":
-        guard let value = remaining.popFirst(), let id = TmuxSessionID(value) else {
-          throw DiscoverCommand.UsageError(message: "--session needs an id such as '$3'")
-        }
-        sessionID = id
-      case "--tmux-path":
-        guard let value = remaining.popFirst() else {
-          throw DiscoverCommand.UsageError(message: "--tmux-path needs a path")
-        }
-        tmuxPath = value
-      case "--profile":
-        guard let value = remaining.popFirst(), !value.isEmpty else {
-          throw DiscoverCommand.UsageError(message: "--profile needs a profile name")
-        }
-        profile = value
-      default:
-        throw DiscoverCommand.UsageError(message: "unknown option")
-      }
-    } // End of loop over arguments
-    guard let mode else { throw DiscoverCommand.UsageError(message: "use --local or --ssh") }
-    guard let sessionID else { throw DiscoverCommand.UsageError(message: "--session is required") }
-    let host = HostConfig(
-      displayName: mode == .local ? "This Mac" : "Remote host", mode: mode,
-      sshDestination: destination, tmuxPathOverride: tmuxPath, iTermProfileName: profile)
-    return Options(sessionID: sessionID, host: host)
-  } // End of func parse(_:)
-
-  /// An attach result as JSON: ids, states, kinds and timings; never names or titles.
+  /// An attach result as JSON: ids, states, kinds and timings; never names or titles. A plain
+  /// result adds its window, its client record and the app it found the session open in
+  /// (absent for iTerm2, so today's output is unchanged).
   struct AttachOutput: Encodable {
     /// `confirmed`, `focused` or `failed`.
     let state: String
@@ -211,6 +265,14 @@ enum AttachCommand {
     let existingAttachments: AttachmentSnapshot.Counts?
     /// Milliseconds from the start of the attach to each step.
     let timingsMs: [String: Int]
+    /// Plain backend: the window it opened or brought forward.
+    let plainWindow: PlainWindowOutput?
+    /// Plain backend: the confirmed client, as a bound detach needs it.
+    let plainClient: PlainClientOutput?
+    /// Plain backend: how bringing the window forward went (`TerminalFocusResult.kind`).
+    let plainWindowFocus: String?
+    /// Plain backend, `appFocused`: the app the session was found open in on this Mac.
+    let appFocused: AppFocusOutput?
 
     /// Converts a result.
     init(_ result: AttachResult) {
@@ -239,6 +301,14 @@ enum AttachCommand {
         activatedTabID = nil
       }
       timingsMs = Self.milliseconds(result.timings)
+      plainWindow = result.plainWindow.map(PlainWindowOutput.init)
+      plainClient = result.plainClient.map(PlainClientOutput.init)
+      plainWindowFocus = result.plainWindowFocus?.kind
+      appFocused = result.localAttachment.map { local in
+        AppFocusOutput(
+          bundleIdentifier: local.app.bundleIdentifier, definitionIDs: local.app.definitionIDs,
+          activation: result.appActivation?.rawValue)
+      }
     } // End of init(_:)
 
     /// The timings that were reached, in milliseconds.
@@ -257,6 +327,73 @@ enum AttachCommand {
       return output
     } // End of func milliseconds(_:)
   } // End of struct AttachOutput
+
+  /// A plain window as JSON: the definition that opened it and what its app reported.
+  struct PlainWindowOutput: Encodable {
+    /// The definition's id.
+    let definitionID: String
+    /// The window's id, when reported.
+    let windowID: String?
+    /// The window's terminal device, when reported.
+    let tty: String?
+
+    /// Converts a window.
+    init(_ window: PlainTerminalWindow) {
+      definitionID = window.definitionID
+      windowID = window.windowID
+      tty = window.tty
+    }
+  } // End of struct PlainWindowOutput
+
+  /// A confirmed plain client as JSON: what D38's bound detach checks (the session by id,
+  /// server and creation time; the client by name, pid and creation time) and the launch; never
+  /// the session's name or socket path.
+  struct PlainClientOutput: Encodable {
+    /// The session's id.
+    let sessionID: String
+    /// The session's server pid.
+    let serverPID: Int32
+    /// The session's server start time (seconds since 1970).
+    let serverStartTime: Int64
+    /// The session's creation time (seconds since 1970).
+    let sessionCreatedAt: Int64
+    /// The client's name (its terminal on the host).
+    let clientName: String
+    /// The client's pid.
+    let clientPID: Int32
+    /// The client's creation time (seconds since 1970).
+    let clientCreatedAt: Int64
+    /// The launch id.
+    let launchID: String
+    /// SSH hosts: the token found at the end of the client's parent shell's arguments.
+    let token: String?
+    /// This Mac: the terminal the helper's early report named.
+    let terminalPath: String?
+
+    /// Converts a record.
+    init(_ record: PlainClientRecord) {
+      sessionID = record.session.sessionID.rawValue
+      serverPID = record.session.serverPID
+      serverStartTime = record.session.serverStartTime
+      sessionCreatedAt = record.session.createdAt
+      clientName = record.client.name
+      clientPID = record.client.processID
+      clientCreatedAt = record.client.created
+      launchID = record.launchID.rawValue
+      token = record.token?.rawValue
+      terminalPath = record.terminalPath
+    } // End of init(_:)
+  } // End of struct PlainClientOutput
+
+  /// The app a plain attach brought forward instead of opening a window (open on this Mac).
+  struct AppFocusOutput: Encodable {
+    /// The app's bundle identifier.
+    let bundleIdentifier: String
+    /// The loaded definitions sharing it.
+    let definitionIDs: [String]
+    /// `activated`, `notRunning` or `refused`.
+    let activation: String?
+  }
 
   /// A detach result as JSON.
   struct DetachOutput: Encodable {

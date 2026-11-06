@@ -126,7 +126,8 @@ extension AppModel {
   // MARK: - Creating
 
   /// The form's "Create" (Return): checks the fields (the issues show inline), then creates
-  /// the session and attaches it (`AttachCoordinator.createAndAttach(_:onCreated:)`). A
+  /// the session and attaches it in the chosen terminal (the backend's
+  /// `createAndAttach(_:onCreated:)`; an unavailable choice creates nothing and says why). A
   /// collision offers "Open existing"; any other creation failure is shown in the window. Once
   /// the session was created, the window closes and the attach is the new session's action
   /// (`sessionCreated(_:_:on:directory:)`), shown on its row from its first state on. A
@@ -141,9 +142,9 @@ extension AppModel {
       let request = newSessionDraft.request(
         hosts: newSessionHosts, command: environment.newSessionCommand)
     else { return }
-    guard let coordinator = coordinator() else {
+    guard let terminalBackend = backend() else {
       newSessionDraft.state = .failed(
-        attacherProblem ?? "muxFinder could not prepare opening sessions in iTerm2.")
+        backendProblem?.message ?? "muxFinder could not prepare opening sessions in iTerm2.")
       return
     }
     newSessionDraft.state = .creating
@@ -153,12 +154,12 @@ extension AppModel {
     let host = request.host
     let directory = request.workingDirectory
     let task = Task {
-      let result = await coordinator.createAndAttach(request) { created in
+      let result = await terminalBackend.createAndAttach(request) { created in
         sink.yield(.sessionCreated(id: id, created, host: host, directory: directory))
       }
       sink.yield(.created(id: id, result, host: host))
     }
-    creation = PendingCreation(id: id, task: task)
+    creation = PendingCreation(id: id, task: task, terminalID: terminalChoice.chosen?.id)
     switcherCreationStarted(id)
     logger.info("Session action started: new session")
   } // End of func createSession()
@@ -179,7 +180,8 @@ extension AppModel {
     creation = nil
     let target = created.attachTarget(on: host)
     let key = target.key
-    runningActions[key] = RunningAction(kind: .open, target: target, task: pending.task)
+    runningActions[key] = RunningAction(
+      kind: .open, target: target, task: pending.task, terminalID: pending.terminalID)
     switcherSessionCreated(id, key: key, target: target)
     lastActions[key] = .open
     activities[key] = .opening
@@ -198,6 +200,7 @@ extension AppModel {
   /// `sessionCreated(_:_:on:directory:)`) ends like an Open, on its row.
   func finishCreation(_ id: Int, _ result: CreateAndAttachResult, on host: HostConfig) {
     if creation?.id == id { creation = nil }
+    defer { applyPendingTerminalChoiceIfIdle() }
     let createdKey = result.created.map {
       SessionKey(hostID: host.id, server: $0.server, sessionID: $0.sessionID)
     }
@@ -220,7 +223,9 @@ extension AppModel {
     let running = runningActions.removeValue(forKey: attach.key)
     notes[attach.key] = nil
     lastActions[attach.key] = .open
-    finishAttach(attach, target: running?.target ?? created.attachTarget(on: host))
+    finishAttach(
+      attach, target: running?.target ?? created.attachTarget(on: host),
+      terminalID: running?.terminalID ?? terminalChoice.chosen?.id)
   } // End of func finishCreation(_:_:on:)
 
   /// A creation ended in a collision or a failure, which the draft now holds (PLAN.md D34): when
@@ -236,8 +241,8 @@ extension AppModel {
 
   // MARK: - Open existing
 
-  /// "Open existing" after a collision: lists the draft's host afresh through the attach
-  /// coordinator (`currentSession(named:on:)`), never trusting the popover's list, since the
+  /// "Open existing" after a collision: lists the draft's host afresh through the chosen
+  /// terminal's backend (`currentSession(named:on:)`), never trusting the popover's list, since the
   /// session tmux reported may be another one than the list shows (the listed one renamed, and
   /// another one given its name), and opens the session with exactly the draft's name in that
   /// listing (`existingFound(_:_:name:on:)`). When none has that name, or the host cannot be
@@ -247,9 +252,9 @@ extension AppModel {
       let hostID = newSessionDraft.hostID, let host = host(withID: hostID),
       let name = try? Validation.sessionName(newSessionDraft.name)
     else { return }
-    guard let coordinator = coordinator() else {
+    guard let terminalBackend = backend() else {
       newSessionDraft.state = .failed(
-        attacherProblem ?? "muxFinder could not prepare opening sessions in iTerm2.")
+        backendProblem?.message ?? "muxFinder could not prepare opening sessions in iTerm2.")
       return
     }
     newSessionDraft.state = .findingExisting
@@ -257,7 +262,7 @@ extension AppModel {
     let id = nextPanelActionID
     let sink = actionSink
     lookups[id] = Task {
-      let found = await coordinator.currentSession(named: name, on: host)
+      let found = await terminalBackend.currentSession(named: name, on: host)
       sink.yield(.existingFound(id: id, found, name: name, host: host))
     }
     currentLookupID = id
@@ -278,6 +283,7 @@ extension AppModel {
     on host: HostConfig
   ) {
     lookups[id] = nil
+    defer { applyPendingTerminalChoiceIfIdle() }
     guard currentLookupID == id else { return }
     currentLookupID = nil
     guard newSessionDraft.state == .findingExisting, isNewSessionShown else { return }

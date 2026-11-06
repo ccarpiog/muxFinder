@@ -33,8 +33,8 @@ import Observation
 ///   window cancels it (and the profile request inside it) and drops late results by window
 ///   generation. `shutdown()` (from `AppModel.shutdown()`) refuses new work, cancels every
 ///   probe and the opening, and returns once they have ended.
-/// - **iTerm2:** profiles are listed only while iTerm2 runs (`ITerm2ProfileSource`); otherwise
-///   the profile field is free text.
+/// - **iTerm2:** profiles are listed only while iTerm2 runs (`ITerm2ProfileSource`) and is the
+///   chosen terminal (`terminal`, PLAN.md D38); otherwise the profile field is free text.
 /// - **Persistent profiles** (PLAN.md D26, `SettingsModelProfiles.swift`): the Persistent
 ///   profiles tab shows the status of `DynamicProfiles/muxFinder.json` for the saved host list,
 ///   installs and removes it, a save while muxFinder's file is installed updates it, and the app
@@ -197,6 +197,13 @@ public final class SettingsModel {
   public private(set) var detection = DetectionState.idle
   /// The profile picker's choices.
   public private(set) var profileChoices = ProfileChoices.notLoaded
+  /// The terminal choice as `AppModel` last resolved it (PLAN.md D38, Phase I-12c3a), through
+  /// `setTerminal(_:)`: `unresolved` from the app model's creation until launch has read the
+  /// setting; iTerm2 for a model without one. While iTerm2 is not the choice (not resolved
+  /// yet included), the window asks iTerm2 nothing (the profile list is
+  /// `notUsedWithThisTerminal`, or `notLoaded` while not resolved), shows no iTerm2 check
+  /// problem, and a save leaves `DynamicProfiles/muxFinder.json` as it is (D26).
+  public private(set) var terminal = TerminalChoiceResolution.iTerm2
   /// SSH destination suggestions from `~/.ssh/config`.
   public private(set) var suggestions: [String] = []
   /// The login item status, last read.
@@ -969,15 +976,49 @@ public final class SettingsModel {
   // MARK: - iTerm2 profiles and SSH suggestions
 
   /// Asks for iTerm2's profiles (only while iTerm2 runs; never launching it). The answer is
-  /// dropped when the window closed meanwhile or the calling task was cancelled.
+  /// dropped when the window closed meanwhile, the calling task was cancelled or iTerm2 stopped
+  /// being the chosen terminal. While iTerm2 is not the chosen terminal nothing is asked
+  /// (`notUsedWithThisTerminal`, PLAN.md D38); while the choice is not resolved yet nothing is
+  /// asked either (`notLoaded`), and the list is asked for once it resolves to iTerm2
+  /// (`setTerminal(_:)`).
   public func loadProfiles() async {
     guard let environment, !isShutDown else { return }
+    guard terminal.usesITerm2 else {
+      profileChoices = Self.profileChoices(without: terminal)
+      return
+    }
     let generation = windowGeneration
     profileChoices = .loading
     let result = await environment.profiles.profileNames()
-    guard windowGeneration == generation, !Task.isCancelled else { return }
+    guard windowGeneration == generation, !Task.isCancelled, terminal.usesITerm2 else { return }
     profileChoices = ProfileChoices(result)
+  } // End of func loadProfiles()
+
+  /// The profile choices while `terminal` is not iTerm2: `notLoaded` while the choice is not
+  /// resolved yet (nothing is known to say), else `notUsedWithThisTerminal`.
+  static func profileChoices(without terminal: TerminalChoiceResolution) -> ProfileChoices {
+    terminal == .unresolved ? .notLoaded : .notUsedWithThisTerminal
   }
+
+  /// Takes the terminal choice `AppModel` resolved (PLAN.md D38, Phase I-12c3a; `unresolved`
+  /// until launch has read it). While the window is open the profile list follows it: once
+  /// iTerm2 becomes the choice (the stored choice read at launch, or the setter) iTerm2's
+  /// profiles are asked for then, the listing deferred while it was not; another choice shows
+  /// its free-text state, asking iTerm2 nothing.
+  func setTerminal(_ resolution: TerminalChoiceResolution) {
+    let previous = terminal
+    terminal = resolution
+    guard previous != resolution, isWindowOpen, !isShutDown else { return }
+    guard resolution.usesITerm2 else {
+      profileChoices = Self.profileChoices(without: resolution)
+      return
+    }
+    let generation = windowGeneration
+    _ = track { [weak self] in
+      guard let self, self.isCurrentWindow(generation) else { return }
+      await self.loadProfiles()
+    }
+  } // End of func setTerminal(_:)
 
   /// Reads the SSH destination suggestions (dropped like the profiles).
   func loadSuggestions() async {
@@ -1080,9 +1121,12 @@ public final class SettingsModel {
     copyNotice = "Copied to the clipboard."
   }
 
-  /// The last iTerm2 check's problem for the Diagnostics tab, with its fix-it.
+  /// The last iTerm2 check's problem for the Diagnostics tab, with its fix-it; none while
+  /// iTerm2 is not the chosen terminal (PLAN.md D38: it is not checked then).
   public var iTermProblem: (text: String, fixIt: FixIt?)? {
-    guard case .failed(_, let error) = refreshState?.attachmentCheck else { return nil }
+    guard terminal.usesITerm2,
+      case .failed(_, let error) = refreshState?.attachmentCheck
+    else { return nil }
     var text = "muxFinder couldn't check which sessions are open in iTerm2."
     if let description = error?.errorDescription { text += " " + description }
     return (text, FixIt(error: error))

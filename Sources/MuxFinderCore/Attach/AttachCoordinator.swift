@@ -366,6 +366,17 @@ public actor AttachCoordinator {
     pendingLaunches[key]?.filter { !$0.running }.count ?? 0
   }
 
+  /// Whether a launch of `key` may still attach the session (PLAN.md D21, D38): one that runs,
+  /// or one that ended with no helper result seen yet (peeked, never taken; a result that cannot
+  /// be read counts as none). Read-only: nothing is written, sent or settled, and iTerm2 is not
+  /// asked. `AppModel` asks it of iTerm2's backend before another terminal's Open or Move here
+  /// of the same session (Phase I-12c3a review fix).
+  public func hasUnresolvedLaunch(for key: SessionKey) -> Bool {
+    (pendingLaunches[key] ?? []).contains { launch in
+      launch.running || (try? store.peekResult(launch.launchID)) == nil
+    }
+  }
+
   // MARK: - Attach
 
   /// Attaches `target`'s session and returns how it ended: `confirmed`, `focused` (it was

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T18:30:59Z",
+  "updated": "2026-11-06T19:48:02Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -814,12 +814,34 @@
     {
       "id": "I-12c3",
       "title": "Other terminals, onto the seam and real runs",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
       "parent": "I-12c",
-      "summary": "Moves the app, self-tests and probe onto the seam, adds the terminal setting, attach --terminal and e2e-plain.",
+      "summary": "Split into I-12c3a (the app, self-tests and probe onto the terminal seam) and I-12c3b (the plain e2e runs).",
       "added": "2026-11-06T16:45:56Z",
-      "status_since": "2026-11-06T16:45:56Z"
+      "started": "2026-11-06T18:34:10Z",
+      "status_since": "2026-11-06T18:34:10Z"
+    },
+    {
+      "id": "I-12c3a",
+      "title": "Other terminals, onto the seam",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-12c3",
+      "summary": "Terminal setting, app, Settings, self-tests and probe one-offs moved onto the terminal seam; iTerm2 never contacted when not chosen.",
+      "added": "2026-11-06T18:34:10Z",
+      "started": "2026-11-06T18:34:10Z",
+      "status_since": "2026-11-06T19:48:02Z"
+    },
+    {
+      "id": "I-12c3b",
+      "title": "Other terminals, the plain runs",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-12c3",
+      "summary": "e2e-plain for Terminal and Ghostty under the permission gate, and iTerm2 e2e runs as regression.",
+      "added": "2026-11-06T18:34:10Z",
+      "status_since": "2026-11-06T18:34:10Z"
     },
     {
       "id": "I-12d",

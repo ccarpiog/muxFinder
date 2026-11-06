@@ -19,6 +19,10 @@ public protocol PlainTerminalWindowLayer: AnyObject, Sendable {
     _ window: PlainTerminalWindow,
     of loaded: LoadedTerminalDefinition
   ) throws(PlainTerminalWindowError)
+
+  /// `PlainTerminalWindows.checkRunPolicy(for:)`: the layer's run policy for `loaded`'s app,
+  /// asked right before a launch request is written (`unattendedRunRefused` refuses it).
+  func checkRunPolicy(for loaded: LoadedTerminalDefinition) throws(PlainTerminalWindowError)
 } // End of protocol PlainTerminalWindowLayer
 
 /// The launch files the plain backend writes and reads (PLAN.md D14 *Plain modes*): the attach

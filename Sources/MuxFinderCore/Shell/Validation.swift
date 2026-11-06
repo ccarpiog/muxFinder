@@ -43,6 +43,10 @@ public enum ValidationError: Error, Sendable, Hashable, LocalizedError {
   case profileNameEmpty
   /// The iTerm2 profile name contains a control character.
   case profileNameContainsControlCharacter
+  /// The session name contains `{`, `[` or `]`, which a terminal other than iTerm2 cannot take:
+  /// D38's bound tmux commands cannot check such a name (`CreatedSession.formatLiteral(_:)`),
+  /// so the plain backend refuses it before anything runs (PLAN.md D38, Phase I-12c3a).
+  case sessionNameNotSupportedByTerminal
 
   /// The user-facing explanation.
   public var message: String {
@@ -84,6 +88,8 @@ public enum ValidationError: Error, Sendable, Hashable, LocalizedError {
       return "Enter a profile name."
     case .profileNameContainsControlCharacter:
       return "Profile names can't contain line breaks, tabs or other control characters."
+    case .sessionNameNotSupportedByTerminal:
+      return "Session names opened in this terminal can't contain “{”, “[” or “]”."
     }
   } // End of var message
 

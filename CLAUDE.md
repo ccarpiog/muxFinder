@@ -340,7 +340,14 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   their own to their own session (over ssh with BatchMode remotely) and ends it on every way
   out; one-off `attach --local | --ssh <dest> --session '<$id>'`
   (focuses instead when the session is attached already; asks every tmux connection first,
-  so the same caution as `iterm2 attachments`), `new-session --local | --ssh <dest> --name
+  so the same caution as `iterm2 attachments`; with `--terminal <id>` other than `iterm2`,
+  plus `--builtin-directory`/`--user-directory` as for `terminals list`, it attaches in that
+  terminal app through the plain backend and prints the client record, but only while the app
+  runs and, for an AppleScript definition, its permission reads `granted` (checked before
+  discovery and again right before the request write and every Apple event or spawn): else
+  exit 2 with the reason, nothing sent or launched and any request withdrawn, so its real run
+  is a plain run under *Unattended-run rules* 8; `--help` contacts nothing), `new-session
+  --local | --ssh <dest> --name
   <name> [--dir <dir>]` (creates, then attaches; asks no connection; its pane runs the user's
   shell), `ssh-setup --ssh <dest> [--profile <name>]` (opens a tab running plain interactive
   ssh, a real login; never in unattended runs, its real run owed with Saturno only) and

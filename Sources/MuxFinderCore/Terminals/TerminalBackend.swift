@@ -17,9 +17,12 @@ import Foundation
 /// every backend focuses an `.app` handle by activating that app. iTerm2's backend attaches as
 /// before (no ancestry check).
 ///
-/// Nothing calls the seam yet: `AppModel`, `AppEnvironment.makeAttachCoordinator`, the
-/// self-tests, the probe and the refresh engine still call the coordinator directly (I-12c
-/// moves them onto the seam and picks the backend from the terminal setting).
+/// Since Phase I-12c3a the app runs every session action on the seam: `AppModel` asks
+/// `AppEnvironment.makeTerminalBackend` for the chosen terminal's backend (resolved from the
+/// terminal setting, `TerminalChoice`) and keeps one per terminal id; the self-tests build
+/// iTerm2's through the same seam, and the probe's `attach` and `new-session` run on it. The
+/// connection detach (`AttachCoordinator.detach(connectionID:gatewaySessionID:launchID:)`) and
+/// the `e2e-*` harnesses stay on the coordinator.
 public protocol TerminalBackend: Sendable {
   /// The terminal app this backend opens attachments in.
   var terminal: LaunchTerminalApp { get }
@@ -64,6 +67,14 @@ public protocol TerminalBackend: Sendable {
   /// `AttachCoordinator.state(of:)`: the latest state of `key`'s most recent attach, or `nil`
   /// if it was never attached.
   func state(of key: SessionKey) async -> AttachState?
+
+  /// Whether this backend holds a launch of `key` that may still attach the session (PLAN.md
+  /// D21, D38): one that runs, or one that ended without proof that its helper ended (no helper
+  /// result seen yet). Read-only: nothing is written, sent or settled, and no terminal app is
+  /// asked. `AppModel` asks every other backend it built before an Open or a Move here, so a
+  /// change of terminal never starts a second attach of a session an earlier launch may still
+  /// attach (Phase I-12c3a review fix).
+  func hasUnresolvedLaunch(for key: SessionKey) async -> Bool
 
   /// Brings forward an attachment this backend opened, by its terminal-neutral handle. A
   /// handle of another terminal's backend is refused (`handleOfAnotherTerminal`) with nothing

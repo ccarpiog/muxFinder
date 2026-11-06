@@ -78,6 +78,11 @@ public struct SessionRow: Sendable, Hashable, Identifiable {
   public var attachmentsHere = 0
   /// Whether an action on the session is in progress (its other actions are ignored then).
   public var isPending = false
+  /// This Mac's tmux clients of the session traced to a terminal app (PLAN.md D38, Phase
+  /// I-12c2; carried here since Phase I-12c3a): the engine's `localAttachments` for a session
+  /// of This Mac, with iTerm2's control-mode clients left to D16's index while iTerm2 is the
+  /// chosen terminal. No view draws it yet (Phase I-12d).
+  public var localAttachments: [LocalAttachment] = []
 
   /// Whether "Move here…" is offered: not while this Mac's iTerm2 shows the session already
   /// (the move would refuse, PLAN.md D21).
@@ -380,7 +385,8 @@ public struct PopoverContent: Sendable, Hashable {
         clientCount: discovered.attachedClientCount,
         knowsWhatIsOpenHere: knowsOpenHere,
         isLive: snapshot.freshness == .live,
-        attachmentsHere: session.attachments.count)
+        attachmentsHere: session.attachments.count,
+        localAttachments: session.localAttachments)
     } // End of map over the host's sessions
     var caption: String?
     if let lastSuccess = snapshot.lastSuccess {

@@ -23,7 +23,10 @@ import MuxFinderCore
 ///   editor's draft; the tab says so while the draft has unsaved changes.
 /// - **After a save:** a save (or removal) that leaves muxFinder's installed file out of date
 ///   for the list it wrote updates the file at once, so iTerm2 sees the change; with no host's
-///   profile left on, that removes the file (installer semantics).
+///   profile left on, that removes the file (installer semantics). Only while iTerm2 is the
+///   chosen terminal (PLAN.md D38, Phase I-12c3a): otherwise the file is left as it is, neither
+///   written nor removed, and only its status is read; the rewrite resumes when iTerm2 is
+///   chosen again (`AppModel` then asks for the launch's rewrite).
 /// - **At launch** (`keepProfilesCurrentAtLaunch(_:)`, normal mode only, `AppModel.start()`):
 ///   an out-of-date installed file is updated (the helper moved, say); a missing or current
 ///   file, an unusable helper path or any refusal writes nothing. Each outcome is logged by
@@ -85,14 +88,16 @@ extension SettingsModel {
     }?.value
   } // End of func removeProfiles()
 
-  /// After a save that wrote `saved`: when muxFinder's installed file no longer matches it,
-  /// updates that file to its profiles (none left removes the file; a file gone meanwhile is
-  /// not created again); otherwise only the status is updated. `saved` is used throughout,
-  /// never the model's list, which a reload may have set loading by the time this runs.
+  /// After a save that wrote `saved`: when muxFinder's installed file no longer matches it and
+  /// iTerm2 is the chosen terminal, updates that file to its profiles (none left removes the
+  /// file; a file gone meanwhile is not created again); otherwise only the status is updated.
+  /// `saved` is used throughout, never the model's list, which a reload may have set loading by
+  /// the time this runs.
   func updateProfilesAfterSave(_ saved: HostList) {
+    let rewrites = terminal.usesITerm2
     enqueueProfileOperation { model, files in
       let status = await files.status(for: saved)
-      guard status == .stale else {
+      guard status == .stale, rewrites else {
         model.profileStatus = status
         return
       }

@@ -60,20 +60,27 @@ public enum PreferencesFileProblem: Error, Sendable, Hashable, CustomStringConve
   public var description: String { message }
 }
 
-/// muxFinder's preferences (PLAN.md D32): the session switcher shortcut and the folder search
-/// scope (D36).
+/// muxFinder's preferences (PLAN.md D32): the session switcher shortcut, the folder search
+/// scope (D36) and the terminal sessions open in (D38).
 public struct Preferences: Sendable, Hashable {
   /// The session switcher's shortcut; `nil` when the hotkey is off.
   public var globalShortcut: GlobalShortcut?
   /// Where New session's folder search looks; `home` unless the user chose the whole disk.
   public var folderSearchScope: FolderSearchScope
+  /// The terminal sessions open in (PLAN.md D38, Phase I-12c3a): `iterm2` or a terminal
+  /// definition's id, as stored; `nil` when the file holds none, so the default is resolved
+  /// (`TerminalChoice`) and never written. A stored value that is not a string reads as the
+  /// empty id, which names no terminal (`unknownID`), so it is never replaced by the default.
+  public var terminal: String?
 
   /// Preferences from their parts.
   public init(
-    globalShortcut: GlobalShortcut? = nil, folderSearchScope: FolderSearchScope = .standard
+    globalShortcut: GlobalShortcut? = nil, folderSearchScope: FolderSearchScope = .standard,
+    terminal: String? = nil
   ) {
     self.globalShortcut = globalShortcut
     self.folderSearchScope = folderSearchScope
+    self.terminal = terminal
   }
 }
 
@@ -257,6 +264,16 @@ public protocol PreferencesStoring: Sendable {
   ) async throws(PreferencesStoreError) -> PreferencesChangeResult
 }
 
+/// Where the terminal setting lives (PLAN.md D32, D38, Phase I-12c3a): `preferences.json`'s
+/// `terminal` key, under the same rules as every other preference. `PreferencesStore` in the
+/// app, `InMemoryPreferencesStore` in tests.
+public protocol TerminalSettingStoring: PreferencesStoring {
+  /// Records `id` (`iterm2` or a definition's id, stored as given) as the terminal, or removes
+  /// the key (`nil`: back to the default, which is never written), and keeps the result, with
+  /// the same refusal rule.
+  func setTerminal(_ id: String?) async throws(PreferencesStoreError) -> PreferencesChangeResult
+}
+
 /// Persists muxFinder's preferences as `preferences.json` in muxFinder's folder (PLAN.md D8,
 /// D32), apart from `hosts.json` and `directories.json`, and never in the app's defaults
 /// domain: muxFinder owns only its support folder (and `DynamicProfiles/muxFinder.json`), tests
@@ -265,16 +282,20 @@ public protocol PreferencesStoring: Sendable {
 ///
 /// The file is a JSON object, schema 1:
 /// `{"folderSearchScope": "disk", "globalShortcut": {"keyCode": 49, "modifiers": ["control",
-/// "option"]}, "schemaVersion": 1}`, written pretty-printed with sorted keys and a final
-/// newline, at most `maximumFileSize`. Modifier names are `control`, `option`, `shift` and
-/// `command`. Other keys are ignored when read and kept as they are when the file is written.
-/// A missing or `null` `globalShortcut` means the hotkey is off; one that is not a usable
-/// shortcut (not an object, a key code that is not an integer up to
+/// "option"]}, "schemaVersion": 1, "terminal": "ghostty"}`, written pretty-printed with sorted
+/// keys and a final newline, at most `maximumFileSize`. Modifier names are `control`,
+/// `option`, `shift` and `command`. Other keys are ignored when read and kept as they are when
+/// the file is written. A missing or `null` `globalShortcut` means the hotkey is off; one that
+/// is not a usable shortcut (not an object, a key code that is not an integer up to
 /// `GlobalShortcut.maximumKeyCode`, an unknown modifier, a combination `GlobalShortcut.check`
 /// refuses) is left out and reported (`droppedShortcut`), so the hotkey is off too.
 /// `folderSearchScope` is `home` or `disk` (PLAN.md D36); a missing value, or one that is
 /// neither (a newer muxFinder's, say), reads as `home` and stays in the file as it is until the
 /// scope is saved, like a key this muxFinder does not know (the file is still fully usable).
+/// `terminal` (PLAN.md D38, Phase I-12c3a) is the terminal sessions open in, `iterm2` or a
+/// terminal definition's id, kept as stored; a missing or `null` value means the default,
+/// resolved and never written (`TerminalChoice`), and a value that is not a string reads as the
+/// empty id, which names no terminal.
 ///
 /// It is loaded and written as D19 and D31 treat `hosts.json` and `directories.json`:
 /// - **Loading never writes anything**, not even the folder. No file gives empty preferences
@@ -282,10 +303,12 @@ public protocol PreferencesStoring: Sendable {
 ///   JSON, malformed, another schema version) gives empty preferences too, reported as
 ///   `invalid` with the problem, and stays exactly as it is.
 /// - **A change** (`setGlobalShortcut(_:)`, only when the user records or clears a shortcut;
-///   `setFolderSearchScope(_:)`, only when the user picks a scope) first reads the file as a
+///   `setFolderSearchScope(_:)`, only when the user picks a scope; `setTerminal(_:)`, only
+///   when the terminal setting is changed) first reads the file as a
 ///   load does, without the lock: a file that cannot be used refuses it, and a change that
 ///   changes nothing (the same shortcut, a clear with none, the scope the file holds, or `home`
-///   with no value) ends there, both writing nothing. A change sets only its own key (and
+///   with no value, the terminal the file holds, or a removal with none) ends there, both
+///   writing nothing. A change sets only its own key (and
 ///   `schemaVersion`). Any other change takes an exclusive `flock` on `preferences.lock` in
 ///   the store's folder (waited for at most `lockWait`), reads the file again holding it, and
 ///   writes the result: the folder created (0700) or tightened and stripped of any ACL, a
@@ -294,7 +317,7 @@ public protocol PreferencesStoring: Sendable {
 ///   exactly the bytes this store last read as fully usable or wrote; anything else is kept as
 ///   `preferences.backup-<UTC yyyyMMddTHHmmssZ>[-n].json`.
 /// - The store is an actor, so its own changes never interleave.
-public actor PreferencesStore: PreferencesStoring {
+public actor PreferencesStore: TerminalSettingStoring {
   /// The preferences file's name in muxFinder's folder.
   public static let fileName = "preferences.json"
   /// The schema version this muxFinder reads and writes.
@@ -309,6 +332,8 @@ public actor PreferencesStore: PreferencesStoring {
   static let shortcutKey = "globalShortcut"
   /// The file's key for the folder search scope (PLAN.md D36).
   static let folderSearchScopeKey = "folderSearchScope"
+  /// The file's key for the terminal (PLAN.md D38, Phase I-12c3a).
+  static let terminalKey = "terminal"
   /// How long a change waits for the lock unless told otherwise.
   static let defaultLockWait: Duration = .seconds(2)
   /// How many backup names with the same timestamp a write tries.
@@ -443,6 +468,8 @@ public actor PreferencesStore: PreferencesStoring {
     case globalShortcut(GlobalShortcut?)
     /// Record a folder search scope.
     case folderSearchScope(FolderSearchScope)
+    /// Record a terminal, or remove it (`nil`).
+    case terminal(String?)
   }
 
   /// Records `shortcut` as the session switcher's shortcut, or clears it (`nil`), keeping every
@@ -462,6 +489,14 @@ public actor PreferencesStore: PreferencesStoring {
     _ scope: FolderSearchScope
   ) throws(PreferencesStoreError) -> PreferencesChangeResult {
     try apply(.folderSearchScope(scope))
+  }
+
+  /// Records `id` as the terminal (PLAN.md D38, Phase I-12c3a), or removes the key (`nil`),
+  /// keeping every other key of the file, under the same rules as `setGlobalShortcut(_:)`:
+  /// nothing is written when the file holds that terminal already, or holds none and `id` is
+  /// `nil`. The id is stored as given; the caller resolves it (`TerminalChoice`).
+  public func setTerminal(_ id: String?) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    try apply(.terminal(id))
   }
 
   /// Makes `change`: a first look without the lock, then the lock, a second look and the write.
@@ -519,6 +554,14 @@ public actor PreferencesStore: PreferencesStoring {
         return .unchanged(PreferencesChangeResult(preferences: preferences, wrote: false))
       }
       fields[Self.folderSearchScopeKey] = scope.rawValue
+    case .terminal(let id):
+      preferences.terminal = id
+      let stored = fields[Self.terminalKey]
+      let absent = stored == nil || stored is NSNull
+      if (id != nil && stored as? String == id) || (id == nil && absent) {
+        return .unchanged(PreferencesChangeResult(preferences: preferences, wrote: false))
+      }
+      fields[Self.terminalKey] = id
     }
     fields["schemaVersion"] = Self.schemaVersion
     return .write(try Self.encode(fields), preferences)
@@ -696,9 +739,19 @@ public actor PreferencesStore: PreferencesStoring {
     // An unknown scope reads as the default and is kept as it is, like an unknown key.
     let scope = (fields[folderSearchScopeKey] as? String).flatMap(FolderSearchScope.init(rawValue:))
     return .preferences(
-      Preferences(globalShortcut: shortcut, folderSearchScope: scope ?? .standard),
+      Preferences(
+        globalShortcut: shortcut, folderSearchScope: scope ?? .standard,
+        terminal: terminal(from: fields[terminalKey])),
       fields: fields, dropped: dropped)
   } // End of static func decode(_:)
+
+  /// The terminal a `terminal` value names: the string as stored, `nil` for no value or
+  /// `null`, and the empty id (which names no terminal, so the choice is unavailable rather
+  /// than replaced by the default) for any other JSON value.
+  static func terminal(from value: Any?) -> String? {
+    guard let value, !(value is NSNull) else { return nil }
+    return value as? String ?? ""
+  }
 
   /// The usable shortcut in a `globalShortcut` value, or `nil`.
   static func shortcut(from value: Any) -> GlobalShortcut? {
@@ -784,7 +837,7 @@ public actor PreferencesStore: PreferencesStoring {
 
 /// Preferences kept in memory only (PLAN.md D32): the tests' and previews' store. It never
 /// reads or writes a file, so `preferences.json` is never touched.
-public actor InMemoryPreferencesStore: PreferencesStoring {
+public actor InMemoryPreferencesStore: TerminalSettingStoring {
   /// The preferences.
   public private(set) var preferences: Preferences
   /// How many changes were kept (tests count the writes a real store would have made).
@@ -825,6 +878,15 @@ public actor InMemoryPreferencesStore: PreferencesStoring {
     if let failure { throw failure }
     let changed = preferences.folderSearchScope != scope
     preferences.folderSearchScope = scope
+    if changed { changeCount += 1 }
+    return PreferencesChangeResult(preferences: preferences, wrote: false)
+  }
+
+  /// Keeps `id` (or none) as the terminal in memory; fails with `failure` when one is set.
+  public func setTerminal(_ id: String?) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    if let failure { throw failure }
+    let changed = preferences.terminal != id
+    preferences.terminal = id
     if changed { changeCount += 1 }
     return PreferencesChangeResult(preferences: preferences, wrote: false)
   }

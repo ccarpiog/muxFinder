@@ -29,6 +29,10 @@ public final class FakePlainTerminalWindowLayer: PlainTerminalWindowLayer {
   public var tty: String?
   /// Runs after each open that succeeds, with the launch token; its error fails that open.
   public var onOpen: (@MainActor (LaunchToken) throws(PlainTerminalWindowError) -> Void)?
+  /// How many run policy checks were asked for.
+  public private(set) var runPolicyChecks = 0
+  /// When set, every run policy check fails with it (still counted).
+  public var runPolicyFailure: PlainTerminalWindowError?
 
   /// A layer with no failures and no hook.
   public init() {}
@@ -59,4 +63,12 @@ public final class FakePlainTerminalWindowLayer: PlainTerminalWindowLayer {
     }
     if let focusFailure { throw focusFailure }
   } // End of func focus(_:of:)
+
+  /// Counts the check, then fails with `runPolicyFailure` if one is set.
+  public func checkRunPolicy(
+    for loaded: LoadedTerminalDefinition
+  ) throws(PlainTerminalWindowError) {
+    runPolicyChecks += 1
+    if let runPolicyFailure { throw runPolicyFailure }
+  }
 } // End of class FakePlainTerminalWindowLayer

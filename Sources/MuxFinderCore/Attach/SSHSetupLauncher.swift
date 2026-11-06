@@ -15,6 +15,9 @@ public enum SSHSetupFailure: Error, Sendable, Hashable {
   case iTerm2(ITerm2Error)
   /// The caller was cancelled before the tab was asked for; the request was withdrawn.
   case cancelled
+  /// iTerm2 is not the chosen terminal (PLAN.md D38, Phase I-12c3a), so iTerm2 was not
+  /// contacted and nothing was written or started.
+  case notUsedWithThisTerminal
 
   /// A short machine-readable name, for diagnostics.
   public var kind: String {
@@ -25,6 +28,7 @@ public enum SSHSetupFailure: Error, Sendable, Hashable {
     case .launchStore: return "launchStore"
     case .iTerm2(let error): return "iTerm2.\(error.kind)"
     case .cancelled: return "cancelled"
+    case .notUsedWithThisTerminal: return "notUsedWithThisTerminal"
     }
   }
 
@@ -43,6 +47,8 @@ public enum SSHSetupFailure: Error, Sendable, Hashable {
       return error.errorDescription ?? "iTerm2 didn't open the tab."
     case .cancelled:
       return "Opening the tab was cancelled."
+    case .notUsedWithThisTerminal:
+      return "iTerm2 isn't the terminal chosen in muxFinder's settings."
     }
   } // End of var message
 }

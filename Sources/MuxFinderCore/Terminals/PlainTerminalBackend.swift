@@ -3,8 +3,9 @@ import Foundation
 /// The plain backend of the terminal seam (PLAN.md D38, Phase I-12c1; requirements 5 and 6 of
 /// `autoclaude/processed/110-other-terminal-apps.md`): attaches tmux sessions in one terminal
 /// app other than iTerm2 (Terminal, Ghostty or a user definition) with a plain tmux client, one
-/// backend per loaded definition. Nothing in the app, the self-tests, the probe or the refresh
-/// engine calls it yet (I-12c3 moves them onto the seam).
+/// backend per loaded definition. The app builds one when a plain definition is the chosen
+/// terminal (`AppEnvironment.makeTerminalBackend`, Phase I-12c3a), as does
+/// `muxfinder-probe attach --terminal <id>`; the self-tests stay on iTerm2.
 ///
 /// One attach runs, in D15's order where it applies:
 /// 1. Revalidate the session through discovery (`AttachSharedSteps.revalidate`, the
@@ -25,10 +26,13 @@ import Foundation
 ///    move here and a create-and-attach skip it.
 /// 3. Write a plain request (`terminal` the definition's id, `keepsMinimumLifetime` the
 ///    definition's, the session's four identity values, `detachOtherClients` only for a move
-///    here).
+///    here), right after the window layer's run policy check (`PlainRunPolicy`: nothing for the
+///    app; for an unattended run a refusal, `terminalWindow(unattendedRunRefused)`, writes
+///    nothing).
 /// 4. Open a window through the window layer running `<helper> attach-plain <launch id>`; a
 ///    typed open failure ends the attach `terminalWindow(error)`, the request withdrawn,
-///    nothing retried (D13). The state becomes `plainLaunched(window)`.
+///    nothing retried (D13); an unattended run's layer checks its policy again right before
+///    the Apple event or spawn. The state becomes `plainLaunched(window)`.
 /// 5. Confirm, only from evidence (requirement 5): poll the helper's result (`peekResult`, a
 ///    result first ends the attach with the coordinator's mapping) and its early report
 ///    (`peekReport`, never taken; malformed or oversized is `launchStore`, never a
@@ -47,6 +51,12 @@ import Foundation
 /// 7. Bring the window forward once by the definition's focus kind; its outcome goes into the
 ///    result and never fails the attach. No bury, no `Disinter`, nothing restored, and the
 ///    backend never closes a window by itself.
+///
+/// A session whose name contains `{`, `[` or `]` is refused up front (`unsupportedSessionName`;
+/// for a create-and-attach, `invalidName(sessionNameNotSupportedByTerminal)` before anything is
+/// created), and again after revalidation, before any request is written or window opened:
+/// D38's bound commands cannot check such a name (`CreatedSession.formatLiteral(_:)`), so
+/// its client could be neither checked nor detached (PLAN.md D38, Phase I-12c3a).
 ///
 /// Concurrent attaches (or moves here) of one session coalesce into one launch; a call never
 /// joins a launch of the other kind, and never starts while an earlier launch of the session
@@ -201,6 +211,17 @@ public actor PlainTerminalBackend: TerminalBackend {
     pendingLaunches[key]?.filter { !$0.running }.count ?? 0
   }
 
+  /// Whether a launch of `key` may still attach the session (PLAN.md D21, D38): one that runs,
+  /// or one that ended with neither its client confirmed nor its request withdrawn and no
+  /// helper result seen yet (peeked, never taken; a result that cannot be read counts as none).
+  /// Read-only: nothing is written, sent or settled. `AppModel` asks it of this backend before
+  /// another terminal's Open or Move here of the same session (Phase I-12c3a review fix).
+  public func hasUnresolvedLaunch(for key: SessionKey) -> Bool {
+    (pendingLaunches[key] ?? []).contains { launch in
+      launch.running || (try? store.peekResult(launch.launchID)) == nil
+    }
+  }
+
   // MARK: - Operations
 
   /// Attaches `target`'s session in a new window of the backend's terminal app and returns how
@@ -208,7 +229,18 @@ public actor PlainTerminalBackend: TerminalBackend {
   /// its window was brought forward), `appFocused` (a client of the session on This Mac runs
   /// in that app, which was brought forward) or `failed`.
   public func attach(_ target: AttachTarget) async -> AttachResult {
-    await attach(target, checksExistingAttachment: true, detachesOtherClients: false)
+    guard Self.supportsName(target.session.name) else {
+      return await refuseBeforeLaunch(
+        target, .unsupportedSessionName, detachesOtherClients: false)
+    }
+    return await attach(target, checksExistingAttachment: true, detachesOtherClients: false)
+  }
+
+  /// Whether D38's bound commands can check a session named `name` (PLAN.md D38, Phase
+  /// I-12c3a): it reads back exactly as a tmux format literal, so it holds no `{`, `[` or `]`
+  /// (nor a control character, and it is not empty).
+  public static func supportsName(_ name: String) -> Bool {
+    CreatedSession.formatLiteral(name) != nil
   }
 
   /// Moves `target`'s session here (PLAN.md D21, D38): the attach above, with the request
@@ -225,16 +257,26 @@ public actor PlainTerminalBackend: TerminalBackend {
       await record(result, hostID: target.host.id, detachesOtherClients: true)
       return result
     }
+    guard Self.supportsName(target.session.name) else {
+      return await refuseBeforeLaunch(target, .unsupportedSessionName, detachesOtherClients: true)
+    }
     return await attach(target, checksExistingAttachment: true, detachesOtherClients: true)
   } // End of func moveHere(_:confirmation:)
 
   /// Creates the session `request` describes (D18's creation, `AttachSharedSteps`), then
   /// attaches it as `attach(_:)` does, without the existing-attachment check (a session
-  /// created a moment ago has no attachment yet). A failed creation opens nothing.
+  /// created a moment ago has no attachment yet). A failed creation opens nothing. A valid name
+  /// this backend cannot take (`supportsName(_:)`, after D18's trimming) is refused before
+  /// anything is created: `invalidName(sessionNameNotSupportedByTerminal)`; an invalid one gets
+  /// creation's own validation error.
   public func createAndAttach(
     _ request: NewSessionRequest,
     onCreated: (@Sendable (CreatedSession) -> Void)?
   ) async -> CreateAndAttachResult {
+    if let name = try? Validation.sessionName(request.name), !Self.supportsName(name) {
+      return CreateAndAttachResult(
+        creationFailure: .invalidName(.sessionNameNotSupportedByTerminal))
+    }
     let created: CreatedSession
     switch await AttachSharedSteps.createSession(
       request, creator: sessionCreator, clock: clock, diagnostics: diagnostics,
@@ -500,6 +542,8 @@ public actor PlainTerminalBackend: TerminalBackend {
     case .failure(let failure): return .failed(failure)
     }
     progress.timings.revalidated = clock.now() - progress.start
+    // The fresh name too (renamed since the listing): the bound commands cannot check it.
+    guard Self.supportsName(session.name) else { return .failed(.unsupportedSessionName) }
     // 2. The backend's own attachment: focus it while its client holds the session; a move
     // here runs nothing then (`-d` would detach it too).
     if progress.checksExistingAttachment || progress.detachesOtherClients,
@@ -536,6 +580,9 @@ public actor PlainTerminalBackend: TerminalBackend {
     request.terminal = terminal
     request.keepsMinimumLifetime = loaded.definition.keepsMinimumLifetime
     if progress.detachesOtherClients { request.detachOtherClients = true }
+    // The window layer's run policy right before the write (`PlainRunPolicy`; an unattended
+    // run refuses an app that quit or a permission that changed since its own early check).
+    if let refusal = await runPolicyRefusal() { return .failed(.terminalWindow(refusal)) }
     do throws(LaunchStoreError) {
       try store.writeRequest(request)
     } catch {
@@ -818,6 +865,21 @@ public actor PlainTerminalBackend: TerminalBackend {
       }
     }
   } // End of func openWindow(token:)
+
+  /// The window layer's run policy check for this backend's definition, on the main actor:
+  /// its refusal, or `nil` when the run may go on (always for the app's `interactive` policy).
+  private func runPolicyRefusal() async -> PlainTerminalWindowError? {
+    let windows = self.windows
+    let loaded = self.loaded
+    return await MainActor.run { () -> PlainTerminalWindowError? in
+      do throws(PlainTerminalWindowError) {
+        try windows.checkRunPolicy(for: loaded)
+        return nil
+      } catch {
+        return error
+      }
+    }
+  } // End of func runPolicyRefusal()
 
   /// Brings `window` forward through the window layer with this backend's loaded definition,
   /// on the main actor.

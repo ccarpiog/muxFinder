@@ -53,6 +53,10 @@ public enum PlainTerminalWindowError: Error, Sendable, Hashable, LocalizedError 
   case windowBusy(appName: String)
   /// The window is not there any more (-1728).
   case windowGone(appName: String)
+  /// An unattended run (`PlainRunPolicy.unattended`, *Unattended-run rules* 8) found, right
+  /// before a side effect, that it may not go ahead: the app not installed, too old, not
+  /// running or its permission not reading granted. Nothing was sent or launched.
+  case unattendedRunRefused(appName: String, PlainRunGate.Refusal)
 
   /// A short machine-readable name, such as `appTooOld` or `windowBusy`.
   public var kind: String {
@@ -75,6 +79,7 @@ public enum PlainTerminalWindowError: Error, Sendable, Hashable, LocalizedError 
     case .windowHasNoID: return "windowHasNoID"
     case .windowBusy: return "windowBusy"
     case .windowGone: return "windowGone"
+    case .unattendedRunRefused: return "unattendedRunRefused"
     }
   } // End of var kind
 
@@ -123,6 +128,8 @@ public enum PlainTerminalWindowError: Error, Sendable, Hashable, LocalizedError 
       return "The \(app) window is still running something, so muxFinder left it open."
     case .windowGone(let app):
       return "The \(app) window is already closed."
+    case .unattendedRunRefused(let app, let refusal):
+      return "muxFinder sent nothing to \(app) in an unattended run: \(refusal.message)."
     }
   } // End of var message
 

@@ -66,6 +66,10 @@ public enum SSHSetupState: Sendable, Hashable {
 public final class SSHSetupActions {
   /// Each host's state, by host id.
   public private(set) var states: [UUID: SSHSetupState]
+  /// Whether iTerm2 is the chosen terminal (PLAN.md D38, Phase I-12c3a; set by `AppModel`
+  /// through `setUsesITerm2(_:)`, false too while the choice is not resolved yet). While it is
+  /// not, `open(_:)` contacts nothing: the host's line says so (`notUsedWithThisTerminal`).
+  public private(set) var usesITerm2 = true
 
   /// Opens the tabs; `nil` offers no action.
   @ObservationIgnored private let opener: (any SSHSetupOpening)?
@@ -102,9 +106,15 @@ public final class SSHSetupActions {
 
   /// Opens the tab for `host` (as it stands: a draft's values work too). Ignored while the
   /// host's line shows a request running, for a host the action is not offered for, without
-  /// an opener, and after `shutdown()`.
+  /// an opener, and after `shutdown()`. While iTerm2 is not the chosen terminal nothing is
+  /// asked of the opener: the line shows `notUsedWithThisTerminal`.
   public func open(_ host: HostConfig) {
     guard let opener, !isShutDown, Self.isOffered(for: host), !isOpening(host.id) else {
+      return
+    }
+    guard usesITerm2 else {
+      awaitedRequests[host.id] = nil
+      states[host.id] = .failed(.notUsedWithThisTerminal)
       return
     }
     lastRequestNumber += 1
@@ -116,6 +126,17 @@ public final class SSHSetupActions {
       self?.finish(number, hostID: host.id, result: result)
     }
   } // End of func open(_:)
+
+  /// Follows the terminal choice (`AppModel`, PLAN.md D38): while iTerm2 is not the choice
+  /// (or the choice is not resolved yet) `open(_:)` contacts nothing; once iTerm2 is the choice,
+  /// every line that said it was not is cleared, so the action is offered again as it was.
+  func setUsesITerm2(_ uses: Bool) {
+    usesITerm2 = uses
+    guard uses else { return }
+    for (id, state) in states where state == .failed(.notUsedWithThisTerminal) {
+      states[id] = nil
+    }
+  }
 
   /// Request `number` for `hostID` ended with `result`: it is no longer owned, and its result
   /// becomes the host's line only if the line still waits for it.

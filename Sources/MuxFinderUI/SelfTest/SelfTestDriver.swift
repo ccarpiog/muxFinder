@@ -603,8 +603,11 @@ public final class SelfTestDriver {
   }
 
   /// The model's environment: This Mac in memory, an engine over the seams' discovery (no
-  /// attachment checks), an attach coordinator (over `coordinatorITerm2`) whose index asks only
-  /// this run's launch tabs' connections, New session's directories in memory (no
+  /// attachment checks), iTerm2 forced as the terminal (no terminal environment, so the user's
+  /// `preferences.json` is never read; PLAN.md D38, Phase I-12c3a) with its backend built
+  /// through the app's own seam (`makeTerminalBackend`: `ITerm2TerminalBackend` over an attach
+  /// coordinator over `coordinatorITerm2` whose index asks only this run's launch tabs'
+  /// connections; a plain terminal is refused), New session's directories in memory (no
   /// `directories.json` read or written, PLAN.md D31), and a shutdown that waits for session
   /// actions no longer than the attach timeout (nor than the app's own budget, so keep mode's
   /// quit stays within its deadline).
@@ -620,7 +623,8 @@ public final class SelfTestDriver {
       makeSystemEvents: { _ in nil },
       terminate: { AppTermination.request() },
       diagnostics: seams.diagnostics,
-      makeAttachCoordinator: { onUpdate in
+      makeTerminalBackend: { chosen, onUpdate in
+        guard chosen == .iTerm2 else { throw SelfTestFailure("the self-tests run iTerm2 only") }
         let index = AttachmentIndex(
           iTerm2: seams.iTerm2, clock: seams.indexClock,
           configuration: .init(includes: { connection in
@@ -636,7 +640,7 @@ public final class SelfTestDriver {
             onUpdate(update)
           })
         box.set(coordinator)
-        return coordinator
+        return ITerm2TerminalBackend(coordinator: coordinator)
       },
       newSessionCommand: sleepCommand,
       directories: InMemoryDirectoryStore(),

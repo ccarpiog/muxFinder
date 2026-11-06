@@ -2,17 +2,18 @@ import AppKit
 import Foundation
 import MuxFinderCore
 
-/// What `AppModel` runs on (PLAN.md D22, D23, D24, D25): the host list, the refresh engine, the
-/// system events adapter, the attach coordinator, the clock, quitting, opening URLs, the
-/// Settings and onboarding windows and their seams. `production()` wires the real core; tests
-/// pass fakes (the attach coordinator over a fake iTerm2 integration, directories in memory), so
-/// `swift test` never reads or saves `hosts.json` or `directories.json`, runs a probe, contacts
-/// iTerm2, opens a window, a tab or System
-/// Settings, changes a login item, or writes in iTerm2's `DynamicProfiles`.
+/// What `AppModel` runs on (PLAN.md D22, D23, D24, D25, D38): the host list, the refresh engine,
+/// the system events adapter, the terminal backends and the terminal setting, the clock,
+/// quitting, opening URLs, the Settings and onboarding windows and their seams. `production()`
+/// wires the real core; tests pass fakes (iTerm2's backend over an attach coordinator over a
+/// fake iTerm2 integration, directories in memory), so `swift test` never reads or saves
+/// `hosts.json`, `directories.json` or `preferences.json`, runs a probe, contacts iTerm2, sends
+/// an Apple event, opens a window, a tab or System Settings, changes a login item, or writes in
+/// iTerm2's `DynamicProfiles`.
 ///
 /// Building an environment does no work: nothing is read, started or contacted until
-/// `AppModel.start()` calls `loadHosts` and `makeEngine`, a window opens, or the first action
-/// on a session builds the attach coordinator.
+/// `AppModel.start()` resolves the terminal setting and calls `loadHosts` and `makeEngine`, a
+/// window opens, or the first action on a session builds the chosen terminal's backend.
 public struct AppEnvironment: Sendable {
   /// Loads the host list (`HostStore.load()` in production, which never writes).
   public var loadHosts: @Sendable () async throws -> HostStoreLoadResult
@@ -37,13 +38,24 @@ public struct AppEnvironment: Sendable {
   public var settings: SettingsEnvironment?
   /// The operation log, if any (the app model records how the host list loaded).
   public var diagnostics: DiagnosticsLog?
-  /// Builds the attach coordinator the session actions run on (Open, Move here, Detach, New
-  /// session, Show tab; PLAN.md D25), handing every state update to the given handler. Called
-  /// once, at the first action; it throws when the coordinator cannot be built (the launch
-  /// helper is missing), which the row then explains. `nil` leaves sessions unopenable (tests
-  /// of other parts).
-  public var makeAttachCoordinator:
-    (@Sendable (@escaping AttachCoordinator.UpdateHandler) throws -> AttachCoordinator)?
+  /// Builds the terminal backend the session actions run on (Open, Move here, Detach, New
+  /// session, Detach other clients, Show tab or window; PLAN.md D25, D38) for a chosen
+  /// terminal, handing every state update to the given handler: for `iterm2`,
+  /// `ITerm2TerminalBackend` over the attach coordinator; for a plain definition,
+  /// `PlainTerminalBackend`. Called once per terminal id, at the first action that needs it,
+  /// and kept for the model's life (`AppModel` caches it, so switching back reuses it and
+  /// there is never a second coordinator on one iTerm2); it throws when the backend cannot be
+  /// built (the launch helper is missing), which the row then explains. `nil` leaves sessions
+  /// unopenable (tests of other parts).
+  public var makeTerminalBackend:
+    (
+      @MainActor @Sendable (ChosenTerminal, @escaping AttachCoordinator.UpdateHandler) throws
+        -> any TerminalBackend
+    )?
+  /// How the terminal setting is resolved (PLAN.md D38, Phase I-12c3a): the preferences file,
+  /// the terminal definitions and LaunchServices' answers. `nil` (the self-tests, the
+  /// placement diagnostic, the tests of other parts) forces iTerm2 with nothing read.
+  public var terminal: TerminalEnvironment?
   /// The first pane's command of a session made with New session, as argv; empty (the app's
   /// value) runs the user's shell. The self-tests run `sleep` instead, so no login shell starts.
   public var newSessionCommand: [String]
@@ -98,9 +110,11 @@ public struct AppEnvironment: Sendable {
     presentOnboarding: @escaping @MainActor @Sendable (OnboardingModel) -> Void = { _ in },
     settings: SettingsEnvironment? = nil,
     diagnostics: DiagnosticsLog? = nil,
-    makeAttachCoordinator: (
-      @Sendable (@escaping AttachCoordinator.UpdateHandler) throws -> AttachCoordinator
+    makeTerminalBackend: (
+      @MainActor @Sendable (ChosenTerminal, @escaping AttachCoordinator.UpdateHandler) throws
+        -> any TerminalBackend
     )? = nil,
+    terminal: TerminalEnvironment? = nil,
     newSessionCommand: [String] = [],
     directories: (any DirectoryStoring)? = nil,
     sessionActionShutdownBudget: Duration = AppModel.sessionActionShutdownBudget,
@@ -120,7 +134,8 @@ public struct AppEnvironment: Sendable {
     self.presentOnboarding = presentOnboarding
     self.settings = settings
     self.diagnostics = diagnostics
-    self.makeAttachCoordinator = makeAttachCoordinator
+    self.makeTerminalBackend = makeTerminalBackend
+    self.terminal = terminal
     self.newSessionCommand = newSessionCommand
     self.directories = directories
     self.sessionActionShutdownBudget = sessionActionShutdownBudget
@@ -140,9 +155,21 @@ public struct AppEnvironment: Sendable {
   /// pasteboard, `NSWorkspace` for URLs, "Set up SSH in iTerm2…" (`SSHSetupLauncher` over
   /// the same client, the launch store and the bundled helper), and the persistent profile
   /// file (`PersistentProfileFiles` over iTerm2's `DynamicProfiles` folder, PLAN.md D26). The
-  /// session actions run on one `AttachCoordinator` over the same client, `DiscoveryProbe`, the
-  /// launch store and the bundled `muxfinder-launch` (`LaunchHelperPath.locate()`), with the
-  /// standard existing-attachment check (PLAN.md D16, D25). New session's directory list and
+  /// session actions run on the chosen terminal's backend (PLAN.md D38, Phase I-12c3a), built
+  /// at the first action and kept per terminal id: iTerm2's is `ITerm2TerminalBackend` over one
+  /// `AttachCoordinator` over the same client, `DiscoveryProbe`, the launch store and the
+  /// bundled `muxfinder-launch` (`LaunchHelperPath.locate()`), with the standard
+  /// existing-attachment check (PLAN.md D16, D25); a plain definition's is
+  /// `PlainTerminalBackend` over one `PlainTerminalWindows` (`NSAppleScriptRunner`,
+  /// LaunchServices, the detached spawner, `NSRunningApplication`), the same helper, launch
+  /// store and discovery, and This Mac's `LocalClientAttributor`; both bring an `.app` handle
+  /// forward through `RunningApplicationActivator`. The terminal definitions load once (the
+  /// bundle's `Resources/Terminals/` and the user's
+  /// `~/Library/Application Support/muxFinder/terminals/`, read only, never created) and serve
+  /// the terminal setting and the engine's attributor of This Mac's clients
+  /// (`RefreshCoordinator(localClients:)`). The setting itself is read from and written to
+  /// `preferences.json` only with `usesGlobalShortcut` (normal mode); otherwise it is absent,
+  /// so the default (iTerm2 when installed) applies. New session's directory list and
   /// Settings' Directories tab share one `DirectoryStore` on `directories.json` (PLAN.md D31;
   /// it is read when New session or the Settings window opens, and written only when a session
   /// is created in a directory or the user saves or clears directories); its filter matches
@@ -164,7 +191,10 @@ public struct AppEnvironment: Sendable {
   /// the user asks for it. Connecting checks that iTerm2 runs before asking for its cookie (D13), and
   /// an attempt whose callers were cancelled stops before the cookie or the connection, so the
   /// cookie is never requested at launch, nor once the popover has closed, nor while iTerm2 is
-  /// not running. The onboarding window contacts nothing by itself.
+  /// not running. The onboarding window contacts nothing by itself. While iTerm2 is not the
+  /// chosen terminal, nothing contacts it at all (PLAN.md D38): `AppModel` turns the engine's
+  /// attachment checks off and gates the profile list, "Set up SSH in iTerm2…" and D26's
+  /// rewrite, and only the chosen terminal's backend is built.
   @MainActor
   public static func production(
     rewritesProfilesAtLaunch: Bool, usesGlobalShortcut: Bool = false
@@ -172,6 +202,14 @@ public struct AppEnvironment: Sendable {
     let diagnostics = DiagnosticsLog()
     let iTerm2 = ITerm2APIClient(diagnostics: diagnostics)
     let index = AttachmentIndex(iTerm2: iTerm2)
+    let catalog = TerminalCatalogCache {
+      TerminalDefinitionLoader(
+        builtInDirectory: TerminalDefinitionLoader.bundledDirectory(),
+        userDirectory: AppPaths.standard.terminalDefinitionsDirectory
+      ).load()
+    }
+    let plainWindows = PlainTerminalWindowsHolder()
+    let activator = RunningApplicationActivator()
     let store = HostStore()
     let directories = DirectoryStore()
     let preferences = PreferencesStore()
@@ -197,7 +235,9 @@ public struct AppEnvironment: Sendable {
     return AppEnvironment(
       loadHosts: { try await store.load() },
       makeEngine: { hosts in
-        RefreshCoordinator(hosts: hosts, discovery: DiscoveryProbe(), attachmentIndex: index)
+        RefreshCoordinator(
+          hosts: hosts, discovery: DiscoveryProbe(), attachmentIndex: index,
+          localClients: LocalClientAttributor(definitions: catalog.catalog().definitions))
       },
       makeSystemEvents: { engine in
         RefreshSystemEvents(
@@ -209,11 +249,28 @@ public struct AppEnvironment: Sendable {
       presentOnboarding: { OnboardingWindowController.shared.show($0) },
       settings: settings,
       diagnostics: diagnostics,
-      makeAttachCoordinator: { onUpdate in
-        AttachCoordinator(
-          iTerm2: iTerm2, discovery: DiscoveryProbe(), store: LaunchStore(),
-          helperPath: try LaunchHelperPath.locate(), diagnostics: diagnostics, onUpdate: onUpdate)
+      makeTerminalBackend: { chosen, onUpdate in
+        switch chosen {
+        case .iTerm2:
+          return ITerm2TerminalBackend(
+            coordinator: AttachCoordinator(
+              iTerm2: iTerm2, discovery: DiscoveryProbe(), store: LaunchStore(),
+              helperPath: try LaunchHelperPath.locate(), diagnostics: diagnostics,
+              onUpdate: onUpdate),
+            appActivator: activator)
+        case .plain(let loaded):
+          return PlainTerminalBackend(
+            loaded: loaded, windows: plainWindows.windows,
+            helperPath: try LaunchHelperPath.locate(),
+            store: LaunchStore(), discovery: DiscoveryProbe(), diagnostics: diagnostics,
+            localClients: LocalClientAttributor(definitions: catalog.catalog().definitions),
+            appActivator: activator, onUpdate: onUpdate)
+        }
       },
+      terminal: TerminalEnvironment(
+        preferences: usesGlobalShortcut ? preferences : nil,
+        loadDefinitions: { catalog.catalog() },
+        inspector: WorkspaceTerminalAppInspector()),
       directories: directories,
       rewritesProfilesAtLaunch: rewritesProfilesAtLaunch,
       globalShortcut: usesGlobalShortcut
@@ -249,7 +306,8 @@ public struct AppEnvironment: Sendable {
   /// one, as the self-tests' (`HostStoreLoadResult.inMemory(_:)`: no `hosts.json` read or
   /// written, no onboarding); an engine built for it would have no host to discover and no
   /// attachment index, so it could not run a probe or contact iTerm2; no system events, no
-  /// Settings seams (inert Settings and onboarding models), no attach coordinator, no directory
+  /// Settings seams (inert Settings and onboarding models), no terminal backend or terminal
+  /// setting (iTerm2 forced, nothing read), no directory
   /// store (no `directories.json` read or written), no persistent profile rewrite, and no
   /// session switcher shortcut (no `preferences.json` read, no hotkey). Quitting goes through
   /// `AppTermination` as usual.

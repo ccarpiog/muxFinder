@@ -43,6 +43,13 @@ import Foundation
 ///   applied snapshot's sessions carry them (`HostSnapshot.Session.localAttachments`; with an
 ///   index configured, iTerm2's control-mode clients are left to it). An SSH host is never
 ///   attributed. Without an attributor (the default) nothing changes.
+/// - **Attachment checks on or off** (PLAN.md D38, Phase I-12c3a):
+///   `setAttachmentChecksEnabled(_:)` turns the configured index on and off while the engine
+///   lives (the app turns it off while iTerm2 is not the chosen terminal, so iTerm2 is never
+///   contacted). Off, the engine behaves as one built without an index: no check runs (one in
+///   flight is retired), `attachmentCheck` is
+///   `notChecked`, no snapshot carries D16's attachments, and This Mac's attribution counts
+///   iTerm2's control-mode clients too. On (the default), as before.
 /// - **`stop()`** cancels everything and returns once every task it started has ended.
 public actor RefreshCoordinator {
   /// Timing and concurrency (PLAN.md D20).
@@ -191,6 +198,9 @@ public actor RefreshCoordinator {
   private let localClients: (any LocalClientAttributing)?
   /// The time source of every schedule and timestamp.
   private let clock: any AttachClock
+  /// Whether `attachmentIndex` is in use (`setAttachmentChecksEnabled(_:)`); `true` until
+  /// turned off.
+  private var attachmentChecksEnabled = true
 
   /// Whether the engine schedules work.
   private(set) var lifecycle = Lifecycle.idle
@@ -528,7 +538,7 @@ public actor RefreshCoordinator {
       let host = entry.snapshot.host
       let discovery = self.discovery
       let attributor = host.mode == .local ? localClients : nil
-      let indexInUse = attachmentIndex != nil
+      let indexInUse = activeIndex != nil
       let task = spawn { coordinator in
         let outcome = await Self.probe(
           host, with: discovery, attributing: attributor, indexInUse: indexInUse)
@@ -739,11 +749,50 @@ public actor RefreshCoordinator {
 
   // MARK: - Attachments
 
-  /// Whether results trigger attachment checks: an index exists, the popover is visible and
+  /// The attachment index in use: the configured one, unless checks were turned off.
+  private var activeIndex: (any AttachmentIndexing)? {
+    attachmentChecksEnabled ? attachmentIndex : nil
+  }
+
+  /// Whether results trigger attachment checks: an index is in use, the popover is visible and
   /// the system is awake.
   private var wantsAutomaticIndexPass: Bool {
-    attachmentIndex != nil && isPopoverVisible && !isAsleep && lifecycle != .stopped
+    activeIndex != nil && isPopoverVisible && !isAsleep && lifecycle != .stopped
   }
+
+  /// Turns the configured attachment index's checks on or off (PLAN.md D38, Phase I-12c3a: the
+  /// app turns them off while iTerm2 is not the chosen terminal). Turning them off retires the
+  /// check in progress (its task is cancelled, so it contacts iTerm2 no further, and its
+  /// result is discarded), drops its follow-up, resumes everyone waiting for a check, and
+  /// forgets the last check and every snapshot's attachments (`notChecked`), as an engine
+  /// built without an index has them; later attempts of This Mac attribute iTerm2's
+  /// control-mode clients too. Turning them on starts a check at once while the popover is
+  /// visible. Without a configured index, or with no change, nothing happens.
+  public func setAttachmentChecksEnabled(_ enabled: Bool) {
+    guard lifecycle != .stopped, attachmentIndex != nil, enabled != attachmentChecksEnabled
+    else { return }
+    attachmentChecksEnabled = enabled
+    if enabled {
+      if wantsAutomaticIndexPass { requestIndexPass(waiter: nil) }
+      publish()
+      return
+    }
+    var released = indexWaiters
+    indexWaiters = []
+    indexFollowUp = false
+    if let pass = indexPass {
+      pass.task.cancel()
+      released += pass.waiters
+      indexPass = nil
+    }
+    lastIndexSnapshot = nil
+    attachmentCheck = .notChecked
+    for hostID in hostOrder {
+      hosts[hostID]?.snapshot.mergeAttachments(nil)
+    }
+    publish()
+    for waiter in released { waiter.resume() }
+  } // End of func setAttachmentChecksEnabled(_:)
 
   /// The popover closed: cancels the attachment check in progress and drops its follow-up,
   /// unless a `refreshOnce` caller waits for either (an explicit request, left to run).
@@ -765,7 +814,7 @@ public actor RefreshCoordinator {
   /// Asks for an attachment check: started now, or marked as a follow-up of the running one.
   /// `waiter` is resumed when the check that serves it ends, or at once when none will.
   private func requestIndexPass(waiter: CheckedContinuation<Void, Never>?) {
-    guard lifecycle != .stopped, let index = attachmentIndex else {
+    guard lifecycle != .stopped, let index = activeIndex else {
       waiter?.resume()
       return
     }
@@ -835,7 +884,7 @@ public actor RefreshCoordinator {
     }
     if indexFollowUp {
       indexFollowUp = false
-      if let index = attachmentIndex, wantsAutomaticIndexPass || !indexWaiters.isEmpty {
+      if let index = activeIndex, wantsAutomaticIndexPass || !indexWaiters.isEmpty {
         startIndexPass(index)
       }
     }

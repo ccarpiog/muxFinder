@@ -790,6 +790,9 @@ struct FailureMessageTests {
     case .cannotConfirmHere: return 21
     case .clientCheckFailed: return 22
     case .alreadyOpenInTerminal: return 23
+    // The plain backend's name refusal (PLAN.md D38, Phase I-12c3a), sampled apart in
+    // `TerminalSeamTests`.
+    case .unsupportedSessionName: return 24
     }
   } // End of static func caseIndex(_:)
 

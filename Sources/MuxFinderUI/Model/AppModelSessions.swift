@@ -10,15 +10,18 @@ import os
 ///   session; a click, Return or menu item for a session with one pending is ignored, so a burst
 ///   of clicks starts one launch. A New session's attach becomes its session's action as soon
 ///   as the session was created, so its row follows it like an Open's.
-/// - **Ordered events:** the coordinator's update handler and every action's result feed one
-///   `AsyncStream` read by one main-actor task. The coordinator publishes a launch's states
-///   before its call returns, and the action yields its result after that, so the row never
-///   goes back to "Waiting for iTerm2…" after "Confirmed". "Confirmed" comes only from the
-///   core's `confirmed` state (after its identity check) or result; "Already open here —
-///   brought its tab forward" only from a focus whose activation brought the tab forward.
-/// - **Seams:** the coordinator comes from `AppEnvironment.makeAttachCoordinator` at the first
-///   action; tests build it over a fake iTerm2 integration, the self-tests over the real one
-///   with an attachment index that asks only their own launch tabs' connections.
+/// - **Ordered events:** the backends' update handler and every action's result feed one
+///   `AsyncStream` read by one main-actor task. A backend publishes a launch's states before
+///   its call returns, and the action yields its result after that, so the row never goes back
+///   to "Waiting for iTerm2…" after "Confirmed". "Confirmed" comes only from the core's
+///   `confirmed` state (after its identity check) or result; "Already open here — brought its
+///   tab forward" only from a focus whose activation brought the tab forward. The plain
+///   backend's states show as their iTerm2 counterparts until Phase I-12d writes their text.
+/// - **Seams:** every action runs on the chosen terminal's `TerminalBackend`
+///   (`AppModelTerminal.swift`), built through `AppEnvironment.makeTerminalBackend` at the
+///   first action; tests build iTerm2's over an attach coordinator over a fake iTerm2
+///   integration, the self-tests over the real one with an attachment index that asks only
+///   their own launch tabs' connections.
 extension AppModel {
   // MARK: - Lookups
 
@@ -40,13 +43,50 @@ extension AppModel {
     runningActions[key] != nil
   }
 
-  /// Whether "Detach from this Mac" is offered for `key`: only for an attachment in this Mac's
-  /// iTerm2, as the attachment index reports it (the "Open in iTerm2 here" badge) or as
-  /// muxFinder made or found it itself (`attachedHere`).
+  /// Whether "Detach from this Mac" is offered for `key`, from the chosen terminal's records
+  /// only (PLAN.md D38, Phase I-12c3a review fix): with iTerm2 chosen, an attachment in this
+  /// Mac's iTerm2, as the attachment index reports it (the "Open in iTerm2 here" badge) or as
+  /// muxFinder made or found it itself (`attachedHere`); with a plain terminal chosen, a window
+  /// its backend opened for it (`terminalAttachments`). Another terminal's records never offer
+  /// it, so its detach never goes to the chosen terminal's backend.
   public func canDetach(_ key: SessionKey) -> Bool {
-    if attachedHere[key] != nil { return true }
+    if selectedAttachedHere[key] != nil || hasPlainAttachment(key) { return true }
+    guard terminalChoice.usesITerm2 else { return false }
     let session = refreshState?.snapshot(of: key.hostID)?.sessions.first { $0.key == key }
     return session?.isOpenInITerm2Here == true
+  }
+
+  /// Whether the chosen plain backend's attachment of `key` was recorded (a window it confirmed
+  /// or brought forward; an app the session was found open in is not one).
+  func hasPlainAttachment(_ key: SessionKey) -> Bool {
+    if case .plainWindow? = terminalAttachments[key] { return true }
+    return false
+  }
+
+  /// iTerm2's records (`attachedHere`) while iTerm2 is the chosen terminal, else none: what
+  /// the rows, "Detach from this Mac" and "Detach other clients…" go by (PLAN.md D38, Phase
+  /// I-12c3a review fix). The records stay for when iTerm2 is chosen again.
+  var selectedAttachedHere: [SessionKey: AttachmentRecord] {
+    terminalChoice.usesITerm2 ? attachedHere : [:]
+  }
+
+  /// The chosen terminal's records (`terminalAttachmentsByTerminal`), by session: what "Show
+  /// window", "Detach from this Mac" and "Detach other clients…" go by. Empty while the choice
+  /// is unavailable or not resolved yet.
+  public var terminalAttachments: [SessionKey: TerminalAttachmentHandle] {
+    terminalChoice.chosen.flatMap { terminalAttachmentsByTerminal[$0.id] } ?? [:]
+  }
+
+  /// Records `handle` (or forgets the record, `nil`) for `key` among the records of the
+  /// backend of `terminalID` only.
+  func setTerminalAttachment(
+    _ handle: TerminalAttachmentHandle?, for key: SessionKey, terminalID: String?
+  ) {
+    guard let terminalID else { return }
+    terminalAttachmentsByTerminal[terminalID, default: [:]][key] = handle
+    if terminalAttachmentsByTerminal[terminalID]?.isEmpty == true {
+      terminalAttachmentsByTerminal[terminalID] = nil
+    }
   }
 
   /// The hosts New session offers: the enabled hosts, in list order.
@@ -56,9 +96,10 @@ extension AppModel {
 
   // MARK: - Open and move here
 
-  /// Opens a session in iTerm2 (a click or Return): attaches it through a launch tab, or, when
-  /// this Mac's iTerm2 shows it already, brings that tab forward without launching anything
-  /// (the coordinator's existing-attachment check, PLAN.md D16). Ignored while an action on the
+  /// Opens a session in the chosen terminal (a click or Return): with iTerm2, attaches it
+  /// through a launch tab, or, when this Mac's iTerm2 shows it already, brings that tab forward
+  /// without launching anything (the coordinator's existing-attachment check, PLAN.md D16);
+  /// with a plain terminal, through the plain backend (D38). Ignored while an action on the
   /// session is pending, for a fixture, and after `shutdown()`.
   public func open(_ key: SessionKey) {
     selection = key
@@ -90,8 +131,8 @@ extension AppModel {
     }
   }
 
-  /// The confirmation's "Move here": the only call that reaches
-  /// `AttachCoordinator.moveHere(_:confirmation:)`, with the confirmation naming that session.
+  /// The confirmation's "Move here": the only call that reaches the backend's
+  /// `moveHere(_:confirmation:)`, with the confirmation naming that session.
   public func confirmMoveHere() {
     guard case .moveHere(let request) = panel else { return }
     panel = nil
@@ -109,49 +150,72 @@ extension AppModel {
   /// Starts an open or a confirmed move here of `key` (`given`, or the listed session, or for
   /// a session switcher row the engine does not list its retained target on its host as
   /// enabled now, `pinnedSwitcherTarget(for:)`). Returns whether it started: not after
-  /// `shutdown()`, while an action on `key` is pending, with no target, or with no coordinator
-  /// (that problem then shows on the row).
+  /// `shutdown()`, while an action on `key` is pending, with no target, or with no backend
+  /// (an unavailable terminal choice or a backend that cannot be built: that problem then shows
+  /// on the row). While another terminal's backend built earlier holds a launch of `key` that
+  /// may still attach it (`TerminalBackend.hasUnresolvedLaunch(for:)`, read-only), the action
+  /// ends `earlierLaunchPending` with nothing written, opened or sent (PLAN.md D38, Phase
+  /// I-12c3a review fix): a change of terminal never starts a second attach of the session.
   @discardableResult
   func startAttach(_ key: SessionKey, kind: ActionKind, target given: AttachTarget?) -> Bool {
     guard lifecycle != .stopped, runningActions[key] == nil,
       let target = given ?? target(for: key) ?? pinnedSwitcherTarget(for: key)
     else { return false }
-    guard let coordinator = coordinator() else {
-      if let attacherProblem { activities[key] = .failed(.unavailable(attacherProblem)) }
+    guard let terminalBackend = backend() else {
+      if let backendProblem { activities[key] = .failed(backendProblem) }
       return false
     }
+    let terminalID = terminalChoice.chosen?.id
+    let others = otherBackends(than: terminalID)
     lastActions[key] = kind
     activities[key] = kind == .moveHere ? .movingHere : .opening
     notes[key] = nil
     let sink = actionSink
     let task = Task {
-      let outcome: SessionActionRecord.Outcome
-      if kind == .moveHere {
-        outcome = .moveHere(
-          await coordinator.moveHere(target, confirmation: .detachOtherClients(of: key)))
+      let result: AttachResult
+      if await Self.anyHoldsUnresolvedLaunch(others, for: key) {
+        result = AttachResult(
+          key: key, launchID: LaunchToken(), state: .failed(.earlierLaunchPending))
+      } else if kind == .moveHere {
+        result = await terminalBackend.moveHere(
+          target, confirmation: .detachOtherClients(of: key))
       } else {
-        outcome = .attach(await coordinator.attach(target))
+        result = await terminalBackend.attach(target)
       }
-      sink.yield(.finished(key, outcome))
+      sink.yield(.finished(key, kind == .moveHere ? .moveHere(result) : .attach(result)))
     }
-    runningActions[key] = RunningAction(kind: kind, target: target, task: task)
+    runningActions[key] = RunningAction(
+      kind: kind, target: target, task: task, terminalID: terminalID)
     if kind == .open { switcherActionStarted(key, target: target) }
     logger.info("Session action started: \(kind.name, privacy: .public)")
     return true
   } // End of func startAttach(_:kind:target:)
 
+  /// Whether any of `backends` holds a launch of `key` that may still attach the session
+  /// (read-only; asked one after the other).
+  static func anyHoldsUnresolvedLaunch(
+    _ backends: [any TerminalBackend], for key: SessionKey
+  ) async -> Bool {
+    for backend in backends {
+      if await backend.hasUnresolvedLaunch(for: key) { return true }
+    }
+    return false
+  }
+
   // MARK: - Detach
 
   /// "Detach from this Mac": detaches every attachment of `key` in this Mac's iTerm2 with
   /// `detach-client` through the core (`AttachCoordinator.detach(session:on:)`, which waits
-  /// until each tab is old enough and never closes a tab). The session keeps running. Offered
-  /// and run only when `canDetach(_:)`; ignored while an action on the session is pending.
+  /// until each tab is old enough and never closes a tab), or with a plain terminal the plain
+  /// backend's own client with D38's bound detach (never by closing a window), through the
+  /// chosen terminal's backend. The session keeps running. Offered and run only when
+  /// `canDetach(_:)`; ignored while an action on the session is pending.
   public func detach(_ key: SessionKey) {
     guard lifecycle != .stopped, runningActions[key] == nil, canDetach(key),
       let host = host(withID: key.hostID)
     else { return }
-    guard let coordinator = coordinator() else {
-      if let attacherProblem { activities[key] = .failed(.unavailable(attacherProblem)) }
+    guard let terminalBackend = backend() else {
+      if let backendProblem { activities[key] = .failed(backendProblem) }
       return
     }
     lastActions[key] = .detach
@@ -159,10 +223,11 @@ extension AppModel {
     notes[key] = nil
     let sink = actionSink
     let task = Task {
-      let result = await coordinator.detach(session: key, on: host)
+      let result = await terminalBackend.detach(session: key, on: host)
       sink.yield(.finished(key, .detached(result)))
     }
-    runningActions[key] = RunningAction(kind: .detach, target: target(for: key), task: task)
+    runningActions[key] = RunningAction(
+      kind: .detach, target: target(for: key), task: task, terminalID: terminalChoice.chosen?.id)
     logger.info("Session action started: detach")
   } // End of func detach(_:)
 
@@ -177,7 +242,8 @@ extension AppModel {
     guard let snapshot = refreshState?.snapshot(of: key.hostID),
       let session = snapshot.sessions.first(where: { $0.key == key })
     else { return nil }
-    let here = max(session.attachments.count, attachedHere[key] == nil ? 0 : 1)
+    let ownsOne = selectedAttachedHere[key] != nil || hasPlainAttachment(key)
+    let here = max(session.attachments.count, ownsOne ? 1 : 0)
     let clients = session.discovered.attachedClientCount
     guard
       SessionRow.offersDetachOtherClients(
@@ -202,8 +268,8 @@ extension AppModel {
     return true
   }
 
-  /// The confirmation's "Detach other clients" (or Return): the only call that reaches
-  /// `AttachCoordinator.detachOtherClients(of:confirmation:)`, with the confirmation naming the
+  /// The confirmation's "Detach other clients" (or Return): the only call that reaches the
+  /// backend's `detachOtherClients(of:confirmation:)`, with the confirmation naming the
   /// session the panel names and that session as the target. The row shows "Detaching other
   /// clients…" meanwhile (the call can wait about 20 s for young tabs and clients, D37); clicks
   /// on it are ignored, and `shutdown()` cancels it.
@@ -213,8 +279,8 @@ extension AppModel {
     let target = request.target
     let key = target.key
     guard lifecycle != .stopped, runningActions[key] == nil else { return }
-    guard let coordinator = coordinator() else {
-      if let attacherProblem { activities[key] = .failed(.unavailable(attacherProblem)) }
+    guard let terminalBackend = backend() else {
+      if let backendProblem { activities[key] = .failed(backendProblem) }
       return
     }
     lastActions[key] = .detachOtherClients
@@ -222,35 +288,27 @@ extension AppModel {
     notes[key] = nil
     let sink = actionSink
     let task = Task {
-      let result = await coordinator.detachOtherClients(
+      let result = await terminalBackend.detachOtherClients(
         of: target, confirmation: .detachOtherClients(of: key))
       sink.yield(.finished(key, .detachedOtherClients(result)))
     }
-    runningActions[key] = RunningAction(kind: .detachOtherClients, target: target, task: task)
+    runningActions[key] = RunningAction(
+      kind: .detachOtherClients, target: target, task: task,
+      terminalID: terminalChoice.chosen?.id)
     logger.info("Session action started: detach other clients")
   } // End of func confirmDetachOtherClients()
 
   // MARK: - Show tab and recoveries
 
   /// "Show tab": brings forward the launch tab of `key`'s activity (a still-connecting attach,
-  /// or a failure whose tab explains more), through `AttachCoordinator.showLaunchTab(_:)`,
-  /// which refuses any tab it did not open. The id only ever comes from the coordinator's own
-  /// updates and results. A failure leaves a note under the activity.
+  /// or a failure whose tab explains more), through the chosen terminal's backend once an
+  /// action built it (`focus(.iTerm2LaunchTab)`: iTerm2's forwards to
+  /// `AttachCoordinator.showLaunchTab(_:)`, which refuses any tab it did not open; another
+  /// terminal's refuses the handle with nothing sent). The id only ever comes from the
+  /// coordinator's own updates and results. A failure leaves a note under the activity.
   public func showTab(for key: SessionKey) {
-    guard let id = activities[key]?.launchTabID, let coordinator = attacher else { return }
-    notes[key] = nil
-    nextShowTabID += 1
-    let number = nextShowTabID
-    showTabTasks[number] = Task { [weak self] in
-      let result = await coordinator.showLaunchTab(id)
-      self?.showTabEnded(number, key: key, result: result)
-    }
-  }
-
-  /// One "Show tab" ended.
-  func showTabEnded(_ number: Int, key: SessionKey, result: LaunchTabShowResult) {
-    showTabTasks[number] = nil
-    notes[key] = SessionProblem.showTabNote(result)
+    guard let id = activities[key]?.launchTabID, let backend = builtBackend else { return }
+    startFocus(.iTerm2LaunchTab(sessionID: id), on: backend, for: key)
   }
 
   /// Performs a button a failure offers.
@@ -312,31 +370,7 @@ extension AppModel {
     banners.removeAll { $0.id == id }
   }
 
-  // MARK: - The coordinator and its events
-
-  /// The attach coordinator, built at the first action through
-  /// `AppEnvironment.makeAttachCoordinator` (its update handler feeds `actionEvents`). `nil`
-  /// for a fixture, without the seam, after `shutdown()`, or when it cannot be built
-  /// (`attacherProblem` says why).
-  func coordinator() -> AttachCoordinator? {
-    if let attacher { return attacher }
-    guard lifecycle != .stopped, let factory = environment?.makeAttachCoordinator else {
-      return nil
-    }
-    let sink = actionSink
-    do {
-      let made = try factory { update in sink.yield(.update(update)) }
-      attacher = made
-      attacherProblem = nil
-      startActionReader()
-      return made
-    } catch {
-      attacherProblem =
-        (error as? LocalizedError)?.errorDescription
-        ?? "muxFinder could not prepare opening sessions in iTerm2."
-      return nil
-    }
-  } // End of func coordinator()
+  // MARK: - The backends' events
 
   /// Starts the one task that reads `actionEvents`, in order.
   func startActionReader() {
@@ -378,29 +412,32 @@ extension AppModel {
   }
 
   /// An open, move here, detach or "Detach other clients…" of `key` ended; a note from "Show
-  /// tab" goes with it.
+  /// tab" goes with it. A terminal change that waited for it applies once nothing is pending.
   func finish(_ key: SessionKey, _ outcome: SessionActionRecord.Outcome) {
     let running = runningActions.removeValue(forKey: key)
     notes[key] = nil
     record(SessionActionRecord(key: key, outcome: outcome))
+    let terminalID = running?.terminalID ?? terminalChoice.chosen?.id
     switch outcome {
     case .attach(let result), .moveHere(let result):
-      finishAttach(result, target: running?.target)
+      finishAttach(result, target: running?.target, terminalID: terminalID)
     case .detached(let result):
-      finishDetach(result)
+      finishDetach(result, terminalID: terminalID)
     case .detachedOtherClients(let result):
-      finishDetachOtherClients(result)
+      finishDetachOtherClients(result, terminalID: terminalID)
     case .created:
       break
     }
+    applyPendingTerminalChoiceIfIdle()
   } // End of func finish(_:_:)
 
-  /// Shows how an attach or a move here of `target` ended. "Confirmed" and "focused" record
-  /// the attachment (so Detach is offered); a focus whose activation did not bring the tab
+  /// Shows how an attach or a move here of `target` ended on the backend of `terminalID`.
+  /// "Confirmed" and "focused" record the attachment among that backend's records (so Detach is
+  /// offered while it is the chosen one); a focus whose activation did not bring the tab
   /// forward shows that problem instead of "Already open here — brought its tab forward"; a
   /// session that vanished or changed gets a banner and its host is refreshed; any other
   /// failure shows its problem and recoveries.
-  func finishAttach(_ result: AttachResult, target: AttachTarget?) {
+  func finishAttach(_ result: AttachResult, target: AttachTarget?, terminalID: String?) {
     let key = result.key
     switch result.state {
     case .confirmed(let connectionID), .focused(let connectionID):
@@ -428,13 +465,20 @@ extension AppModel {
       }
     case .requested, .launched, .stillWaiting, .plainLaunched, .plainStillWaiting:
       activities[key] = SessionActivity(result.state)
-    case .plainConfirmed, .plainFocused, .appFocused:
-      // The plain backend (PLAN.md D38), as its iTerm2 counterpart until Phase I-12c3 records
-      // its attachment here.
+    case .plainConfirmed, .plainFocused:
+      // The plain backend (PLAN.md D38), as its iTerm2 counterpart until Phase I-12d writes its
+      // text; its window is recorded, so "Detach from this Mac" and "Show window" are offered.
       activities[key] = result.isFocused ? .focused : .confirmed
+      if let handle = result.plainWindowHandle {
+        setTerminalAttachment(handle, for: key, terminalID: terminalID)
+      }
+    case .appFocused(let app):
+      // Open on this Mac (Phase I-12c2): the app is what an app's focus brings forward.
+      activities[key] = .focused
+      setTerminalAttachment(.app(app), for: key, terminalID: terminalID)
     }
     switcherActionEnded(key)
-  } // End of func finishAttach(_:target:)
+  } // End of func finishAttach(_:target:terminalID:)
 
   /// The problem of a focus whose activation did not bring the tab forward (no tab appeared, or
   /// iTerm2 refused); `nil` when it did.
@@ -446,12 +490,13 @@ extension AppModel {
     }
   }
 
-  /// Shows how a detach ended: "Detached" (the record goes, and the host is refreshed so the
-  /// badge follows), or its problem.
-  func finishDetach(_ result: SessionDetachResult) {
+  /// Shows how a detach on the backend of `terminalID` ended: "Detached" (that backend's record
+  /// goes, another terminal's stays, and the host is refreshed so the badge follows), or its
+  /// problem.
+  func finishDetach(_ result: SessionDetachResult, terminalID: String?) {
     let key = result.key
     if result.outcome == .detached || result.outcome == .nothingAttached {
-      attachedHere[key] = nil
+      forgetAttachment(of: key, terminalID: terminalID)
     }
     if let problem = SessionProblem.detach(result) {
       activities[key] = .failed(problem)
@@ -459,7 +504,7 @@ extension AppModel {
       activities[key] = .detached
       refreshHost(key.hostID)
     }
-  } // End of func finishDetach(_:)
+  } // End of func finishDetach(_:terminalID:)
 
   /// What the row shows after a "Detach other clients…" that ended `result` (PLAN.md D37):
   /// "Detached <n> other client(s) — the session keeps running" (with how many had already
@@ -478,22 +523,30 @@ extension AppModel {
     }
   } // End of static func activity(after:)
 
-  /// Shows how a "Detach other clients…" ended (`activity(after:)`) and refreshes its host
-  /// afterwards, so `clientCount` and the offer follow, for every outcome but `cancelled` and
-  /// `notConfirmed`. "Not attached here" also forgets the attachment muxFinder recorded.
-  func finishDetachOtherClients(_ result: DetachOtherClientsResult) {
+  /// Shows how a "Detach other clients…" on the backend of `terminalID` ended
+  /// (`activity(after:)`) and refreshes its host afterwards, so `clientCount` and the offer
+  /// follow, for every outcome but `cancelled` and `notConfirmed`. "Not attached here" also
+  /// forgets the attachment muxFinder recorded for that backend.
+  func finishDetachOtherClients(_ result: DetachOtherClientsResult, terminalID: String?) {
     let key = result.key
     activities[key] = Self.activity(after: result)
     switch result.outcome {
     case .cancelled, .notConfirmed:
       return
     case .notAttachedHere:
-      attachedHere[key] = nil
+      forgetAttachment(of: key, terminalID: terminalID)
     default:
       break
     }
     refreshHost(key.hostID)
-  } // End of func finishDetachOtherClients(_:)
+  } // End of func finishDetachOtherClients(_:terminalID:)
+
+  /// Forgets the record of `key` of the backend of `terminalID` only: iTerm2's
+  /// (`attachedHere`) for iTerm2's backend, and that backend's in `terminalAttachmentsByTerminal`.
+  func forgetAttachment(of key: SessionKey, terminalID: String?) {
+    if terminalID == TerminalChoice.iTerm2ID { attachedHere[key] = nil }
+    setTerminalAttachment(nil, for: key, terminalID: terminalID)
+  }
 
   /// Keeps `record` among the latest finished actions and logs its kind (no ids or names).
   func record(_ record: SessionActionRecord) {

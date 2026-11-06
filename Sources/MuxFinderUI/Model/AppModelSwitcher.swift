@@ -116,7 +116,7 @@ extension AppModel {
       now: now,
       notes: notes,
       banners: banners,
-      attachedHere: Set(attachedHere.keys),
+      attachedHere: Set(selectedAttachedHere.keys),
       carried: switcherCarriedFailures,
       actionKeys: switcherActions.keys.sorted { $0.sessionID.rawValue < $1.sessionID.rawValue },
       targets: switcherTargets,

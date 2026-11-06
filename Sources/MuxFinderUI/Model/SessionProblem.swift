@@ -85,6 +85,8 @@ public struct SessionProblem: Sendable, Hashable {
       return SessionProblem(message: failure.message, recoveries: [.bringForward, .detachHere])
     case .terminalWindow, .cannotConfirmHere, .clientCheckFailed:
       return SessionProblem(message: failure.message, recoveries: [.retry])
+    case .unsupportedSessionName:
+      return SessionProblem(message: failure.message, recoveries: [.refresh])
     }
   } // End of static func attach(_:launchTab:)
 
@@ -118,6 +120,14 @@ public struct SessionProblem: Sendable, Hashable {
   /// sits on a path iTerm2 cannot be given): `message` is the reason; nothing can be retried.
   public static func unavailable(_ message: String) -> SessionProblem {
     SessionProblem(message: message, recoveries: [])
+  }
+
+  /// The problem every session action shows while the terminal setting names a terminal that
+  /// cannot be used (PLAN.md D38, Phase I-12c3a; requirement 8): nothing was written, launched
+  /// or sent, and no other terminal was used instead. "Open Settings" is where I-12d's picker
+  /// goes; Phase I-12d writes the final sentence.
+  public static func terminalUnavailable(_ failure: TerminalChoiceUnavailable) -> SessionProblem {
+    SessionProblem(message: failure.message, recoveries: [.openSettings])
   }
 
   /// The problem a session switcher row the engine does not list shows when it is opened
@@ -268,6 +278,28 @@ public struct SessionProblem: Sendable, Hashable {
       return "iTerm2 did not bring the launch tab forward. It may have closed."
     }
   }
+
+  /// The note shown under a session when a focus through the terminal seam (PLAN.md D38,
+  /// Phase I-12c3a: "Show tab", a plain window, an app the session is open in on this Mac) did
+  /// not bring it forward; `nil` when it did. A launch tab's is `showTabNote(_:)`'s, unchanged;
+  /// the others are neutral until Phase I-12d writes their text.
+  public static func focusNote(_ result: TerminalFocusResult) -> String? {
+    switch result {
+    case .launchTab(let shown):
+      return showTabNote(shown)
+    case .plainWindowFocused, .appActivation(.activated):
+      return nil
+    case .plainWindowFailed(let error):
+      return error.message
+    case .handleOfAnotherTerminal:
+      return "That window belongs to a terminal muxFinder doesn't use now, so nothing was "
+        + "brought forward."
+    case .appActivation(.notRunning):
+      return "That app isn't running any more, so muxFinder brought nothing forward."
+    case .appActivation(.refused):
+      return "macOS didn't bring that app forward. Switch to it to find the session."
+    }
+  } // End of static func focusNote(_:)
 }
 
 /// A banner above the host list: a session vanished or changed between the listing and an

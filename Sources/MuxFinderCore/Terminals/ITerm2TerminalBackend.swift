@@ -73,6 +73,11 @@ public struct ITerm2TerminalBackend: TerminalBackend {
     await coordinator.state(of: key)
   }
 
+  /// `AttachCoordinator.hasUnresolvedLaunch(for:)`: read-only, iTerm2 not asked.
+  public func hasUnresolvedLaunch(for key: SessionKey) async -> Bool {
+    await coordinator.hasUnresolvedLaunch(for: key)
+  }
+
   /// A launch tab: `AttachCoordinator.showLaunchTab(_:)`'s result, unchanged. A plain window:
   /// `handleOfAnotherTerminal`, nothing run. An app: `appActivation` with the activator's
   /// outcome.

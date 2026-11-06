@@ -124,6 +124,11 @@ public enum AttachFailure: Error, Sendable, Hashable {
   /// window `window` this backend opened (its client still holds the session); `attach-session
   /// -d` would detach it too, so nothing was run, written or opened.
   case alreadyOpenInTerminal(window: PlainTerminalWindow)
+  /// Plain backend (PLAN.md D38, Phase I-12c3a): the session's name contains `{`, `[` or `]`,
+  /// which D38's bound tmux commands cannot check (`CreatedSession.formatLiteral(_:)`), so the
+  /// session is refused up front: nothing was written, opened or run. iTerm2 attaches it as
+  /// before.
+  case unsupportedSessionName
 
   /// The failure an attach reports for a failure in the helper's result file (PLAN.md D14).
   public static func from(_ failure: LaunchFailure) -> AttachFailure {
@@ -174,6 +179,7 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .cannotConfirmHere: return "cannotConfirmHere"
     case .clientCheckFailed: return "clientCheckFailed"
     case .alreadyOpenInTerminal: return "alreadyOpenInTerminal"
+    case .unsupportedSessionName: return "unsupportedSessionName"
     }
   } // End of var kind
 
@@ -256,6 +262,9 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .alreadyOpenInTerminal(let window):
       return "This session is already open in \(window.openedBy.definition.displayName) on this "
         + "Mac, so muxFinder did not move it. Bring its window forward, or detach it first."
+    case .unsupportedSessionName:
+      return "This terminal can't open a session whose name contains “{”, “[” or “]”, so "
+        + "muxFinder opened nothing. Rename the session, or open it in iTerm2."
     }
   } // End of var message
 }

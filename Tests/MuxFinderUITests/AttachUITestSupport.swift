@@ -430,7 +430,8 @@ actor SimulatedITerm2: ITerm2Integration {
   }
 }
 
-/// An in-memory launch store: records requests and withdrawals; no helper ever reports.
+/// An in-memory launch store: records requests and withdrawals; no helper ever reports unless a
+/// test plays one (`helperTakesRequests`, `setResult(_:)`).
 final class MemoryLaunchStore: LaunchRequestStore {
   /// Lock-protected state.
   private struct State {
@@ -438,6 +439,10 @@ final class MemoryLaunchStore: LaunchRequestStore {
     var written: [LaunchRequest] = []
     /// Withdrawn ids.
     var discarded: [LaunchToken] = []
+    /// Whether a helper took every request, so a withdrawal finds none.
+    var helperTakesRequests = false
+    /// The helpers' results, by launch.
+    var results: [LaunchToken: LaunchResult] = [:]
   }
 
   /// The state.
@@ -452,22 +457,38 @@ final class MemoryLaunchStore: LaunchRequestStore {
   /// The withdrawn request ids.
   var discarded: [LaunchToken] { state.withLock { $0.discarded } }
 
+  /// Plays helpers that take every request at once (a withdrawal then finds none), or not.
+  func setHelperTakesRequests(_ takes: Bool) {
+    state.withLock { $0.helperTakesRequests = takes }
+  }
+
+  /// Plays a helper that ended, with `result`.
+  func setResult(_ result: LaunchResult) {
+    state.withLock { $0.results[result.id] = result }
+  }
+
   /// Records the request.
   func writeRequest(_ request: LaunchRequest) throws(LaunchStoreError) {
     state.withLock { $0.written.append(request) }
   }
 
-  /// Records the withdrawal; the file "was" there.
+  /// Records the withdrawal; the file "was" there unless a helper took it.
   func discardRequest(_ id: LaunchToken) throws(LaunchStoreError) -> Bool {
-    state.withLock { $0.discarded.append(id) }
-    return true
+    state.withLock { state in
+      state.discarded.append(id)
+      return !state.helperTakesRequests
+    }
   }
 
-  /// No helper result ever.
-  func takeResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? { nil }
+  /// Takes the result a test played, if any.
+  func takeResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? {
+    state.withLock { $0.results.removeValue(forKey: id) }
+  }
 
-  /// No helper result ever.
-  func peekResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? { nil }
+  /// The result a test played, if any, left in place.
+  func peekResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? {
+    state.withLock { $0.results[id] }
+  }
 
   /// Nothing to sweep.
   func sweep() throws(LaunchStoreError) -> Int { 0 }
@@ -647,14 +668,15 @@ struct AttachHarness {
       terminate: {},
       settings: settings,
       diagnostics: diagnostics,
-      makeAttachCoordinator: { onUpdate in
+      makeTerminalBackend: { _, onUpdate in
         builds.increment()
         if let failsToBuild { throw failsToBuild }
-        return AttachCoordinator(
-          iTerm2: iTerm2, discovery: coordinatorDiscovery, store: store, helperPath: helper,
-          clock: clock,
-          existingAttachments: .index(AttachmentIndex(iTerm2: iTerm2, clock: PatientClock())),
-          sessionCreator: creator, buriedTabTimer: .off, onUpdate: onUpdate)
+        return ITerm2TerminalBackend(
+          coordinator: AttachCoordinator(
+            iTerm2: iTerm2, discovery: coordinatorDiscovery, store: store, helperPath: helper,
+            clock: clock,
+            existingAttachments: .index(AttachmentIndex(iTerm2: iTerm2, clock: PatientClock())),
+            sessionCreator: creator, buriedTabTimer: .off, onUpdate: onUpdate))
       },
       directories: directories,
       sessionActionShutdownBudget: shutdownBudget)

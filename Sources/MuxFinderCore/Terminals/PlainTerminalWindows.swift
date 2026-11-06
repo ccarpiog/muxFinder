@@ -34,7 +34,7 @@ public struct PlainTerminalWindow: Sendable, Hashable {
 /// a terminal app described by a `LoadedTerminalDefinition`, each running the launch helper in
 /// plain mode (`LaunchHelperMode.attachPlain`). It is the plain backend's window half
 /// (`PlainTerminalWindowLayer`; `PlainTerminalBackend`, Phase I-12c1, confirms, detaches and
-/// moves here through tmux). Nothing in the app uses either yet (I-12c3).
+/// moves here through tmux). The app makes one layer for its plain backends (Phase I-12c3a).
 ///
 /// - **The facts first.** Before any Apple event, compile or spawn, the app's facts are read
 ///   (`TerminalAppFacts`, no event sent): an app LaunchServices does not find, one older than
@@ -68,6 +68,14 @@ public struct PlainTerminalWindow: Sendable, Hashable {
 ///   loaded definition with its bundle identifier opened them: window ids are not stable across
 ///   a restart of the app. Forgetting only ever leaves a window open.
 ///
+/// - **Run policy** (`PlainRunPolicy`, Phase I-12c3a review fix): `interactive` (the app's,
+///   the default) adds nothing. `unattended` (the probe's *Unattended-run rules* 8) applies
+///   `PlainRunGate` to the facts the open, focus or close read first, and again to facts read
+///   right before each Apple event (`muxfinder_open`, `muxfinder_focus`, `muxfinder_close`)
+///   and each `exec` spawn: an app not running or a permission not reading granted refuses
+///   (`unattendedRunRefused`) with nothing sent or launched. `checkRunPolicy(for:)` is the same
+///   check for the plain backend to make right before it writes a request.
+///
 /// Every failure is one `PlainTerminalWindowError`, never retried (D13). The layer runs on the
 /// main actor, as `AppleScriptRunning` does. It has no default seams: the app passes the real
 /// ones, tests pass fakes, so no check can send a real Apple event by omission.
@@ -95,26 +103,32 @@ public final class PlainTerminalWindows {
   let activator: any TerminalAppActivating
   /// The environment an `exec` definition's program gets.
   let environment: [String: String]
+  /// How strictly the app is guarded at each side effect (`interactive` unless the caller is
+  /// an unattended run).
+  public let policy: PlainRunPolicy
   /// The compiled scripts, by the loaded definition they came from.
   private var compiled: [LoadedTerminalDefinition: TerminalScriptCalls] = [:]
   /// The window ids this layer's opens recorded and has not forgotten, oldest first.
   private(set) var recordedWindows: [RecordedWindow] = []
 
   /// A layer over these seams; `environment` (by default this process's) is what an `exec`
-  /// definition's program gets.
+  /// definition's program gets, and `policy` (by default `interactive`, the app's) how
+  /// strictly each side effect is guarded.
   public init(
     runner: any AppleScriptRunning,
     inspector: any TerminalAppInspecting,
     spawner: any TerminalProcessSpawning,
     activator: any TerminalAppActivating,
-    environment: [String: String] = ProcessInfo.processInfo.environment
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    policy: PlainRunPolicy = .interactive
   ) {
     self.runner = runner
     self.inspector = inspector
     self.spawner = spawner
     self.activator = activator
     self.environment = environment
-  } // End of init(runner:inspector:spawner:activator:environment:)
+    self.policy = policy
+  } // End of init(runner:inspector:spawner:activator:environment:policy:)
 
   // MARK: - Open
 
@@ -129,6 +143,7 @@ public final class PlainTerminalWindows {
   ) throws(PlainTerminalWindowError) -> PlainTerminalWindow {
     let definition = loaded.definition
     let facts = try checkedFacts(for: definition, requiringRunning: false)
+    try enforcePolicy(for: definition, facts: facts)
     let command = TerminalLaunchCommand(
       helperPath: helperPath, mode: LaunchHelperMode.attachPlain.word, token: token.rawValue)
     switch definition.open {
@@ -139,6 +154,8 @@ public final class PlainTerminalWindows {
         throw .launchCommandRefused(error)
       }
       let calls = try compiledCalls(for: loaded)
+      // Right before the Apple event: the app may have quit while the script compiled.
+      try enforcePolicy(for: definition)
       let reply: TerminalOpenReply
       do throws(TerminalScriptCallError) {
         reply = try calls.open(command)
@@ -171,6 +188,8 @@ public final class PlainTerminalWindows {
       throw .launchCommandRefused(error)
     }
     guard let argv else { throw .scriptMissing(appName: definition.displayName) }
+    // Right before the spawn, which would launch an app that is not running.
+    try enforcePolicy(for: definition)
     do throws(ProcessRunnerError) {
       _ = try spawner.spawn(
         TerminalSpawnRequest(
@@ -215,8 +234,10 @@ public final class PlainTerminalWindows {
       windowID = value
       tty = nil
     }
-    _ = try checkedFacts(for: definition, requiringRunning: true)
+    let facts = try checkedFacts(for: definition, requiringRunning: true)
+    try enforcePolicy(for: definition, facts: facts)
     let calls = try compiledCalls(for: loaded)
+    try enforcePolicy(for: definition)
     do throws(TerminalScriptCallError) {
       try calls.focus(windowID: windowID, tty: tty)
     } catch {
@@ -244,8 +265,10 @@ public final class PlainTerminalWindows {
     let recorded = RecordedWindow(openedBy: loaded, windowID: windowID)
     guard recordedWindows.contains(recorded) else { throw .notOpenedHere }
     // An app that is not running has every record of its windows forgotten by the facts read.
-    _ = try checkedFacts(for: definition, requiringRunning: true)
+    let facts = try checkedFacts(for: definition, requiringRunning: true)
+    try enforcePolicy(for: definition, facts: facts)
     let calls = try compiledCalls(for: loaded)
+    try enforcePolicy(for: definition)
     do throws(TerminalScriptCallError) {
       try calls.close(windowID: windowID)
     } catch {
@@ -257,6 +280,32 @@ public final class PlainTerminalWindows {
     }
     forget(recorded)
   } // End of func close(_:of:)
+
+  // MARK: - Run policy
+
+  /// The run policy's check for `loaded`'s app, for the plain backend to make right before it
+  /// writes a launch request: nothing for `interactive`; for `unattended`, `PlainRunGate` over
+  /// facts read now (no event sent), `unattendedRunRefused` when the run may not go ahead.
+  public func checkRunPolicy(
+    for loaded: LoadedTerminalDefinition
+  ) throws(PlainTerminalWindowError) {
+    try enforcePolicy(for: loaded.definition)
+  }
+
+  /// `unattended` only: refuses (`unattendedRunRefused`) when `PlainRunGate` refuses
+  /// `definition` with `facts`, or with facts read now when none are given (an app seen not
+  /// running has its windows forgotten, as every facts read does). `interactive` reads nothing.
+  func enforcePolicy(
+    for definition: TerminalDefinition,
+    facts given: TerminalAppFacts? = nil
+  ) throws(PlainTerminalWindowError) {
+    guard policy == .unattended else { return }
+    let facts = given ?? TerminalAppFacts.read(for: definition, inspector: inspector)
+    if !facts.running { forgetWindows(ofApp: definition.bundleIdentifier) }
+    if let refusal = PlainRunGate.check(definition, facts: facts) {
+      throw .unattendedRunRefused(appName: definition.displayName, refusal)
+    }
+  } // End of func enforcePolicy(for:facts:)
 
   // MARK: - Shared steps
 
