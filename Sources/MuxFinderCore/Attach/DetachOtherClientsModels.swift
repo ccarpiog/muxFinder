@@ -41,15 +41,25 @@ public enum DetachOtherClientsProblem: Sendable, Hashable {
   /// find client`), and iTerm2 3.7 then also ends the kept connection with its alert. Not
   /// counted as detached; no detach was sent after it.
   case send(ITerm2Error)
+  /// Plain backend (PLAN.md D38): the session's clients and tmux's clock could not be read
+  /// (locally, or over ssh as discovery runs), or, after a refused detach, the read-only
+  /// presence check of the kept client gave no usable answer. Nothing was sent from then on.
+  case plainClientListing(PlainTmuxCommandFailure)
+  /// Plain backend: a bound detach of another client failed (tmux or ssh failed, or its answer
+  /// was neither "detached" nor "not this client"); it may have run. Not counted as detached;
+  /// nothing was sent after it.
+  case plainDetach(PlainTmuxCommandFailure)
 
-  /// A short machine-readable name: `attachmentCheck`, `identityCheck`, `clientListing` or
-  /// `send`.
+  /// A short machine-readable name: `attachmentCheck`, `identityCheck`, `clientListing`,
+  /// `send`, `plainClientListing` or `plainDetach`.
   public var kind: String {
     switch self {
     case .attachmentCheck: return "attachmentCheck"
     case .identityCheck: return "identityCheck"
     case .clientListing: return "clientListing"
     case .send: return "send"
+    case .plainClientListing: return "plainClientListing"
+    case .plainDetach: return "plainDetach"
     }
   }
 
@@ -60,6 +70,7 @@ public enum DetachOtherClientsProblem: Sendable, Hashable {
     case .identityCheck(let reason): return reason.kind
     case .clientListing(let error): return error?.kind ?? "unreadable"
     case .send(let error): return error.kind
+    case .plainClientListing(let failure), .plainDetach(let failure): return failure.kind
     }
   }
 } // End of enum DetachOtherClientsProblem
@@ -84,6 +95,12 @@ public struct DetachOtherClientsResult: Sendable, Hashable {
     /// server or session, an answer through a tmux client not in UTF-8 mode, or its own client
     /// missing from the session's clients), or every attachment's connection had closed or
     /// changed owner. Nothing was detached.
+    ///
+    /// Plain backend (PLAN.md D38): the kept client missing from the listing (nothing
+    /// detached); or, between the detaches, the backend's attachment record dropped or
+    /// replaced, or a refused detach whose kept client no longer held the session. Then the
+    /// detaches tmux confirmed before are counted in `detachedClients`, and nothing more was
+    /// sent.
     case identityChanged
     /// Something could not be checked or sent; see the problem. The detaches tmux confirmed
     /// before it are counted in `detachedClients`; nothing more was sent after it.
@@ -133,6 +150,9 @@ public struct DetachOtherClientsResult: Sendable, Hashable {
   public var ageWait: Duration
   /// What the index found; `nil` when it did not run.
   public var counts: AttachmentSnapshot.Counts?
+  /// Plain backend (PLAN.md D38): the kept client, the backend's own attachment's (`kept`'s
+  /// counterpart); `nil` for iTerm2 and when the plain backend had no attachment.
+  public var keptPlainClient: PlainClientRecord?
 
   /// Creates a result.
   public init(
@@ -144,7 +164,8 @@ public struct DetachOtherClientsResult: Sendable, Hashable {
     goneBeforeDetach: Int = 0,
     detachedClients: Int = 0,
     ageWait: Duration = .zero,
-    counts: AttachmentSnapshot.Counts? = nil
+    counts: AttachmentSnapshot.Counts? = nil,
+    keptPlainClient: PlainClientRecord? = nil
   ) {
     self.key = key
     self.outcome = outcome
@@ -155,13 +176,16 @@ public struct DetachOtherClientsResult: Sendable, Hashable {
     self.detachedClients = detachedClients
     self.ageWait = ageWait
     self.counts = counts
+    self.keptPlainClient = keptPlainClient
   } // End of init(key:outcome:kept:otherAttachmentsHere:listedOthers:goneBeforeDetach:…)
 
   /// Whether a detaching command may have reached tmux: one was answered, or one failed in a
-  /// way that does not prove it was never sent.
+  /// way that does not prove it was never sent (for the plain backend, a bound detach whose
+  /// run failed, unless it could not even be written).
   public var mayHaveSent: Bool {
     if detachedClients > 0 { return true }
     if case .checkFailed(.send(let error)) = outcome { return !error.isNotSent }
+    if case .checkFailed(.plainDetach(let failure)) = outcome { return failure.mayHaveRun }
     return false
   }
 } // End of struct DetachOtherClientsResult

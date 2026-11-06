@@ -79,6 +79,12 @@ public struct SessionProblem: Sendable, Hashable {
     case .discoveryFailed, .launchStore, .helperEnded, .cancelled, .attachmentChanged,
       .moveHereNotConfirmed, .possiblyAttachedHere, .earlierLaunchPending:
       return SessionProblem(message: failure.message, recoveries: [.retry])
+    // The plain backend's failures (PLAN.md D38), as their iTerm2 counterparts until Phase
+    // I-12d writes their own text and recoveries.
+    case .alreadyOpenInTerminal:
+      return SessionProblem(message: failure.message, recoveries: [.bringForward, .detachHere])
+    case .terminalWindow, .cannotConfirmHere, .clientCheckFailed:
+      return SessionProblem(message: failure.message, recoveries: [.retry])
     }
   } // End of static func attach(_:launchTab:)
 
@@ -232,6 +238,18 @@ public struct SessionProblem: Sendable, Hashable {
         "muxFinder could not send the detach through iTerm2, so some of the session's other "
         + "clients may still be attached." + (error.errorDescription.map { " " + $0 } ?? "")
       fixIt = FixIt(error: error)
+    // The plain backend's problems (PLAN.md D38), as their iTerm2 counterparts until Phase
+    // I-12d writes their own text.
+    case .plainClientListing(let failure):
+      message =
+        "muxFinder could not read the session's other clients, so it stopped detaching them. "
+        + failure.message
+      fixIt = nil
+    case .plainDetach(let failure):
+      message =
+        "muxFinder could not finish detaching the session's other clients, so some may still "
+        + "be attached. " + failure.message
+      fixIt = nil
     }
     return SessionProblem(message: message, recoveries: [.retry, .refresh], fixIt: fixIt)
   } // End of static func detachOtherClientsCheckFailed(_:)

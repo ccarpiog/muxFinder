@@ -3574,8 +3574,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `AutomationPermissionTests`, the probes `muxfinder-probe terminals list` and `plain-proof`,
   `docs/TESTING.md` *Phase I-12a* and *Phase I-12a review fixes*). Outside iTerm2 muxFinder attaches with plain tmux (one
   window, tmux's status bar, prefix keys and copy mode); iTerm2 keeps native control mode
-  exactly as today. The helper runs it since I-12b2 (*Helper plain mode (I-12b2)* below);
-  nothing in the app or the coordinator writes a plain request yet: I-12c wires it.
+  exactly as today. The helper runs it since I-12b2 (*Helper plain mode (I-12b2)* below) and
+  the plain backend writes its requests since I-12c1 (*Plain backend (I-12c1)* below); nothing
+  in the app calls that backend yet: I-12c3 wires it.
   - **The proof** (`plain-proof`, tmux 3.8, on This Mac and on Saturno, no terminal app and
     no iTerm2): plain clients on pseudo-terminals the harness opens itself, each the
     controlling terminal of its child's own session, 80 × 24, `TERM=xterm-256color`,
@@ -3925,6 +3926,145 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     here for every terminal), moving the app, self-tests and probe onto the seam with the
     backend picked from the terminal setting, a fake backend if the UI tests need one; and,
     still owed as in I-12b1, compiling and calling the built-in scripts for real.
+  - **Plain backend (I-12c1)** (2026-11-06; code in `Sources/MuxFinderCore/Terminals/`:
+    `PlainTerminalBackend.swift` (the actor and its attach), `PlainTerminalBackendDetach.swift`
+    (detach, "Detach other clients…"), `PlainTerminalBackendModels.swift`
+    (`PlainTerminalWindowLayer`, `PlainLaunchRequestStore`, `PlainClientRecord`,
+    `PlainAttachment`, `PlainDetachResult`), `PlainTmuxCommands.swift` (`PlainTmuxCommands`,
+    `PlainTmuxCommandFailure`, `PlainClientPresence`, `PlainSessionClients`),
+    `PlainTerminalBackendFakes.swift` (`FakePlainTerminalWindowLayer`); outside it, additively:
+    `Attach/AttachSharedSteps.swift`, the result types in `Attach/AttachModels.swift` and
+    `Attach/DetachOtherClientsModels.swift`, `PlainClientDetach.condition(of:in:)` (the detach's
+    arguments unchanged) and, as a review fix, `PlainClientDetach.arguments(of:keeping:in:)`
+    and `condition(of:keeping:in:)` (below), and the minimum `MuxFinderUI` switches; tests in
+    `PlainTerminalBackendTests`, `PlainTerminalBackendDetachTests`,
+    `PlainTerminalBackendEndToEndTests`, the review fixes' also in `PlainBoundCommandsTests`;
+    `docs/TESTING.md` *Phase I-12c1*). It does what the
+    calls for I-12c1 say; nothing calls it yet (`AppModel`, `AppEnvironment`, the self-tests, the
+    probe and the refresh engine still call the coordinator: I-12c3). **The worker's calls:**
+    - *An actor*, `PlainTerminalBackend`, one per `LoadedTerminalDefinition` (`terminal` is
+      `.plain(definitionID:)`), with the coordinator's own pattern (flights, waiters, pending
+      launches, published `AttachUpdate`s, `AttachCoordinator.Configuration`'s budgets), hopping
+      to the main actor only for the window layer's open and focus.
+    - *The window layer behind a protocol*, `PlainTerminalWindowLayer` (main actor, `Sendable`;
+      open and focus only, since the backend never closes a window), to which
+      `PlainTerminalWindows` conforms unchanged (declared in its own file: Swift wants a
+      `Sendable` conformance next to the class). Why: tests drive every open failure directly,
+      and the end-to-end test's open starts the real helper on a pseudo-terminal of its own
+      (`FakePlainTerminalWindowLayer.onOpen`), with no `exec` definition or spawner bent to it.
+    - *The launch files* through `PlainLaunchRequestStore` (`LaunchRequestStore` plus
+      `peekReport`), which `LaunchStore` already meets; no new writer was needed
+      (`writeRequest` writes `terminal` and `keepsMinimumLifetime`). Results are peeked while
+      confirming, while settling earlier launches and while checking attachments; only the
+      detach, once its client was detached, takes the result (as the coordinator's detach does;
+      the report goes with it). Every other file goes with the sweep.
+    - *tmux, locally and remotely*, through `PlainTmuxCommands` over the `ProcessRunner` seam:
+      one static script (`TmuxLocator`, the host's override as `$1`, then `exec "$t" -u "$@"`)
+      run as `/bin/sh -c <script> muxfinder <values…>` with the local environment minus `TMUX`
+      and `TMUX_PANE`, or over D6's `/usr/bin/ssh` (BatchMode) with the D3 string, exactly as
+      discovery runs; the remote token reading is `PlainClientIdentification.remoteScript`.
+      Bounded at 12 s. Locally a listing with tmux's "no server" error is a listing with no
+      client (the helper's result then says the session is gone). Failures are
+      `PlainTmuxCommandFailure` (no output or arguments kept).
+    - *Readings start once the early report exists, locally and remotely*: the report shows
+      the helper took the request and started its attach child, so no ssh connection is spent
+      before; a remote launch whose report never comes stays unconfirmed (still waiting, then
+      the wait limit). A local candidate counts only when its `client_pid` is the report's
+      attach child and `ProcessStartTime.of` that pid (a seam, `processStartTime`) is the
+      report's start time. A reading that fails ends the attach `clientCheckFailed` (as the
+      coordinator's failed connection listing does), unless the helper's result exists by then.
+      *Review fixes (2026-11-06):* a reading that confirms counts only if the helper's result
+      still does not exist once it returns (a remote reading can see the client just before
+      the helper ends; the attach then ends as the result maps); and the first report read is
+      kept for the whole wait (the sweep, this launch's or another attach's, removes reports
+      after 120 s while a remote wait goes on to 300 s), so later polls use it with or without
+      its file, and a file that differs from it (a report is never rewritten) is
+      `launchStore(fileMalformed)`, never a confirmation.
+    - *An earlier launch that may still attach* (its window opened, its request not withdrawn
+      before a helper took it, no client and no result seen) is waited out by every new attach
+      or move here of the session, not only by a move here as in the coordinator: the plain
+      backend has no attachment index that would find what a late helper attached. It settles
+      only by its helper's result; unsettled within the confirmation budget, the new call fails
+      `earlierLaunchPending` with nothing opened.
+    - *The attachment's liveness*, the calls' "read-only bound check": `PlainClientPresence`,
+      `if-shell -F -t <id>` with `PlainClientDetach`'s condition and two constant
+      `display-message -p` markers (`muxfinder-client-present`, `muxfinder-not-this-client`).
+      An attach checks it (after a file-only peek at the helper's result) before reusing an
+      attachment; present focuses the window (`plainFocused`), gone drops the attachment, a
+      check that cannot run fails `clientCheckFailed` with nothing opened. Limitation: a session
+      whose name holds `{`, `[` or `]` cannot be bound by name (`CreatedSession.formatLiteral`),
+      so its attachment's check and detach are `notWritable` until its helper ends (open
+      question for I-12c3/I-12d: confirm such a session at all, or fall back to the helper's
+      liveness).
+    - *Detach outcomes:* `detached` (the attachment dropped, the helper's result waited for
+      within `resultBudget` and taken), the bound check's refusal `notSent` (dropped too), a run
+      that failed `notClosed` (kept: it may have run), a command that cannot be written (a
+      session name with `{`, `[` or `]`) `checkFailed(clientCheckFailed(notWritable))`, no
+      attachment `nothingAttached`, nothing run.
+    - *"Detach other clients…"*: one read-only command, `display-message -p '%s' ; list-clients
+      -F PlainClientIdentification.localFormat` (tmux's clock and every client, filtered in
+      Swift, `PlainSessionClients`); the kept client is the attachment's by name, pid and
+      creation time (missing: `identityChanged`); D37's age guard `OtherClient.ageWait` with
+      `minimumLaunchTabAge`; each other client the bound `PlainClientDetach`, whose condition is
+      the server-wide check of name, pid, creation time and session in the same command
+      (stronger than D37's two requests), a failed run stopping the call (`plainDetach`, which
+      `mayHaveSent` counts). *Review fix (2026-11-06; the kept client was checked only in the
+      listing, so one that ended, switched sessions or was detached during the age wait left
+      the session with no client of ours):* each detach is
+      `PlainClientDetach.arguments(of:keeping:in:)`, whose condition adds the kept client's
+      same two checks (exactly one client of its name, with its pid and creation time, in the
+      session) after the detached one's, composed from the same builders
+      (`PlainClientDetach.clientChecks`, no other runtime value; `nil` when both have one
+      name), so the server refuses the detach once the kept client is gone or elsewhere. A
+      refusal is told apart by the read-only `PlainClientPresence` of the kept client: present
+      counts the other as gone before its detach; not present drops the attachment and ends
+      the call `identityChanged`, nothing more sent; a check that cannot run is
+      `plainClientListing`. Right before each detach the attachment must still be the
+      backend's record of the session with no helper result (a file-only peek), else
+      `identityChanged`, nothing more sent. The detaches tmux confirmed before such a stop stay
+      counted in `detachedClients` (`identityChanged` reused; its UI sentence still says no
+      other client was detached, which I-12d's plain wording should cover).
+    - *Result types, extended additively with new cases* (an optional field could not carry a
+      plain `confirmed` without overloading iTerm2's connection id): `AttachState`
+      `plainLaunched(window:)`, `plainStillWaiting(window:)`, `plainConfirmed(client:)`,
+      `plainFocused(client:)`; `AttachFailure` `terminalWindow(PlainTerminalWindowError)`,
+      `cannotConfirmHere`, `clientCheckFailed(PlainTmuxCommandFailure)`,
+      `alreadyOpenInTerminal(window:)` (a move here while the backend's own attachment is live);
+      `DetachOtherClientsProblem` `plainClientListing`, `plainDetach`; and optional fields
+      `AttachResult.plainWindow`, `plainClient`, `plainWindowFocus` (with `plainWindowHandle`),
+      `SessionDetachResult.plainDetach`, `DetachOtherClientsResult.keptPlainClient`. The
+      terminal-neutral failures are reused (`timedOut`, `waitLimitReached`, `helperEnded`,
+      `helperFailed`, `sessionGone`, `sessionChanged`, `launchStore`, `earlierLaunchPending`,
+      `moveHereNotConfirmed`, `cancelled`; their iTerm2 wording is I-12d's). `isConfirmed` and
+      `isFocused` (so `isAttached`) hold for the plain counterparts. Timings: `connected` is
+      the report first seen, `activated` the window's focus.
+    - *Factored out of the coordinator* (`AttachSharedSteps`, its behaviour unchanged): the
+      revalidation by discovery, the current session by name and D18's creation with its
+      diagnostics. Not factored: the flight and pending-launch bookkeeping (entangled with the
+      coordinator's iTerm2 state; the plain backend keeps the same rules apart, the conflict
+      rule above aside), D21's confirmation check (one comparison) and D37's per-client checks
+      (iTerm2 commands; the plain backend's is `PlainClientDetach`).
+    - *UI, the minimum that compiles:* `SessionActivity` shows `plainLaunched` and
+      `plainStillWaiting` as "Waiting for iTerm2…" (a plain window has no launch tab for "Show
+      tab"), `plainConfirmed` and `plainFocused` as their counterparts; `AppModel.finishAttach`
+      shows them likewise and records no `AttachmentRecord` (I-12c3); `SessionProblem` gives
+      `alreadyOpenInTerminal` the recoveries of `alreadyAttachedHere`, the other three "Try
+      again", and the two problems sentences like `clientListing` and `send`. The UI tests'
+      exhaustive `FailureMessageTests.caseIndex` gained the four new cases so it compiles (its
+      20 samples and counts unchanged); a new test checks the plain messages.
+    - **Verified** (no terminal app, no iTerm2, a private tmux server): the built helper, started
+      by the fake open on a pseudo-terminal of the test's, was confirmed by the backend from its
+      report and `list-clients` (real `DiscoveryProbe` and `PlainTmuxCommands`); attaching again
+      focused the window through the real presence check; "Detach other clients…" detached a
+      second plain client and kept the backend's; the backend's bound detach ended only its own
+      client (a third stayed attached) and the helper exited 0 with a successful result; about
+      1 s, stable over five runs. Review fixes, on a private server with control clients K, O1
+      and O2 on one session: the detach of O1 keeping K with K's pid, creation time or name off
+      detached nothing, keeping K it detached O1 alone; with K switched to another session, and
+      again with K ended, the detach of O2 keeping K detached nothing, while O2's detach with no
+      kept client went through. Each review fix's regression tests fail with that fix reverted.
+      **Owed:** the real runs with Terminal and Ghostty and the remote plain attach (I-12c3's
+      `e2e-plain`).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -6537,7 +6677,8 @@ extended for Terminal's command text). Split before the first worker:
   detach and Move here through tmux (requirement 6), "open on this Mac" by process ancestry
   (requirement 7; discovery's `list-clients` gains `client_pid` and `client_tty`, still
   read-only), `attach --terminal <id>` and `e2e-plain --terminal terminal|ghostty --local |
-  --ssh saturno-m4`; iTerm2's existing e2e runs and self-tests rerun as regression.
+  --ssh saturno-m4`; iTerm2's existing e2e runs and self-tests rerun as regression. **Split
+  into I-12c1, I-12c2 and I-12c3** (below, after the calls for I-12b3).
 - **I-12d — UI (routine).** Settings › General "Terminal" (requirement 8), strings following
   the choice (9), onboarding without iTerm2 (10), persistent work's per-host command with
   Copy (11), the app never contacting iTerm2 when it is not the choice, galleries light and
@@ -6871,6 +7012,116 @@ Calls for I-12b3 (terminal seam; 2026-11-06, before its worker):
   check the arguments each handler gets (Terminal's command text, Ghostty's words with the
   token last).
 - **Records.** D38 "Terminal seam (I-12b3)", `docs/TESTING.md` *Phase I-12b3*. `CLAUDE.md`
+  changes only if a command does (none expected).
+
+**I-12c split, and the orchestrator's calls** (2026-11-06, before its first worker). I-12c is
+three workers' worth, so:
+
+- **I-12c1 — the plain backend (high).** Requirements 5 and 6 as I-12a settled them: the
+  plain backend's conformance to `TerminalBackend` (plain request, open through
+  `PlainTerminalWindows`, confirmation from the early report, detach and Move here through
+  tmux, its in-memory attachments), the result types extended additively, hermetic. Nothing
+  rewired: the app, self-tests, probe and refresh engine still call the coordinator.
+- **I-12c2 — open on this Mac (high).** Requirement 7: discovery's `list-clients` gains
+  `client_pid` and `client_tty` (still read-only, D6, D12), a read-only process ancestry
+  reader by pid mapping a local client to the terminal app it descends from (over a fake
+  process table in tests), "open in <app> on this Mac" for every terminal, iTerm2 included
+  (with iTerm2 chosen, D16's focus by connection unchanged), focus by that terminal's focus
+  kind, and the remote "attached somewhere" rule. Its calls are written at its selection.
+- **I-12c3 — onto the seam, and the real runs (high).** The app (`AppModel`,
+  `AppEnvironment`), the self-tests and the probe move onto `TerminalBackend`, the backend
+  picked from a terminal setting in `preferences.json` through `PreferencesStore` (D32's
+  rules; default iTerm2 when installed, else Terminal; I-12d adds its UI), the app never
+  contacting iTerm2 when it is not the choice; probe `attach --terminal <id>` and `e2e-plain
+  --terminal terminal|ghostty --local | --ssh saturno-m4` (its real runs only through the gate
+  of *Unattended-run rules* 8, else owed); iTerm2's `e2e-*` runs and self-tests rerun as
+  regression (requirement 12). Its calls are written at its selection.
+
+Calls for I-12c1 (the plain backend; 2026-11-06, before its worker):
+
+- **Where.** New files in `Sources/MuxFinderCore/Terminals/` (the backend, its records and
+  its fakes; the worker names them, e.g. `PlainTerminalBackend`), tests in
+  `Tests/MuxFinderCoreTests/`. Changes outside `Terminals/` only where the conformance needs
+  them and only additively: the result types in `Attach/AttachModels.swift` (below), a plain
+  request writer in `Launch/` if none exists, a shared helper factored out of
+  `AttachCoordinator` only when the plain backend would otherwise copy it (revalidation by
+  discovery, D18's creation, D21's confirmation check, D37's per-client checks), the
+  coordinator's behaviour and every existing test's expectation unchanged.
+- **One backend per loaded definition.** `PlainTerminalBackend` is built from one
+  `LoadedTerminalDefinition`, a `PlainTerminalWindows`, the helper path, the launch store,
+  discovery and the remote runners the coordinator already uses (its seams, so tests use the
+  existing fakes); `terminal` is `.plain(definitionID:)`. It is `Sendable` (an actor, or the
+  coordinator's own pattern), hopping to the main actor only for the window layer.
+- **Attach**, in D15's order where it applies: revalidate the session by discovery (the
+  coordinator's step and failures); the existing-attachment check is the backend's own
+  in-memory record for the key (below; open here by ancestry is I-12c2), and a record whose
+  client still holds the session focuses its window instead of opening another (a focused
+  result); else write a plain request (`terminal` the definition id, `keepsMinimumLifetime`
+  the definition's, the session's four identity values, the move-here marker only for Move
+  here), open through `PlainTerminalWindows` (a typed open failure ends the attach `failed`
+  with that error kept for I-12d's sentence, the request discarded, nothing retried, D13),
+  then confirm. Concurrent attaches of one key coalesce into one launch, and an earlier launch
+  still unresolved refuses a new one exactly as the coordinator does (its existing failure).
+- **Confirmation, only evidence** (requirement 5, D38). Read the early report by
+  `peekReport` (never taken) and the helper's result by `peekResult`, polling within the
+  coordinator's budgets (D15 locally; D17's 20 s remotely, then a still-waiting state that is
+  never a success and keeps watching, as D17). **This Mac:** confirmed when the session has
+  exactly one client whose `client_tty` is the report's terminal path and whose `client_pid`
+  is the report's attach child, and that child still runs with the report's kernel start
+  time; a report without a terminal path never confirms ("cannot confirm here"). **SSH
+  host:** confirmed when exactly one client of the session has the launch token at the end of
+  its parent shell's arguments (I-12a's read-only `ps` by `client_pid` over discovery's
+  noninteractive ssh). In both, none is no confirmation yet and two candidates never confirm
+  (`PlainClientIdentification`, as I-12a built it). A helper result before confirmation ends
+  the attach `failed` with its mapped failure (the coordinator's mapping); a malformed or
+  oversized report is a typed failure, never a confirmation. The confirmed attach records the
+  client as D38's bound detach needs it (session identity, client name, pid and creation
+  time; remotely the token too).
+- **After confirmation** the window is shown once by its definition's focus kind (as D15's
+  activation; its outcome recorded in the result, never failing the attach). No bury, no
+  `Disinter`, nothing restored; the backend never closes a window by itself (the window's own
+  process end closes it or not, per the user's terminal settings; `close` stays for checks).
+- **Its attachments, in memory only** (requirement 7's "sessions muxFinder opened"): key →
+  loaded definition, window, client record, launch id. A record is dropped once its helper's
+  result appears or a read-only bound check finds its client gone; it never outlives the
+  backend.
+- **Detach** (`detach(session:on:)`, requirement 6): the record's client only, with D38's
+  bound `PlainClientDetach` (locally, or over BatchMode ssh as discovery runs), never by
+  closing a window; the record dropped once the client is gone; no record → the existing "not
+  attached here" result, nothing run.
+- **Move here** (`moveHere(_:confirmation:)`): D21's confirmation check as the coordinator
+  does it, then the attach above with the move-here marker (the helper's bound `attach-session
+  -d`, D38); a stale confirmation runs nothing.
+- **Create and attach** (D18's creation, then the attach above), **current session by name**
+  (discovery, as the coordinator), **detach other clients** (D37's rules: the server-wide
+  check of name, pid, creation time and session, the 10 s age guard, the kept client being
+  the record's; no record → the existing refusal, nothing sent), **state** (per key, as the
+  coordinator publishes it) and **focus** (`.plainWindow` through the window layer with this
+  backend's loaded definition; `.iTerm2LaunchTab` → `handleOfAnotherTerminal`, nothing run).
+- **The result types, extended additively** (the I-12b3 call allowed it). Every iTerm2 value
+  stays as it is, its `kind` strings too, and no existing test's expectation changes. Plain
+  attachments get their own states or payloads (the worker's call between new cases and new
+  optional fields, recorded in D38), never iTerm2's connection or session ids overloaded with
+  plain values; `isConfirmed`, `isFocused` and `isAttached` hold for their plain
+  counterparts, and the window handle and client record are reachable from the result. Where
+  an exhaustive `switch` in `MuxFinderUI` or the probe needs the new cases, the minimum that
+  compiles, with plain states treated like their iTerm2 counterparts (I-12d writes the
+  strings); no UI behaviour changes for iTerm2.
+- **Tests, hermetic** (fakes for the window layer, discovery, the launch store's files on a
+  private folder, the remote runner and the clock): local and remote confirmation with a
+  match, none, two candidates, a report without a terminal path, a stale report (another
+  start time, the child gone); a helper result before confirmation; every open failure; the
+  remote still-waiting state; coalescing and the unresolved earlier launch; focus of a live
+  record and a dropped stale one; detach and move here (the exact bound argv locally and over
+  ssh), no record; detach others keeping the record's client; create and attach; the iTerm2
+  handle refused. **And one end to end on This Mac with no terminal app**: the window layer's
+  fake open runs the built `muxfinder-launch attach-plain` on a pseudo-terminal of the test
+  against a private tmux server (`-f /dev/null`, a private `HOME` and `TMUX_TMPDIR`, as
+  `LaunchHelperPlainBinaryTests`), the backend confirms it, its detach ends only that client
+  and the helper exits 0.
+- **No real run** (nothing rewired, no terminal app, no iTerm2): the regression is every
+  existing test passing unedited. No Apple event, no compile of a built-in script.
+- **Records.** D38 "Plain backend (I-12c1)", `docs/TESTING.md` *Phase I-12c1*. `CLAUDE.md`
   changes only if a command does (none expected).
 
 ## Deferred (explicitly out of scope for v1)

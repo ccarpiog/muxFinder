@@ -433,23 +433,14 @@ public actor AttachCoordinator {
     _ request: NewSessionRequest,
     onCreated: (@Sendable (CreatedSession) -> Void)? = nil
   ) async -> CreateAndAttachResult {
-    let start = clock.now()
     let created: CreatedSession
-    do throws(SessionCreationError) {
-      created = try await sessionCreator.createSession(request)
-    } catch {
-      let detail = error.detail.map { " (\($0))" } ?? ""
-      await diagnostics?.record(
-        .attach, outcome: error == .timedOut ? .timedOut : .failure,
-        hostID: request.host.id.uuidString,
-        durationMs: Self.milliseconds(clock.now() - start),
-        detail: "new session failed: \(error.kind)\(detail)")
-      return CreateAndAttachResult(creationFailure: error)
+    switch await AttachSharedSteps.createSession(
+      request, creator: sessionCreator, clock: clock, diagnostics: diagnostics,
+      onCreated: onCreated)
+    {
+    case .success(let session): created = session
+    case .failure(let error): return CreateAndAttachResult(creationFailure: error)
     }
-    onCreated?(created)
-    await diagnostics?.record(
-      .attach, outcome: .success, hostID: request.host.id.uuidString,
-      durationMs: Self.milliseconds(clock.now() - start), detail: "new session created")
     let result = await attach(
       created.attachTarget(on: request.host), checksExistingAttachments: false,
       detachesOtherClients: false)
@@ -467,26 +458,8 @@ public actor AttachCoordinator {
     named name: String,
     on host: HostConfig
   ) async -> Result<AttachTarget, AttachFailure> {
-    let result: DiscoveryResult
-    do {
-      result = try await discovery.discover(host)
-    } catch {
-      return .failure(.cancelled)
-    }
-    switch result.status {
-    case .ok(let sessions):
-      guard let session = sessions.first(where: { $0.name == name }) else {
-        return .failure(.sessionGone)
-      }
-      return .success(AttachTarget(host: host, session: session))
-    case .noServer:
-      return .failure(.sessionGone)
-    case .tmuxNotFound:
-      return .failure(.tmuxMissing)
-    default:
-      return .failure(.discoveryFailed(result.status.kind))
-    }
-  } // End of func currentSession(named:on:)
+    await AttachSharedSteps.currentSession(named: name, on: host, discovery: discovery)
+  }
 
   /// `attach(_:)` and `moveHere(_:confirmation:)`: the existing-attachment check (step 1b) runs
   /// when `checksExistingAttachments` is set and the coordinator has an index, and always for a
@@ -905,28 +878,8 @@ public actor AttachCoordinator {
   private func revalidate(
     _ target: AttachTarget
   ) async -> Result<(DiscoveredSession, AttachmentIndex.Host?), AttachFailure> {
-    let result: DiscoveryResult
-    do {
-      result = try await discovery.discover(target.host)
-    } catch {
-      return .failure(.cancelled)
-    }
-    switch result.status {
-    case .ok(let sessions):
-      if let fresh = sessions.first(where: { $0.key == target.key }) {
-        guard fresh.createdAt == target.session.createdAt else { return .failure(.sessionChanged) }
-        return .success((fresh, AttachmentIndex.Host(result)))
-      }
-      let reused = sessions.contains { $0.key.sessionID == target.key.sessionID }
-      return .failure(reused ? .sessionChanged : .sessionGone)
-    case .noServer:
-      return .failure(.sessionGone)
-    case .tmuxNotFound:
-      return .failure(.tmuxMissing)
-    default:
-      return .failure(.discoveryFailed(result.status.kind))
-    }
-  } // End of func revalidate(_:)
+    await AttachSharedSteps.revalidate(target, discovery: discovery)
+  }
 
   /// What step 1b found for one session.
   private struct ExistingCheck {

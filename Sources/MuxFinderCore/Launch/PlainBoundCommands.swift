@@ -133,6 +133,11 @@ extension PlainLaunch {
 /// unique on a server, and the outer check binds the name to the id). The loop compares only
 /// client fields: inside it `session_id` is the target's, never the client's. Only a client
 /// name `OtherClient.isValidName(_:)` accepts is written, single-quoted for tmux's parser.
+///
+/// The plain backend's "Detach other clients…" (PLAN.md D37, D38; a review fix of I-12c1)
+/// binds each detach to a kept client too (`arguments(of:keeping:in:)`): the same two checks
+/// of the kept client are added to the condition, so the server detaches another client only
+/// while the kept one still holds the session with its recorded name, pid and creation time.
 public enum PlainClientDetach {
   /// What the command prints (with a line break) when the condition is false.
   public static let notThisClientMarker = "muxfinder-not-this-client"
@@ -153,23 +158,75 @@ public enum PlainClientDetach {
   public static func arguments(of client: OtherClient, in session: BoundSessionIdentity)
     -> [String]?
   {
-    guard let name = session.name, let sessionName = CreatedSession.formatLiteral(name),
-      let sessionCondition = session.condition, OtherClient.isValidName(client.name)
-    else { return nil }
-    let named = "#{==:#{client_name},\(client.name)}"
-    let unique = "#{==:#{L:#{?\(named),1,}},1}"
-    let this = BoundSessionIdentity.all([
-      named, "#{==:#{client_pid},\(client.processID)}",
-      "#{==:#{client_created},\(client.created)}", "#{==:#{client_session},\(sessionName)}",
-    ])
-    let condition = BoundSessionIdentity.all([
-      sessionCondition, unique, "#{==:#{L:#{?\(this),1,}},1}",
-    ])
+    arguments(of: client, keeping: nil, in: session)
+  }
+
+  /// The tmux arguments (after `tmux -u`) of the bound detach of `client` from `session` which,
+  /// when `kept` is given, the server runs only while `kept` still holds the session
+  /// (`condition(of:keeping:in:)`), or `nil` when that condition cannot be written.
+  public static func arguments(
+    of client: OtherClient,
+    keeping kept: OtherClient?,
+    in session: BoundSessionIdentity
+  ) -> [String]? {
+    guard let condition = condition(of: client, keeping: kept, in: session) else { return nil }
     return [
       "if-shell", "-F", "-t", session.sessionID.rawValue, condition,
       "detach-client -t '\(client.name)'", "display-message -p \(notThisClientMarker)",
     ]
-  } // End of static func arguments(of:in:)
+  } // End of static func arguments(of:keeping:in:)
+
+  /// The `if-shell -F` condition of the bound detach (and of the plain backend's read-only
+  /// presence check, PLAN.md D38): `session`'s condition (`BoundSessionIdentity.condition`,
+  /// the name included), exactly one attached client named `client.name`, and that client
+  /// with `client`'s pid and creation time attached to the session of that name. `nil` when
+  /// `session` has no name or a value cannot be encoded.
+  public static func condition(of client: OtherClient, in session: BoundSessionIdentity)
+    -> String?
+  {
+    condition(of: client, keeping: nil, in: session)
+  }
+
+  /// `condition(of:in:)` and, when `kept` is given, the same two checks of `kept` after
+  /// `client`'s (exactly one attached client named `kept.name`, and that client with `kept`'s
+  /// pid and creation time attached to the session of that name), all in one right-nested
+  /// `#{&&:…}`: true only while both clients hold the recorded session. `nil` when `session`
+  /// has no name, a value cannot be encoded, or `kept` has `client`'s name (a detach of that
+  /// name could never keep it).
+  public static func condition(
+    of client: OtherClient,
+    keeping kept: OtherClient?,
+    in session: BoundSessionIdentity
+  ) -> String? {
+    guard let name = session.name, let sessionName = CreatedSession.formatLiteral(name),
+      let sessionCondition = session.condition, kept?.name != client.name
+    else { return nil }
+    var checks = [sessionCondition]
+    for one in [client] + [kept].compactMap({ $0 }) {
+      guard let clientChecks = clientChecks(of: one, inSessionNamed: sessionName) else {
+        return nil
+      }
+      checks += clientChecks
+    } // End of loop over the detached client and the kept one
+    return BoundSessionIdentity.all(checks)
+  } // End of static func condition(of:keeping:in:)
+
+  /// The two checks of `client` in a bound condition: exactly one attached client named
+  /// `client.name` (a client loop, `#{L:…}`, over every attached client, as `detach-client -t`
+  /// searches), and that client with `client`'s pid and creation time attached to the session
+  /// whose name's format literal is `sessionName`. `nil` for a name `OtherClient
+  /// .isValidName(_:)` refuses.
+  static func clientChecks(of client: OtherClient, inSessionNamed sessionName: String)
+    -> [String]?
+  {
+    guard OtherClient.isValidName(client.name) else { return nil }
+    let named = "#{==:#{client_name},\(client.name)}"
+    let this = BoundSessionIdentity.all([
+      named, "#{==:#{client_pid},\(client.processID)}",
+      "#{==:#{client_created},\(client.created)}", "#{==:#{client_session},\(sessionName)}",
+    ])
+    return ["#{==:#{L:#{?\(named),1,}},1}", "#{==:#{L:#{?\(this),1,}},1}"]
+  } // End of static func clientChecks(of:inSessionNamed:)
 
   /// How a run of `arguments(of:in:)` ended: exit 0 with no output is `detached`; exit 0 with
   /// exactly the marker line, or exit 1 with tmux's "no server" error, is `notThisClient`;

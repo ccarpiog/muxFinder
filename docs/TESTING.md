@@ -3601,3 +3601,73 @@ built in `PlainTerminalWindowsTests` (5 places) and `ITerm2TerminalBackendTests`
 tests now `throws`), and the one recorded-window expectation, name the opening loaded
 definition instead of its id, with the same meaning; `everyFailureHasItsSentence` gained the
 `definitionChanged` row and counts 18 kinds. No other expectation changed.
+
+
+### Phase I-12c1 — the plain backend (2026-11-06)
+
+The plain backend (PLAN.md D38 *Plain backend (I-12c1)*): `PlainTerminalBackend`, the terminal
+seam's conformance for one plain-mode terminal definition, writing plain requests, opening
+windows through the window layer, confirming the attach only from evidence (the helper's early
+report plus tmux's client list), detaching and moving here through D38's bound tmux commands,
+and keeping its attachments in memory. Nothing calls it yet (I-12c3 rewires the app, the
+self-tests and the probe), so no runtime path changed: the regression is every existing test
+passing with no expectation edited, and no gallery, `--selftest` or `e2e-*` run is due.
+Hermetic tests use the fake window layer, a scripted process runner for tmux and ssh, the
+existing fake discovery, session creator and manual clock, and a real `LaunchStore` on a
+private folder; one end-to-end test runs the built helper on a pseudo-terminal of its own
+against a private tmux server. No Apple event, no script compiled, no terminal app or iTerm2
+launched or contacted, no ssh, nothing of the user's tmux server touched.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` (with `TMUX_TMPDIR` unset) | exit 0: 1090 core tests in 107 suites (32 new in 3 suites, below) and 486 UI tests in 47 suites (1 new) |
+| `PlainTerminalBackendTests` (21) | `swift test --filter PlainTerminalBackendTests` | This Mac: the plain request (`terminal` the definition's id, its `keepsMinimumLifetime`, the four identity values, no move-here marker), one open with the launch id, the listing `/bin/sh -c <script> muxfinder '' list-clients -F <localFormat>` without `TMUX`, confirmed with the record's six session fields, client, no token and the report's terminal, states `requested`, `plainLaunched`, `plainConfirmed`, one focus; no candidate, two candidates, a stale report (another start time, the child gone, another pid) each `timedOut`; a report without a terminal `cannotConfirmHere` with no listing; a malformed and an oversized report `launchStore(fileMalformed)` and `(fileUnsafe(tooLarge))`; a helper result first (`helperEnded`, `sessionGone`, `sessionChanged`, `helperFailed`) before any reading; a failed listing `clientCheckFailed`, "no server" an empty listing. SSH host: the token reading's exact ssh argv (D6 options, `remoteScript` with override, `$3` and the launch id), confirmed with the token kept; none then two candidates publish `plainStillWaiting` once past 20 s, then a single match confirms; none at all reaches `waitLimitReached` at 300 s; an unreadable answer and ssh's 255 `clientCheckFailed`. Ten open failures each `terminalWindow` with the same error, one open each, the request withdrawn; a failed focus keeps the attach confirmed. Two concurrent attaches share one discovery, request, window and result; an unresolved earlier launch refuses the next attach `earlierLaunchPending` (one window), and once its result exists the next attach goes ahead; a withdrawn launch blocks nothing. A live attachment (the presence check's exact argv) is `plainFocused`, no window opened; a stale one (the check refuses, or its helper's result exists) is dropped and a window opened; a check that cannot run fails with nothing opened. Focus: a plain window through the layer, another definition's refused there, an iTerm2 launch tab `handleOfAnotherTerminal`, nothing run. The new kinds |
+| `PlainTerminalBackendDetachTests` (10) | `swift test --filter PlainTerminalBackendDetachTests` | Detach on This Mac: exactly `/bin/sh -c <script> muxfinder '' if-shell -F -t $3 <condition> "detach-client -t '/dev/ttys004'" "display-message -p muxfinder-not-this-client"` over the six fields, `detached`, the helper's result taken (no file left), the attachment dropped, a second detach `nothingAttached` with nothing run; over ssh the same bound arguments in one BatchMode call; no attachment `nothingAttached` with no discovery or tmux; the bound check's refusal `notSent` (dropped), a failed run `notClosed` (kept). Move here: another session's confirmation runs nothing; the request's move-here marker gives `attach-session -d` locally and `remoteMoveHereScript` remotely; with the attachment live, `alreadyOpenInTerminal`. Detach other clients: the kept client the attachment's, only the session's other client detached with the bound command, the listing's exact argv; a 5 s old client waited 6 s; another session's confirmation, no attachment (nothing run), the kept client missing (`identityChanged`), a refused detach (`nothingToDetach`, gone 1), a failed one (`plainDetach`, may have sent), an unreadable listing. Create and attach (and a failed creation, nothing opened); the current session by name and the state per key |
+| `PlainTerminalBackendEndToEndTests` (1) | `swift test --filter PlainTerminalBackendEndToEndTests` | The built `muxfinder-launch attach-plain` started by the fake open on a pseudo-terminal of the test's, against a `muxfinder-test-plain-backend-*` session on a private server (`-f /dev/null`, private `HOME` and `TMUX_TMPDIR` from `mkdtemp`), a private launch directory, `MUXFINDER_LAUNCH_NO_WAIT=1`, real `DiscoveryProbe` and `PlainTmuxCommands`: confirmed (the report's terminal and attach child, the record's identity equal to the created session's); a second attach focused through the real presence check, no window opened; "Detach other clients…" detached a second plain client (it exited 0) and kept the backend's; the backend's detach ended only its own client (a third stayed listed), the helper exited 0 with a successful result, the report gone; cleanup killed only the test's session and the server ended. About 1 s |
+| UI messages (1 new) | `swift test --filter FailureMessageTests` | `plainMessagesAreDistinctSentences`: the four new failures and the two new "Detach other clients…" problems give six sentences distinct from every existing message |
+| Repeated runs | `swift test --skip-build --filter PlainTerminalBackend` 5 times (the end-to-end test alone 5 more) | all passed every time |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Leftovers | `pgrep -x Terminal`; `pgrep -x ghostty`; `pgrep -fl "muxfinder-test-plain\|attach-plain"` | exit 1 each: neither app ran, no helper or test client left |
+
+A finding while writing the end-to-end test: a pseudo-terminal is revoked when its session
+leader exits, so a plain client detached on one cannot be followed by another on the same
+terminal; the test gives its third client a terminal of its own. Its own plain clients get their
+terminal read-write (`exec "$@" 0<>"$0"` after the harness's read-only open), since a plain
+client draws through its standard input.
+
+Existing tests edited: `FailureMessageTests.caseIndex` (UI tests), the exhaustive switch that
+makes the compiler insist on new `AttachFailure` cases, gained the four plain cases (20–23) so
+it compiles; its 20 samples and every count it expects are unchanged, and the new test above
+covers the plain messages. No other test changed.
+
+#### Review fixes (2026-11-06)
+
+The adversarial review (`docs/reviews/phase-I-12c1.md`) found three gaps, fixed as PLAN.md D38
+*Plain backend (I-12c1)* records: every bound detach of "Detach other clients…" also requires
+the kept client in the session (and the loop stops once the backend's record is dropped or
+replaced, or a refusal turns out to be the kept client's); a confirming reading counts only if
+the helper's result still does not exist after it; the first early report read is kept for the
+whole wait. Each regression test below failed with its fix reverted (the fix taken out, the
+suite run, the fix put back), and passes with it.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` (with `TMUX_TMPDIR` unset) | exit 0: 1098 core tests in 107 suites (8 new, below) and 486 UI tests in 47 suites (unchanged) |
+| Attach (3 new in `PlainTerminalBackendTests`, now 24) | `swift test --filter PlainTerminalBackendTests` | `helperEndingDuringAConfirmingReadingFails` (This Mac and ssh): the helper's result written while the one matching reading is in flight ends the attach `helperEnded`, no attachment, no `plainConfirmed`, no focus (reverted: confirmed). `removedReportStillConfirms` (This Mac and ssh): the report removed during the first reading (no candidate), the second reading confirms from the kept report, its file still gone (reverted: not confirmed, one reading only). `changedReportIsAFailure`: the report rewritten with another attach child, one the listing matches, is `launchStore(fileMalformed)` after one reading (reverted: confirmed from the rewritten report) |
+| Detach other clients (3 new in `PlainTerminalBackendDetachTests`, now 13) | `swift test --filter PlainTerminalBackendDetachTests` | Over a listing with the kept client and two others: `refusedDetachStopsUnlessTheKeptClientHoldsTheSession`: the first detach refused, then the kept client's presence check present (the second detached, gone 1), not present (`identityChanged`, no second detach, the attachment dropped) or failing (`plainClientListing`, no second detach). `keptHelperEndingStopsTheDetaches`: the kept launch's result written while the first detach runs: `identityChanged`, 1 detached, no second detach. `droppedOrReplacedRecordStopsTheDetaches` (dropped by the backend's own detach, or replaced by a new attach, both while the first detach runs, through the scripted runner's new hook): `identityChanged`, 1 detached, no second detach (reverted: all three failed) |
+| Bound commands (2 new in `PlainBoundCommandsTests`) | `swift test --filter PlainBoundCommandsTests` | `buildsTheBoundDetachKeepingAClient`: the exact condition (session, the detached client's two checks, the kept client's two, right-nested), no kept client the plain detach, the kept client's own name or no session name `nil`. `bindsTheDetachToTheKeptClientOnAPrivateServer` (private server, `-f /dev/null`, control clients K, O1, O2 on a `muxfinder-test-*` session): K's pid, creation time or name off detaches nothing; keeping K detaches O1 alone; K switched (`switch-client -c`) to another session, then K ended: O2's detach keeping K refused each time, O2 still attached; O2's detach with no kept client detached it (reverted, the kept client's checks left out: failed, as did the text test) |
+| Repeated runs | `swift test --skip-build --filter 'PlainTerminalBackend\|PlainBoundCommands'` 3 times | 47 tests in 4 suites passed every time, about 1 s |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Leftovers | `pgrep -fl "muxfinder-test\|attach-plain"` | exit 1: nothing left |
+
+Existing test edited: `detachesOtherClientsKeepingTheAttachments` expects the detach's argv with
+the kept client's checks (`PlainClientDetach.arguments(of:keeping:in:)`), the change the fix
+makes; its other expectations are unchanged. Test support gained `ScriptedProcessRunner.setHook`
+(awaited while a request is in flight), `PlainBackendSupport.reportToken(in:)` and an optional
+kept client on `PlainBoundCommandsTests.Server.detach`.
+
+**Owed:** the plain backend's real runs with Terminal and Ghostty and the remote plain attach
+(I-12c3's `e2e-plain`, under *Unattended-run rules* 8), and, as before, compiling and calling
+the built-in scripts for real (*Phase I-12b1*).

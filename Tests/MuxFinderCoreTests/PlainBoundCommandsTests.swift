@@ -115,6 +115,42 @@ struct PlainBoundCommandsTests {
     #expect(PlainClientDetach.arguments(of: Self.client, in: Self.fourFields) == nil)
   } // End of func buildsTheBoundDetach()
 
+  /// Keeping a client (the plain backend's "Detach other clients…", a review fix of I-12c1):
+  /// the same command, its condition the detached client's two checks followed by the same two
+  /// checks of the kept client, all right-nested; without a kept client exactly the plain
+  /// detach; never a detach of the kept client's own name, nor without the session's name.
+  @Test func buildsTheBoundDetachKeepingAClient() throws {
+    let session = BoundSessionIdentity(Self.record)
+    let kept = try #require(
+      OtherClient(processID: "6000", created: "1792600050", name: "client-6000"))
+    let arguments = try #require(
+      PlainClientDetach.arguments(of: Self.client, keeping: kept, in: session))
+    /// The two checks of `client` as the condition writes them.
+    func checks(_ client: OtherClient) -> (unique: String, this: String) {
+      let named = "#{==:#{client_name},\(client.name)}"
+      let this =
+        "#{&&:\(named),#{&&:#{==:#{client_pid},\(client.processID)},#{&&:#{==:#{client_created},"
+        + "\(client.created)},#{==:#{client_session},muxfinder-test-0a1b2c3d}}}}"
+      return ("#{==:#{L:#{?\(named),1,}},1}", "#{==:#{L:#{?\(this),1,}},1}")
+    }
+    let (detached, keeping) = (checks(Self.client), checks(kept))
+    #expect(
+      arguments == [
+        "if-shell", "-F", "-t", "$3",
+        "#{&&:\(Self.sessionCondition),#{&&:\(detached.unique),#{&&:\(detached.this),"
+          + "#{&&:\(keeping.unique),\(keeping.this)}}}}",
+        "detach-client -t '/dev/ttys004'", "display-message -p muxfinder-not-this-client",
+      ])
+    #expect(
+      PlainClientDetach.arguments(of: Self.client, keeping: nil, in: session)
+        == PlainClientDetach.arguments(of: Self.client, in: session))
+    #expect(PlainClientDetach.arguments(of: Self.client, keeping: Self.client, in: session) == nil)
+    let sameName = try #require(
+      OtherClient(processID: "6000", created: "1792600050", name: Self.client.name))
+    #expect(PlainClientDetach.arguments(of: Self.client, keeping: sameName, in: session) == nil)
+    #expect(PlainClientDetach.arguments(of: Self.client, keeping: kept, in: Self.fourFields) == nil)
+  } // End of func buildsTheBoundDetachKeepingAClient()
+
   /// Exit 0 with no output is a detach; exit 0 with the marker line, or tmux's "no server"
   /// error, is another client or none; anything else is a failure.
   @Test func readsTheDetachOutcome() {
@@ -238,17 +274,21 @@ struct PlainBoundCommandsTests {
       throw CancellationError()
     } // End of func client(_:)
 
-    /// Runs the bound detach of `client` from `session` and reads its outcome.
-    func detach(_ client: OtherClient, from session: BoundSessionIdentity) async throws
-      -> PlainClientDetach.Outcome
-    {
-      let arguments = try #require(PlainClientDetach.arguments(of: client, in: session))
+    /// Runs the bound detach of `client` from `session` (keeping `kept`, when given) and reads
+    /// its outcome.
+    func detach(
+      _ client: OtherClient,
+      keeping kept: OtherClient? = nil,
+      from session: BoundSessionIdentity
+    ) async throws -> PlainClientDetach.Outcome {
+      let arguments = try #require(
+        PlainClientDetach.arguments(of: client, keeping: kept, in: session))
       let result = try await run(arguments)
       return PlainClientDetach.outcome(
         exitStatus: result.exitCode,
         standardOutput: String(decoding: result.standardOutput, as: UTF8.self),
         standardError: String(decoding: result.standardError, as: UTF8.self))
-    } // End of func detach(_:from:)
+    } // End of func detach(_:keeping:from:)
 
     /// Runs the bound local attach for `session` with no terminal (standard input
     /// `/dev/null`) and returns its exit status and first error line.
@@ -426,4 +466,88 @@ struct PlainBoundCommandsTests {
     #expect(try await server.detach(first, from: session) == .notThisClient)
     #expect(started[1].process.isRunning && started[2].process.isRunning)
   } // End of static func checkDetaches(on:target:other:started:)
+
+  /// On a private server with control clients K (kept), O1 and O2 on one session (a review fix
+  /// of I-12c1): the bound detach of O1 keeping K with K's pid, creation time or name off
+  /// detaches nothing; keeping K exactly, it detaches O1 alone; once K switched to another
+  /// session, and again once K ended, the detach of O2 keeping K detaches nothing, while O2's
+  /// detach with no kept client still does (so those refusals were K's). Only
+  /// `muxfinder-test-*` sessions.
+  @Test(.enabled(if: DiscoveryEndToEndTests.tmuxPath != nil), .timeLimit(.minutes(1)))
+  func bindsTheDetachToTheKeptClientOnAPrivateServer() async throws {
+    try await Self.withPrivateServer { server in
+      let target = try await server.create("muxfinder-test-k #, x}")
+      let other = try await server.create("muxfinder-test-other")
+      var started: [ControlClient] = []
+      do {
+        for _ in 0..<3 {
+          started.append(
+            try ControlClient(
+              tmux: server.tmux, environment: server.environment, sessionID: target.sessionID))
+        }
+        try await Self.checkKeptDetaches(
+          on: server, target: target, other: other, started: started)
+      } catch {
+        for client in started { await client.stop() }
+        throw error
+      }
+      for client in started { await client.stop() }
+    }
+  } // End of func bindsTheDetachToTheKeptClientOnAPrivateServer()
+
+  /// The checks of `bindsTheDetachToTheKeptClientOnAPrivateServer()`, with `started` its three
+  /// control clients on `target` (K, O1, O2).
+  static func checkKeptDetaches(
+    on server: Server,
+    target: CreatedSession,
+    other: CreatedSession,
+    started: [ControlClient]
+  ) async throws {
+    var listed: [OtherClient] = []
+    for client in started {
+      listed.append(try await server.client(client.process.processIdentifier))
+    }
+    let (kept, first, second) = (listed[0], listed[1], listed[2])
+    let session = BoundSessionIdentity(target)
+    let all = try await server.clients()
+    #expect(all.count == 3)
+    let offKept = [
+      try #require(
+        OtherClient(
+          processID: String(kept.processID + 1), created: String(kept.created), name: kept.name)),
+      try #require(
+        OtherClient(
+          processID: String(kept.processID), created: String(kept.created + 1), name: kept.name)),
+      try #require(
+        OtherClient(
+          processID: String(kept.processID), created: String(kept.created), name: second.name)),
+    ]
+    for off in offKept {
+      #expect(try await server.detach(first, keeping: off, from: session) == .notThisClient)
+      #expect(try await server.clients() == all, "\(off)")
+    } // End of loop over the kept clients off by one field
+    #expect(try await server.detach(first, keeping: kept, from: session) == .detached)
+    #expect(await started[1].exitStatus(within: 5) == 0)
+    // K moves to another session: O2 is not detached keeping it.
+    let switched = try await server.run([
+      "switch-client", "-c", kept.name, "-t", other.sessionID.rawValue,
+    ])
+    #expect(switched.succeeded)
+    let afterSwitch = try await server.clients()
+    #expect(afterSwitch.contains("\(other.name):\(kept.processID):\(kept.created):\(kept.name)"))
+    #expect(try await server.detach(second, keeping: kept, from: session) == .notThisClient)
+    #expect(try await server.clients() == afterSwitch)
+    // K ends: O2 is still not detached keeping it.
+    await started[0].stop()
+    for _ in 0..<50 {
+      if try await server.clients().count == 1 { break }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    #expect(try await server.clients().count == 1)
+    #expect(try await server.detach(second, keeping: kept, from: session) == .notThisClient)
+    #expect(started[2].process.isRunning)
+    // With no kept client the same detach goes through.
+    #expect(try await server.detach(second, from: session) == .detached)
+    #expect(await started[2].exitStatus(within: 5) == 0)
+  } // End of static func checkKeptDetaches(on:target:other:started:)
 } // End of struct PlainBoundCommandsTests

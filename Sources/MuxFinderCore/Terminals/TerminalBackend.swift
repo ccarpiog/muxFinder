@@ -7,11 +7,12 @@ import Foundation
 /// The seam sits at the session operations, not below the coordinator: iTerm2's open,
 /// confirmation by tmux connection, burial and detach are one flow over its API (D15, D29), so
 /// iTerm2's backend (`ITerm2TerminalBackend`) forwards each operation to `AttachCoordinator`
-/// unchanged. A plain backend for Terminal.app, Ghostty and other definitions builds on
-/// `PlainTerminalWindows` (open, focus and close of a window); its confirmation, detach, move
-/// here and its conformance are Phase I-12c's, which may extend the result types for plain
-/// attachments. "Open here" is not in the seam yet: I-12c adds it for every terminal, iTerm2
-/// included, through discovery's `client_pid` / `client_tty` and process ancestry.
+/// unchanged. The plain backend for Terminal.app, Ghostty and other definitions
+/// (`PlainTerminalBackend`, Phase I-12c1) builds on the plain window layer
+/// (`PlainTerminalWindowLayer`, `PlainTerminalWindows`) and confirms, detaches and moves here
+/// through tmux; the result types carry its plain states and payloads alongside iTerm2's.
+/// "Open here" is not in the seam yet: I-12c2 adds it for every terminal, iTerm2 included,
+/// through discovery's `client_pid` / `client_tty` and process ancestry.
 ///
 /// Nothing calls the seam yet: `AppModel`, `AppEnvironment.makeAttachCoordinator`, the
 /// self-tests, the probe and the refresh engine still call the coordinator directly (I-12c

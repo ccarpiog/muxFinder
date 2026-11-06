@@ -426,8 +426,12 @@ extension AppModel {
       } else {
         activities[key] = .failed(.attach(failure, launchTab: result.gatewaySessionID))
       }
-    case .requested, .launched, .stillWaiting:
+    case .requested, .launched, .stillWaiting, .plainLaunched, .plainStillWaiting:
       activities[key] = SessionActivity(result.state)
+    case .plainConfirmed, .plainFocused:
+      // The plain backend (PLAN.md D38), as its iTerm2 counterpart until Phase I-12c3 records
+      // its attachment here.
+      activities[key] = result.isFocused ? .focused : .confirmed
     }
     switcherActionEnded(key)
   } // End of func finishAttach(_:target:)

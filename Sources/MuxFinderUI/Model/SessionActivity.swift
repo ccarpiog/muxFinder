@@ -43,6 +43,11 @@ public enum SessionActivity: Sendable, Hashable {
     case .confirmed: self = .confirmed
     case .focused: self = .focused
     case .failed(let failure): self = .failed(.attach(failure))
+    // The plain backend's states (PLAN.md D38), as their iTerm2 counterparts until Phase I-12d
+    // writes their own text; a plain window has no launch tab for "Show tab".
+    case .plainLaunched, .plainStillWaiting: self = .waitingForITerm2
+    case .plainConfirmed: self = .confirmed
+    case .plainFocused: self = .focused
     }
   }
 

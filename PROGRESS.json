@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T16:42:33Z",
+  "updated": "2026-11-06T17:39:27Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -779,12 +779,46 @@
     {
       "id": "I-12c",
       "title": "Other terminals: coordinator, confirmation, detection, e2e-plain",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
       "parent": "I-12",
-      "summary": "Confirms, detaches and moves plain attachments through tmux and detects sessions open in any terminal on this Mac.",
+      "summary": "Coordinator for other terminals, split into I-12c1, I-12c2 and I-12c3.",
       "added": "2026-11-06T13:06:57Z",
-      "status_since": "2026-11-06T13:06:57Z"
+      "started": "2026-11-06T16:45:56Z",
+      "status_since": "2026-11-06T16:45:56Z"
+    },
+    {
+      "id": "I-12c1",
+      "title": "Other terminals, the plain backend",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-12c",
+      "summary": "Plain backend behind the terminal seam: plain request, window open, evidence-only confirmation, tmux detach and move here.",
+      "review": "docs/reviews/phase-I-12c1.md",
+      "narrative": "docs/progress-archive/i-12c1.md",
+      "added": "2026-11-06T16:45:56Z",
+      "started": "2026-11-06T16:45:56Z",
+      "status_since": "2026-11-06T17:39:27Z"
+    },
+    {
+      "id": "I-12c2",
+      "title": "Other terminals, open on this Mac",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-12c",
+      "summary": "Finds sessions already open in any terminal on this Mac by the tmux client process ancestry.",
+      "added": "2026-11-06T16:45:56Z",
+      "status_since": "2026-11-06T16:45:56Z"
+    },
+    {
+      "id": "I-12c3",
+      "title": "Other terminals, onto the seam and real runs",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-12c",
+      "summary": "Moves the app, self-tests and probe onto the seam, adds the terminal setting, attach --terminal and e2e-plain.",
+      "added": "2026-11-06T16:45:56Z",
+      "status_since": "2026-11-06T16:45:56Z"
     },
     {
       "id": "I-12d",

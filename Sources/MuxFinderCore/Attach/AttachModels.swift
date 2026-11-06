@@ -108,6 +108,22 @@ public enum AttachFailure: Error, Sendable, Hashable {
   /// could detach the other's attachment here, so nothing was run, written or opened (PLAN.md
   /// D21). Calling again checks afresh.
   case earlierLaunchPending
+  /// Plain backend (PLAN.md D38): the terminal app's window could not be opened (the app is
+  /// missing or too old, its Automation permission denied, its script failed, …). The request
+  /// was withdrawn and nothing was retried (D13); the error keeps the window layer's sentence.
+  case terminalWindow(PlainTerminalWindowError)
+  /// Plain backend, This Mac (PLAN.md D38): the helper's early report names no terminal (its
+  /// standard input was not one), so no tmux client can be matched to the launch and nothing
+  /// is confirmed ("cannot confirm here").
+  case cannotConfirmHere
+  /// Plain backend (PLAN.md D38): the session's tmux clients could not be read (locally, or
+  /// over ssh as discovery runs), so nothing was confirmed or, for an existing attachment,
+  /// nothing was opened.
+  case clientCheckFailed(PlainTmuxCommandFailure)
+  /// Plain backend, move here only (PLAN.md D21, D38): the session is open already in the
+  /// window `window` this backend opened (its client still holds the session); `attach-session
+  /// -d` would detach it too, so nothing was run, written or opened.
+  case alreadyOpenInTerminal(window: PlainTerminalWindow)
 
   /// The failure an attach reports for a failure in the helper's result file (PLAN.md D14).
   public static func from(_ failure: LaunchFailure) -> AttachFailure {
@@ -154,6 +170,10 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .alreadyAttachedHere: return "alreadyAttachedHere"
     case .possiblyAttachedHere: return "possiblyAttachedHere"
     case .earlierLaunchPending: return "earlierLaunchPending"
+    case .terminalWindow: return "terminalWindow"
+    case .cannotConfirmHere: return "cannotConfirmHere"
+    case .clientCheckFailed: return "clientCheckFailed"
+    case .alreadyOpenInTerminal: return "alreadyOpenInTerminal"
     }
   } // End of var kind
 
@@ -166,6 +186,8 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .helperFailed(let failure): return failure.kind
     case .identityCheckFailed(let error): return error?.kind
     case .attachmentCheckFailed(let error): return error.kind
+    case .terminalWindow(let error): return error.kind
+    case .clientCheckFailed(let failure): return failure.kind
     default: return nil
     }
   } // End of var detail
@@ -224,6 +246,16 @@ public enum AttachFailure: Error, Sendable, Hashable {
     case .earlierLaunchPending:
       return "An earlier launch of this session may still attach it in iTerm2, so muxFinder did "
         + "not start another. Finish or close that launch tab, then try again."
+    case .terminalWindow(let error):
+      return error.message
+    case .cannotConfirmHere:
+      return "The terminal window gave muxFinder no terminal device to check, so muxFinder could "
+        + "not confirm that it attached the session. Check the window."
+    case .clientCheckFailed(let failure):
+      return "muxFinder could not check the session's tmux clients. " + failure.message
+    case .alreadyOpenInTerminal(let window):
+      return "This session is already open in \(window.openedBy.definition.displayName) on this "
+        + "Mac, so muxFinder did not move it. Bring its window forward, or detach it first."
     }
   } // End of var message
 }
@@ -248,9 +280,24 @@ public enum AttachState: Sendable, Hashable {
   case focused(connectionID: String)
   /// The attach ended without a confirmed or focused connection.
   case failed(AttachFailure)
+  /// Plain backend (PLAN.md D38), `launched`'s counterpart: the terminal app opened `window`,
+  /// which runs the helper in plain mode; its tmux client is not confirmed yet.
+  case plainLaunched(window: PlainTerminalWindow)
+  /// Plain backend, `stillWaiting`'s counterpart (PLAN.md D17, D38): a remote plain attach
+  /// passed its confirmation budget (20 s) with no confirmed client and no helper result (ssh
+  /// asking for a password in `window`, for example). Never a success; published, never
+  /// returned: the attach keeps watching.
+  case plainStillWaiting(window: PlainTerminalWindow)
+  /// Plain backend, `confirmed`'s counterpart: exactly one tmux client of the session carries
+  /// the launch's evidence (PLAN.md D38); `client` is it, as the bound detach needs it.
+  case plainConfirmed(client: PlainClientRecord)
+  /// Plain backend, `focused`'s counterpart: the backend's own attachment of the session still
+  /// held it, so its window was brought forward instead of opening another.
+  case plainFocused(client: PlainClientRecord)
 
   /// A short machine-readable name: `requested`, `launched`, `stillWaiting`, `confirmed`,
-  /// `focused` or `failed`.
+  /// `focused` or `failed`; for the plain backend `plainLaunched`, `plainStillWaiting`,
+  /// `plainConfirmed` or `plainFocused`.
   public var kind: String {
     switch self {
     case .requested: return "requested"
@@ -259,8 +306,12 @@ public enum AttachState: Sendable, Hashable {
     case .confirmed: return "confirmed"
     case .focused: return "focused"
     case .failed: return "failed"
+    case .plainLaunched: return "plainLaunched"
+    case .plainStillWaiting: return "plainStillWaiting"
+    case .plainConfirmed: return "plainConfirmed"
+    case .plainFocused: return "plainFocused"
     }
-  }
+  } // End of var kind
 }
 
 /// One state change, as delivered to the coordinator's update handler.
@@ -417,6 +468,17 @@ public struct AttachResult: Sendable, Hashable {
   public var existingAttachments: AttachmentSnapshot.Counts?
   /// Step timings.
   public var timings: AttachTimings
+  /// Plain backend (PLAN.md D38): the terminal app's window, once opened (also on a failure
+  /// after the open), or the window of the backend's existing attachment a focus brought
+  /// forward; `nil` for iTerm2.
+  public var plainWindow: PlainTerminalWindow?
+  /// Plain backend: the confirmed (or focused) tmux client, as the bound detach needs it;
+  /// `nil` for iTerm2 and for a plain attach that was not confirmed.
+  public var plainClient: PlainClientRecord?
+  /// Plain backend: how the one focus of the window after a confirmation, or the focus of an
+  /// existing attachment, went (`activation`'s counterpart; it never fails the attach). `nil`
+  /// for iTerm2 and when no focus was asked for.
+  public var plainWindowFocus: TerminalFocusResult?
 
   /// Creates a result.
   public init(
@@ -428,7 +490,10 @@ public struct AttachResult: Sendable, Hashable {
     activation: ActivationOutcome? = nil,
     burial: LaunchTabBurial? = nil,
     existingAttachments: AttachmentSnapshot.Counts? = nil,
-    timings: AttachTimings = AttachTimings()
+    timings: AttachTimings = AttachTimings(),
+    plainWindow: PlainTerminalWindow? = nil,
+    plainClient: PlainClientRecord? = nil,
+    plainWindowFocus: TerminalFocusResult? = nil
   ) {
     self.key = key
     self.launchID = launchID
@@ -439,18 +504,33 @@ public struct AttachResult: Sendable, Hashable {
     self.burial = burial
     self.existingAttachments = existingAttachments
     self.timings = timings
+    self.plainWindow = plainWindow
+    self.plainClient = plainClient
+    self.plainWindowFocus = plainWindowFocus
   } // End of init(key:launchID:state:gatewaySessionID:connectionID:activation:burial:…)
 
-  /// Whether the attach was confirmed (a new launch tab attached the session).
+  /// Whether the attach was confirmed (a new launch tab attached the session, or for the plain
+  /// backend its new window's client was confirmed).
   public var isConfirmed: Bool {
-    if case .confirmed = state { return true }
-    return false
+    switch state {
+    case .confirmed, .plainConfirmed: return true
+    default: return false
+    }
   }
 
-  /// Whether the attach focused an attachment that already existed in this Mac's iTerm2.
+  /// Whether the attach focused an attachment that already existed in this Mac's iTerm2 (or,
+  /// for the plain backend, the backend's own attachment's window).
   public var isFocused: Bool {
-    if case .focused = state { return true }
-    return false
+    switch state {
+    case .focused, .plainFocused: return true
+    default: return false
+    }
+  }
+
+  /// Plain backend: the window's terminal-neutral handle (`TerminalBackend.focus(_:)`), `nil`
+  /// for iTerm2 and before a window opened.
+  public var plainWindowHandle: TerminalAttachmentHandle? {
+    plainWindow.map(TerminalAttachmentHandle.plainWindow)
   }
 
   /// Whether the session is attached in iTerm2 now: confirmed or focused.
@@ -620,6 +700,10 @@ public struct SessionDetachResult: Sendable, Equatable {
   public var checkFailure: AttachFailure?
   /// What the index found; `nil` when it did not run.
   public var counts: AttachmentSnapshot.Counts?
+  /// Plain backend (PLAN.md D38): the bound detach of its attachment's client; `nil` for
+  /// iTerm2 and when the plain backend had no attachment of the session (`nothingAttached`).
+  /// `detaches` stays empty for a plain detach.
+  public var plainDetach: PlainDetachResult?
 
   /// Creates a result.
   public init(
@@ -627,14 +711,16 @@ public struct SessionDetachResult: Sendable, Equatable {
     outcome: Outcome,
     detaches: [DetachResult] = [],
     checkFailure: AttachFailure? = nil,
-    counts: AttachmentSnapshot.Counts? = nil
+    counts: AttachmentSnapshot.Counts? = nil,
+    plainDetach: PlainDetachResult? = nil
   ) {
     self.key = key
     self.outcome = outcome
     self.detaches = detaches
     self.checkFailure = checkFailure
     self.counts = counts
-  } // End of init(key:outcome:detaches:checkFailure:counts:)
+    self.plainDetach = plainDetach
+  } // End of init(key:outcome:detaches:checkFailure:counts:plainDetach:)
 }
 
 /// The identity check run through a tmux connection (PLAN.md Phase 4, step 7, and D16's

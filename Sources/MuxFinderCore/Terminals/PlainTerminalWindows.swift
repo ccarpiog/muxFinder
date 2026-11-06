@@ -32,9 +32,9 @@ public struct PlainTerminalWindow: Sendable, Hashable {
 
 /// The plain window layer (PLAN.md D38, Phase I-12b3): opens, focuses and closes the windows of
 /// a terminal app described by a `LoadedTerminalDefinition`, each running the launch helper in
-/// plain mode (`LaunchHelperMode.attachPlain`). It is the plain backend's window half; that
-/// backend's confirmation, detach, move here and its conformance to `TerminalBackend` are Phase
-/// I-12c's, which wires them into the coordinator. Nothing uses it yet.
+/// plain mode (`LaunchHelperMode.attachPlain`). It is the plain backend's window half
+/// (`PlainTerminalWindowLayer`; `PlainTerminalBackend`, Phase I-12c1, confirms, detaches and
+/// moves here through tmux). Nothing in the app uses either yet (I-12c3).
 ///
 /// - **The facts first.** Before any Apple event, compile or spawn, the app's facts are read
 ///   (`TerminalAppFacts`, no event sent): an app LaunchServices does not find, one older than
@@ -369,3 +369,7 @@ public final class PlainTerminalWindows {
     }
   } // End of static func failure(_:appName:)
 } // End of class PlainTerminalWindows
+
+/// The plain backend's window half (Phase I-12c1): open and focus, unchanged. Declared here,
+/// next to the class, since the protocol is `Sendable`.
+extension PlainTerminalWindows: PlainTerminalWindowLayer {}

@@ -784,6 +784,12 @@ struct FailureMessageTests {
     case .alreadyAttachedHere: return 17
     case .possiblyAttachedHere: return 18
     case .earlierLaunchPending: return 19
+    // The plain backend's failures (PLAN.md D38, Phase I-12c1), sampled apart in
+    // `plainAttachSamples`.
+    case .terminalWindow: return 20
+    case .cannotConfirmHere: return 21
+    case .clientCheckFailed: return 22
+    case .alreadyOpenInTerminal: return 23
     }
   } // End of static func caseIndex(_:)
 
@@ -839,6 +845,49 @@ struct FailureMessageTests {
       #expect(message.hasSuffix("."), "\(message)")
     }
   }
+
+  /// A window of a sample `exec` definition, for the plain backend's samples.
+  static func plainWindow() throws -> PlainTerminalWindow {
+    let json =
+      #"{"schemaVersion": 1, "id": "sample-exec", "displayName": "Sample terminal", "#
+      + #""bundleIdentifier": "com.example.sample-terminal", "minimumVersion": "1.0", "#
+      + #""open": {"kind": "exec", "executable": "Contents/MacOS/sample", "#
+      + #""arguments": ["{helper}", "{mode}", "{token}"]}, "focus": {"kind": "app"}}"#
+    let loaded = LoadedTerminalDefinition(
+      definition: try TerminalDefinition.decode(Data(json.utf8)), source: .user,
+      fileName: "sample-exec.json", script: nil)
+    return PlainTerminalWindow(openedBy: loaded, windowID: nil, tty: nil)
+  } // End of static func plainWindow()
+
+  /// The plain backend's failures and "Detach other clients…" problems (PLAN.md D38, Phase
+  /// I-12c1), as the popover shows them until Phase I-12d writes their own text: one sample of
+  /// each new failure case, each message a sentence, distinct from each other and from every
+  /// message above.
+  @Test func plainMessagesAreDistinctSentences() throws {
+    let samples: [AttachFailure] = [
+      .terminalWindow(.appNotInstalled(appName: "Sample terminal")), .cannotConfirmHere,
+      .clientCheckFailed(.sshFailed), .alreadyOpenInTerminal(window: try Self.plainWindow()),
+    ]
+    #expect(Set(samples.map(Self.caseIndex)) == Set(20...23))
+    let key = PreviewFixtures.session("s", id: 1, on: PreviewFixtures.neptuno, windows: 1).key
+    let problems: [DetachOtherClientsProblem] = [
+      .plainClientListing(.timedOut), .plainDetach(.sshFailed),
+    ]
+    let plain =
+      samples.map { SessionProblem.attach($0, launchTab: "tab").message }
+      + problems.compactMap {
+        SessionProblem.detachOtherClients(
+          DetachOtherClientsResult(key: key, outcome: .checkFailed($0)))?.message
+      }
+    #expect(plain.count == 6)
+    let messages = Self.allMessages + plain
+    #expect(Set(messages).count == messages.count)
+    for message in plain {
+      let first = message.first.map(String.init) ?? ""
+      #expect(first == first.uppercased() || message.hasPrefix("muxFinder"), "\(message)")
+      #expect(message.hasSuffix("."), "\(message)")
+    }
+  } // End of func plainMessagesAreDistinctSentences()
 
   /// The session-action fixtures show every state: each progress and result, every attach
   /// failure but the three a banner covers, every detach problem, both focuses that did not
