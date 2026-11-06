@@ -422,3 +422,7 @@ public final class PlainTerminalWindows {
 /// The plain backend's window half (Phase I-12c1): open and focus, unchanged. Declared here,
 /// next to the class, since the protocol is `Sendable`.
 extension PlainTerminalWindows: PlainTerminalWindowLayer {}
+
+/// `e2e-plain`'s close (Phase I-12c3b): `close(_:of:)`, unchanged. Declared here, next to the
+/// class, since the protocol is `Sendable`.
+extension PlainTerminalWindows: PlainTerminalWindowClosing {}

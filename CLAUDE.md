@@ -293,7 +293,8 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `.build/debug/muxfinder-launch attach <uuid>` takes `<uuid>.request.json` from
   `~/Library/Application Support/muxFinder/launch/` (an iTerm2 request: its `terminal`
   `iterm2` or absent); `muxfinder-launch attach-plain <uuid>` (another terminal app's window,
-  PLAN.md D38; nothing in the app writes its request yet) takes only a plain request
+  PLAN.md D38; the plain backend writes its request: the app with a plain terminal chosen,
+  `attach --terminal`, `e2e-plain`) takes only a plain request
   (`terminal` a definition id; `attach` and `attach-plain` refuse each other's with 72), runs
   the bound plain attach (no `-CC`, `-d` for a move here; remotely `PlainLaunch.remoteScript`
   with the token) with its terminal opened read-write as the child's standard input, writes
@@ -414,6 +415,35 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   minutes, so let the count fall back between runs (the API stalls at 64 workers). A timeout
   means a modal iTerm2 dialog or an API stall, as does a count that keeps growing: stop and
   report, never script the UI.
+- Plain real runs (PLAN.md D38 *The plain runs (I-12c3b)*; real windows of another terminal
+  app, so run explicitly, never from `swift test`, with `TMUX_TMPDIR` unset, after `swift
+  build`; never contacts iTerm2; `--help` contacts nothing): `swift run muxfinder-probe
+  e2e-plain --terminal <id> --local | --ssh saturno-m4 [--builtin-directory <dir>]
+  [--user-directory <dir>]` (`iterm2` and any other host refused; definitions load as for
+  `terminals list`, so in checks pass `--user-directory` a private empty folder, mode 0700).
+  First, before anything is created, written, discovered or sent, *Unattended-run rules* 8:
+  the app running and, for an AppleScript definition, its permission reading `granted`
+  without a prompt; otherwise it prints the reason and the command owed to the user and exits
+  2 (nothing launched, no Apple event). The window layer's `unattended` policy checks it again
+  before the request write and every open, focus and close. Then 9 steps over its own
+  `muxfinder-test-*` session (one `sleep 600` window; remotely over BatchMode ssh) through
+  `PlainTerminalBackend`: create, discover, open (confirmed: the client record, the window's
+  id, the helper's pid from its report), open again (focused, nothing opened), detach (the
+  bound detach, then the window closed by its recorded id once its helper ended, or left as
+  the terminal's settings left it), Move here over a plain `tmux -u -C` client of its own (a
+  confirmation for another key runs nothing), Detach other clients over a second one (once 10
+  s old), detach again, cleanup (on every way out: its control clients ended, its own client
+  detached, only its session killed, its own helpers that still run asked to stop with
+  SIGTERM (each the pid its launch's own files named, only while it has the start time read
+  for it and runs the helper's executable), only its own windows closed by recorded id on
+  evidence that their process ended (a pid that cannot be read counts as still running), its
+  launch files taken; a window, helper or session it cannot account for fails it, a failed
+  `list-sessions` included; what is left is printed for the user). One PASS or
+  FAIL line per step; exit 0 all passed, 1 a step failed (or a signal), 2 usage or the gate,
+  3 the 300 s watchdog. Its steps, gate and cleanup are the core's (`E2EPlainRun`), tested on
+  a private tmux server with the real helper and a fake window layer
+  (`E2EPlainStepsTests`). Real runs only under the gate; otherwise they are the user's
+  (`docs/MANUAL-CHECKLIST.md` item 26).
 
 ## Environment
 

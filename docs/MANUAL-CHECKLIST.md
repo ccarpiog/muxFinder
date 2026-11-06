@@ -708,6 +708,45 @@ popover, click it, use another Mac's iTerm2 or press keys.
 - **Undo:** in muxFinder, "Detach from this Mac" on the session; then `ssh saturno-m4
   /opt/homebrew/bin/tmux kill-session -t '=muxfinder-test-two-macs'`.
 
+## 26. Other terminal apps: the plain runs (`e2e-plain`)
+
+Owed by Phase I-12c3b (PLAN.md D38 *The plain runs (I-12c3b)*): the run was proven on a
+private tmux server with the real helper and a stand-in for the windows, and its gate refused
+for real, since neither Terminal nor Ghostty was running and an unattended run must never
+launch either or send it an Apple event without the permission already granted
+(*Unattended-run rules* 8). The raw AppleScript checks of each app are in `docs/TESTING.md`,
+*Phase I-12a*, *Owed*.
+
+- **Do**, from the repository root after `swift build`, in a shell of iTerm2 with
+  `TMUX_TMPDIR` unset, for each app you use:
+  1. Open the app (Terminal, or Ghostty 1.3 or later) yourself. Check
+     `swift run muxfinder-probe terminals list` shows it `running` and its permission
+     `granted`. If it reads `notDetermined`, the run would refuse (it never prompts): in the
+     same iTerm2 shell run `osascript -e 'tell application id "com.apple.Terminal" to count
+     windows'` (Ghostty: `com.mitchellh.ghostty`) once and allow macOS's prompt ("iTerm2"
+     wants to control the app). If it reads `denied`, turn it on in System Settings › Privacy
+     & Security › Automation › iTerm2.
+  2. `swift run muxfinder-probe e2e-plain --terminal terminal --local`, then
+     `swift run muxfinder-probe e2e-plain --terminal terminal --ssh saturno-m4`.
+  3. `swift run muxfinder-probe e2e-plain --terminal ghostty --local`, then
+     `swift run muxfinder-probe e2e-plain --terminal ghostty --ssh saturno-m4`.
+  Do not touch the windows the run opens (no typing, no closing) while it runs.
+- **Expect:** each run prints 9 PASS lines and "9 of 9 steps passed", exit 0, in under a
+  minute locally (the Detach other clients step waits about 10 s). Two windows of the app
+  open, one after the other, each showing the session (tmux's status bar, `sleep 600`): the
+  first is brought forward again by the second open (no other window opens) and closes after
+  the detach; the second (Move here) closes after the last detach (Terminal's closed by the
+  run by its id, unless your profile closes them itself; Ghostty's close by themselves). The remote runs log in to
+  Saturno with your key in the window. Afterwards no `muxfinder-test-*` session is left
+  (`tmux list-sessions`, and on Saturno), the launch folder is empty, and no window of the run
+  is open. A FAIL line names the step and why; cleanup still runs and its last line says what,
+  if anything, is left to close by hand.
+- **If the gate refuses** (exit 2): the line says why (the app not running, or its permission
+  not granted) and nothing was created, written or sent.
+- **Undo:** nothing, unless cleanup's last line lists a window to close or a session to end:
+  close that window yourself once nothing runs in it, and end a session with
+  `/opt/homebrew/bin/tmux kill-session -t '=<name>'` (on Saturno through `ssh saturno-m4`).
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -737,3 +776,4 @@ popover, click it, use another Mac's iTerm2 or press keys.
 | 23 | | | |
 | 24 | | | |
 | 25 | | | |
+| 26 | | | |

@@ -71,4 +71,43 @@ public final class FakePlainTerminalWindowLayer: PlainTerminalWindowLayer {
     runPolicyChecks += 1
     if let runPolicyFailure { throw runPolicyFailure }
   }
+
+  // MARK: - Close (Phase I-12c3b, `e2e-plain`'s seam)
+
+  /// Every window a close was asked for, in order (failed ones too).
+  public private(set) var closes: [PlainTerminalWindow] = []
+  /// The windows closed, in order.
+  public private(set) var closed: [PlainTerminalWindow] = []
+  /// When set, every close fails with it (still recorded; `onClose` does not run).
+  public var closeFailure: PlainTerminalWindowError?
+  /// Runs for each close that would succeed, before the window counts as closed; its error
+  /// fails that close (so a test can check, at the moment of the close, what the window ran).
+  public var onClose: (@MainActor (PlainTerminalWindow) throws(PlainTerminalWindowError) -> Void)?
+
+  /// Records the close, then refuses (as the real layer does, with nothing else done) a window
+  /// `loaded` did not open, one with no id, one this layer did not open or already closed
+  /// (`notOpenedHere`), or fails with `closeFailure`; else runs `onClose` and records the
+  /// window closed.
+  public func close(
+    _ window: PlainTerminalWindow,
+    of loaded: LoadedTerminalDefinition
+  ) throws(PlainTerminalWindowError) {
+    closes.append(window)
+    guard window.definitionID == loaded.definition.id else { throw .windowOfAnotherTerminal }
+    guard window.openedBy == loaded else {
+      throw .definitionChanged(appName: window.openedBy.definition.displayName)
+    }
+    guard let windowID = window.windowID else {
+      throw .windowHasNoID(appName: loaded.definition.displayName)
+    }
+    let openedHere = opens.indices.contains { "fake-window-\($0 + 1)" == windowID }
+    guard openedHere, !closed.contains(window) else { throw .notOpenedHere }
+    if let closeFailure { throw closeFailure }
+    try onClose?(window)
+    closed.append(window)
+  } // End of func close(_:of:)
 } // End of class FakePlainTerminalWindowLayer
+
+/// `e2e-plain`'s close seam (Phase I-12c3b). Declared here, next to the class, since the
+/// protocol is `Sendable`.
+extension FakePlainTerminalWindowLayer: PlainTerminalWindowClosing {}

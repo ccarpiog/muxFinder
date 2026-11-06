@@ -23,6 +23,7 @@ let usage = """
   \(E2EProfileCommand.usage)
   \(E2EBuryCommand.usage)
   \(E2EDetachOthersCommand.usage)
+  \(E2EPlainCommand.usage)
   \(TerminalsCommand.usage)
   \(PlainProofCommand.usage)
   \(LocalClientsCommand.usage)
@@ -68,6 +69,8 @@ case "e2e-bury":
   exit(await E2EBuryCommand.run(Array(arguments.dropFirst())))
 case "e2e-detach-others":
   exit(await E2EDetachOthersCommand.run(Array(arguments.dropFirst())))
+case "e2e-plain":
+  exit(await E2EPlainCommand.run(Array(arguments.dropFirst())))
 case "terminals":
   exit(await TerminalsCommand.run(Array(arguments.dropFirst())))
 case "plain-proof":

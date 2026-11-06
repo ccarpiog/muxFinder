@@ -4313,6 +4313,133 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       while Terminal did not run (nothing written or sent). **Owed:** the plain real runs
       (I-12c3b's `e2e-plain`, under *Unattended-run rules* 8) and the picker and strings
       (I-12d).
+  - **The plain runs (I-12c3b)** (2026-11-06; code in `Sources/MuxFinderCore/E2EPlain/`:
+    `E2EPlainOptions.swift` (`E2EPlainOptions`, `E2EPlainUsageError`, `E2EPlainRefusal`),
+    `E2EPlainSeams.swift` (`E2EPlainHostTmux`, `E2EPlainTmuxOutput`, `E2EPlainProcessCommand`,
+    `E2EPlainControlClient`, `E2EPlainControlClientStarter`, `PlainTerminalWindowClosing`, a
+    counting discovery and the update log), `E2EPlainRun.swift` (the run and its steps),
+    `E2EPlainRunCleanup.swift` (the closes and the cleanup); additively
+    `PlainTerminalWindows: PlainTerminalWindowClosing` (its `close(_:of:)` unchanged) and
+    `FakePlainTerminalWindowLayer.close(_:of:)`; the probe's `E2EPlainCommand.swift` and its
+    line in `main.swift`; tests `E2EPlainRunTests.swift`, `E2EPlainStepsTests.swift`;
+    `docs/TESTING.md` *Phase I-12c3b*, `docs/MANUAL-CHECKLIST.md` item 26). It does what the
+    calls for I-12c3b say. **The worker's calls:**
+    - *The run lives in the core.* The test targets import only the libraries, so, as
+      `AttachCommandOptions` did for `attach --terminal`, the arguments, the gate, the steps
+      and the cleanup are `MuxFinderCore` types behind four seams (the host's tmux, the run's
+      own control clients, the window layer's close, the kernel for its own helpers:
+      `E2EPlainHelperProcesses`); the probe wires the real parts (the
+      e2e harness's `TestTmux`/`RemoteTestTmux` through an adapter, `BackgroundControlClient`,
+      `PlainTerminalWindows(policy: .unattended)` over `NSAppleScriptRunner`, `LaunchStore()`,
+      `DiscoveryProbe()`, `LocalClientAttributor` over the loaded definitions, by default
+      `E2EPlainKernelProcesses`) and races the
+      steps against `SignalWatcher` and a 300 s watchdog. The run builds its
+      `PlainTerminalBackend` as the app builds a plain one (the loaded definition, the window
+      layer, the helper, the store, discovery, `PlainTmuxCommands()`, the attributor, the real
+      activator), adding only its update handler and a counted discovery. The coordinator,
+      both backends and every existing test are unchanged.
+    - *The gate, before anything.* The probe parses, refuses a set `TMUX_TMPDIR`, loads the
+      definitions as `terminals list` does (an id no loaded definition has: exit 2), then
+      reads the app's facts with nothing sent and applies `PlainRunGate`; the run's
+      `execute(limit:interrupts:)` reads them once more as its first act. A refusal prints
+      the reason and the owed command (`swift run muxfinder-probe e2e-plain` with the same
+      arguments) and exits 2: no tmux call (not even `-V`), no session, discovery, request,
+      control client or window call. During the run the window layer's unattended policy
+      checks again before the request's write and every open, focus and close; a failure
+      that stands for the gate (`unattendedRunRefused`, or the layer's own `appNotRunning`
+      or `permissionDenied`) fails its step naming the gate, cleanup runs, and the run says
+      it stopped (exit 1).
+    - *Exit statuses:* 0 every step passed; 1 a step failed, or a signal stopped the run (the
+      calls list no status of its own for a signal; cleanup runs first); 2 usage (with an
+      unusable environment: `TMUX_TMPDIR` set, the helper or tmux not found) or the gate; 3
+      the watchdog (then cleanup).
+    - *Steps:* the calls' eight, then cleanup as step 9. Beyond them: an AppleScript
+      definition's window must report its id (else it could never be closed by it); the
+      helper's pid is read from its early report and its kernel start time right then, while
+      it runs and no later than the report's attach child (the record every close waits on;
+      the backend's detach takes the report with the result); an open publishes exactly one
+      `plainLaunched`; the second open must end `plainWindowFocused`; a detach's helper result
+      must be clean (exit 0, no failure: one that is not leaves the helper waiting for Return,
+      which only cleanup's SIGTERM ends); the
+      stale move here is checked by no published update, no discovery call and the run's
+      control client still the session's only client (the launch folder is shared with the
+      app, so it is not counted); Detach other clients is called at once and must return no
+      earlier than `minimumLaunchTabAge` after the client started (the backend's age guard
+      waits).
+    - *Closing a window* (`closeWindow(of:)`): only windows the backend's `plainLaunched`
+      updates reported (so also one opened by a call that was cancelled), only through the
+      layer's `close` (ids its own open recorded; Terminal's script also refuses a busy window,
+      1001), and only on positive evidence that the helper's process has ended: its pid
+      absent (`sysctl` answered no process), or showing another start time than the one
+      recorded. The helper is kept by launch token whatever became of its window: the pid its
+      launch's early report, else its result (peeked), names, identified by the kernel start
+      time read while it ran no later than that file's own moment (the report's attach child
+      start, the result's end; pids are unique among live processes). A reading that fails,
+      or a pid whose process started later, is not known: the window is left
+      (`helperUnreadable`), never taken for ended. At most `Budgets.helperEnd` (15 s), else
+      the window is left open. -1728 means the terminal's own settings closed it (Ghostty's
+      `wait after command` false): left as it is.
+    - *Cleanup order:* the run's control clients ended; the backend's own client, if it holds
+      one, detached with the bound detach; every launch's helper recorded from its own files;
+      a close pass; the session killed with the bound kill; helpers that may still run get
+      `helperEnd` to end (the session's end may end a helper a cancelled launch left
+      attached), then those still running, positively identified, are asked to stop:
+      SIGTERM (`E2EPlainKernelProcesses.terminate`, only while the pid still has the
+      recorded start time and runs the helper's executable), which finishes a failed
+      helper's wait for Return (D14), again every second within `Budgets.helperShutdown`
+      (15 s), never by typing into or closing its window; a second close pass; a launch with
+      no recorded window although one may be open (a helper ran for it, or its open failed
+      after its Apple event: the open call's `scriptFailed` or `malformedReply`, as when the
+      script opened the window and then failed or its reply was lost) is reported with what
+      to do by hand; the launch files of the run's launches (results nobody took, requests
+      withdrawn, the reports of ended helpers); then the check (no launch file, control
+      client, or running or unreadable helper of the run; once step 1 ran, the session gone:
+      only a `list-sessions` without it, or tmux's "no server running", shows that, so a
+      listing that failed, as when Saturno is unreachable after a lost `new-session` reply,
+      fails cleanup; every window or session left is listed with what to do by hand). A
+      launch cancelled after its helper attached has no record, so its client goes with the
+      session's kill, not the bound detach; on a real terminal its helper may then wait for
+      Return until cleanup asks it to stop, and then its window is closed.
+    - **Verified** (hermetic; 19 tests in 9 suites, `docs/TESTING.md` *Phase I-12c3b*): the
+      arguments and refusals; the gate over fake facts (not running, `denied`,
+      `notDetermined`, another status, `targetNotRunning`, an `exec` definition's app not
+      running) exits 2 with nothing contacted (no tmux call, discovery, control client, launch
+      file, window call or run policy check); no close while the helper runs, an unknown
+      helper's window left, a helper named by its result, -1728 left as it is, a refused
+      close noted as the gate's; and the run itself on a private tmux server, the real helper
+      started by I-12c1's fake window layer on a pseudo-terminal of the test's (its close
+      refusing, as busy, a window whose helper has not exited): 9 of 9 in about 3 s with two
+      windows opened and both closed after their helper exited; the window layer's recheck
+      refusing the move here's request: step 6 fails naming the gate, nothing more opened,
+      cleanup passes, exit 1; SIGTERM after the first close, and right after the move here's
+      window opened: cleanup passes with nothing left, exit 1. The adversarial review's four
+      findings (`docs/reviews/phase-I-12c3b.md`), each with a regression shown failing with its
+      fix reverted: an unreadable process, at the first look or later, or a pid whose process
+      started after the report, never lets a window close (B1); a real helper that failed
+      (its request withdrawn) and waits for Return is stopped by cleanup's SIGTERM before its
+      window closes, cleanup passing with nothing left, and over fakes a helper that keeps
+      running is asked again and reported while one that cannot be read is never signalled
+      (S1); an open that failed after its Apple event keeps its report-named helper, stopped
+      and seen ended before its report goes, and is reported as a window with no recorded
+      id, as is an uncertain open with no helper file (S2); a failed `list-sessions` after a
+      lost `new-session` reply (ssh unreachable, tmux's error, a timeout) fails cleanup,
+      while "no server running" and a listing without the session pass (S3); and the real
+      reader and SIGTERM on a child of the test's (refused for another start time or
+      executable). **How far the hermetic run
+      reaches:** every step and the cleanup on This Mac with real tmux, discovery, bound
+      commands, helper and control clients; not a terminal app's windows (the fake opens a
+      pseudo-terminal, focuses and closes nothing), the facts (a fake inspector) or the remote
+      path (the token reading and the control clients over ssh). Real (2026-11-06):
+      `e2e-plain --terminal terminal --local` and `--terminal ghostty --local` exit 2 with
+      nothing created, written or sent, `pgrep -x Terminal` and `pgrep -x ghostty` empty
+      before and after (again after the review's fixes); iTerm2's regression (requirement 12) under the thread gate:
+      `e2e-local` 16/16, `e2e-remote saturno-m4` 17/17 (its first run failed step 15 `new
+      session` with `helperEnded` after 3.2 s, code this phase did not touch; the rerun at once
+      passed), `e2e-bury --local` 13/13, `e2e-detach-others --local` 9/9, leftovers clean after
+      each (threads 23 → 44 after `e2e-local`, held about 1 h 45 min, then 18 in one step; 16–20
+      for the rest). **Owed** (to the user,
+      `docs/MANUAL-CHECKLIST.md` item 26): `e2e-plain --terminal terminal|ghostty --local |
+      --ssh saturno-m4` with the app running and `granted`.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -7545,6 +7672,65 @@ Calls for I-12c3a (onto the seam; 2026-11-06, before its worker):
 - **Records.** D38 "Onto the seam (I-12c3a)", D32 (the `terminal` key), D26 (the rewrite only
   with iTerm2 chosen), sentences of D22/D25 the change invalidates, `docs/TESTING.md` *Phase
   I-12c3a*, `CLAUDE.md` *Commands* for `attach --terminal`.
+
+Calls for I-12c3b (the plain runs; 2026-11-06, before its worker). At its selection neither
+Terminal nor Ghostty was running (`pgrep -x Terminal`, `pgrep -x ghostty` both empty), so the
+phase builds and proves the harness hermetically, proves its gate refuses for real, and owes the
+plain real runs to the user; iTerm2's runs are its real regression.
+
+- **The harness, a new probe command** (`Sources/muxfinder-probe/E2EPlain*.swift`, names the
+  worker's): `muxfinder-probe e2e-plain --terminal <id> --local | --ssh saturno-m4
+  [--builtin-directory <dir>] [--user-directory <dir>]`, definitions loaded as `terminals list`
+  loads them; `--terminal iterm2` refused (exit 2; iTerm2 has its own `e2e-*`), any other id not
+  a loaded plain definition refused; `--ssh` with any host but `saturno-m4` refused; `--help`
+  contacts nothing. It drives `PlainTerminalBackend` built as I-12c3a's environment builds it
+  (its loaded definition, `PlainTerminalWindows` over the real `NSAppleScript` runner, the
+  helper, the launch store, discovery, the remote runners, the attributor), never the app's
+  `preferences.json`.
+- **The gate first** (*Unattended-run rules* 8), before anything is created, written,
+  discovered or sent: the app running and, for an AppleScript definition, its permission
+  reading `granted` without a prompt (as `attach --terminal` reads it), else exit 2 with the
+  reason and the exact command owed to the user; nothing created, no request written, no Apple
+  event, no launch. Rechecked at the side-effect boundary before every open, focus and close
+  (the window layer's unattended run policy, I-12c3a); a recheck that fails mid-run stops the
+  run and cleans up what it made (exit 1).
+- **Steps** (one PASS/FAIL line each, every wait bounded, D15/D17 budgets): create its own
+  `muxfinder-test-*` session (one `sleep 600` window; remotely over BatchMode ssh as
+  `e2e-remote` does); discover it; **open** → confirmed (the client record with name, pid,
+  creation time and, remotely, the token; the window handle recorded); **open again** → focused
+  through its own record, no second window and no second client; **detach** through the backend
+  → its client gone within 10 s, the helper's result present, the record dropped; its window
+  closed only by the recorded id after its process ended (left as it is when the terminal's
+  own settings already closed it); **Move here**: a plain `tmux -u -C` client of the harness's
+  own (BatchMode ssh remotely, as `e2e-local`'s move here step), then `moveHere` with a fresh
+  confirmation → confirmed, the harness's client gone (`%exit`), the backend's client the
+  session's only one; a stale confirmation runs nothing; **detach others**: a second plain
+  control client of its own, `detachOtherClients` once it is 10 s old → `detached(count: 1)`,
+  the backend's client kept; **detach** again and close that window as above; **cleanup** on
+  every way out (SIGINT/SIGTERM included): end its own plain clients, detach only its own
+  backend clients with the bound detach, close only its own windows by recorded id after their
+  process ended, kill only its own session, then check none of its sessions, requests, reports
+  or children is left. Exit 0 all passed, 1 a step failed, 2 usage or the gate refused, 3 its
+  watchdog. It never types into a window, never closes one whose process still runs, never
+  launches either app.
+- **Hermetic tests**: the argument parsing and refusals; the gate over fake facts (not running,
+  `denied`, `notDetermined`, `other`, `targetNotRunning`, an `exec` definition with the app not
+  running) refusing with nothing contacted (no session created, no discovery, no request, no
+  window call); the step sequence over I-12c1's fakes where a seam allows (the worker decides
+  how far, recorded); the cleanup order (no window closed while its process runs).
+- **Real runs.** `e2e-plain --terminal terminal --local` and `--terminal ghostty --local`
+  for real only to show the gate's refusal (exit 2, nothing created; `pgrep -x Terminal` and
+  `pgrep -x ghostty` the same before and after); if, at the run's time, an app shows `running`
+  and `granted` in `terminals list`, its `--local` and `--ssh saturno-m4` runs too. Then
+  iTerm2's `e2e-local`, `e2e-remote saturno-m4`, `e2e-bury --local` and `e2e-detach-others
+  --local` as regression, each under the gate of `PROGRESS.md` *Next action* 3 (38 threads or
+  lower, threads let fall back between runs, leftover checks after each).
+- **Changes outside the probe** only additively and where the harness needs a seam; the
+  coordinator, the backends' behaviour and every existing test's expectation unchanged.
+- **Records.** D38 "The plain runs (I-12c3b)"; `docs/TESTING.md` *Phase I-12c3b* (the gate's
+  refusals, the regression results, and *Owed* with the exact commands per terminal and host);
+  `docs/MANUAL-CHECKLIST.md` (the `e2e-plain` runs beside the existing Terminal/Ghostty items);
+  `CLAUDE.md` *Commands* for `e2e-plain`.
 
 ## Deferred (explicitly out of scope for v1)
 
