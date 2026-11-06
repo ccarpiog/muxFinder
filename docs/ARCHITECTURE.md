@@ -332,6 +332,20 @@ click → AttachCoordinator: rediscover (still the same session?) → already op
   concurrent attaches of one session share one launch. Move here adds `-d` only after
   the user confirms (D21). Detach sends `detach-client` through the bound connection, never
   closes a tab. New session creates with `new-session -d`, then attaches the same way (D18).
+- Detach other clients (`AttachCoordinator.detachOtherClients(of:confirmation:)`, D37) keeps
+  this Mac's attachment (the one Show tab focuses) and, with a confirmation naming the
+  session, sends everything through that attachment's connection, bound to its tab: the
+  identity check again, its own client's name with tmux's clock and the session's clients with
+  their creation times (read-only, filtered from the server's clients so they cannot fail in
+  tmux: iTerm2 3.7 ends a connection on any tmux error for a command sent through its API),
+  a wait until every other client is 10 s old by tmux's clock (D15's rule, for clients the
+  attachment snapshot did not show too), then for each other client a check of its name, pid,
+  creation time and session right before `detach-client -t <name>`, each sent once and
+  counted only when tmux confirms it. Names, pids and creation times come only from that
+  listing and are validated. The check and the detach are one round trip apart: tmux 3.8 and
+  iTerm2's reply pairing allow no single guarded command (D37 records what that leaves). Not
+  `attach-session -d`: iTerm2 closes and reopens the session's windows on the
+  `%session-changed` it causes. Local and SSH hosts alike, with no new ssh, file or request.
 - "Set up SSH in iTerm2…" opens the same kind of tab running plain interactive ssh (D24).
 
 ## New session directories (D31)
@@ -434,7 +448,10 @@ few messages it needs (`ListSessions`, `CreateTab`, `Activate`, `ListProfiles`, 
 `ListConnections`/`SendCommand`, `Close`, `SetProperty`/`GetProperty`), and the access cookie
 from one static AppleScript
 command run in-process (the macOS Automation permission). One reader thread and one writer
-queue per connection; requests carry deadlines and are never retried (D13). There is no
+queue per connection; requests carry deadlines and are never retried (D13). A tmux command's
+answer counts only with its output (empty for a command that prints nothing): one without it
+(tmux's `%error`, or the connection ended first) is `tmuxCommandFailed`, never an empty
+success (D37). There is no
 Python, no SwiftProtobuf and no code generated from iTerm2's `api.proto`: iTerm2 is GPLv2 and
 this repository is MIT, so iTerm2's Python module served only as a read-only protocol
 reference. Everything sits behind `ITerm2Integration`, so the backend can be replaced; tests
@@ -506,3 +523,4 @@ All in `PLAN.md` *Decisions*:
 | | | D34 | New session in its own window, with folder drop |
 | | | D35 | Version numbers |
 | | | D36 | Folder search over Spotlight |
+| | | D37 | Detach other clients |

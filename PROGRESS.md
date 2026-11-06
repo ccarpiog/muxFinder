@@ -51,12 +51,13 @@ file.
 | I-9b | New session window: the folder drop — pure `FolderDrop`, a drop view over the Directory row ahead of the field editor, `~/…` under This Mac's home, files/packages/several refused; `--preview-gallery new-session`, screenshots, checklist 23 (D34 extended) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-9b.md` | `docs/progress-archive/i-9b.md` |
 | I-10a | Folder search core: one static Spotlight script for This Mac and SSH hosts (header, folder-name queries on stdin, noise rule, 50 limit, 4 s host deadline, end records), escaping, bounded parser, streaming transport, channel state machine, scope in `preferences.json`, probe `folders`; real `--count-only` runs here and on Saturno (D36; D3, D11, D32 edited; spec `autoclaude/processed/100-folder-search-spotlight.md`) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-10a.md` | `docs/progress-archive/i-10a.md` |
 | I-10b | Folder search UI: "Folders on <host>" section in New session's directory list (states, de-dup, pick, `/` and <2 rules, unusable paths dropped), one channel per window and host, This Mac's `unchecked` script argument, Settings › Directories scope and "Missing a folder?", VoiceOver, galleries, checklist 24 (D3, D31, D32, D34, D36 edited) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-10b.md` | `docs/progress-archive/i-10b.md` |
+| I-11a | Detach other clients, proof and core: `attach-session -d` rejected on real runs (iTerm2 reopens windows), per-client checked `detach-client`, `detachOtherClients(of:confirmation:)` with typed results and 10 s age guard, `tmuxCommandFailed` at the API boundary, `e2e-detach-others` 9/9 on both hosts (D37) | high | opus (impl + review-fix worker); orchestrator regression run and one `CLAUDE.md` edit | Codex, ship-with-fixes, `docs/reviews/phase-I-11a.md` | `docs/progress-archive/i-11a.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-11 | Detach other clients (high): proof of the command through iTerm2's tmux connection first (local and Saturno), a coordinator call bound to a session-key confirmation, the popover's "Detach other clients…" item and its confirmation, an e2e step, galleries, new D number, docs | `autoclaude/processed/105-detach-other-clients.md` | next; before I-12 (the user's order) |
+| I-11b | Detach other clients, the UI (routine): the popover's "Detach other clients…" item and offer rule, D25-style confirmation, refresh and recovery, optional hint, galleries, README, checklist, D37's UI part — `PLAN.md` *Phase I-11* | `autoclaude/processed/105-detach-other-clients.md` | next; before I-12 (the user's order) |
 | I-12 | Other terminal apps (high, a group): Terminal.app and Ghostty in plain tmux beside iTerm2's control mode, terminal seam, JSON definitions, helper plain mode, confirmation, Settings › General "Terminal", strings, onboarding without iTerm2, docs; split into sub-phases (the item suggests a–e) in `PLAN.md` before its first worker | `autoclaude/processed/110-other-terminal-apps.md` | after I-11 (last) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
@@ -84,15 +85,16 @@ the run in either; their user decisions are recorded in the items).
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8, I-9 (a, b) and I-10 (a, b)
-are complete and reviewed. The user released 0.2.0 (build 2) in `f1b11ac`. **Phase I-10b —
-folder search UI (routine): complete** 2026-11-06 (`docs/progress-archive/i-10b.md`).
-**Queued: I-11** (Detach other clients; *Next action* 0), then **I-12** (other terminal apps,
-a group to split first). Also remaining: the manual checklist (the user's). Phase
+Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8, I-9 (a, b), I-10 (a, b) and
+I-11a are complete and reviewed. The user released 0.2.0 (build 2) in `f1b11ac`. **Phase
+I-11a — Detach other clients, proof and core (high): complete** 2026-11-06
+(`docs/progress-archive/i-11a.md`). **Queued: I-11b** (the UI; *Next action* 0), then
+**I-12** (other terminal apps, a group to split first). Also remaining: the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
-I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10b.
+I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10b, I-11 into
+I-11a/I-11b.
 
 ## Acceptance
 
@@ -138,6 +140,12 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   468 UI pass); one real read-only local `folders --count-only` (header "not checked", no child
   left); galleries light and dark inspected; checklist 24 new; real search on Saturno, This
   Mac's privacy prompt and VoiceOver owed — `docs/progress-archive/i-10b.md`.
+- Phase I-11a: all criteria met, 2026-11-06 — option (a) `attach-session -d` proven unusable
+  on both hosts (iTerm2 3.7.7 reopens the windows; `e2e-detach-others` 7/9 each), option (b)
+  chosen; `detachOtherClients(of:confirmation:)` with the typed results; hermetic tests (905
+  core + 468 UI pass); `e2e-detach-others` 9/9 locally and on Saturno on the final code;
+  `e2e-local` 16/16 as regression of the API client change; D37, TESTING, ARCHITECTURE,
+  `CLAUDE.md` recorded — `docs/progress-archive/i-11a.md`.
 
 ## Decisions
 
@@ -181,6 +189,13 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   normal mode; earlier matching results kept while a new text is searched (same host and scope
   only, after the review); a model-owned scope save awaited at shutdown —
   `docs/progress-archive/i-10b.md`.
+- Phase I-11: split into I-11a/I-11b in `PLAN.md` before the first worker, with the
+  orchestrator's calls there (proof of (a) first; its own confirmation type; the attachment
+  Show tab focuses is kept; identity check before sending; read-only count, nothing sent when
+  none; send once; its own `e2e-detach-others` command). **D37**: (b), per-client
+  `detach-client -t` after a server-wide check of name, pid, creation time and session; a 10 s
+  age guard by tmux's clock on every listed client; an answer without `output` is
+  `tmuxCommandFailed` for every `SendCommand` caller — `docs/progress-archive/i-11a.md`.
 
 ## Open risks / deviations
 
@@ -212,6 +227,14 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   core process test over its bound (passing alone 15 times; the orchestrator's final runs
   passed); owed to the user, checklist 24 (real Saturno search, This Mac's privacy prompt,
   protected folders on This Mac, the links, VoiceOver) — `docs/progress-archive/i-10b.md`.
+- I-11a (**for the user**): the review's blocker could only be narrowed (D37). Within one round
+  trip between the check and `detach-client`, a checked client that switches sessions is
+  detached from its new session, and one that ends makes `detach-client` fail, which on
+  iTerm2 3.7.7 shows a "tmux Reported a Problem" alert and ends the kept attachment (read from
+  iTerm2's source, not triggered for real). Nothing is killed. The review-fix worker's first
+  private-server probe used `kill-server` on its own private socket (against the rule, nothing
+  of the user's touched). The age guard can be shortened by a wall clock jump on the tmux
+  host — `docs/progress-archive/i-11a.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -275,20 +298,27 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   blockers, 2 should-fix (previous results kept across a scope change; an untracked scope save
   lost at quit); a review-fix worker fixed both, each regression failing with its fix
   reverted; re-verified by the orchestrator — `docs/reviews/phase-I-10b.md`.
+- Phase I-11a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
+  blocker (check not binding the detach: narrowed, not closable within tmux 3.8 and iTerm2
+  3.7.7, recorded in D37 and *Open risks*) + 2 should-fix (an error counted as a detach; age
+  guard missing later clients), both fixed; a review-fix worker did all three, each regression
+  failing with its fix reverted; re-verified by the orchestrator — `docs/reviews/phase-I-11a.md`.
 
 ## Next action
 
-0. **Phase I-11 (queued, high): Detach other clients.** Poll the inbox first. Then add a
-   `### Phase I-11` section to `PLAN.md` (before *Deferred*) from
-   `autoclaude/processed/105-detach-other-clients.md`; it is high and has a real-run proof
-   requirement (1) before the UI, so split it before the first worker, e.g. **I-11a** proof +
-   core (the command through iTerm2's tmux connection on This Mac and Saturno, option (a)
-   `attach-session -d -t <id>` vs (b) per-client `detach-client -t <name>` bound by
-   `client_pid`/session, the new D number, the coordinator call with its session-key
-   confirmation and typed results, the e2e step) and **I-11b** UI (the popover's "Detach other
-   clients…" item and the D25-style confirmation, galleries, docs, checklist). Real runs follow
-   the gate in item 3. Then I-12 (`autoclaude/processed/110-other-terminal-apps.md`, split
-   a–e as it suggests, in `PLAN.md` before its first worker).
+0. **Phase I-11b (queued, routine): Detach other clients, the UI.** Poll the inbox first.
+   Then, from `PLAN.md` *Phase I-11* (I-11b's bullet and D37) and requirement 3 and 4 of
+   `autoclaude/processed/105-detach-other-clients.md`: write the orchestrator's calls for
+   I-11b into `PLAN.md` before the worker (the offer rule: open in this Mac's iTerm2 and the
+   listing's `clientCount` above this Mac's attachments, hidden on a stale row; the
+   confirmation's text and count; how `ageWait`, `notConfirmed`, `cancelled` and each failure
+   show; whether the row hint fits), then a worker for the popover item, the D25-style
+   confirmation, the refresh, galleries (`attach`, `popover` if the row changes) light and
+   dark, README (actions list and the window-size note), ARCHITECTURE, TESTING,
+   MANUAL-CHECKLIST (new item: two Macs, run it on one, the other's windows close, resizing
+   now resizes; and D37's residual race), D37's UI part, D25 edited. No real run is needed
+   unless the core changes. Then I-12 (`autoclaude/processed/110-other-terminal-apps.md`,
+   split a–e as it suggests, in `PLAN.md` before its first worker).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -300,7 +330,8 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
    runs only at **38 threads or lower**, and leftover checks after each (launch directory,
    `DynamicProfiles/`, `/private/tmp` `mfx.*`, `muxfinder-test-*` sessions on Neptuno and
    Saturno; since 13a also no run session left in tabs or `buried_sessions` of
-   `iterm2 list-sessions`). iTerm2 was at 20 threads after I-9a's self-test (2026-11-05 ~23:15).
+   `iterm2 list-sessions`). iTerm2 was at 22 threads after I-11a's `e2e-local` (2026-11-06
+   ~12:25).
 
 ## Key paths
 
@@ -318,10 +349,20 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   `Views/DirectoryPickerViews.swift`, `Views/Settings/DirectoriesSettingsView.swift`,
   `Preview/FolderSearchFixtures.swift`; tests
   `Tests/MuxFinderUITests/{FolderSearchSectionTests,FolderSearchModelTests,SettingsFolderSearchTests,FolderSearchUITestSupport}.swift`.
+- Detach other clients (I-11a, D37): `Sources/MuxFinderCore/Attach/{AttachCoordinatorDetachOthers,DetachOtherClientsModels}.swift`,
+  `ITerm2/ITerm2APIClient.swift` (`commandOutput(of:)`), probe
+  `Sources/muxfinder-probe/E2EDetachOthers{Command,Run}.swift`; tests
+  `Tests/MuxFinderCoreTests/DetachOtherClientsTests.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
+- Phase I-11a (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `swift test` 905 core tests in 88 suites and 468 UI tests in
+  46 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
+  build/muxFinder.app` exit 0; `swift run muxfinder-probe e2e-local` 16/16 (66.1 s, threads
+  16 → 22), no leftovers. Workers: `-warnings-as-errors` build exit 0; `e2e-detach-others`
+  9/9 locally and on Saturno on the final code — `docs/progress-archive/i-11a.md`.
 - Phase I-10b (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
   lint -r Sources Tests` exit 0; `swift test` 881 core tests in 87 suites and 468 UI tests in
   46 suites passed, no failure; `scripts/build-app.sh` exit 0; `codesign --verify --deep
@@ -358,5 +399,6 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b, I-9 into I-9a/I-9b, I-10 into I-10a/I-10
   `CLAUDE.md` and `nonamedownloads.json`; the tree was clean when this run started (empty
   preflight file). Inbox triage (I-10): `faa47a6`.
 - Phase I-10a: `267dc0b`, pushed. Inbox triage (I-11, I-12): `f03de09`.
-- Phase I-10b: the commit carrying this checkpoint ("Phase I-10b: folder search UI"), pushed
-  (SHA and push result in the run's status line and the next checkpoint).
+- Phase I-10b: `6f4aec2`, pushed.
+- Phase I-11a: the commit carrying this checkpoint ("Phase I-11a: detach other clients, proof
+  and core"), pushed (SHA and push result in the run's status line and the next checkpoint).

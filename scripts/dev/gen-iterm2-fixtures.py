@@ -409,6 +409,28 @@ def response_fixtures():
     message.get_property_response.status = (
         api_pb2.GetPropertyResponse.Status.Value("INVALID_TARGET"))
     fixtures["get-property-response-invalid-target.bin"] = message.SerializeToString()
+
+    # SendCommand answers as iTerm2 3.7 builds them (status never set, so OK by default): it
+    # sets `output`, the empty string for a command that prints nothing, only when tmux ended
+    # the reply with %end. After %error, or when the connection ended before tmux answered, the
+    # answer has a send_command without output or no payload at all.
+    message = server_message(25)
+    message.tmux_response.send_command.output = ""
+    check(message.tmux_response.send_command.HasField("output"), "an empty output is present")
+    fixtures["tmux-send-command-response-empty.bin"] = message.SerializeToString()
+
+    message = server_message(26)
+    message.tmux_response.send_command.SetInParent()
+    check(not message.tmux_response.send_command.HasField("output"), "no output field")
+    fixtures["tmux-send-command-response-no-output.bin"] = message.SerializeToString()
+
+    message = server_message(27)
+    message.tmux_response.SetInParent()
+    check(message.tmux_response.WhichOneof("payload") is None, "no tmux payload")
+    fixtures["tmux-response-ok-no-payload.bin"] = message.SerializeToString()
+    check(len({fixtures[name] for name in (
+        "tmux-send-command-response-empty.bin", "tmux-send-command-response-no-output.bin",
+        "tmux-response-ok-no-payload.bin")}) == 3, "the three SendCommand answers differ")
     return fixtures
     # End of def response_fixtures()
 

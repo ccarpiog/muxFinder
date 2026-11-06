@@ -200,6 +200,8 @@ struct ITerm2GoldenTests {
     "activate-response-split", "tmux-send-command-response-split", "close-response",
     "close-response-packed", "set-property-response-ok", "set-property-response-invalid-target",
     "get-property-response-buried", "get-property-response-invalid-target",
+    "tmux-send-command-response-empty", "tmux-send-command-response-no-output",
+    "tmux-response-ok-no-payload",
   ]
 
   /// Each request encodes byte for byte like its `api_pb2` fixture.
@@ -427,6 +429,18 @@ struct ITerm2GoldenTests {
     #expect(
       try ITerm2Fixture.server("tmux-response-invalid-connection")
         == .init(id: 12, response: .tmux(.init(payload: nil, status: .invalidConnectionID))))
+    // SendCommand answers as iTerm2 3.7 builds them, status left out: an empty output is
+    // present (tmux ended the reply with `%end`), unlike a send_command without output or no
+    // payload at all (`%error`, or the connection ended first).
+    #expect(
+      try ITerm2Fixture.server("tmux-send-command-response-empty")
+        == .init(id: 25, response: .tmux(.init(payload: .sendCommand(output: ""), status: .ok))))
+    #expect(
+      try ITerm2Fixture.server("tmux-send-command-response-no-output")
+        == .init(id: 26, response: .tmux(.init(payload: .sendCommand(output: nil), status: .ok))))
+    #expect(
+      try ITerm2Fixture.server("tmux-response-ok-no-payload")
+        == .init(id: 27, response: .tmux(.init(payload: nil, status: .ok))))
   } // End of func decodesTmux()
 
   /// Close responses: one status per id, unpacked as iTerm2 writes them and packed.

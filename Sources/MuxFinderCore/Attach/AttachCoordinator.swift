@@ -71,6 +71,12 @@ import Foundation
 /// end of its launch tab seen, or its request withdrawn before a helper took it), within a
 /// bounded time (`earlierLaunchPending`), then starts its own.
 ///
+/// `detachOtherClients(of:confirmation:)` (PLAN.md D37) keeps this Mac's attachment of a
+/// session (the one "Show tab" focuses) and sends tmux, through that attachment's connection,
+/// once, a command that detaches every other client of the session, wherever it is. It needs an
+/// explicit `DetachOtherClientsConfirmation` naming the session, checks the connection's
+/// identity right before sending, and sends nothing when no other client is listed.
+///
 /// Ending a connection ends its launch tab, and iTerm2 blocks its whole API behind a modal
 /// warning when a session ends within 3 s of starting (PLAN.md *Verified facts*, Phase 4).
 /// So the coordinator never sends `detach-client` (after a failed identity check, or for
@@ -90,8 +96,8 @@ public actor AttachCoordinator {
     /// This index (a filtered one, as in `e2e-local`, or one with its own clock in tests).
     case index(AttachmentIndex)
     /// No check: every attach launches. Only for tests of the launch path itself;
-    /// `detach(session:on:)` and `moveHere(_:confirmation:)` (which never skips its check) then
-    /// use the standard index.
+    /// `detach(session:on:)`, `moveHere(_:confirmation:)` (which never skips its check) and
+    /// `detachOtherClients(of:confirmation:)` then use the standard index.
     case off
   }
 
@@ -254,9 +260,9 @@ public actor AttachCoordinator {
   private let onUpdate: UpdateHandler?
   /// The index an attach checks before launching; `nil` when the check is off.
   private let attachCheckIndex: AttachmentIndex?
-  /// The index `detach(session:on:)` and `moveHere(_:confirmation:)` use (the attach check's, or
-  /// the standard one).
-  private let detachIndex: AttachmentIndex
+  /// The index `detach(session:on:)`, `moveHere(_:confirmation:)` and
+  /// `detachOtherClients(of:confirmation:)` use (the attach check's, or the standard one).
+  let detachIndex: AttachmentIndex
   /// Creates sessions for `createAndAttach(_:)`.
   private let sessionCreator: any SessionCreating
   /// Launches in progress, by session.
@@ -1077,8 +1083,8 @@ public actor AttachCoordinator {
   /// and session it reached: the server and session must be `key`'s, and the host name the
   /// revalidated host's node name (`uname -n`) when discovery reported one, so an SSH
   /// destination that reached another Mac never confirms. A request failure is reported as is;
-  /// an unreadable or different answer detaches the connection once the launch tab, opened at
-  /// `launchedAt`, is old enough.
+  /// an unreadable or different answer, or one without output (`tmuxCommandFailed`), detaches
+  /// the connection once the launch tab, opened at `launchedAt`, is old enough.
   private func checkIdentity(
     connectionID: String,
     gatewaySessionID: String,
@@ -1086,21 +1092,24 @@ public actor AttachCoordinator {
     key: SessionKey,
     host: AttachmentIndex.Host?
   ) async -> AttachFailure? {
-    let output: String
+    let output: String?
     do {
       output = try await iTerm2.sendTmuxCommand(
         ConnectionIdentity.command, connectionID: connectionID, ownedBy: gatewaySessionID)
+    } catch ITerm2Error.tmuxCommandFailed {
+      // Answered without its output: retired like an unreadable answer.
+      output = nil
     } catch let error as ITerm2Error {
       return .identityCheckFailed(error)
     } catch {
       return .cancelled
     }
     let failure: AttachFailure
-    if let reported = ConnectionIdentity.parse(output) {
+    if let reported = output.flatMap(ConnectionIdentity.parse) {
       if reported.matches(key), host.map({ reported.host == $0.nodeName }) ?? true { return nil }
       failure = .identityMismatch
     } else {
-      failure = .identityCheckFailed(nil)
+      failure = .identityCheckFailed(output == nil ? .tmuxCommandFailed : nil)
     }
     await retire(
       connectionID: connectionID, gatewaySessionID: gatewaySessionID, launchedAt: launchedAt)
@@ -1333,8 +1342,7 @@ public actor AttachCoordinator {
 
   /// Discovers `host` and returns it as the attachment index matches it; `nil` when no server
   /// runs (then nothing can be attached).
-  private func currentHost(_ host: HostConfig) async -> Result<AttachmentIndex.Host?, AttachFailure>
-  {
+  func currentHost(_ host: HostConfig) async -> Result<AttachmentIndex.Host?, AttachFailure> {
     let result: DiscoveryResult
     do {
       result = try await discovery.discover(host)

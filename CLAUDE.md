@@ -324,6 +324,18 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   peeked, never taken, so the coordinator's watch sees them (cleanup takes those left). Its
   cleanup restores, then closes, only its own launch tabs, checking every `Close` status and
   their absence, and kills only its own session.
+  `swift run muxfinder-probe e2e-detach-others --local | --ssh saturno-m4` (PLAN.md D37; 9
+  steps, about 14 s locally, 20 s on Saturno; `--help` contacts nothing) creates its own
+  `muxfinder-test-*` session (two windows of `sleep 600`), attaches it through the coordinator
+  (bury on) and a plain `tmux -u -C` client of its own (over ssh with BatchMode remotely),
+  checks that a confirmation for another key runs nothing (no discovery, no iTerm2 request),
+  runs `detachOtherClients`: `detached(count: 1)` once the plain client is 10 s old, the
+  plain client `%exit` and exit 0 within 10 s, and for 2 s after the call the same iTerm2 tab and session ids (never closed or
+  reopened), the launch tab still owning its connection, buried and in no tab, its client the
+  session's only one; then detaches by connection (the launch tab leaving by itself). It asks
+  only its own launch tabs' connections, ends the plain client on every way out, and cleans up
+  as `e2e-bury` does (restores, then closes, only its own launch tabs; kills only its own
+  session).
   Check `muxfinder-probe iterm2 status` and iTerm2's thread count (`ps -M -p <pid> | wc -l`)
   before and after; each run adds about 12 blocked iTerm2 workers that are reclaimed within
   minutes, so let the count fall back between runs (the API stalls at 64 workers). A timeout
@@ -337,7 +349,7 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `~/.ssh/config`; OpenSSH resolves the names via Tailscale MagicDNS.
 - tmux 3.8 lives at `/opt/homebrew/bin/tmux` on Neptuno and Saturno; noninteractive SSH PATH does
   not include it.
-- iTerm2 3.7.6 with the Python API server enabled. API socket:
+- iTerm2 3.7.7 with the Python API server enabled. API socket:
   `~/Library/Application Support/iTerm2/private/socket`.
 
 ## Safety rules for tests and automation (binding)

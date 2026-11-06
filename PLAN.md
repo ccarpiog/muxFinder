@@ -3315,6 +3315,130 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `PreferencesStore` as the session switcher shortcut's); every other mode reads no
     `preferences.json` for it and runs no Spotlight.
 
+- **D37 — Detach other clients** (decided in Phase I-11a, 2026-11-06, from
+  `autoclaude/processed/105-detach-other-clients.md` and the orchestrator's calls in *Phase
+  I-11*; code in `Sources/MuxFinderCore/Attach/AttachCoordinatorDetachOthers.swift` and
+  `DetachOtherClientsModels.swift`, tests in `DetachOtherClientsTests.swift`, the real run
+  `muxfinder-probe e2e-detach-others`, `docs/TESTING.md` *Phase I-11a*). Keep this Mac's
+  attachment of a session and have tmux detach the session's other clients, wherever they
+  are: with two control-mode clients (iTerm2's on two Macs) neither registers activity, so
+  under `window-size latest` tmux keeps the window at its old size and ignores both clients'
+  resizes.
+  - **The proof** (iTerm2 3.7.7, tmux 3.8, on This Mac and on Saturno; a `muxfinder-test-*`
+    session with two windows attached through the coordinator's launch tab, buried, plus a
+    plain `tmux -u -C` client of the harness's own):
+    - **(a) `attach-session -d -t '<session id>'`**, sent through the launch tab's
+      connection: tmux detached the plain client (`%exit`, exit 0 within 60 ms) and kept the
+      connection attached, but iTerm2 answered the `%session-changed` tmux sends the sending
+      client by closing and reopening the session's windows: locally both tmux tabs had new
+      tab and session ids 201 ms after the call (none unchanged); on Saturno the connection
+      had no tab at all 81 ms after it. Rejected.
+    - **(b) by name, proven and chosen:** through the kept connection, its own client's name,
+      the session's clients, then for each other client a check of its pid and session right
+      before `detach-client -t '<name>'`. Both hosts 9 of 9: `detached(count: 1)`, the plain
+      client `%exit` and exit 0 within 60 ms of the call's return, and over the next 2.15 s
+      (9 looks) the same two tmux tabs and sessions, the launch tab still owning its
+      connection, buried and in no tab, the connection still showing the session as its only
+      client. After the review (*Phase I-11a review fixes* in `docs/TESTING.md`) the commands
+      are, all read through the kept connection: `display-message -p '%s #{client_name}'`
+      (tmux's clock, whole seconds since 1970, and the own client's name), `list-clients -f
+      '#{==:#{session_id},<session id>}' -F '#{client_pid}:#{client_created}:#{client_name}'`
+      (the session's clients with their creation times), the check `list-clients -f
+      '#{&&:#{==:#{client_name},<name>},#{&&:#{==:#{client_pid},<pid>},#{&&:#{==:#{client_created},<created>},#{==:#{session_id},<session id>}}}}'
+      -F '#{client_pid}'` (it must print that pid), then `detach-client -t '<name>'`; both
+      hosts 9 of 9 again.
+  - **The binding, and why it cannot be one command.** Verified on a private server (plain
+    clients only) and in iTerm2 3.7.7's public source (`TmuxGateway.m`, `iTermAPIHelper.m`,
+    read only; nothing copied):
+    - tmux 3.8 answers the command `if-shell -F` inserts with a reply block of its own, marked
+      `%begin … 1` like the sender's own commands (the inserted command shares the sender's
+      command state); `a ; b` gives two blocks the same way. iTerm2 pairs every flag-1 block
+      with the oldest command it is waiting for, so a guarded `if-shell -F '<condition>'
+      'detach-client -t <name>'` would hand the second block to iTerm2's next command (with
+      none waiting: "%begin with empty command queue", an alert and the connection ended).
+      iTerm2 ignores a flag-0 block only when it ends with `%end`; a flag-0 `%error` ends the
+      connection too. So no reply handling makes a guarded command safe.
+    - Nor can one `if-shell -F` condition name the target client's session: in its
+      `#{L:…}` client loop every client is evaluated against the sender's session
+      (`session_id` is the sender's; on the private server a guard naming another session's
+      id held for a client of that other session), so only `client_session`, the session's
+      mutable name, could be compared. `detach-client -t` expands no format (`can't find
+      client: #{client_name}`), and tmux detaches no client by pid or filter.
+    - iTerm2 3.7.7 tolerates no tmux error for a command sent through its API (`SendCommand`
+      goes through the gateway's error-intolerant path): on `%error` it shows its "tmux
+      Reported a Problem" alert and ends the connection, and the API answer carries no
+      output. So no command may fail: the read-only commands filter the server's clients
+      (`list-clients -f`, never `-t '<session id>'`, which fails once the session is gone)
+      and cannot fail; only `detach-client -t '<name>'` can, when no client has that name.
+    - At the API boundary an answer counts only with its output: iTerm2 fills `output` (empty
+      for a command that prints nothing) only on `%end`; a `SendCommand` answer without it
+      (no `send_command`, or one without `output`) is `ITerm2Error.tmuxCommandFailed`, never
+      an empty success (golden fixtures `tmux-send-command-response-empty`, `-no-output`,
+      `tmux-response-ok-no-payload`). The attach's identity check retires a connection that
+      answers so, as for an unreadable answer; the detach by connection records it.
+    - **What remains** (D37's residual, narrowed as far as tmux 3.8 and iTerm2's pairing
+      allow): the check of a client and its `detach-client` are two requests one round trip
+      apart. Only a client that passed its check (one of this session's other clients, by
+      name, pid, creation time and session id) can be affected, and only by what it does
+      within that round trip: if it switches to another session, tmux detaches it from that
+      session; if it ends, `detach-client` fails (`can't find client`), iTerm2 3.7.7 then ends
+      the kept attachment with its alert, and the call reports
+      `checkFailed(.send(.tmuxCommandFailed))`, counts it not and sends nothing more; if it
+      ends and a new client takes its name in another session (one on the same terminal, or
+      a `client-<pid>` with the same pid), that client is detached. Nothing is ever killed:
+      a detach ends only a client's attachment, every session stays. No re-check after the
+      detach could tell these apart from a plain detach (a detached client is gone from every
+      listing, whichever session it was in), so there is no typed outcome for them.
+    - A client's name, pid and creation time come only from the listing and are validated
+      (`OtherClient`: `client-` and a canonical number, or `/dev/` and ASCII letters, digits,
+      `.`, `_`, `-`, `/`, at most 255 bytes; a canonical positive pid; a canonical number of
+      seconds) and single-quoted, like the validated session id; a listing naming any client
+      that fails detaches nobody. A tty client's name is its terminal's path
+      (`/dev/ttys003`), one without a terminal `client-<pid>`. Never `detach-client -a`
+      (every other client of the server) or `-s` (the sender too), and never
+      `attach-session -d` for this.
+  - **The age rule covers every client detached.** Any other client may be an attachment in
+    this Mac's iTerm2 whose tab would end within seconds of opening (iTerm2's short-lived
+    session warning, D15), including one opened after the attachment snapshot, and tmux cannot
+    tell which: so every other client the listing shows is left until it is
+    `minimumLaunchTabAge` old before any check or detach. Its age is read on tmux's own
+    clock, read before the listing (`%s`) against its `#{client_created}`, both whole
+    seconds: the wait is `minimumLaunchTabAge + 1 s - (clock - created)` from the listing's
+    answer, never below zero and never above `minimumLaunchTabAge` (the client existed when
+    the listing answered, so a client created after the clock was read, or a creation time
+    ahead of it, gets the whole `minimumLaunchTabAge`). A step of the host's wall clock
+    between a client's creation and the read could shorten the wait; the cap and the snapshot
+    wait for this Mac's attachments below stay as they are. Each client's check right before
+    its detach then binds its creation time too.
+  - **The call:** `AttachCoordinator.detachOtherClients(of: AttachTarget, confirmation:
+    DetachOtherClientsConfirmation)`. The confirmation is a type of its own with one case,
+    `.detachOtherClients(of: SessionKey)`; one for another key ends `notConfirmed` before
+    anything runs (no discovery, no iTerm2 request, no state published). Then: discovery (the
+    host's `uname -n` and server) and the attachment index (D16; the standard one when the
+    coordinator's check is `.off`); a wait until every other attachment's tab in this Mac's
+    iTerm2 is `minimumLaunchTabAge` old, counted as `detach(session:on:)` counts (D15); the
+    attachment kept is the one Show tab focuses (`attach(_:)`'s choice: the first listed whose
+    connection is still owned by its tab), the others are among the other clients; its
+    identity check right before anything else is asked, as `detach(session:on:)`'s; the two
+    reads (the own name with tmux's clock, the listing with creation times); the wait for
+    young clients (the age rule above); then each other client's check and `detach-client`,
+    each sent once (D13); the first failed request stops the call. Local and SSH hosts alike: everything travels through
+    iTerm2's connection (no new ssh, script, file or request).
+  - **Typed results** (`DetachOtherClientsResult.Outcome`): `detached(count:)` (the
+    `detach-client`s tmux confirmed, answered with their output), `nothingToDetach` (no other client listed, or every one
+    gone at its check), `notAttachedHere` (iTerm2 not running, no server, none mapped),
+    `identityChanged` (another session or server, an answer through a client not in UTF-8
+    mode, the own client missing from the listing, or every attachment's connection closed or
+    re-owned; nothing detached), `checkFailed(DetachOtherClientsProblem)` (`attachmentCheck`,
+    `identityCheck`, `clientListing`, `send`, with the problem; `send(.tmuxCommandFailed)`
+    is a `detach-client` tmux did not confirm, never counted, the detaches confirmed before it
+    kept in the count), `notConfirmed` and `cancelled`; with the kept attachment, the other
+    attachments here, the other clients listed, the wait for young clients (`ageWait`), those
+    gone before their check and detached, and `mayHaveSent`. No outcome triggers a
+    refresh; diagnostics record kinds and counts only.
+  - **The UI** is Phase I-11b's (the popover's "Detach other clients…" and its D25-style
+    confirmation).
+
 ## Verified facts (planning session, 2026-10-21)
 
 - This Mac is **Neptuno** (`neptuno-m4`), macOS 27.2 arm64, Xcode 27.1, Swift 6.4, tmux 3.8
@@ -5628,6 +5752,114 @@ still reads no `preferences.json`. Hermetic: 37 new UI tests in 3 suites and 2 n
 the galleries gained nine New session states and two Settings states. Owed to a person:
 checklist item 24 (a real search on Saturno and This Mac, no privacy prompt on This Mac's first
 search, whether protected folders appear, the links, VoiceOver).
+
+### Phase I-11 — Detach other clients (high)
+
+From the inbox (2026-11-06). The specification, with the user's request verbatim, the
+diagnosis (two control-mode clients on one session: neither registers activity, so with
+`window-size latest` tmux keeps the window at its old size and ignores both clients'
+`refresh-client -C`), the verified facts on a private server, the requirements and the
+acceptance, is `autoclaude/processed/105-detach-other-clients.md`. It goes ahead of I-12, as
+the user asked. To be recorded as **D37**. Split before the first worker:
+
+- **I-11a — proof and core (high).** The real proof of the command (requirement 1) on This
+  Mac and Saturno, the choice recorded as D37, the coordinator call with its session-key
+  confirmation and typed results (requirement 2), hermetic tests for everything the
+  acceptance lists that is not UI, and a real run command, `muxfinder-probe
+  e2e-detach-others --local | --ssh saturno-m4`, passing on both hosts. `README.md`'s and
+  `docs/ARCHITECTURE.md`'s core parts, `docs/TESTING.md`'s real-run record, `CLAUDE.md`'s
+  probe line. No UI.
+- **I-11b — the UI (routine).** The popover's "Detach other clients…" context menu item and
+  its offer rule, the D25-style confirmation, the result's refresh and failures' recovery, the
+  optional row hint, galleries and screenshots (`attach`, and `popover` if the row changes),
+  `docs/MANUAL-CHECKLIST.md`'s new item, D37's UI part (D25 edited), the rest of the docs.
+
+The orchestrator's calls for I-11a, made before its worker:
+
+- **Proof first, option (a) first.** The worker proves `attach-session -d -t <session id>`
+  sent through the launch tab's tmux connection (`SendCommand`, as `detach-client` is sent
+  today) before fixing the core's command, on a `muxfinder-test-*` session attached through a
+  launch tab by the coordinator (its bury on, as in the app) plus a plain `tmux -C` client of
+  the harness (`BackgroundControlClient`, as the e2e move here step), locally and on
+  `saturno-m4`. Pass means: the plain client prints `%exit` and exits 0 by itself within
+  10 s; the iTerm2 sessions and tabs showing the session's tmux windows have the same ids
+  before and 2 s after, none closed or reopened; the launch tab still owns its connection, is
+  still in `buried_sessions` and in no tab; the session is alive with this attachment as its
+  only client. If (a) fails any of it (iTerm2 reacting to the `%session-changed` the command
+  sends its own client), option (b) is proven the same way: `list-clients` of the session,
+  the connection's own `#{client_name}`, then `detach-client -t <name>` for each other
+  client, bound so that a name reused in between can never detach a client of another
+  session (one command line if tmux 3.8 allows it, else a check of `client_pid` and the
+  session right before each detach). Never `detach-client -a` or `-s`. The proof's harness
+  can be the `e2e-detach-others` command itself, once the core call exists with the candidate
+  command; what each option did is recorded in D37 and `docs/TESTING.md`.
+- **The call.** `AttachCoordinator.detachOtherClients(of:confirmation:)` with its own
+  confirmation type, `DetachOtherClientsConfirmation.detachOtherClients(of: SessionKey)` (one
+  case, no default, naming the session; separate from `MoveHereConfirmation`, so a move here's
+  confirmation can never be used here or the other way round). A confirmation for another key
+  fails before anything runs (no listing, no iTerm2 request, no state published).
+- **The attachment it goes through** comes from the existing-attachment check (D16's index,
+  the standard one when the coordinator's check is `.off`): with several attachments of the
+  session in this Mac's iTerm2, the one Show tab focuses (`attach(_:)`'s choice) is kept and
+  the others count as other clients. None: "not attached here", nothing sent. iTerm2 not
+  running counts as none; a listing failure is "check failed".
+- **Binding and sending once.** The identity check right before sending is the one
+  `detach(session:on:)` uses (the connection still shows that session of that server); a
+  changed identity sends nothing. The other clients are counted by a read-only listing
+  through the same connection after the identity check (the session's clients less the
+  connection's own); none left means "nothing to detach" and nothing is sent. The detaching
+  command is sent once (D13), holding only the validated session id (or, under (b), only
+  names read from that listing and validated); no other runtime value is inserted. The result
+  carries the count detached (the listing's count, or a recount after, as the proof settles).
+- **Typed results**: detached *n* clients; nothing to detach; not attached here; identity
+  changed (nothing sent); check failed (the listing, the identity check or the send failed,
+  with the problem). None of them triggers a refresh by itself; the UI (I-11b) refreshes the
+  row afterwards.
+- **Local and SSH hosts alike**: the command travels through iTerm2's connection only; no new
+  ssh, remote script, file or request.
+- **Real run command.** `muxfinder-probe e2e-detach-others --local | --ssh saturno-m4`
+  (its own command, so `e2e-local`'s and `e2e-remote`'s step counts stay as they are;
+  `--help` contacts nothing): create its own `muxfinder-test-*` session, attach it through
+  the coordinator (bury on), attach a plain control client of its own, check that a
+  confirmation for another key runs nothing, run the call, then the pass checks of the proof
+  above and the result's count; then detach by connection and clean up as `e2e-bury` does
+  (restore and close only its own launch tabs, kill only its own session, the plain client
+  ended on every way out). Real runs follow the gate in `PROGRESS.md` *Next action* 3.
+
+**Outcome of I-11a (2026-11-06).** As decided above, with option (b): D37 records the proof,
+the binding and the call. Option (a) failed on both hosts on its first check, as the
+specification feared: iTerm2 3.7.7 closes and reopens a connection's windows when tmux sends it
+`%session-changed`, even naming the session it already shows, so `attach-session -d` would
+close and reopen this Mac's windows of the session (both tmux tabs had new ids 201 ms later
+here, none listed 81 ms later on Saturno). Option (b) passed every check on both. A one-line
+binding is not possible (D37: tmux 3.8 marks the reply block of the command `if-shell` inserts
+as the sender's, so iTerm2 would pair it with its next command; iTerm2 3.7.7 ends the
+connection on any tmux error; an `if-shell -F` client loop sees only the sender's session;
+`detach-client -t` expands no format), so each detach is bound by a read-only check of the
+client's name, pid, creation time and session id right before it, through the same
+connection, one round trip before the detach (D37 records what that round trip leaves). The
+commands are `OtherClientsCommands`; the read-only ones filter the server's clients and cannot
+fail in tmux; a client's name, pid and creation time are validated (`OtherClient`) and every
+value single-quoted. Beyond the calls above, the call waits, as `detach(session:on:)` does,
+until other attachments' tabs in this Mac's iTerm2 are 10 s old, and then until every other
+client listed is 10 s old by tmux's clock (at most 10 s after the listing), before anything
+ends them, and reports `cancelled` when its caller is cancelled; the result also counts the
+other clients listed, gone before their check and detached, and the wait for young clients
+(`ageWait`). A `SendCommand` answer without output (tmux's `%error`, or the connection ended
+first) is `ITerm2Error.tmuxCommandFailed` at the API boundary, never an empty success, so a
+`detach-client` tmux did not confirm is never counted (`checkFailed(.send(.tmuxCommandFailed))`).
+`RecordingITerm2Integration` now counts every forwarded call (`forwardedCallCount`), so the
+real run proves a confirmation for another key asks iTerm2 nothing. The adversarial review's
+three findings (`docs/reviews/phase-I-11a.md`: the check not binding the detach, a tmux error
+counted as a detach, the age rule missing clients found after the snapshot) are fixed as
+above, the first narrowed and recorded in D37 since tmux 3.8 and iTerm2's pairing allow no
+single bound command. Hermetic: 22 tests in `DetachOtherClientsTests` and the strict
+`SendCommand` reading at the API boundary (905 core and 468 UI tests pass). Real:
+`e2e-detach-others` (9 steps) passed 9 of 9 on This Mac and on Saturno, before and after the
+review fixes, the gate and leftover checks clean before and after (`docs/TESTING.md` *Phase
+I-11a* and *Phase I-11a review fixes*). For I-11b: the call takes an `AttachTarget`; the offer needs `clientCount` greater
+than this Mac's attachments, and the confirmation's count is the listing's at the time, so a
+result may report fewer clients (`goneBeforeDetach`) than the confirmation named.
 
 ## Deferred (explicitly out of scope for v1)
 

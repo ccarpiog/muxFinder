@@ -46,7 +46,7 @@ Other deliverables of the brief:
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
 | Unit tests | Tested hermetically | `swift test` (*Phase I-8* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's reports of 2026-10-24, 2026-11-04, 2026-11-05 and 2026-11-06, PLAN.md Phases 13, 14 and I-1 to I-10):
+Added after the brief (the user's reports of 2026-10-24, 2026-11-04, 2026-11-05 and 2026-11-06, PLAN.md Phases 13, 14 and I-1 to I-11):
 
 | Requirement | Status | Evidence |
 |---|---|---|
@@ -65,6 +65,7 @@ passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the
 | New session: the Host picker from the keyboard, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34), with macOS's keyboard navigation on: ⇧Tab from Name reaches it; while it (an `NSPopUpButton`) has the focus, the panels' key monitor leaves ↑, ↓ and ⌥↓ to it (Space already reached it), Return still creates and Esc still closes the panel; while a menu tracks every key is the menu's; with the directory list open the list keeps its highlight and Return and Esc their list meaning; with any other focus nothing changes; a host picked from the menu acts as a click (PLAN.md Phase I-8, D30, D31, D32). | Read in process in the real panels (`--preview-key-view-loop`: the first responder after the window's own step back from Name and the monitor's route for each key, before and after the fix; no event, no menu opened) and tested hermetically (the routing as a pure function, the menu tracking observer, a pick through the picker's binding). What AppKit's pop-up button does with each key, the menu opening from the panel, and a creation on the host picked: by a person (checklist 22). | Phase I-8, 2026-11-05 (*Phase I-8* below): before the fix ↑/↓/⌥↓ went to the panel's handler with the picker focused (↑/↓ swallowed, ⌥↓ opening the directory list), after it to the picker; `PanelKeyRouteTests`, `MenuTrackingObserverTests`, `HostPickerBindingTests` (`HostPickerKeyboardTests.swift`). |
 | The New session window and a folder dropped from Finder (PLAN.md Phase I-9, D34): one titled, floating, non-activating window opened from the popover and the switcher, which close as it opens; it stays above other apps on every Space and beside full-screen apps until Create succeeds, Cancel, Esc, ⌘W or its close button, which drop the draft; an opening while it shows brings it forward unchanged; a failure after closing brings it back, not key. One folder dragged onto the Directory field or its button fills the field as a pick, `~/…` under This Mac's home folder, absolute elsewhere, whether or not the field is being edited (the field editor never inserts text of its own); a file, an app, several items, text or a link are refused with no "+"; a highlight while a folder hovers; the field's VoiceOver hint mentions the drop. | Tested hermetically: the model, placement and keys over fake surfaces (Phase I-9a), the drop as a pure function, in the model, and its AppKit drop target in the real window, never shown, over private pasteboards; the window's states rendered in both appearances. The real window over other apps and Spaces, a real drag from Finder, the keys, VoiceOver and a creation: by a person (checklist 23). | Phases I-9a and I-9b, 2026-11-05 (*Phases I-9a and I-9b* below): `NewSessionWindowTests`, `FolderDropFunctionTests`, `FolderDropModelTests`, `FolderDropTargetTests` (`FolderDropTests.swift`); `docs/screenshots/new-session-states-*.png`. |
 | New session's folder search, the core (PLAN.md Phase I-10, D36; the list section, the setting and "Missing a folder?" are Phase I-10b's): one static script on This Mac and over discovery's noninteractive ssh, folder names only (case- and diacritic-insensitive "contains"), typed text escaped and bounded, a fixed noise rule, at most 50 folders, a header that says when Spotlight is missing or indexing is off, one channel with a 150 ms debounce, one query in flight and bounded waits, and the home or whole-disk scope in `preferences.json`. | Tested hermetically and for real (core only) | Hermetic: the real script under stub `mdfind`/`mdutil` (bash and dash), the parser, the transport with real local processes, the channel over a fake transport and clock, the preference on private folders. Real: escaping by counts against `mdfind` on synthetic folders, and `folders --count-only` runs on this Mac and Saturno, both scopes, several queries per channel, no process left (*Phase I-10a* below). |
+| Detach other clients, the core (PLAN.md Phase I-11, D37; the popover's item and its confirmation are Phase I-11b's): with a confirmation naming the session, this Mac's attachment (the one Show tab focuses) stays and every other client of the session, on any Mac, is detached through that attachment's tmux connection, each once it is 10 s old and by name after a check of its pid, creation time and session right before (one round trip before; PLAN.md D37 records what that leaves); a `detach-client` tmux did not confirm is never counted; iTerm2's windows of the session are never closed or reopened; local and SSH hosts alike. | Tested hermetically and for real (core only) | Hermetic: `DetachOtherClientsTests` (the confirmation for another key, the commands and their validated values, identity changed, nothing to detach, not attached here, every failure, an unconfirmed detach, the wait for young clients, several attachments here, cancellation) and `ITerm2APIClientTests` (a send-command answer without output is `tmuxCommandFailed`). Real: `e2e-detach-others --local` and `--ssh saturno-m4`, 9 of 9 each, a plain control client of the harness detached (`%exit`, exit 0), the launch tab's tabs and sessions unchanged for 2 s; option (a), `attach-session -d`, rejected after iTerm2 closed and reopened the session's windows on both hosts (*Phase I-11a* below). |
 
 ## Unit tests (`swift test`)
 
@@ -138,7 +139,9 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   nested split trees, tmux tab fields, minimized and buried sessions, unknown fields of every
   wire type (top level and nested), status enums, profile `Name`/`Guid`, errors, unsupported
   submessages and notifications, close statuses both unpacked (as iTerm2 writes them) and as a
-  packed run; unknown enum values decode to `unknown`. Merge fixtures, which
+  packed run; the three send-command answers iTerm2 3.7 builds without a status (an empty
+  output present, a `send_command` without output, no payload at all); unknown enum values
+  decode to `unknown`. Merge fixtures, which
   the generator checks against `api_pb2`'s own decoding, cover responses split across
   occurrences (`08 01 92 07 02 08 01 92 07 00`, a list-sessions response whose tab root and
   links arrive in pieces, a tmux send-command), unknown fields before and after a response
@@ -203,7 +206,10 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   connection refused; cookie failures (`automationDenied`, `cookieUnavailable`); HTTP 401
   (`authRejected`); a reconnect after iTerm2 drops the connection using the second cookie;
   concurrent first calls sharing one connection; `createTabFailed`, `activateFailed`,
-  `tmuxRequestFailed`; a tmux reply without payload as an empty list; successful create tab,
+  `tmuxRequestFailed`; a tmux reply without payload as an empty list; a send-command answer
+  counted only with its output (an empty output is the empty string; a `send_command` without
+  output, or no payload, is `tmuxCommandFailed`, never an empty success, for the plain and the
+  ownership-bound call; Phase I-11a review); successful create tab,
   send command, list profiles, activate and close; an ownership-bound tmux command (the listing,
   then the command on the same connection when the owner matches; only the listing for another
   owner, `tmuxConnectionNotOwned`; a listing lost with its connection → `notSent`, no
@@ -618,6 +624,34 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   removed, or with `attach` asking for `-d`, these tests fail (checked by mutation), and the
   unresolved-connection and pending-launch tests fail with the Phase 6b review's fixes
   reverted (checked).
+- **Detach other clients** (`DetachOtherClientsTests`, PLAN.md D37): a confirmation naming
+  another key (another host entry or session) ends `notConfirmed` with no discovery, iTerm2
+  call or wait. One attachment with one other client: the identity check again, the own name
+  with tmux's clock, the listing, the check and `detach-client -t '<name>'`, in that order,
+  each bound to the connection's owner, nothing else (no tab created, closed, activated or
+  buried); a client on a terminal is detached by its terminal's path. The commands hold only
+  the single-quoted session id, pid, creation time and name; the listing and the check filter
+  the server's clients (no `-t`), the check binding the client's name, pid, creation time and
+  session id; no command holds `-a`, `-s`, `;`, `attach-session` or `if-shell`. Names, pids
+  and creation times that are not what tmux reports for a client (quotes, spaces, `;`, `,`,
+  `#{…}`, `}`, `$`, `\`, control characters, options, leading zeros, non-ASCII, over 255
+  bytes) are refused, and a listing naming one detaches nobody. The answers are read
+  strictly. A `detach-client` tmux did not confirm (`tmuxCommandFailed`) is not counted: with
+  two other clients, the second one's unconfirmed, the call ends
+  `checkFailed(.send(.tmuxCommandFailed))` with one detached, and with one, none. Every other
+  client is left until it is 10 s old by tmux's clock before its check: 3 s old, 8 s after
+  the listing; created when or after tmux's clock was read, the whole 10 s (never more); 10 s
+  old, 1 s; 11 s old, none; a caller cancelled during that wait sends no check or detach. Identity changed (another session at the re-check, an answer
+  through a client not in UTF-8 mode, the own client missing from the listing, every
+  attachment's connection gone) sends no detach; nothing to detach (only the own client
+  listed, or the other gone at its check); not attached here (another session's connection
+  only, no server, iTerm2 not running); every failure (the index's listing, discovery, an
+  invalid SSH destination, an unreadable re-check, the own name, a check, the detach) with
+  nothing sent after it. Two attachments here: the first listed is kept, the other's client is
+  checked and detached through the kept connection only, 10 s after the snapshot (its tab's
+  age); with the first's connection closed before its re-check the second is kept; a caller
+  cancelled during that wait sends nothing. Every outcome's and problem's name, and
+  `mayHaveSent`. `RecordingITerm2Integration.forwardedCallCount` counts every call.
 - **Host list** (`HostListTests`, PLAN.md D19): the onboarding defaults exactly (Saturno,
   Neptuno, Sirio, in order; SSH, empty destination, disabled, no override or profile, unique
   ids, none This Mac); the This Mac switch (the host becomes local and enabled, the previous
@@ -1639,6 +1673,36 @@ it, which may be older. Check `muxfinder-probe iterm2 status` before and after: 
   only when all 13 pass, 128 + n after signal n; the whole run is bounded to 300 s. A passing
   run takes about 72 s locally and 84 s on Saturno (about 11 s more for each extra attempt of
   step 7).
+- `swift run muxfinder-probe e2e-detach-others --local | --ssh saturno-m4` — the real check of
+  Detach other clients (PLAN.md D37, Phase I-11a; `--help` contacts nothing). It creates
+  `muxfinder-test-<8 hex digits>` with two windows of `sleep 600` and attaches it through a
+  coordinator whose own bury is on, as in the app, over `RecordingITerm2Integration` (every
+  call counted) and an index that asks only its own launch tabs' connections, with discovery
+  counted too. Steps: 1 create session; 2 discover (both windows); 3 attach (bury): confirmed,
+  activated, `burial` `buried`, the tab in `buried_sessions` and in no tab, both windows as
+  tabs of the connection, the session's one client the launch tab's; 4 plain client attached
+  (`BackgroundControlClient`, `tmux -u -C attach-session -t '=<name>'`, remotely over ssh with
+  `BatchMode` and no connection sharing; locally the session's second client has its own pid);
+  5 confirmation for another session: `notConfirmed`, no discovery, no iTerm2 request, both
+  clients still there; 6 detach other clients: `detached(count: 1)` (one other client listed,
+  checked and detached, its `detach-client` confirmed by tmux), this run's attachment kept,
+  none other here, the call returning no earlier than 10 s after the plain client was started
+  and, when it was started more than 5 s short of that before the call, reporting a wait for
+  young clients (`ageWait`), the plain client printing `%exit` and exiting 0 by itself within
+  10 s of the call's return; 7 attachment
+  kept: every 250 ms until 2 s after the call's return, the connection's tabs (window, tab,
+  tmux window and session ids) exactly as right before the call, then the launch tab still
+  owning its connection, buried and in no tab, the identity check through it still mapping to
+  the session, its client the session's only one, and no restore or `Close` of the
+  coordinator's recorded; 8 detach by connection (the coordinator's): its `detach-client`
+  answered with its (empty) output (no `commandError`), the helper exits 0, the tmux tabs
+  close, the launch tab leaves by itself within 10 s, the session survives with no client; 9
+  cleanup (ends the plain client, waits until every launch tab is 10 s old, sends a
+  bound `detach-client` to any connection its launch tabs still own, restores, then closes,
+  only its own launch tabs still listed, kills only its own session, takes the helper results
+  nobody took, and checks nothing is left). Exit 0 only when all 9 pass, 128 + n after signal
+  n; the whole run is bounded to 180 s. A passing run takes about 14 s locally and 20 s on
+  Saturno (most of step 6 is the wait for the young plain client).
 - `swift run muxfinder-probe attach --local | --ssh <destination> --session '<$id>'` — one
   real attach of a session of the default server of this Mac or of a remote host (the launch
   tab runs `ssh -t`, so any password prompt appears there), the way the app does it; prints
@@ -3205,3 +3269,57 @@ item 24.
 | New session gallery | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery new-session --appearance light --preview-snapshot docs/screenshots/new-session-states-light.png`, then `dark` | exit 0 both; 3448 × 7494 px, 22 states (the 13 of Phase I-9b and 9 new), inspected in crops (Pillow, `/tmp`): searching ("Searching…" with a small spinner, nothing local matching), folders found on This Mac (one left out as Saved shows it, a long path shortened in the middle, one outside the home folder, a highlighted row), "No folders found", "Folder search isn't available on Build box" (no Spotlight), on Saturno with indexing off and with no home folder, "The host can't be reached, so folders weren't searched.", Desktop, Documents and Downloads hidden over SSH (the note under three folders found), and "Missing a folder?" open on This Mac with "Open muxFinder Settings" and "Open Spotlight settings" below the scrolling sections; readable in both appearances (the highlighted help row's accent text keeps its contrast in dark) |
 | Settings gallery | `--preview-gallery settings`, light and dark, with `--preview-snapshot docs/screenshots/settings-states-<appearance>.png` | exit 0 both; 4528 × 12392 px, 25 states (2 new): the Directories tab with "Folder search" ("Search folders in", Whole disk chosen) and "Missing a folder?" with "Open Spotlight settings", and an unusable preferences file (the choice off, its explanation and "Try again"); the other Directories states now show the two sections below their own (cut by the card's height, as the tab scrolls) |
 | Attach, switcher and popover galleries | — | not regenerated: none of them shows the directory list (D34) |
+
+### Phase I-11a — Detach other clients, the proof and the core (2026-11-06)
+
+The proof of the command (PLAN.md Phase I-11, its I-11a calls; D37) and the coordinator call,
+against the real iTerm2 3.7.7 (it was 3.7.6 in the earlier phases) and tmux 3.8, locally and on
+Saturno, one run at a time from the repo root with `TMUX_TMPDIR` unset, the probe run as
+`.build/debug/muxfinder-probe` (what `swift run` runs). Before each run: `swift build` (the
+probe does not rebuild `muxfinder-launch`), `muxfinder-probe iterm2 status`
+exit 0 (connected, protocol 1.23) and iTerm2 at 38 threads or fewer; after each run: the launch
+directory, `/private/tmp` `mfx.*`, `muxfinder-test-*` sessions on Neptuno and on Saturno (a
+read-only `tmux ls` over ssh) and `iterm2 list-sessions` for the run's launch tabs. Every run
+found no tmux connection of the user's ("0 tmux connection(s) this run did not open"). The
+first attach's sweep (D14) removed two helper results left in the launch directory since 08:17
+and 08:53, older than 120 s, as any attach does; nothing else was found before or after any
+run. The harness is the `e2e-detach-others` command itself, first with option (a) as the
+coordinator's command, then with option (b).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Option (a), locally | `swift run muxfinder-probe e2e-detach-others --local`, the coordinator sending `attach-session -d -t '<session id>'` once through the launch tab's connection | exit 1, 7 of 9 PASS in 11.4 s. Steps 1–6 passed: the plain control client printed `%exit` and exited 0 by itself within 57 ms of the call's return (the call took 59 ms), the connection stayed. FAIL 7 attachment kept: at the first look, 201 ms after the call, both tmux tabs of the connection had other ids (2 tabs with 2 sessions before and after, none unchanged): iTerm2 closed and reopened the session's windows on the `%session-changed` tmux sent its client. Cleanup PASS (the launch tab detached by a bound `detach-client`, the session killed). Threads 18 → 24 |
+| Option (a), Saturno | `swift run muxfinder-probe e2e-detach-others --ssh saturno-m4`, the same command | exit 1, 7 of 9 PASS in 16.0 s. The plain client `%exit` and exit 0 within 59 ms (the call 1055 ms). FAIL 7: 81 ms after the call the connection had no tmux tab at all (2 tabs with 2 sessions before). Cleanup PASS. Threads 24 → 30 |
+| tmux's reply blocks (private server, no iTerm2) | a `muxfinder-test-proof` session on `tmux -S <mktemp -d /tmp/mfx.XXXXXX>/s`, plain `tmux -C` clients fed from a pipe; then `kill-session` of that session and the folder removed | `display-message -p a ; display-message -p b`: two `%begin`/`%end` blocks; `if-shell -F 1 'display-message -p x'`: two blocks (the `if-shell` and the command it inserted, both flag 1); `detach-client -t '#{client_name}'`: `%error`, "can't find client: #{client_name}" (no format expansion in `-t`). The binding of (b), one client B: `list-clients -t '$0' -F '#{client_pid}:#{client_name}'` listed both clients; the check `list-clients -t '$0' -f '#{&&:#{==:#{client_name},client-<B's pid>},#{==:#{client_pid},<B's pid>}}' -F '#{client_pid}'` printed B's pid, with another pid printed nothing; `detach-client -t 'client-<B's pid>'`: B printed `%exit` and exited 0; one block per command. A control client on a terminal (under `script`) is named by its terminal's path, `/dev/ttys003` |
+| Option (b), locally | `swift run muxfinder-probe e2e-detach-others --local`, the final code | exit 0, 9 of 9 PASS in 11.5 s. 3: confirmed in 981 ms, `burial` `buried`, 2 tmux tabs with 2 sessions; 4: the plain client the session's second client (its own pid); 5: `notConfirmed`, no discovery and no iTerm2 request, both clients still attached; 6: `detached(count: 1)` in 63 ms (discovery, the index, the identity check, the listing, the check and one `detach-client` by name), the plain client `%exit` and exit 0 within 60 ms of the call's return; 7: 9 looks over 2148 ms, the same 2 tabs and 2 sessions, the launch tab still owning its connection, buried and in no tab, the connection still showing the session as its only client; 8: the coordinator's detach at 10.2 s, the helper exit 0, the tabs closed, the launch tab gone by itself 230 ms after the helper's result, the session alive with no client; 9: the session killed, nothing left. Threads 29 → 36 |
+| Option (b), Saturno | `swift run muxfinder-probe e2e-detach-others --ssh saturno-m4`, the final code | exit 0, 9 of 9 PASS in 18.0 s. 3: confirmed in 2297 ms, buried; 6: `detached(count: 1)` in 1166 ms, the plain client `%exit` and exit 0 within 60 ms; 7: 9 looks over 2150 ms, the same 2 tabs and 2 sessions, the launch tab as before; 8: the coordinator's detach at 10.5 s, the launch tab gone 1 ms after the helper's result; 9: the session killed on Saturno, nothing left there or here. Threads 36 → 40 |
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 900 core tests in 88 suites (19 new in `DetachOtherClientsTests`, one of them `recorderCountsEveryForwardedCall` for `RecordingITerm2Integration.forwardedCallCount`) and 468 UI tests in 46 suites |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Leftovers after every run | `ls` of the launch directory and `/private/tmp`; `tmux ls` on Neptuno and, read-only over ssh, on Saturno; `iterm2 list-sessions` | the launch directory empty; no `mfx.*` folder (the private server's removed); no `muxfinder-test-*` session on either Mac; none of the runs' launch tabs listed, in a tab or buried |
+
+No UI changed (Phase I-11b), so no gallery was regenerated and no `--selftest` was needed.
+
+### Phase I-11a review fixes (2026-11-06)
+
+The adversarial review's three findings (`docs/reviews/phase-I-11a.md`; PLAN.md D37): the
+check right before a detach did not bind it, a tmux error could count as a detach, and the age
+rule missed clients found after the attachment snapshot. Investigated first on a private tmux
+server and in iTerm2 3.7.7's public source (read only, nothing copied), then fixed, then the
+real runs again under the same gate as above (`swift build` first, `TMUX_TMPDIR` unset,
+`iterm2 status` exit 0 and 38 threads or fewer before each run, the same leftover checks
+after).
+
+| Check | Command | Observed result |
+|---|---|---|
+| iTerm2's reply pairing (source, v3.7.7) | `TmuxGateway.m` and `iTermAPIHelper.m` at the `v3.7.7` tag, read through `gh api` | `parseBegin:`: a `%begin` with flag 0 opens a placeholder with no callback, a flag-1 one takes the oldest command waiting (none: "%begin with empty command queue", an abort). `currentCommandResponseFinishedWithError:`: an `%error` for a command not sent with `kTmuxGatewayCommandShouldTolerateErrors` (a flag-0 placeholder included) aborts: the "tmux Reported a Problem" warning and the connection detached. `sendCommand:responseTarget:responseSelector:` tolerates errors only without a target, and `handleTmuxSendCommand:` always passes one, so every API `SendCommand` that tmux answers with `%error` ends the connection; its answer then has no `output` (set only in the success callback; the failure path answers with neither payload nor status). A flag-0 block is ignored only when it ends with `%end` |
+| tmux 3.8, guarded detach (private server) | `TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, sessions `muxfinder-test-a` and `-b`, plain `tmux -C` clients fed from pipes | `if-shell -F 1 'display-message -p inserted'`: two blocks, the inserted command's `%begin … 1` like the `if-shell`'s; `if-shell -F 1 'detach-client -t nosuchclient'`: the `if-shell`'s `%end … 1`, then `%error … 1` ("can't find client"). `if-shell -F '#{L:#{?#{&&:#{==:#{client_name},<B>},#{==:#{session_id},$0}},1,}}' 'detach-client -t <B>'`, sent by a client of `$0` for a client B of `$1`: the condition held and B was detached (two blocks), so in the client loop `session_id` is the sender's session. So no single guarded command: D37's two-request binding stays |
+| tmux 3.8, the new commands (private server) | the same server | `display-message -p '%s #{client_name}'`: tmux's clock (the second `date +%s` printed) and the name; `list-clients -F '#{client_pid}:#{client_created}:#{client_name}:#{session_id}'`: each client's own session id and creation second; `list-clients -f '#{==:#{session_id},$1}'` listed only `$1`'s client, `-f` naming `$99` printed nothing (`%end`) while `list-clients -t '$99'` answered `%error` ("can't find session: $99"); the check binding name, pid, creation time and `$1` printed B's pid, with the creation time + 1 or `$0` nothing. The first probe ended its private server with `kill-server` (only that socket's server, holding only its two test sessions); the later ones killed their sessions by name; every folder removed |
+| Fixtures | `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I scripts/dev/gen-iterm2-fixtures.py` | 47 fixtures; the 44 earlier ones byte for byte as before (SHA-256 compared); new `tmux-send-command-response-empty` (`output` present and empty), `-no-output`, `tmux-response-ok-no-payload` |
+| Regressions fail on the old code | each fix reverted in turn, the suite run, the fix restored | the old `output ?? ""` reading: `tmuxCommandWithoutOutputFails` fails (4 issues); the old `-t` listing and a check without creation time and session id: `commandsHoldOnlyValidatedValues` fails (3 issues); the wait for young clients skipped: `waitsUntilEveryClientIsOldEnough` fails for every argument with a wait (8 issues); all pass restored |
+| `e2e-detach-others`, locally | `.build/debug/muxfinder-probe e2e-detach-others --local`, the final code (gate at 11:24: `iterm2 status` exit 0, 38 threads) | exit 0, 9 of 9 PASS in 14.1 s. 3: confirmed in 1110 ms, buried, 2 tmux tabs with 2 sessions; 4: the plain client the session's second client (its own pid); 5: `notConfirmed`, no discovery and no iTerm2 request; 6: `detached(count: 1)` in 10105 ms, the plain client started 23 ms before the call and waited for 10000 ms (`ageWait`) until 10 s old, then `%exit` and exit 0 within 53 ms of the call's return (its `detach-client` confirmed with its empty output); 7: 9 looks over 2138 ms, the same 2 tabs and 2 sessions, the launch tab still owning its connection, buried and in no tab, its client the session's only one; 8: the coordinator's detach at 12.9 s answered with its output, the helper exit 0, the tabs closed, the launch tab gone 219 ms after the helper's result, the session alive with no client; 9: the session killed, nothing left. Threads 38 → 42 |
+| `e2e-detach-others`, Saturno | `.build/debug/muxfinder-probe e2e-detach-others --ssh saturno-m4`, the final code (gate at 12:19, after waiting for the count to fall from 42: `iterm2 status` exit 0, 16 threads) | exit 0, 9 of 9 PASS in 23.9 s. 3: confirmed in 2088 ms, buried, 2 tmux tabs with 2 sessions; 4: the plain client attached over ssh; 5: `notConfirmed`, no discovery and no iTerm2 request; 6: `detached(count: 1)` in 9472 ms, the plain client started 2380 ms before the call and waited for 8000 ms (`ageWait`), then `%exit` and exit 0 within 52 ms of the call's return; 7: 9 looks over 2142 ms, the same 2 tabs and 2 sessions, the launch tab as before; 8: the coordinator's detach at 17.4 s answered with its output, the launch tab gone 226 ms after the helper's result; 9: the session killed on Saturno, nothing left there or here. Threads 16 → 17 |
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0; exit 0 |
+| Unit tests | `swift test` | exit 0: 905 core tests in 88 suites (22 in `DetachOtherClientsTests`, 3 of them new; `tmuxCommandWithoutOutputFails` in `ITerm2APIClientTests`; `identityAnswerWithoutOutput` in `AttachCoordinatorTests`) and 468 UI tests in 46 suites |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Leftovers after both runs | `ls` of the launch directory and `/private/tmp`; `tmux ls` on Neptuno and, read-only over ssh, on Saturno; `iterm2 list-sessions` | the launch directory empty; no `mfx.*` folder; no `muxfinder-test-*` session on either Mac; neither run's launch tab listed, in a tab or buried |

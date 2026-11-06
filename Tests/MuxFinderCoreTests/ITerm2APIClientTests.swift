@@ -309,6 +309,47 @@ struct ITerm2APIClientTests {
     #expect(harness.connector.connects == 1)
   } // End of func ownedTmuxCommand()
 
+  /// The review's finding (Phase I-11a): a `SendCommand` answer counts as done only with its
+  /// `output`. An empty output is a command that printed nothing; a `send_command` without
+  /// output, or no payload at all (tmux answered `%error`, or the connection ended before tmux
+  /// answered), throws `tmuxCommandFailed`, never passing for an empty output. Both the plain
+  /// and the ownership-bound call.
+  @Test func tmuxCommandWithoutOutputFails() async throws {
+    let stream = FakeByteStream()
+    let harness = Self.makeClient(streams: [stream])
+    var peer = FakeITerm2Peer(stream: stream)
+    let empty = Task {
+      try await harness.client.sendTmuxCommand("detach-client", connectionID: "c")
+    }
+    try await peer.answerHandshake()
+    var request = try await peer.nextRequest()
+    try peer.respond(to: request.id, withFixture: "tmux-send-command-response-empty")
+    #expect(try await empty.value == "")
+
+    for fixture in ["tmux-send-command-response-no-output", "tmux-response-ok-no-payload"] {
+      let plain = Task {
+        try await harness.client.sendTmuxCommand("detach-client", connectionID: "c")
+      }
+      request = try await peer.nextRequest()
+      try peer.respond(to: request.id, withFixture: fixture)
+      await #expect(throws: ITerm2Error.tmuxCommandFailed) { _ = try await plain.value }
+
+      let owned = Task {
+        try await harness.client.sendTmuxCommand(
+          "detach-client -t 'client-1'", connectionID: "fixture-connection-1",
+          ownedBy: ITerm2Fixture.session(4))
+      }
+      request = try await peer.nextRequest()
+      try peer.respond(to: request.id, withFixture: "tmux-list-connections-response")
+      request = try await peer.nextRequest()
+      try peer.respond(to: request.id, withFixture: fixture)
+      await #expect(throws: ITerm2Error.tmuxCommandFailed) { _ = try await owned.value }
+    } // End of loop over the answers without output
+    #expect(!ITerm2Error.tmuxCommandFailed.isNotSent)
+    #expect(ITerm2Error.tmuxCommandFailed.kind == "tmuxCommandFailed")
+    #expect(harness.connector.connects == 1)
+  } // End of func tmuxCommandWithoutOutputFails()
+
   /// The review's finding: the bound activation lists the connections, then the sessions, then
   /// activates the connection's first tab, all on one API connection, and only while the listed
   /// owner matches (the target in its options is replaced by the tab). A connection without a

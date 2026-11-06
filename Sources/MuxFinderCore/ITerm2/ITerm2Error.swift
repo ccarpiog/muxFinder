@@ -17,7 +17,8 @@ import Foundation
 ///   `tmuxRequestFailed`, `setPropertyFailed`, `getPropertyFailed`.
 /// - **Sent, outcome unknown:** `timedOut`, `disconnected`, `protocolError` and
 ///   `connectionFailed` on their own (not wrapped in `notSent`): iTerm2 may have acted on the
-///   request. `CancellationError` (the calling task was cancelled) is unknown too: a frame that
+///   request. `tmuxCommandFailed` too: tmux reported an error for the command, or the
+///   connection ended before tmux answered it. `CancellationError` (the calling task was cancelled) is unknown too: a frame that
 ///   had not started writing is withdrawn and never sent, but the error does not tell which.
 public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
   /// iTerm2 is not running (checked by bundle id `com.googlecode.iterm2`). Nothing launched it.
@@ -62,6 +63,13 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
   /// the expected session (the connection closed, or its short id now names another session's
   /// connection, as after an iTerm2 restart), so the command was not sent.
   case tmuxConnectionNotOwned
+  /// iTerm2 answered a tmux command (`SendCommand`) with status `OK` but without the command's
+  /// output: it fills in the output (empty for a command that prints nothing) only when tmux
+  /// ends the command's reply with `%end`. Without it, tmux answered with `%error` (iTerm2 3.7
+  /// then also ends the whole connection and shows its "tmux Reported a Problem" alert, as it
+  /// tolerates no error for a command sent through its API), or the connection ended before
+  /// tmux answered. The command may have run: never counted as done.
+  case tmuxCommandFailed
   /// The request failed for `reason` (`timedOut`, `disconnected`, `protocolError` or
   /// `connectionFailed`) before its frame was written whole, so iTerm2 never acted on it: it
   /// was withdrawn while still queued (its deadline passed or its connection ended), the writer
@@ -93,6 +101,7 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
     case .getPropertyFailed: return "getPropertyFailed"
     case .launchFailed: return "launchFailed"
     case .tmuxConnectionNotOwned: return "tmuxConnectionNotOwned"
+    case .tmuxCommandFailed: return "tmuxCommandFailed"
     }
   } // End of var kind
 
@@ -147,6 +156,9 @@ public enum ITerm2Error: Error, Sendable, Hashable, LocalizedError {
       return "iTerm2 could not be launched: \(detail)."
     case .tmuxConnectionNotOwned:
       return "The tmux connection is not the one muxFinder opened; the command was not sent."
+    case .tmuxCommandFailed:
+      return "tmux did not confirm the command: it reported an error, or the connection ended "
+        + "first."
     case .notSent(let reason):
       var cause = reason.errorDescription ?? reason.kind
       if cause.hasSuffix(".") { cause.removeLast() }

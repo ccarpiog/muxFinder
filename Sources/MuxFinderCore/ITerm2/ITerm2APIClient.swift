@@ -199,14 +199,26 @@ public actor ITerm2APIClient: ITerm2Integration {
     }
   }
 
-  /// Runs a tmux command on a connection and returns its output (empty when iTerm2 sends
-  /// none).
+  /// Runs a tmux command on a connection and returns its output; see
+  /// `ITerm2Integration.sendTmuxCommand(_:connectionID:)`.
+  ///
+  /// - Throws: `tmuxCommandFailed` when iTerm2 answers without the command's output
+  ///   (`commandOutput(of:)`).
   public func sendTmuxCommand(_ command: String, connectionID: String) async throws -> String {
     let response = try await sendTmux(.sendCommand(connectionID: connectionID, command: command))
+    return try Self.commandOutput(of: response)
+  }
+
+  /// The output of a `SendCommand` answer whose status is `OK`. iTerm2 sets `output` (to the
+  /// empty string for a command that prints nothing) only when tmux ended the command's reply
+  /// with `%end`; an answer without it (no `send_command` payload, or one without `output`)
+  /// means tmux answered `%error` or the connection ended before tmux answered, so it throws
+  /// `tmuxCommandFailed` instead of passing for an empty output.
+  static func commandOutput(of response: ITerm2API.TmuxResponse) throws -> String {
     switch response.payload {
-    case .sendCommand(let output)?: return output ?? ""
-    case nil: return ""
-    default: throw Self.unexpectedResponse
+    case .sendCommand(let output?)?: return output
+    case .sendCommand(nil)?, nil: throw ITerm2Error.tmuxCommandFailed
+    default: throw unexpectedResponse
     }
   }
 
@@ -224,11 +236,7 @@ public actor ITerm2APIClient: ITerm2Integration {
     try await requireTmuxConnection(connectionID, ownedBy: owningSessionID, on: connection)
     let response = try await sendTmux(
       .sendCommand(connectionID: connectionID, command: command), on: connection)
-    switch response.payload {
-    case .sendCommand(let output)?: return output ?? ""
-    case nil: return ""
-    default: throw Self.unexpectedResponse
-    }
+    return try Self.commandOutput(of: response)
   } // End of func sendTmuxCommand(_:connectionID:ownedBy:)
 
   /// Brings a window, tab or session forward.

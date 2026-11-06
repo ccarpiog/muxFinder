@@ -475,6 +475,21 @@ struct AttachCoordinatorTests {
     #expect(Self.tmuxCommands(await harness.iTerm2.calls) == [ConnectionIdentity.command])
   }
 
+  /// An identity answer without output (`tmuxCommandFailed`: tmux's `%error`, or the connection
+  /// ended first) is not an empty answer passing through: it is reported as such and the
+  /// connection retired once the launch tab is old enough, as for an unreadable answer.
+  @Test func identityAnswerWithoutOutput() async throws {
+    let harness = Self.harness { script in
+      script.sendTmuxCommand = .init(.failure(.tmuxCommandFailed))
+    }
+    let result = await harness.coordinator.attach(harness.target)
+    #expect(result.failure == .identityCheckFailed(.tmuxCommandFailed))
+    #expect(
+      Self.tmuxCommands(await harness.iTerm2.calls)
+        == [ConnectionIdentity.command, ConnectionIdentity.detachCommand])
+    #expect(harness.clock.elapsed == .seconds(10))
+  } // End of func identityAnswerWithoutOutput()
+
   /// Revalidation failures end the attach before anything is written or opened.
   @Test(arguments: [
     (HostStatus.noServer, AttachFailure.sessionGone),

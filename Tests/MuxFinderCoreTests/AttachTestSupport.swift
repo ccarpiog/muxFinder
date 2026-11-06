@@ -398,6 +398,9 @@ final class InstrumentedITerm2: ITerm2Integration {
     /// Answers to bound commands by connection, used instead of the fake's own answer once
     /// its ownership check passed: first one next, the last one repeats.
     var answers: [String: [Result<String, ITerm2Error>]] = [:]
+    /// Answers to bound commands by command text, on any connection, used before the
+    /// connection's answers: first one next, the last one repeats.
+    var commandAnswers: [String: [Result<String, ITerm2Error>]] = [:]
     /// How long every `listTmuxConnections()` call takes on the clock.
     var listingDelay: Duration = .zero
     /// Whether the answer of every bound bury iTerm2 handled waits for `releaseBuries()`.
@@ -452,9 +455,26 @@ final class InstrumentedITerm2: ITerm2Integration {
     state.withLock { $0.answers[connectionID] = answers }
   }
 
-  /// The next scripted answer for `connectionID`, if it has any.
-  private func nextAnswer(for connectionID: String) -> Result<String, ITerm2Error>? {
+  /// Sets the answers bound commands whose text is `command` get, on any connection, in order
+  /// (the last one repeats); they win over the connection's answers.
+  func setAnswers(_ answers: [Result<String, ITerm2Error>], forCommand command: String) {
+    state.withLock { $0.commandAnswers[command] = answers }
+  }
+
+  /// The next scripted answer for `command` on `connectionID`, if it has any: the command's
+  /// own first, then the connection's.
+  private func nextAnswer(
+    for connectionID: String,
+    command: String
+  ) -> Result<String, ITerm2Error>? {
     state.withLock { state -> Result<String, ITerm2Error>? in
+      if var queue = state.commandAnswers[command], let first = queue.first {
+        if queue.count > 1 {
+          queue.removeFirst()
+          state.commandAnswers[command] = queue
+        }
+        return first
+      }
       guard var queue = state.answers[connectionID], let first = queue.first else { return nil }
       if queue.count > 1 {
         queue.removeFirst()
@@ -462,7 +482,7 @@ final class InstrumentedITerm2: ITerm2Integration {
       }
       return first
     }
-  } // End of func nextAnswer(for:)
+  } // End of func nextAnswer(for:command:)
 
   /// Whether the first `createTab` call is being held.
   var isHoldingCreateTab: Bool { state.withLock { $0.held != nil } }
@@ -603,7 +623,9 @@ final class InstrumentedITerm2: ITerm2Integration {
       state.hangingNow += 1
       return true
     }
-    guard hangs else { return try nextAnswer(for: connectionID)?.get() ?? output }
+    guard hangs else {
+      return try nextAnswer(for: connectionID, command: command)?.get() ?? output
+    }
     defer { state.withLock { $0.hangingNow -= 1 } }
     try await Task.sleep(for: .seconds(3600))
     throw CancellationError()

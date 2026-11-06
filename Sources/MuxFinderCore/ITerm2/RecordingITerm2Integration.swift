@@ -13,8 +13,9 @@ import Foundation
 /// `e2e-bury` can look at the launch tab then and release a detach together with the bury; and
 /// each bury's answer is recorded too (`buryAnswers`: answered `OK`, refused by its ownership
 /// check, or failed, with when it was forwarded and when it returned), so that step can tell a
-/// bury that was sent from one that was refused. It keeps session, tab and window ids and
-/// times only, never content, and nothing leaves the process.
+/// bury that was sent from one that was refused. Every call forwarded, of any kind, is counted
+/// (`forwardedCallCount`). It keeps session, tab and window ids and times only, never content,
+/// and nothing leaves the process.
 public actor RecordingITerm2Integration: ITerm2Integration {
   /// One recorded request.
   public enum Request: Sendable, Hashable {
@@ -67,6 +68,10 @@ public actor RecordingITerm2Integration: ITerm2Integration {
   public private(set) var requests: [Request] = []
   /// How each forwarded bury ended, in the order the answers came.
   public private(set) var buryAnswers: [BuryAnswer] = []
+  /// How many calls of `ITerm2Integration` were forwarded to `base` so far, of every kind, so a
+  /// check can prove that nothing at all was asked of iTerm2 meanwhile (`e2e-detach-others`, a
+  /// confirmation for another session, PLAN.md D37).
+  public private(set) var forwardedCallCount = 0
   /// The hook run before each `buryLaunchTab(sessionID:ifOwnsTmuxConnection:)`, if any.
   private var beforeBury: BuryHook?
 
@@ -102,34 +107,47 @@ public actor RecordingITerm2Integration: ITerm2Integration {
   }
 
   /// Forwards to `base`.
-  public func isRunning() async -> Bool { await base.isRunning() }
+  public func isRunning() async -> Bool {
+    forwardedCallCount += 1
+    return await base.isRunning()
+  }
 
   /// Forwards to `base`.
-  public func status() async -> ITerm2Status { await base.status() }
+  public func status() async -> ITerm2Status {
+    forwardedCallCount += 1
+    return await base.status()
+  }
 
   /// Forwards to `base`.
-  public func ensureRunning() async throws { try await base.ensureRunning() }
+  public func ensureRunning() async throws {
+    forwardedCallCount += 1
+    try await base.ensureRunning()
+  }
 
   /// Forwards to `base`.
   public func listSessions() async throws -> ITerm2API.ListSessionsResponse {
-    try await base.listSessions()
+    forwardedCallCount += 1
+    return try await base.listSessions()
   }
 
   /// Forwards to `base`.
   public func createTab(
     _ request: ITerm2API.CreateTabRequest
   ) async throws -> ITerm2API.CreateTabResponse {
-    try await base.createTab(request)
+    forwardedCallCount += 1
+    return try await base.createTab(request)
   }
 
   /// Forwards to `base`.
   public func listTmuxConnections() async throws -> [ITerm2API.TmuxConnection] {
-    try await base.listTmuxConnections()
+    forwardedCallCount += 1
+    return try await base.listTmuxConnections()
   }
 
   /// Forwards to `base`.
   public func sendTmuxCommand(_ command: String, connectionID: String) async throws -> String {
-    try await base.sendTmuxCommand(command, connectionID: connectionID)
+    forwardedCallCount += 1
+    return try await base.sendTmuxCommand(command, connectionID: connectionID)
   }
 
   /// Forwards to `base`.
@@ -138,11 +156,14 @@ public actor RecordingITerm2Integration: ITerm2Integration {
     connectionID: String,
     ownedBy owningSessionID: String
   ) async throws -> String {
-    try await base.sendTmuxCommand(command, connectionID: connectionID, ownedBy: owningSessionID)
+    forwardedCallCount += 1
+    return try await base.sendTmuxCommand(
+      command, connectionID: connectionID, ownedBy: owningSessionID)
   }
 
   /// Forwards to `base`.
   public func activate(_ request: ITerm2API.ActivateRequest) async throws {
+    forwardedCallCount += 1
     try await base.activate(request)
   }
 
@@ -152,12 +173,14 @@ public actor RecordingITerm2Integration: ITerm2Integration {
     ownedBy owningSessionID: String,
     options: ITerm2API.ActivateRequest
   ) async throws -> String? {
-    try await base.activateFirstTab(
+    forwardedCallCount += 1
+    return try await base.activateFirstTab(
       ofTmuxConnection: connectionID, ownedBy: owningSessionID, options: options)
   }
 
   /// Records the request, then forwards it to `base`.
   public func setBuried(_ buried: Bool, sessionID: String) async throws {
+    forwardedCallCount += 1
     requests.append(.setBuried(buried: buried, sessionID: sessionID))
     try await base.setBuried(buried, sessionID: sessionID)
   }
@@ -169,6 +192,7 @@ public actor RecordingITerm2Integration: ITerm2Integration {
     sessionID: String,
     ifOwnsTmuxConnection connectionID: String
   ) async throws {
+    forwardedCallCount += 1
     if let beforeBury { await beforeBury(sessionID, connectionID) }
     requests.append(.buryLaunchTab(sessionID: sessionID))
     let forwardedAt = Date()
@@ -193,15 +217,20 @@ public actor RecordingITerm2Integration: ITerm2Integration {
     properties: [String],
     guids: [String]
   ) async throws -> [ITerm2API.Profile] {
-    try await base.listProfiles(properties: properties, guids: guids)
+    forwardedCallCount += 1
+    return try await base.listProfiles(properties: properties, guids: guids)
   }
 
   /// Records the request, then forwards it to `base`.
   public func close(_ request: ITerm2API.CloseRequest) async throws -> ITerm2API.CloseResponse {
+    forwardedCallCount += 1
     requests.append(.close(request))
     return try await base.close(request)
   }
 
   /// Forwards to `base`.
-  public func disconnect() async { await base.disconnect() }
+  public func disconnect() async {
+    forwardedCallCount += 1
+    await base.disconnect()
+  }
 }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T10:29:06Z",
+  "updated": "2026-11-06T12:24:23Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -672,11 +672,35 @@
     {
       "id": "I-11",
       "title": "Detach other clients",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
-      "summary": "Popover action that keeps this Mac's tmux attachment and detaches the session's other clients, proven first on real runs.",
+      "summary": "Detach other clients, split into I-11a (proof and core, done) and I-11b (UI, queued).",
       "added": "2026-11-06T10:29:06Z",
-      "status_since": "2026-11-06T10:29:06Z"
+      "started": "2026-11-06T10:31:24Z",
+      "status_since": "2026-11-06T10:31:24Z"
+    },
+    {
+      "id": "I-11a",
+      "title": "Detach other clients: real proof, coordinator call, e2e-detach-others",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-11",
+      "summary": "Real runs rejected attach-session -d; a checked per-client detach-client, the confirmed coordinator call and e2e-detach-others pass on both hosts.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-11a.md",
+      "narrative": "docs/progress-archive/i-11a.md",
+      "added": "2026-11-06T10:31:24Z",
+      "started": "2026-11-06T10:31:24Z",
+      "status_since": "2026-11-06T12:24:23Z"
+    },
+    {
+      "id": "I-11b",
+      "title": "Detach other clients: popover item, confirmation, galleries, docs",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-11",
+      "summary": "Adds the popover item Detach other clients and its confirmation, galleries, screenshots and the manual checklist item.",
+      "added": "2026-11-06T10:31:24Z",
+      "status_since": "2026-11-06T10:31:24Z"
     },
     {
       "id": "I-12",

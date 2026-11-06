@@ -59,8 +59,11 @@ public protocol ITerm2Integration: Sendable {
   /// Every tmux integration (`tmux -CC`) connection.
   func listTmuxConnections() async throws -> [ITerm2API.TmuxConnection]
 
-  /// Runs `command` on the tmux connection `connectionID` and returns its output. Throws
-  /// `tmuxRequestFailed` unless iTerm2 reports `OK`.
+  /// Runs `command` on the tmux connection `connectionID` and returns its output (empty for a
+  /// command that prints nothing). Throws `tmuxRequestFailed` unless iTerm2 reports `OK`, and
+  /// `tmuxCommandFailed` when iTerm2 answers without the command's output: tmux reported an
+  /// error for it (`%error`), or the connection ended before tmux answered, so the command
+  /// never passes for done.
   func sendTmuxCommand(_ command: String, connectionID: String) async throws -> String
 
   /// Runs `command` on the tmux connection `connectionID` only while iTerm2 lists that
