@@ -65,6 +65,13 @@ extension TerminalDefinition {
   static let scriptNameBytes: Set<UInt8> = Set(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-".utf8)
 
+  /// Whether `id` follows the definition id rule: `[a-z0-9-]`, 1–32 bytes, and not reserved
+  /// (`iterm2` is code, not a definition). A launch request's terminal uses it (PLAN.md D38).
+  public static func isValidID(_ id: String) -> Bool {
+    (1...maximumIDLength).contains(id.utf8.count) && id.utf8.allSatisfy(idBytes.contains)
+      && !reservedIDs.contains(id)
+  }
+
   /// Reads a definition from a file's bytes, or throws the first problem found.
   public static func decode(_ data: Data) throws(TerminalDefinitionProblem) -> TerminalDefinition {
     guard let json = try? JSONSerialization.jsonObject(with: data, options: []) else {

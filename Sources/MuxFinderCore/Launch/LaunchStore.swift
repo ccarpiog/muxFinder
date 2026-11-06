@@ -43,6 +43,11 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
   /// (PLAN.md D24): an ssh setup request given to `attach`, or the other way round. It was
   /// deleted like any refused request.
   case requestKindMismatch(expected: LaunchRequestKind, found: LaunchRequestKind)
+  /// The attach request is well formed but for a terminal the helper mode taking it does not
+  /// run (PLAN.md D14, D38): a plain request given to `attach`, or an iTerm2 request given to
+  /// `attach-plain`. It was deleted like any refused request, and the helper's exit is the
+  /// wrong-kind one (72).
+  case requestTerminalMismatch(helperMode: LaunchHelperMode, found: LaunchTerminalApp)
   /// A system call failed with this errno.
   case systemCallFailed(name: String, errno: Int32)
 
@@ -63,6 +68,9 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
     case .requestKindMismatch(let expected, let found):
       return "The launch request is for the helper's \(found.helperMode) mode, not "
         + "\(expected.helperMode)."
+    case .requestTerminalMismatch(let mode, let found):
+      return "The launch request is for the terminal \(found.rawValue), which the helper's "
+        + "\(mode.word) mode does not run."
     case .systemCallFailed(let name, let code):
       return "\(name) failed: \(String(cString: strerror(code)))."
     }
@@ -77,7 +85,7 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
       return .launchDirectoryUnusable
     case .fileExpired: return .requestExpired
     case .fileAlreadyExists, .fileUnsafe, .fileMalformed, .requestKindMismatch,
-      .systemCallFailed:
+      .requestTerminalMismatch, .systemCallFailed:
       return .requestUnreadable
     }
   }
@@ -108,8 +116,11 @@ public enum LaunchStoreError: Error, Sendable, Hashable, CustomStringConvertible
 ///   so a normal home directory never trips it. A deny-delete entry blocks even the owner's
 ///   unlink, so for a file the user owns the ACL is removed first and the file then deleted.
 /// - Requests expire `timeToLive` (2 minutes) after `createdAt`, measured with the injectable
-///   clock. `sweep()` deletes request, result, argv-digest and temporary files whose
+///   clock. `sweep()` deletes request, result, report, argv-digest and temporary files whose
 ///   modification time is older than that.
+/// - A plain launch's early report (`<id>.report.json`, PLAN.md D38) is written like a result
+///   and only ever peeked (`peekReport(_:)`), never taken; it goes with its result when
+///   `takeResult(_:)` takes that, with the sweep, or with `removeReport(_:)`.
 public struct LaunchStore: Sendable {
   /// Name of the launch directory inside muxFinder's Application Support folder.
   public static let directoryName = "launch"
@@ -132,6 +143,8 @@ public struct LaunchStore: Sendable {
   static let requestSuffix = ".request.json"
   /// File-name suffix of results.
   static let resultSuffix = ".result.json"
+  /// File-name suffix of plain launches' early reports (PLAN.md D38).
+  static let reportSuffix = ".report.json"
   /// File-name suffix of temporary files.
   static let temporarySuffix = PrivateStorage.temporarySuffix
 
@@ -198,6 +211,11 @@ public struct LaunchStore: Sendable {
   /// The result file name for `id`.
   public static func resultFileName(for id: LaunchToken) -> String {
     id.rawValue + resultSuffix
+  }
+
+  /// The early report file name for `id` (PLAN.md D38): `<id>.report.json`.
+  public static func reportFileName(for id: LaunchToken) -> String {
+    id.rawValue + reportSuffix
   }
 
   /// The launch directory's path without a trailing slash (a trailing slash would make the
@@ -282,15 +300,35 @@ public struct LaunchStore: Sendable {
     }
   } // End of func writeRequest(_:) for ssh setup
 
-  /// Takes the attach request for `id` (see `takeRequestFile(_:)`). A well-formed request of
-  /// another kind is refused as `requestKindMismatch`, and is gone like any refused request.
+  /// Takes the iTerm2 attach request for `id` (see `takeRequestFile(_:)`), what `attach`
+  /// runs. A well-formed request of another kind is refused as `requestKindMismatch`, and a
+  /// plain one (its terminal not `iterm2`, PLAN.md D38) as `requestTerminalMismatch`; either
+  /// is gone like any refused request.
   public func takeRequest(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchRequest {
     let file = try takeRequestFile(id)
     guard case .attach(let request) = file else {
       throw .requestKindMismatch(expected: .attach, found: file.kind)
     }
+    guard !request.terminal.isPlain else {
+      throw .requestTerminalMismatch(helperMode: .attach, found: request.terminal)
+    }
     return request
   }
+
+  /// Takes the plain attach request for `id` (see `takeRequestFile(_:)`), what `attach-plain`
+  /// runs (PLAN.md D38): its terminal must be a definition's id. An iTerm2 request (`iterm2`,
+  /// or no `terminal` field at all) is refused as `requestTerminalMismatch`, and a request of
+  /// another kind as `requestKindMismatch`; either is gone like any refused request.
+  public func takePlainRequest(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchRequest {
+    let file = try takeRequestFile(id)
+    guard case .attach(let request) = file else {
+      throw .requestKindMismatch(expected: .attach, found: file.kind)
+    }
+    guard request.terminal.isPlain else {
+      throw .requestTerminalMismatch(helperMode: .attachPlain, found: request.terminal)
+    }
+    return request
+  } // End of func takePlainRequest(_:)
 
   /// Takes the ssh setup request for `id` (see `takeRequestFile(_:)`). A well-formed request of
   /// another kind (an attach request) is refused as `requestKindMismatch`, and is gone like any
@@ -347,12 +385,17 @@ public struct LaunchStore: Sendable {
     }
   } // End of func writeResult(_:)
 
-  /// Takes the result for `id` (deleting the file), or returns `nil` if there is none yet.
+  /// Takes the result for `id` (deleting the file), or returns `nil` if there is none yet. Once
+  /// the result file is claimed, the launch's early report (PLAN.md D38), if any, is deleted
+  /// with it: the helper has ended, so the report can confirm nothing any more.
   public func takeResult(_ id: LaunchToken) throws(LaunchStoreError) -> LaunchResult? {
     let data: Data
     do throws(LaunchStoreError) {
       data = try withDirectory(create: false) { (directory) throws(LaunchStoreError) in
-        try Self.takeFile(named: Self.resultFileName(for: id), in: directory, owner: owner)
+        let taken = try Self.takeFile(
+          named: Self.resultFileName(for: id), in: directory, owner: owner)
+        _ = unlinkat(directory, Self.reportFileName(for: id), 0)
+        return taken
       }
     } catch .fileMissing, .directoryMissing {
       return nil
@@ -383,6 +426,62 @@ public struct LaunchStore: Sendable {
     else { throw .fileMalformed }
     return result
   } // End of func peekResult(_:)
+
+  // MARK: - Early reports (PLAN.md D38)
+
+  /// Writes a plain launch's early `report` atomically as `<id>.report.json` (0600; a temporary
+  /// file renamed into place, as every launch file), replacing an earlier one. A report that is
+  /// not well formed is refused as `fileMalformed` before anything is written. Never creates the
+  /// directory.
+  public func writeReport(_ report: PlainLaunchReport) throws(LaunchStoreError) {
+    guard report.isWellFormed else { throw .fileMalformed }
+    let data = try Self.encode(report)
+    try withDirectory(create: false) { (directory) throws(LaunchStoreError) in
+      try Self.writeFile(
+        data,
+        named: Self.reportFileName(for: report.id),
+        exclusive: false,
+        in: directory
+      )
+    }
+  } // End of func writeReport(_:)
+
+  /// Reads the early report for `id` without taking it (the file stays until its result is
+  /// taken, the sweep, or `removeReport(_:)`), or returns `nil` if there is none (yet). The
+  /// checks of every read apply (regular file owned by the user, no group or other bits, no
+  /// extended ACL, at most `maximumFileSize` bytes: `fileUnsafe`, the file left as it is); a
+  /// report that does not decode, is for another id or is not well formed is `fileMalformed`.
+  /// Never a confirmation by itself: I-12c compares it with tmux's own listing.
+  public func peekReport(_ id: LaunchToken) throws(LaunchStoreError) -> PlainLaunchReport? {
+    let data: Data
+    do throws(LaunchStoreError) {
+      data = try withDirectory(create: false) { (directory) throws(LaunchStoreError) in
+        try Self.readFile(named: Self.reportFileName(for: id), in: directory, owner: owner)
+      }
+    } catch .fileMissing, .directoryMissing {
+      return nil
+    }
+    guard let report = try? LaunchCoding.decoder().decode(PlainLaunchReport.self, from: data),
+      report.id == id, report.isWellFormed
+    else { throw .fileMalformed }
+    return report
+  } // End of func peekReport(_:)
+
+  /// Removes the early report for `id`. Returns whether there was one. Never creates the
+  /// directory.
+  @discardableResult
+  public func removeReport(_ id: LaunchToken) throws(LaunchStoreError) -> Bool {
+    do throws(LaunchStoreError) {
+      return try withDirectory(create: false) { (directory) throws(LaunchStoreError) in
+        if unlinkat(directory, Self.reportFileName(for: id), 0) == 0 { return true }
+        let code = errno
+        if code == ENOENT { return false }
+        throw .systemCallFailed(name: "unlinkat", errno: code)
+      }
+    } catch .directoryMissing {
+      return false
+    }
+  } // End of func removeReport(_:)
 
   // MARK: - Test mode
 
@@ -508,7 +607,7 @@ public struct LaunchStore: Sendable {
 
   // MARK: - Sweep
 
-  /// Deletes request, result, argv-digest and temporary files last modified more than
+  /// Deletes request, result, report, argv-digest and temporary files last modified more than
   /// `timeToLive` ago, and returns how many were removed. Other files (such as the test-mode
   /// marker) and directories are left alone. A missing directory is not an error.
   @discardableResult
@@ -538,6 +637,7 @@ public struct LaunchStore: Sendable {
   /// Whether `name` is a file the store manages (and may sweep).
   static func isManagedFileName(_ name: String) -> Bool {
     if name.hasSuffix(requestSuffix) || name.hasSuffix(resultSuffix) { return true }
+    if name.hasSuffix(reportSuffix) { return true }
     if LaunchArgvDigest.isFileName(name) { return true }
     return name.hasPrefix(".") && name.hasSuffix(temporarySuffix)
   }

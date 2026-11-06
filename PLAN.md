@@ -224,7 +224,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   library version `python 2.11` that the protocol facts were checked against.
 - **D14 — Launch protocol** (decided in Phase 4a, 2026-10-21; code in
   `Sources/MuxFinderCore/Launch/`).
-  - **Files:** `launch/<uuid>.request.json` and `<uuid>.result.json`, the uuid only in
+  - **Files:** `launch/<uuid>.request.json` and `<uuid>.result.json` (and, for a plain launch,
+    `<uuid>.report.json`, *Plain modes* below), the uuid only in
     canonical lowercase form (`LaunchToken`, validated before it names a file). Writes are
     atomic (temporary file with `O_CREAT|O_EXCL|O_NOFOLLOW`, mode 0600, then a rename;
     `RENAME_EXCL` for requests, so an id is never reused). The directory is 0700 (tightened if
@@ -239,10 +240,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     its own kind (D24): an attach
     request has no `kind` field (so every file written before ssh setup existed reads exactly
     as before), an ssh setup request has `"kind":"sshSetup"`, and a well-formed request of the
-    other kind is refused (72), gone like every refused request. TTL: 120 s after `createdAt`
+    other kind is refused (72), gone like every refused request. An attach request's
+    `terminal` (D38) splits it further: `attach` takes only `iterm2` (or no field), and
+    `attach-plain` only a definition's id (*Plain modes* below). TTL: 120 s after `createdAt`
     (5 s future tolerance), on an injectable
-    clock. The sweep removes request, result, argv-digest and temporary files whose mtime is
-    older than the TTL.
+    clock. The sweep removes request, result, report, argv-digest and temporary files whose
+    mtime is older than the TTL.
   - **ACLs:** mode bits alone are no private boundary on macOS, since an extended ACL entry
     grants access whatever they say and new files inherit their directory's inheritable
     entries. So, through descriptors (`ExtendedACL`; with the directory and atomic-write
@@ -259,7 +262,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     secured by every host-list save (D19).
   - **Exit codes:** guard 64 gone, 65 changed, 66 tmux missing (the D5 rule, discovery's
     `tmuxNotFound`), 67 tmux check failed, 68 guard usage. Helper 2 usage, 70 request missing,
-    71 expired, 72 unreadable (also a request of the other kind, D24), 73 launch directory
+    71 expired, 72 unreadable (also a request of the other kind, D24, or for the other
+    terminal, D38), 73 launch directory
     unusable, 74 spawn failed, 75 check timed out, 76 and 77 in `profile` mode when it ends
     without starting the login shell (the host list or host unusable; the nesting guard; D26),
     128 + n interrupted by signal n before tmux attached; otherwise tmux's own status (0
@@ -316,8 +320,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Minimum lifetime** (decided in Phase 4c, 2026-10-22): under that same condition the helper
     never exits before it is 10 s old (`LaunchHelper.minimumLifetime`, counted from its start),
     whatever the outcome and in every mode (`attach` or `ssh-setup`, D24, through
-    `LaunchHelper.finish`; `profile`, D26, except when it hands the tab to the login shell,
-    which keeps it open): it writes the result first, waits for Return if it failed,
+    `LaunchHelper.finish`; `profile` and `profile-plain`, D26, except when it hands the tab to
+    the login shell, which keeps it open; `attach-plain` only when its request's
+    `keepsMinimumLifetime` is true, D38): it writes the result first, waits for Return if it failed,
     then holds the rest (`LaunchTerminal.holdOpen(for:)`: closing the tab, SIGHUP, still ends it
     at once; SIGINT and SIGTERM never end it, so Ctrl-C at the prompt or during the hold cannot
     end a visible tab early). A launch tab that ends within 3 s of starting raises iTerm2's
@@ -343,7 +348,7 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     the explanation, the wait for Return and the hold as above, and just before it exits
     `Disinter` and the request once more. Nothing is written unless standard input and output
     are both terminals (`unavailable`). A missing answer is logged (stage and wait only) and
-    the helper goes on. `profile` and `ssh-setup` never do it.
+    the helper goes on. `profile`, `ssh-setup` and the plain modes never do it.
   - **Test mode:** set by `MUXFINDER_LAUNCH_TEST_MODE=1`, or by a regular file
     `launch/test-mode` owned by the user. The marker is how 4b turns test mode on for helpers
     iTerm2 starts: the e2e run creates it (`LaunchStore.createTestModeMarker()`) and removes it
@@ -352,9 +357,11 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     argument's byte length and SHA-256, plus the first canonical launch id found. Right before
     it starts its attach child (tmux locally, ssh remotely) it writes the file again with
     `attachChild`: that child's argv digested the same way and whether it detaches the
-    session's other clients (D21); a launch that ends first has none. In `attach` mode it then
+    session's other clients (D21); a launch that ends first has none. In `attach`,
+    `attach-plain` and `profile-plain` mode it then
     writes it again with `attachChildProcessID` right after the spawn (the child is the
-    helper's own and unreaped while it runs, so a harness can signal exactly it) and with one
+    helper's own and unreaped while it runs, so a harness can signal exactly it) and, in
+    `attach` mode, with one
     `tabRestores` record per launch tab restore (`afterChild`, `afterTmuxModeEnd` when the
     first went unanswered, `beforeExit`: whether `Disinter` was written, when it asked and when
     the wait ended, `answered`/`unanswered`/`unavailable`, the answer's delay in ms); both
@@ -386,7 +393,36 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     applies the D2 rule. The tab command is `LaunchHelperPath.commandLine(for:kind:)`:
     `<path> attach <uuid>` (`attachCommandLine(for:)`), or `<path> ssh-setup <uuid>` for "Set
     up SSH in iTerm2…" (D24); a persistent profile's `Command` is `<path> profile <host id>`
-    (`profileCommandLine(forHostID:)`, D26).
+    (`profileCommandLine(forHostID:)`, D26), and its plain command for other terminal apps
+    `<path> profile-plain <host id>` (`plainProfileCommandLine(forHostID:)`, D38).
+  - **Plain modes** (Phase I-12b2, 2026-11-06; D38 *Helper plain mode (I-12b2)*; code in
+    `LaunchHelperPlain.swift`, `PlainLaunchReport.swift`, `LaunchHelperProfile.swift`). Two
+    more mode words, `muxfinder-launch attach-plain <uuid>` and `profile-plain <host id>`,
+    named constants in `LaunchHelperMode` with the other three (D2's characters only, so
+    `TerminalLaunchCommand`'s `words` and `exec` forms take them as `{mode}`); plain mode is
+    chosen by the word alone, never from `TERM_PROGRAM`, `TERM` or other environment.
+    **The request's terminal:** an attach request carries `terminal` (`LaunchTerminalApp`):
+    `"iterm2"`, or a terminal definition's id (`TerminalDefinition.isValidID(_:)`: `[a-z0-9-]`,
+    1–32 bytes, never `iterm2`); anything else is a decoding error (72). The writer always
+    writes it (`LaunchRequest`'s encoding); a file without it, as every earlier build wrote,
+    reads as `iterm2` (a custom decoder, every other field read as before). `attach` refuses a
+    plain request and `attach-plain` an iTerm2 one (explicit or missing) with
+    `requestTerminalMismatch` (72), nothing run and the file gone (`LaunchStore.takeRequest`,
+    `takePlainRequest`). A plain request also carries `keepsMinimumLifetime` (the definition's;
+    absent means false); on an iTerm2 request the field makes it not well formed (72), since
+    there the minimum always holds. **The early report:** `attach-plain` writes
+    `<uuid>.report.json` (`PlainLaunchReport`, schema 1: `id`, `helperPID`, `terminalPath`
+    from standard input with `ttyname` or absent when that is not a terminal,
+    `attachChildPID`, `attachChildStartTime` `{seconds, microseconds}` from `proc_pidinfo`
+    `PROC_PIDTBSDINFO`) from the runner's spawn callback, right after the attach child starts
+    and before the helper waits on it, atomically and 0600 like a result
+    (`LaunchStore.writeReport`, a well-formed report only, never creating the directory); an
+    unreadable start time or a refused write writes none (logged, kinds only) and the attach
+    goes on. `peekReport` reads it under the take checks without deleting anything; a missing
+    one is `nil`, a malformed one (undecodable, another id, a bad value) `fileMalformed`, an
+    oversized one `fileUnsafe(.tooLarge)`, never a report. It is removed with its result
+    (`takeResult`, once the result file is claimed), by the sweep, and by `removeReport`.
+    `attach` writes none.
 - **D15 — Attach coordinator** (decided in Phase 4b, 2026-10-22; code in
   `Sources/MuxFinderCore/Attach/`).
   - **Launch tab:** `CreateTab` without `window_id`, so the tab opens in a new window and never
@@ -3538,8 +3574,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `AutomationPermissionTests`, the probes `muxfinder-probe terminals list` and `plain-proof`,
   `docs/TESTING.md` *Phase I-12a* and *Phase I-12a review fixes*). Outside iTerm2 muxFinder attaches with plain tmux (one
   window, tmux's status bar, prefix keys and copy mode); iTerm2 keeps native control mode
-  exactly as today. Nothing in the app, the helper or the coordinator uses this yet: I-12b
-  and I-12c wire it.
+  exactly as today. The helper runs it since I-12b2 (*Helper plain mode (I-12b2)* below);
+  nothing in the app or the coordinator writes a plain request yet: I-12c wires it.
   - **The proof** (`plain-proof`, tmux 3.8, on This Mac and on Saturno, no terminal app and
     no iTerm2): plain clients on pseudo-terminals the harness opens itself, each the
     controlling terminal of its child's own session, 80 × 24, `TERM=xterm-256color`,
@@ -3753,6 +3789,52 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     Terminal's `do script` finds its window by the new tab's `tty`, whether `set index … to 1`
     with `selected` brings the tab forward, whether `do script` on a Terminal that was not
     running opens a second window, and Ghostty's ids, `activate window` and `close window`.
+  - **Helper plain mode (I-12b2)** (2026-11-06; code in `Launch/LaunchHelperPlain.swift`,
+    `Launch/PlainLaunchReport.swift`, `Launch/LaunchHelperProfile.swift`,
+    `PlainLaunch.localAttachArguments(for:)` and `sshArguments(for:)`, `ProfileLaunch`'s plain
+    members, `LaunchChildStandardInput`; tests in `LaunchHelperPlainTests`,
+    `PlainLaunchReportTests`, `LaunchHelperProfilePlainTests`, `LaunchHelperPlainBinaryTests`;
+    `docs/TESTING.md` *Phase I-12b2*; the file and request rules in D14 *Plain modes*). Nothing
+    in the app or the coordinator writes a plain request yet (I-12c), and the terminal seam is
+    I-12b3. `muxfinder-launch attach-plain <uuid>` takes only a plain request (its `terminal`
+    a definition's id; `attach` and `attach-plain` refuse each other's with 72, nothing run).
+    **The attach:** on This Mac the guard's check exactly as `attach` runs it, then the printed
+    tmux with `PlainLaunch.localAttachArguments(for:)`, the bound `if-shell -F` over the
+    request's four values (never `-CC`, never an unbound attach); on an SSH host D17's
+    `/usr/bin/ssh -t -o ConnectTimeout=10 -- <destination> <D3 string>` with
+    `PlainLaunch.remoteScript` and the request's launch id as the token, its standard error
+    relayed. **A move here** is told apart exactly as for iTerm2: the request's
+    `detachOtherClients: true` (D21; absent or `false` is a normal attach), which gives the
+    bound `attach-session -d` locally and `remoteMoveHereScript` remotely. **Standard input:**
+    the attach child gets the helper's terminal opened again read-write
+    (`LaunchChildStandardInput.terminalReadWrite`: `ttyname` of the helper's descriptor 0,
+    `O_RDWR | O_NOCTTY`, the same device checked; inherited as is when it is not a terminal),
+    since a plain client's server draws through it; `attach`, `profile` and `ssh-setup` keep
+    `inherited`, the runner's path for them unchanged. Exit statuses map as `attach`'s
+    (`LaunchFailure.from`: 65 `sessionChanged`, the bound attach's refusal; 68 `guardUsage`,
+    a bad token; 255 `sshFailed`; tmux's own), and the result is written exactly as `attach`
+    writes it (a unit test compares both modes' results for every end). **Left out:** no OSC
+    1337 (`Disinter`), no status report request, no wait for one, nothing buried or restored
+    (`testSuppressDisinter` accepted and ignored). **Kept:** the result, the explanation, the
+    wait for Return (`MUXFINDER_LAUNCH_NO_WAIT=1` skips it); the 10 s minimum only with
+    `keepsMinimumLifetime: true` (none at all before a request is taken). **The early report**
+    (`<uuid>.report.json`, D14 *Plain modes*) gives I-12c the terminal path and the attach
+    child's pid and kernel start time, so a `client_tty` match counts only while that exact
+    process runs. **`profile-plain <host id>`** is `profile` without `-CC`
+    (`ProfileLaunch.plainTmuxArguments`, `-u new-session -A -s <escaped name>`;
+    `plainRemoteScript`, the profile's remote script with `-CC` taken out of its one tmux
+    line), its child on the terminal opened read-write, with `profile`'s nesting guard, host
+    list, fallbacks to the login shell, hold and exit statuses (it has no request to carry
+    `keepsMinimumLifetime`, so it holds as `profile` does); the per-host command is
+    `LaunchHelperPath.plainProfileCommandLine(forHostID:)`. Test mode records both plain
+    modes' attach child and its pid in the argv digest. **Verified** (no terminal app, no
+    iTerm2): the built helper, on a pseudo-terminal of the test's (its standard input opened
+    read-only, so the reopen is what lets tmux draw) against a `muxfinder-test-*` session on
+    a private server, wrote a report naming that terminal, its own pid and its attach child
+    (its child, the kernel's start time); the session had exactly that one client on that
+    terminal, tmux drew on it, the bound `PlainClientDetach` ended it and the helper exited 0
+    with a success result; with the reopen disabled tmux drew under 200 bytes and the check
+    failed. The remote plain attach's real run is I-12c's `e2e-plain`.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -6474,7 +6556,12 @@ two workers' worth, so:
   left to I-12c, which wires them into the coordinator) and requirement 4 (the helper's plain
   `attach` and `profile` variants, chosen by an explicit argument, and requirement 5's early
   report: the helper's terminal path and its attach child's pid, written next to the
-  request).
+  request). **Split again** (2026-11-06, at its selection, before its first worker: the
+  helper and the seam are independent and each a worker's worth): **I-12b2 — helper plain
+  mode (high)**, requirement 4, requirement 5's early report and the request's terminal
+  field; **I-12b3 — terminal seam (high)**, requirement 2 (the seam, the iTerm2 backend over
+  today's code, the plain backend's open, focus and close), its calls written at its
+  selection.
 
 Calls for I-12b1:
 
@@ -6551,6 +6638,80 @@ Calls for I-12b1:
   rules, argv expansion, the `words` limits, the version comparison, the runner over test
   scripts and the fake, and both built-ins loading cleanly with the forbidden commands
   absent.
+
+Calls for I-12b2 (helper plain mode; 2026-11-06, before its worker):
+
+- **Explicit mode words.** `muxfinder-launch attach-plain <uuid>` and `muxfinder-launch
+  profile-plain <host id>`, beside `attach`, `profile` and `ssh-setup`, which stay exactly as
+  they are (byte for byte what they write to the terminal, their argv, exit codes and
+  timings; no existing test's expectation edited). Plain mode is chosen only by the mode
+  word, never from `TERM_PROGRAM`, `TERM` or any other environment. The words are D2's
+  characters, so they pass `TerminalLaunchCommand`'s `words` and `exec` forms as `{mode}`;
+  each is a named constant the seam (I-12b3) reuses.
+- **The request's terminal.** An attach request gains `terminal`: `"iterm2"` or a definition
+  id (`TerminalDefinition`'s id rule, `iterm2` excluded there). The app's writer always
+  writes it; a request without it reads as `iterm2`, so a request an older muxFinder wrote is
+  still run by `attach`. `attach` refuses a request whose terminal is not `iterm2`, and
+  `attach-plain` one whose terminal is `iterm2` (or missing), with the existing wrong-kind
+  exit and nothing run, as `ssh-setup` and `attach` refuse each other's kind today (72). A
+  plain request also carries `keepsMinimumLifetime` (the definition's, default false); the
+  field is refused on an iTerm2 request, where the 10 s minimum always holds (D14).
+- **The plain attach.** No `-CC`, never an unbound attach: on This Mac the attach child is
+  the tmux binary the guard finds with `PlainLaunch.localAttachArguments(session:
+  detachingOthers:)` over the request's four identity values (the bound `if-shell -F`
+  form, D38); on an SSH host D17's `/usr/bin/ssh -t … -- <destination> <D3 string>` with
+  `PlainLaunch.remoteScript` and the launch token as its sixth argument. `detachingOthers`
+  (and `remoteMoveHereScript`) exactly when the request is a move here, by the request's
+  existing marker for it; the worker reads how a move here is told apart today and records
+  it. The values come from the request after the guard's own checks; nothing new builds
+  shell or tmux source from values. The child's standard input is the helper's terminal
+  opened read-write (*Verified facts*, "Phase I-12a proof": tmux draws through it). Exit
+  statuses as D17 and D38 (65 a changed session, 68 a bad token, and so on), mapped to the
+  existing result kinds.
+- **What plain mode leaves out and keeps.** It writes no OSC 1337 sequence (no `Disinter`),
+  no status report request and waits for none, and buries nothing. It keeps the result file
+  (written exactly as `attach` writes it), the failure explanation and the wait for Return
+  (`MUXFINDER_LAUNCH_NO_WAIT=1` skips it as today). The 10 s minimum lifetime holds only when
+  the request's `keepsMinimumLifetime` is true.
+- **The early report.** `attach-plain` writes `<uuid>.report.json` next to the request
+  (atomic, 0600, under `LaunchStore`'s existing directory rules) right after its attach child
+  starts and before it waits on it: a schema version, the helper's pid, its terminal's path
+  (from its standard input with `ttyname`; none when that is not a terminal, which I-12c
+  treats as "cannot confirm here"), the attach child's pid and the child's start time as the
+  kernel reports it (so a reused pid is told apart). `attach` writes none (its confirmation
+  stays the tmux connection's, D15). `LaunchStore` reads it as a peek (never taking it) and
+  removes it wherever it removes the request's other files; a malformed or oversized report
+  reads as a typed failure, never as a confirmation.
+- **The plain profile.** `profile-plain <host id>` is `profile` without `-CC`: the same
+  read-only `hosts.json` read, the same session name rule and `tmux -u new-session -A -s
+  <name>` (over interactive ssh for an SSH host, D26's remote form without `-CC`), and the
+  same fallbacks (with `TMUX` or `MUXFINDER_LAUNCHED` set, or on any failure, it execs the
+  login shell; test mode with `MUXFINDER_LAUNCH_NO_WAIT=1` and `profile-test-<host id>.json`
+  as `profile`). I-12d shows it as the per-host command with Copy.
+- **Test mode.** `MUXFINDER_LAUNCH_TEST_MODE=1` (or the `test-mode` file) writes the argv
+  digest for `attach-plain` and `profile-plain` too (with the attach child's pid, as
+  `attach` does) and honors `testLaunchDelaySeconds`; `testSuppressDisinter` has nothing to
+  suppress there and is accepted and ignored.
+- **Checks.** Hermetic tests through the helper's existing seams for every call above: both
+  mode words and the refusals in both directions, the local and remote argv equal to the
+  `PlainLaunch` builders' for the same values (move here included), the bytes written to the
+  terminal (no OSC 1337 and no status report request in plain mode; `attach`'s unchanged),
+  the minimum-lifetime rule, the report's contents, mode, atomic write, peek and removal, the
+  plain profile's argv and fallbacks. Then one real plain attach of the built helper with no
+  terminal app and no iTerm2: on a pseudo-terminal the check opens itself (as `plain-proof`
+  does), against a `muxfinder-test-*` session on a private `TMUX_TMPDIR` server, with a
+  private `MUXFINDER_LAUNCH_DIRECTORY` and `MUXFINDER_LAUNCH_NO_WAIT=1`: the report's
+  terminal is that pty and its child pid the attach child, the session has exactly one
+  client with that `client_tty`, a bound `PlainClientDetach` ends it, the helper writes its
+  result and exits, nothing is left behind. Its form is the worker's (a `swift test` test if
+  it stays hermetic and quick, else a recorded check in `docs/TESTING.md`). The remote plain
+  attach's real run is I-12c's `e2e-plain`. **Regression** (requirement 12; the helper's
+  `attach` is what iTerm2 runs): `e2e-local` and `e2e-bury --local` on the final code, under
+  the gate in `PROGRESS.md` *Next action* 3, by the orchestrator.
+- **Records.** D14 (the two mode words, the report file, the terminal field and its
+  refusal), D38 ("Helper plain mode (I-12b2)"), `docs/TESTING.md` *Phase I-12b2*, and
+  `CLAUDE.md`'s launch helper line (present state). Nothing in the app or the coordinator
+  writes a plain request yet (I-12c).
 
 ## Deferred (explicitly out of scope for v1)
 

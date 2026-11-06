@@ -4,8 +4,9 @@ import Foundation
 /// Phase I-12a by `muxfinder-probe plain-proof`): an ordinary `tmux -u attach-session` client
 /// with its own status bar, prefix keys and copy mode, never `-CC`.
 ///
-/// Nothing in the app or the helper uses this yet; Phase I-12b wires it into the helper's plain
-/// mode. Everything here is static text or argv, so it changes no existing behavior.
+/// The helper's `attach-plain` runs it for a request (`localAttachArguments(for:)`,
+/// `sshArguments(for:)`, Phase I-12b2); nothing in the app writes a plain request yet (I-12c).
+/// Everything here is static text or argv, so it changes no existing behavior.
 ///
 /// Every attach is **bound**: one `tmux -u if-shell -F -t <id> <condition> "attach-session
 /// [-d] -t '<id>'" "run-shell 'exit 65'"`, so the server attaches (and, for a move here,
@@ -93,6 +94,41 @@ public enum PlainLaunch {
       args: checkArguments + [token.rawValue])
   }
 } // End of enum PlainLaunch
+
+extension PlainLaunch {
+  /// The identity a plain attach of `request` binds to: the guard's four values (session id,
+  /// creation time, server pid and start time), as the request carries them.
+  public static func boundIdentity(of request: LaunchRequest) -> BoundSessionIdentity {
+    BoundSessionIdentity(
+      sessionID: request.sessionID, serverPID: request.expectedServerPID,
+      serverStartTime: request.expectedServerStartTime,
+      createdAt: request.expectedSessionCreated)
+  }
+
+  /// The local attach child's arguments after the tmux path for `request`
+  /// (`localAttachArguments(session:detachingOthers:)` over `boundIdentity(of:)`, with `-d`
+  /// exactly when the request moves the session here, `LaunchRequest.detachesOtherClients`);
+  /// `nil` when its values cannot be encoded.
+  public static func localAttachArguments(for request: LaunchRequest) -> [String]? {
+    localAttachArguments(
+      session: boundIdentity(of: request), detachingOthers: request.detachesOtherClients)
+  }
+
+  /// ssh's arguments after argv[0] for a plain attach of `request` on an SSH host: D17's
+  /// options, `--`, the validated destination and `remoteCommand(checkArguments:token:
+  /// detachingOthers:)` with the guard's five values (`LaunchGuard.checkArguments(for:)`) and
+  /// the request's launch id as the token (`remoteMoveHereScript` for a move here). `nil` when
+  /// it is not an SSH request with a valid destination.
+  public static func sshArguments(for request: LaunchRequest) -> [String]? {
+    guard case .ssh(let raw) = request.host,
+      let destination = try? Validation.sshDestination(raw)
+    else { return nil }
+    let command = remoteCommand(
+      checkArguments: LaunchGuard.checkArguments(for: request), token: request.id,
+      detachingOthers: request.detachesOtherClients)
+    return RemoteLaunch.sshOptions + ["--", destination, command]
+  } // End of static func sshArguments(for:)
+} // End of extension PlainLaunch
 
 /// Which client of a session is a plain launch's (PLAN.md D38, requirement 5 of
 /// `autoclaude/processed/110-other-terminal-apps.md`): only evidence counts (D15, D25), and a

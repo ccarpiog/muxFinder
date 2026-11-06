@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T15:10:00Z",
+  "updated": "2026-11-06T15:59:14Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -754,13 +754,26 @@
     },
     {
       "id": "I-12b2",
-      "title": "Other terminals: terminal seam and helper plain mode",
+      "title": "Other terminals: helper plain mode, request terminal field, early report",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-12b",
+      "summary": "Adds the helper attach-plain and profile-plain modes, the request terminal field and the early report file.",
+      "review": "docs/reviews/phase-I-12b2.md",
+      "narrative": "docs/progress-archive/i-12b2.md",
+      "added": "2026-11-06T14:18:37Z",
+      "started": "2026-11-06T15:13:33Z",
+      "status_since": "2026-11-06T15:59:14Z"
+    },
+    {
+      "id": "I-12b3",
+      "title": "Other terminals: terminal seam, iTerm2 backend, plain open/focus/close",
       "status": "queued",
       "risk": "high",
       "parent": "I-12b",
-      "summary": "Puts iTerm2 behind a terminal seam unchanged, adds a plain backend and the helper plain attach and profile modes.",
-      "added": "2026-11-06T14:18:37Z",
-      "status_since": "2026-11-06T14:18:37Z"
+      "summary": "Puts a terminal-neutral seam above iTerm2: the iTerm2 backend over today's code and the plain backend opening, focusing and closing windows.",
+      "added": "2026-11-06T15:13:33Z",
+      "status_since": "2026-11-06T15:13:33Z"
     },
     {
       "id": "I-12c",

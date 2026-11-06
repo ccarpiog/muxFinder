@@ -98,6 +98,12 @@ public struct LaunchHelperPath: Sendable, Hashable, CustomStringConvertible {
     "\(path) \(ProfileLaunch.helperMode) \(LaunchToken(uuid: hostID).rawValue)"
   }
 
+  /// The persistent work command for a terminal app other than iTerm2 (PLAN.md D38):
+  /// `<path> profile-plain <host id>`, three words under any splitting rule as above.
+  public func plainProfileCommandLine(forHostID hostID: UUID) -> String {
+    "\(path) \(ProfileLaunch.plainHelperMode) \(LaunchToken(uuid: hostID).rawValue)"
+  }
+
   /// The path.
   public var description: String { path }
 }

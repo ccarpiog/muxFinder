@@ -45,9 +45,10 @@ struct LaunchModelsTests {
     #expect(
       Set(object.keys) == [
         "createdAt", "expectedServerPID", "expectedServerStartTime", "expectedSessionCreated",
-        "formatVersion", "host", "hostID", "id", "sessionID", "tmuxPathOverride",
+        "formatVersion", "host", "hostID", "id", "sessionID", "tmuxPathOverride", "terminal",
       ]
     )
+    #expect(object["terminal"] as? String == "iterm2")
     #expect(object["host"] as? [String: String] == ["kind": "local"])
     #expect(object["id"] as? String == request.id.rawValue)
     #expect(object["sessionID"] as? String == "$3")

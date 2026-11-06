@@ -27,12 +27,22 @@ import Foundation
 /// `MUXFINDER_LAUNCH_NO_WAIT=1`): the helper then ends like a failed attach, the explanation,
 /// the wait for Return and the hold included, with `ProfileLaunchProblem.exitStatus`. A shell
 /// that cannot start (every candidate failed) ends the same way with `spawnFailed` (74).
+///
+/// `muxfinder-launch profile-plain <host id>` (PLAN.md D38, for terminal apps other than iTerm2)
+/// is all of this with a plain tmux client: `ProfileLaunch.plainTmuxArguments(sessionName:)`
+/// locally, `ProfileLaunch.plainSSHArguments(destination:override:sessionName:)` on an SSH host,
+/// no `-CC`. Its tmux (or ssh) child gets the terminal opened again read-write as its standard
+/// input (`LaunchChildStandardInput.terminalReadWrite`), and in test mode the argv digest also
+/// records that child's process id once spawned. The nesting guard, the host list, the
+/// fallbacks, the hold and the exit statuses are `profile`'s.
 extension LaunchHelper {
-  /// Runs `profile <host id>` for `hostToken` (see the extension's documentation).
+  /// Runs `profile <host id>`, or with `plain` `profile-plain <host id>`, for `hostToken` (see
+  /// the extension's documentation).
   func profile(
     _ hostToken: LaunchToken,
     startedAt: Date,
-    argvDigest: LaunchArgvDigest? = nil
+    argvDigest: LaunchArgvDigest? = nil,
+    plain: Bool = false
   ) async -> Int32 {
     let hostID = hostToken.uuid
     if let variable = ProfileLaunch.nestingVariable(in: environment) {
@@ -60,30 +70,45 @@ extension LaunchHelper {
           instead: .launchFailed(failure, host: plan.host), hostID: hostID,
           startedAt: startedAt, argvDigest: argvDigest, terminalHungUp: child.terminalHungUp)
       case .attach(let path):
-        (executable, arguments) = (path, ProfileLaunch.tmuxArguments(sessionName: plan.sessionName))
+        let tmuxArguments =
+          plain
+          ? ProfileLaunch.plainTmuxArguments(sessionName: plan.sessionName)
+          : ProfileLaunch.tmuxArguments(sessionName: plan.sessionName)
+        (executable, arguments) = (path, tmuxArguments)
       }
     case .ssh(let destination):
       // `ProfileLaunchPlan` accepted only a valid destination; refuse anything else all the same.
-      guard
-        let sshArguments = ProfileLaunch.sshArguments(
+      let built =
+        plain
+        ? ProfileLaunch.plainSSHArguments(
           destination: destination, override: plan.tmuxPathOverride,
           sessionName: plan.sessionName)
-      else {
+        : ProfileLaunch.sshArguments(
+          destination: destination, override: plan.tmuxPathOverride,
+          sessionName: plan.sessionName)
+      guard let sshArguments = built else {
         return await startLoginShell(
           instead: .invalidDestination(.sshDestinationEmpty), hostID: hostID,
           startedAt: startedAt, argvDigest: argvDigest, terminalHungUp: false)
       }
       (executable, arguments) = (RemoteLaunch.sshPath, sshArguments)
     }
+    var written: LaunchArgvDigest?
     if let argvDigest {
-      await recordAttachChild(
+      written = await recordAttachChild(
         in: argvDigest, executable: executable, arguments: arguments, detachesOtherClients: false)
     }
     let outcome: LaunchChildOutcome
     do throws(ProcessRunnerError) {
-      outcome = try await childRunner.run(
-        executable: executable, arguments: arguments, environment: childEnvironment,
-        relaysStandardError: plan.host.isRemote)
+      if plain {
+        outcome = try await runPlainProfileChild(
+          executable: executable, arguments: arguments, remote: plan.host.isRemote,
+          digest: written)
+      } else {
+        outcome = try await childRunner.run(
+          executable: executable, arguments: arguments, environment: childEnvironment,
+          relaysStandardError: plan.host.isRemote)
+      }
     } catch {
       return await startLoginShell(
         instead: .launchFailed(.spawnFailed(errno: Self.errorNumber(of: error)), host: plan.host),
@@ -102,7 +127,26 @@ extension LaunchHelper {
       detail: "Persistent session ended normally.")
     await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: outcome.terminalHungUp)
     return LaunchExitStatus.success
-  } // End of func profile(_:startedAt:argvDigest:)
+  } // End of func profile(_:startedAt:argvDigest:plain:)
+
+  /// `profile-plain`'s tmux (or ssh) child: the terminal opened again read-write as its standard
+  /// input, its standard error relayed for an SSH host (`remote`), and in test mode (`digest`,
+  /// the one already written with the child) its process id recorded once spawned.
+  func runPlainProfileChild(
+    executable: String,
+    arguments: [String],
+    remote: Bool,
+    digest: LaunchArgvDigest?
+  ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
+    var onSpawn: (@Sendable (Int32) -> Void)?
+    if let digest, let store {
+      let recorder = LaunchDigestRecorder(store: store, digest: digest)
+      onSpawn = { processID in recorder.update { $0.attachChildProcessID = processID } }
+    }
+    return try await childRunner.run(
+      executable: executable, arguments: arguments, environment: childEnvironment,
+      relaysStandardError: remote, standardInput: .terminalReadWrite, onSpawn: onSpawn)
+  } // End of func runPlainProfileChild(executable:arguments:remote:digest:)
 
   /// The plan for `hostID`, from the host list (`profileHostList(for:)`), or why there is none.
   func profilePlan(for hostID: UUID) async -> Result<ProfileLaunchPlan, ProfileLaunchProblem> {

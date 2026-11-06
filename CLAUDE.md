@@ -278,7 +278,15 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   session killed, then no such session and no child process left).
 - Launch helper (iTerm2 runs it in a launch tab; by hand only for checks):
   `.build/debug/muxfinder-launch attach <uuid>` takes `<uuid>.request.json` from
-  `~/Library/Application Support/muxFinder/launch/`; `muxfinder-launch ssh-setup <uuid>`
+  `~/Library/Application Support/muxFinder/launch/` (an iTerm2 request: its `terminal`
+  `iterm2` or absent); `muxfinder-launch attach-plain <uuid>` (another terminal app's window,
+  PLAN.md D38; nothing in the app writes its request yet) takes only a plain request
+  (`terminal` a definition id; `attach` and `attach-plain` refuse each other's with 72), runs
+  the bound plain attach (no `-CC`, `-d` for a move here; remotely `PlainLaunch.remoteScript`
+  with the token) with its terminal opened read-write as the child's standard input, writes
+  `<uuid>.report.json` (its terminal, its attach child's pid and start time) right after the
+  spawn, writes no `Disinter` or status report request, and holds the 10 s minimum only with
+  the request's `keepsMinimumLifetime`; `muxfinder-launch ssh-setup <uuid>`
   ("Set up SSH in iTerm2…", PLAN.md D24) takes only an ssh setup request (`"kind":"sshSetup"`;
   each mode refuses the other kind with 72) and runs plain interactive
   `/usr/bin/ssh -- <destination>`, so never run it by hand with a real request: it starts a
@@ -288,19 +296,23 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `MUXFINDER_LAUNCHED` set, or on any failure, execs the login shell; so by hand only in test
   mode with `MUXFINDER_LAUNCH_NO_WAIT=1` (then no shell is started and the host comes from a
   `profile-test-<host id>.json` host list in the launch directory, never the real
-  `hosts.json`). In `attach` mode, once its attach child has ended, the helper writes a line
+  `hosts.json`); `profile-plain <host id>` is the same without `-CC` (the persistent work
+  command for other terminal apps). `swift test` runs one real `attach-plain` of the built
+  helper on a pseudo-terminal of its own against a private tmux server
+  (`LaunchHelperPlainBinaryTests`; `MUXFINDER_TEST_LAUNCH_HELPER=<absolute path>` runs another
+  helper, such as the bundle's). In `attach` mode, once its attach child has ended, the helper writes a line
   feed, `OSC 1337 ; Disinter ST` and a status report request to its terminal and waits at
   most 2 s for the answer (unanswered: `Disinter` and the request again at once), before its
   explanation, and `Disinter` and the request again just before it exits (only when stdin and
   stdout are terminals; PLAN.md D14, D29). For checks, set
   `MUXFINDER_LAUNCH_DIRECTORY=<absolute private dir>` and a private `TMUX_TMPDIR`.
   `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
-  argv digest (in `attach` mode also the attach child's pid and each launch tab restore) and
-  honors a request's `testLaunchDelaySeconds` and `testSuppressDisinter` (ignored outside test
-  mode);
+  argv digest (in `attach`, `attach-plain` and `profile-plain` mode also the attach child's
+  pid, in `attach` each launch tab restore) and honors a request's `testLaunchDelaySeconds`
+  and `testSuppressDisinter` (ignored outside test mode, and by `attach-plain`);
   `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return and the 10 s minimum
   lifetime (on a terminal the helper never exits younger). Exit codes and the digest format:
-  PLAN.md D14, D26, `docs/TESTING.md`.
+  PLAN.md D14, D26, D38, `docs/TESTING.md`.
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
   `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I
   scripts/dev/gen-iterm2-fixtures.py` → `Tests/MuxFinderCoreTests/Fixtures/iterm2/`.

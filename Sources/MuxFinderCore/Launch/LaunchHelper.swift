@@ -125,10 +125,14 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 /// id>` is what a "Persistent work" profile's tab runs (PLAN.md D26, `LaunchHelperProfile.swift`):
 /// it takes no request file, reads the host list read-only, has a nesting guard and falls back
 /// to the login shell; it shares the children, the test mode and the minimum lifetime below.
+/// `attach-plain <launch id>` and `profile-plain <host id>` are the plain modes for terminal
+/// apps other than iTerm2 (PLAN.md D38, `LaunchHelperPlain.swift`): a plain, bound tmux
+/// attach, no tab restore, an early report, the minimum lifetime only when the request asks.
 ///
-/// Each mode takes (reads and deletes) only a request of its own kind (`LaunchRequestKind`); a
-/// well-formed request of the other kind is refused as `requestUnreadable` (72) and runs
-/// nothing.
+/// Each mode takes (reads and deletes) only a request of its own kind (`LaunchRequestKind`) and,
+/// for `attach` and `attach-plain`, of its own terminal (`LaunchRequest.terminal`: `iterm2`
+/// for `attach`, a definition's id for `attach-plain`); a well-formed request of another kind
+/// or terminal is refused as `requestUnreadable` (72) and runs nothing.
 ///
 /// `ssh-setup` ("Set up SSH in iTerm2…", PLAN.md D24) runs one child on the tab's terminal,
 /// plain interactive `/usr/bin/ssh -- <destination>` (`SSHSetup`), its standard error relayed
@@ -174,19 +178,21 @@ public struct StandardLaunchTerminal: LaunchTerminal {
 /// a status report request and waits at most `tabRestoreTimeout` for the answer
 /// (`LaunchTerminal.requestStatusReport(after:timeout:)`, `restoreTab(_:stage:)`). The first
 /// restore starts with `tmuxModeEndSequence`, and when it goes unanswered (an abnormal end,
-/// iTerm2 still in tmux mode) a second follows at once, before the explanation. `profile` and
-/// `ssh-setup` never do.
+/// iTerm2 still in tmux mode) a second follows at once, before the explanation. `profile`,
+/// `ssh-setup` and the plain modes never do.
 ///
 /// Environment variables (development and tests; production sets none):
 /// - `MUXFINDER_LAUNCH_DIRECTORY`: an absolute path used as the launch directory instead of
 ///   `~/Library/Application Support/muxFinder/launch`. A relative or empty value is refused as
 ///   `launchDirectoryUnusable`.
 /// - `MUXFINDER_LAUNCH_TEST_MODE=1`: write an argv digest (`LaunchArgvDigest`, written again
-///   with the attach child, or the ssh setup's ssh child, just before it starts; in `attach`
-///   mode also with the attach child's process id once spawned, and after each launch tab
-///   restore) and honor a request's `testLaunchDelaySeconds` (`testLaunchDelay(_:child:)`) and
-///   `testSuppressDisinter` (no `Disinter` in any restore); the `test-mode` marker file in
-///   the launch directory does the same. Outside test mode those fields are ignored.
+///   with the attach child, or the ssh setup's ssh child, just before it starts; in `attach`,
+///   `attach-plain` and `profile-plain` mode also with the attach child's process id once
+///   spawned, and in `attach` after each launch tab restore) and honor a request's
+///   `testLaunchDelaySeconds` (`testLaunchDelay(_:child:)`) and `testSuppressDisinter` (no
+///   `Disinter` in any restore; accepted and ignored by `attach-plain`, which restores
+///   nothing); the `test-mode` marker file in the launch directory does the same. Outside test
+///   mode those fields are ignored.
 /// - `MUXFINDER_LAUNCH_NO_WAIT=1`: never wait for Return nor hold the tab open
 ///   (`StandardLaunchTerminal`).
 /// - `MUXFINDER_LAUNCH_MINIMUM_LIFETIME_MS`: the minimum lifetime in milliseconds (1 to 7
@@ -202,10 +208,14 @@ public struct LaunchHelper: Sendable {
     case help
     /// `attach <launch id>`.
     case attach(LaunchToken)
+    /// `attach-plain <launch id>` (PLAN.md D38): a plain attach in another terminal app.
+    case attachPlain(LaunchToken)
     /// `ssh-setup <launch id>` (PLAN.md D24).
     case sshSetup(LaunchToken)
     /// `profile <host id>` (PLAN.md D26): a persistent profile's tab.
     case profile(LaunchToken)
+    /// `profile-plain <host id>` (PLAN.md D38): `profile` without `-CC`.
+    case profilePlain(LaunchToken)
   }
 
   /// What a launch is for, which decides the wording of its explanation.
@@ -224,7 +234,8 @@ public struct LaunchHelper: Sendable {
   static let ownVariablePrefix = "MUXFINDER_LAUNCH_"
   /// The usage line.
   public static let usage =
-    "usage: muxfinder-launch attach|ssh-setup <launch id> | profile <host id>"
+    "usage: muxfinder-launch attach|attach-plain|ssh-setup <launch id> | "
+    + "profile <host id> | profile-plain <host id>"
   /// The production `minimumLifetime`. iTerm2 3.7.6 warns about sessions that end within 3 s of
   /// starting (its `shortLivedSessionDuration` default); 10 s matches the attach coordinator's
   /// minimum launch tab age (PLAN.md D15).
@@ -269,6 +280,9 @@ public struct LaunchHelper: Sendable {
   public var hostStore: HostStore
   /// Starts the login shell in place of the helper (`profile` mode's fallback, PLAN.md D26).
   public var loginShell: any LoginShellStarting
+  /// Where `attach-plain` reads its early report's terminal path and its attach child's start
+  /// time (PLAN.md D38; `PlainLaunchFacts.standard` in production).
+  public var plainFacts: PlainLaunchFacts
 
   /// Creates a helper from its parts. Tests pass fakes.
   public init(
@@ -282,7 +296,8 @@ public struct LaunchHelper: Sendable {
     checkTimeout: Duration = LaunchGuard.defaultTimeout,
     minimumLifetime: Duration = LaunchHelper.defaultMinimumLifetime,
     hostStore: HostStore = HostStore(),
-    loginShell: any LoginShellStarting = ExecLoginShellStarter()
+    loginShell: any LoginShellStarting = ExecLoginShellStarter(),
+    plainFacts: PlainLaunchFacts = .standard
   ) {
     self.store = store
     self.environment = environment
@@ -295,6 +310,7 @@ public struct LaunchHelper: Sendable {
     self.minimumLifetime = minimumLifetime
     self.hostStore = hostStore
     self.loginShell = loginShell
+    self.plainFacts = plainFacts
   } // End of init(store:environment:childRunner:terminal:log:processID:now:checkTimeout:…)
 
   /// The production helper: the store from `store(for:)`, a `TerminalChildRunner` whose control
@@ -341,16 +357,20 @@ public struct LaunchHelper: Sendable {
   }
 
   /// Parses argv (argv[0] first). Returns `nil` for anything but `help` or exactly
-  /// `attach <canonical launch id>`, `ssh-setup <canonical launch id>` or `profile <canonical
-  /// host id>` (a host id in the lowercase form of a launch id).
+  /// `attach <canonical launch id>`, `attach-plain <canonical launch id>`, `ssh-setup
+  /// <canonical launch id>`, `profile <canonical host id>` or `profile-plain <canonical host
+  /// id>` (a host id in the lowercase form of a launch id). The mode word alone chooses plain
+  /// mode (PLAN.md D38), never the environment.
   static func parse(_ argv: [[UInt8]]) -> Command? {
     let words = argv.dropFirst().map { String(decoding: $0, as: UTF8.self) }
     if words.count == 1, ["help", "-h", "--help"].contains(words[0]) { return .help }
     guard words.count == 2, let id = LaunchToken(words[1]) else { return nil }
     switch words[0] {
     case LaunchRequestKind.attach.helperMode: return .attach(id)
+    case LaunchHelperMode.attachPlain.word: return .attachPlain(id)
     case LaunchRequestKind.sshSetup.helperMode: return .sshSetup(id)
     case ProfileLaunch.helperMode: return .profile(id)
+    case ProfileLaunch.plainHelperMode: return .profilePlain(id)
     default: return nil
     }
   } // End of static func parse(_:)
@@ -370,10 +390,14 @@ public struct LaunchHelper: Sendable {
       return LaunchExitStatus.success
     case .attach(let id):
       return await attach(id, startedAt: startedAt, argvDigest: digest)
+    case .attachPlain(let id):
+      return await attachPlain(id, startedAt: startedAt, argvDigest: digest)
     case .sshSetup(let id):
       return await sshSetup(id, startedAt: startedAt, argvDigest: digest)
     case .profile(let hostID):
       return await profile(hostID, startedAt: startedAt, argvDigest: digest)
+    case .profilePlain(let hostID):
+      return await profile(hostID, startedAt: startedAt, argvDigest: digest, plain: true)
     case nil:
       await log.record(
         .launch,
@@ -761,7 +785,7 @@ public struct LaunchHelper: Sendable {
   }
 
   /// Finishes an attach of `request` (`nil` when none was taken), worded for its host: see
-  /// `finish(_:hostID:purpose:failure:child:startedAt:resultStore:tabRestore:)`.
+  /// `finish(_:hostID:purpose:failure:child:startedAt:resultStore:tabRestore:…)`.
   func finish(
     _ id: LaunchToken,
     request: LaunchRequest?,
@@ -769,16 +793,20 @@ public struct LaunchHelper: Sendable {
     child: ChildRecord,
     startedAt: Date,
     resultStore: LaunchStore?,
-    tabRestore: TabRestore? = nil
+    tabRestore: TabRestore? = nil,
+    holdsMinimumLifetime: Bool = true
   ) async -> Int32 {
     await finish(
       id, hostID: request?.hostID, purpose: .attach(request?.host ?? .local), failure: failure,
-      child: child, startedAt: startedAt, resultStore: resultStore, tabRestore: tabRestore)
-  } // End of func finish(_:request:failure:child:startedAt:resultStore:tabRestore:)
+      child: child, startedAt: startedAt, resultStore: resultStore, tabRestore: tabRestore,
+      holdsMinimumLifetime: holdsMinimumLifetime)
+  } // End of func finish(_:request:failure:child:startedAt:resultStore:tabRestore:…)
 
   /// Writes the result (when `resultStore` is set), logs, explains a failure (worded for
   /// `purpose`), holds the tab open until the helper is `minimumLifetime` old, and returns the
-  /// exit status. Every way a launch ends goes through here, so the hold is never skipped.
+  /// exit status. Every way a launch ends goes through here, so the hold is never skipped,
+  /// except by `attach-plain` (PLAN.md D38), which passes `holdsMinimumLifetime` `false` unless
+  /// its request keeps the minimum lifetime.
   ///
   /// With `tabRestore` (an attach whose attach child ran, PLAN.md Phase 13 item 4, D29) and a
   /// terminal that was not hung up, the launch tab is restored, in case it was buried: right
@@ -795,7 +823,8 @@ public struct LaunchHelper: Sendable {
     child: ChildRecord,
     startedAt: Date,
     resultStore: LaunchStore?,
-    tabRestore: TabRestore? = nil
+    tabRestore: TabRestore? = nil,
+    holdsMinimumLifetime: Bool = true
   ) async -> Int32 {
     let result = LaunchResult(
       id: id,
@@ -844,10 +873,12 @@ public struct LaunchHelper: Sendable {
     if let failure {
       await explain(failure, purpose: purpose, terminalHungUp: child.terminalHungUp)
     }
-    await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: child.terminalHungUp)
+    if holdsMinimumLifetime {
+      await holdUntilMinimumLifetime(since: startedAt, terminalHungUp: child.terminalHungUp)
+    }
     if let restore { await restoreTab(restore, stage: .beforeExit) }
     return result.exitStatus
-  } // End of func finish(_:hostID:purpose:failure:child:startedAt:resultStore:tabRestore:)
+  } // End of func finish(_:hostID:purpose:failure:child:startedAt:resultStore:tabRestore:…)
 
   /// One launch tab restore (PLAN.md Phase 13 item 4, D29): asks the terminal for a status
   /// report after the `Disinter` sequence (unless `plan` suppresses it; at the `afterChild`

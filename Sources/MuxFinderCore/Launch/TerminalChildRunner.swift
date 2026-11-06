@@ -54,6 +54,19 @@ public enum LaunchCheckOutcome: Sendable, Equatable {
   }
 }
 
+/// What the attach child gets as its standard input.
+public enum LaunchChildStandardInput: Sendable, Hashable {
+  /// The helper's own descriptor 0, as it is: `attach`, `profile` and `ssh-setup` (an iTerm2
+  /// tab's terminal, PLAN.md D14).
+  case inherited
+  /// The helper's terminal opened again read-write (`O_RDWR`, `O_NOCTTY`, blocking; the same
+  /// device checked), the plain modes' (PLAN.md D38): a plain tmux client hands its standard
+  /// input to the server, which draws through it, so a read-only one gets no screen (*Verified
+  /// facts*, "Phase I-12a proof"). When standard input is not a terminal, or cannot be opened
+  /// again, the child inherits it as with `inherited`.
+  case terminalReadWrite
+}
+
 /// Runs the helper's two children. The production implementation is `TerminalChildRunner`;
 /// tests substitute fakes.
 public protocol LaunchChildRunner: Sendable {
@@ -77,9 +90,35 @@ public protocol LaunchChildRunner: Sendable {
     relaysStandardError: Bool,
     onSpawn: (@Sendable (Int32) -> Void)?
   ) async throws(ProcessRunnerError) -> LaunchChildOutcome
+
+  /// The same, with the child's standard input chosen by `standardInput` (the plain modes ask
+  /// for `terminalReadWrite`, PLAN.md D38). The default implementation, for runners that have
+  /// no terminal of their own (test fakes), ignores `standardInput` and runs the call above.
+  func run(
+    executable: String,
+    arguments: [String],
+    environment: [String: String],
+    relaysStandardError: Bool,
+    standardInput: LaunchChildStandardInput,
+    onSpawn: (@Sendable (Int32) -> Void)?
+  ) async throws(ProcessRunnerError) -> LaunchChildOutcome
 }
 
 extension LaunchChildRunner {
+  /// Runs the attach child without choosing its standard input (see the requirement).
+  public func run(
+    executable: String,
+    arguments: [String],
+    environment: [String: String],
+    relaysStandardError: Bool,
+    standardInput: LaunchChildStandardInput,
+    onSpawn: (@Sendable (Int32) -> Void)?
+  ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
+    try await run(
+      executable: executable, arguments: arguments, environment: environment,
+      relaysStandardError: relaysStandardError, onSpawn: onSpawn)
+  } // End of func run(executable:arguments:environment:relaysStandardError:standardInput:…)
+
   /// Spawns the attach child without an `onSpawn` callback.
   public func run(
     executable: String,
@@ -437,7 +476,9 @@ public final class TerminalChildControl: Sendable {
 ///   relay reads a bounded amount per round and never blocks on the tab, so neither a
 ///   descendant that keeps writing nor a tab that stops reading delays signals or the exit.
 ///   A closed descriptor among them becomes `/dev/null`. `POSIX_SPAWN_CLOEXEC_DEFAULT` closes
-///   every other descriptor in the child.
+///   every other descriptor in the child. The plain modes (PLAN.md D38) ask for standard input
+///   as the terminal opened again read-write (`LaunchChildStandardInput.terminalReadWrite`),
+///   since a plain tmux client's server draws through it.
 /// - The child stays in the helper's process group, which is the terminal's foreground group,
 ///   so tmux can read the terminal (a background group would be stopped with `SIGTTIN`).
 /// - The child starts with default signal dispositions and an empty signal mask.
@@ -467,17 +508,22 @@ public struct TerminalChildRunner: LaunchChildRunner {
   /// Where a relayed standard error is copied to: the helper's own standard error (the tab) in
   /// production; tests pass another descriptor.
   public var standardErrorDestination: Int32
+  /// The descriptor whose terminal `LaunchChildStandardInput.terminalReadWrite` opens again:
+  /// the helper's own standard input in production; tests pass another descriptor.
+  public var terminalInput: Int32
 
   /// Creates a runner. Tests pass a runner with short grace periods.
   public init(
     control: TerminalChildControl = .init(),
     checkRunner: any ProcessRunner = PosixSpawnProcessRunner(),
-    standardErrorDestination: Int32 = STDERR_FILENO
+    standardErrorDestination: Int32 = STDERR_FILENO,
+    terminalInput: Int32 = STDIN_FILENO
   ) {
     self.control = control
     self.checkRunner = checkRunner
     self.standardErrorDestination = standardErrorDestination
-  }
+    self.terminalInput = terminalInput
+  } // End of init(control:checkRunner:standardErrorDestination:terminalInput:)
 
   /// Runs the check. Returns `.interrupted` without starting it when a signal is already
   /// pending, and `.interrupted` after stopping its group when one arrives while it runs (or
@@ -513,12 +559,30 @@ public struct TerminalChildRunner: LaunchChildRunner {
   } // End of func runCheck(_:)
 
   /// Runs the attach child on a dedicated thread, calling `onSpawn` with its process id right
-  /// after the spawn. Cancelling the calling task sends it SIGTERM.
+  /// after the spawn. Cancelling the calling task sends it SIGTERM. The child inherits the
+  /// helper's standard input as it is (`LaunchChildStandardInput.inherited`).
   public func run(
     executable: String,
     arguments: [String],
     environment: [String: String],
     relaysStandardError: Bool,
+    onSpawn: (@Sendable (Int32) -> Void)?
+  ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
+    try await run(
+      executable: executable, arguments: arguments, environment: environment,
+      relaysStandardError: relaysStandardError, standardInput: .inherited, onSpawn: onSpawn)
+  }
+
+  /// Runs the attach child on a dedicated thread with the standard input `standardInput`
+  /// chooses (for `terminalReadWrite`, `terminalInput`'s terminal opened again read-write),
+  /// calling `onSpawn` with its process id right after the spawn. Cancelling the calling task
+  /// sends it SIGTERM.
+  public func run(
+    executable: String,
+    arguments: [String],
+    environment: [String: String],
+    relaysStandardError: Bool,
+    standardInput: LaunchChildStandardInput,
     onSpawn: (@Sendable (Int32) -> Void)?
   ) async throws(ProcessRunnerError) -> LaunchChildOutcome {
     let request = ProcessRequest(
@@ -528,6 +592,7 @@ public struct TerminalChildRunner: LaunchChildRunner {
     )
     let control = control
     let destination = relaysStandardError ? standardErrorDestination : nil
+    let reopened = standardInput == .terminalReadWrite ? terminalInput : nil
     let result = await withTaskCancellationHandler {
       await withCheckedContinuation {
         (continuation: CheckedContinuation<Result<LaunchChildOutcome, ProcessRunnerError>, Never>)
@@ -535,7 +600,8 @@ public struct TerminalChildRunner: LaunchChildRunner {
         let thread = Thread {
           continuation.resume(
             returning: Self.supervise(
-              request, control: control, relayingTo: destination, onSpawn: onSpawn))
+              request, control: control, relayingTo: destination,
+              reopeningTerminalOf: reopened, onSpawn: onSpawn))
         }
         thread.name = "cc.carpio.muxfinder.launch-child"
         thread.start()
@@ -544,16 +610,40 @@ public struct TerminalChildRunner: LaunchChildRunner {
       control.forward(SIGTERM)
     }
     return try result.get()
-  } // End of func run(executable:arguments:environment:relaysStandardError:onSpawn:)
+  } // End of func run(executable:arguments:environment:relaysStandardError:standardInput:…)
+
+  /// A new read-write descriptor (`O_RDWR`, `O_NOCTTY`, `O_CLOEXEC`, blocking) for the terminal
+  /// `descriptor` refers to, or `nil` when it is not a terminal, cannot be opened again, or the
+  /// path names another device. The caller closes it.
+  static func openReadWriteTerminal(like descriptor: Int32) -> Int32? {
+    guard isatty(descriptor) == 1 else { return nil }
+    var name = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+    guard ttyname_r(descriptor, &name, name.count) == 0 else { return nil }
+    let opened = open(name, O_RDWR | O_NOCTTY | O_CLOEXEC)
+    guard opened >= 0 else { return nil }
+    var original = stat()
+    var reopened = stat()
+    guard fstat(descriptor, &original) == 0, fstat(opened, &reopened) == 0,
+      original.st_rdev == reopened.st_rdev
+    else {
+      close(opened)
+      return nil
+    }
+    return opened
+  } // End of static func openReadWriteTerminal(like:)
 
   /// Spawns the attach child and waits for it, forwarding signals. With a `destination`, the
-  /// child's standard error is a pipe relayed there (`StandardErrorRelay`). `onSpawn` gets the
-  /// child's process id right after the spawn (the child is unreaped until the wait ends, so
-  /// the id cannot name another process meanwhile). Blocks; runs on its own thread.
+  /// child's standard error is a pipe relayed there (`StandardErrorRelay`). With
+  /// `reopeningTerminalOf`, the child's standard input is that descriptor's terminal opened
+  /// again read-write (`openReadWriteTerminal(like:)`; inherited as usual when that fails), the
+  /// helper's own copy closed once the child is spawned. `onSpawn` gets the child's process id
+  /// right after the spawn (the child is unreaped until the wait ends, so the id cannot name
+  /// another process meanwhile). Blocks; runs on its own thread.
   static func supervise(
     _ request: ProcessRequest,
     control: TerminalChildControl,
     relayingTo destination: Int32? = nil,
+    reopeningTerminalOf inputSource: Int32? = nil,
     onSpawn: (@Sendable (Int32) -> Void)? = nil
   ) -> Result<LaunchChildOutcome, ProcessRunnerError> {
     let argv: CStringArray
@@ -594,15 +684,20 @@ public struct TerminalChildRunner: LaunchChildRunner {
         return .failure(error)
       }
     }
+    let inputTerminal = inputSource.flatMap { openReadWriteTerminal(like: $0) }
     let startedAt = Date()
     let processID: pid_t
     do throws(ProcessRunnerError) {
-      processID = try spawn(path: path, argv: argv, envp: envp, standardError: errorPipe?.writeEnd)
+      processID = try spawn(
+        path: path, argv: argv, envp: envp, standardError: errorPipe?.writeEnd,
+        standardInput: inputTerminal)
     } catch {
+      if let inputTerminal { close(inputTerminal) }
       if let errorPipe { close(errorPipe.writeEnd) }
       relay?.close()
       return .failure(error)
     }
+    if let inputTerminal { close(inputTerminal) }
     if let errorPipe { close(errorPipe.writeEnd) }
     onSpawn?(processID)
     let forwarded = wait(for: processID, queue: queue, control: control, relay: &relay)
@@ -628,18 +723,23 @@ public struct TerminalChildRunner: LaunchChildRunner {
   } // End of func supervise(_:control:relayingTo:onSpawn:)
 
   /// Spawns the child with the terminal descriptors inherited (standard error replaced by
-  /// `standardError` when given, the write end of the relay's pipe) and in this process group.
+  /// `standardError` when given, the write end of the relay's pipe; standard input by
+  /// `standardInput` when given, the terminal opened again read-write) and in this process
+  /// group.
   static func spawn(
     path: String,
     argv: CStringArray,
     envp: CStringArray,
-    standardError: Int32? = nil
+    standardError: Int32? = nil,
+    standardInput: Int32? = nil
   ) throws(ProcessRunnerError) -> pid_t {
     var actions = try SpawnFileActions()
     defer { actions.destroy() }
     for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
       if descriptor == STDERR_FILENO, let standardError {
         try actions.duplicate(standardError, to: STDERR_FILENO)
+      } else if descriptor == STDIN_FILENO, let standardInput {
+        try actions.duplicate(standardInput, to: STDIN_FILENO)
       } else if fcntl(descriptor, F_GETFD) != -1 {
         try actions.inherit(descriptor)
       } else {

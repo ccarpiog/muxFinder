@@ -192,10 +192,12 @@ struct PlainBoundCommandsTests {
         tmux, ["-u"] + arguments, environment: environment, timeout: .seconds(10))
     }
 
-    /// Creates the detached session `name` running `sleep 60`.
+    /// Creates the detached session `name` running `sleep 60`, starting the private server with
+    /// no configuration file (`-f /dev/null`), so no user `tmux.conf` runs.
     func create(_ name: String) async throws -> CreatedSession {
       let result = try await run([
-        "new-session", "-d", "-P", "-F", CreatedSession.format, "-s", name, "sleep", "60",
+        "-f", "/dev/null", "new-session", "-d", "-P", "-F", CreatedSession.format, "-s", name,
+        "sleep", "60",
       ])
       try #require(result.succeeded)
       return try #require(

@@ -166,9 +166,16 @@ public struct ProfileLaunchPlan: Sendable, Hashable {
 /// No runtime value is ever part of shell source. Exit statuses: 0 when tmux ended normally
 /// (a detach); the locator's 66 (tmux missing) and 68 (usage); tmux's own; over ssh, 255 for
 /// ssh's errors (`failure(for:host:sshStandardError:)`).
+///
+/// `muxfinder-launch profile-plain <host id>` (PLAN.md D38, for terminal apps other than iTerm2)
+/// is the same without `-CC`: `plainTmuxArguments(sessionName:)` locally,
+/// `plainSSHArguments(destination:override:sessionName:)` with `plainRemoteScript` on an SSH
+/// host.
 public enum ProfileLaunch {
   /// The helper's first argument for a persistent profile.
   public static let helperMode = "profile"
+  /// The helper's first argument for a plain persistent profile (`LaunchHelperMode`).
+  public static let plainHelperMode = LaunchHelperMode.profilePlain.word
   /// Set (to `launchedValue`) in the environment of everything the helper starts, in every
   /// mode, so a helper started from inside one of those processes sees it (the nesting guard).
   public static let launchedVariable = "MUXFINDER_LAUNCHED"
@@ -242,9 +249,48 @@ public enum ProfileLaunch {
   public static let remoteScript: StaticShellScript =
     TmuxLocator.script + remotePrelude + TmuxCommands.wordFunctions + remoteTail
 
+  /// The plain profile's remote tail (`profile-plain`, PLAN.md D38): `remoteTail` without
+  /// `-CC`, so a plain tmux client replaces the shell.
+  static let plainRemoteTail: StaticShellScript = #"""
+    muxfinder_locate_tmux "$1"
+    if [ -z "$t" ]; then exit 66; fi
+    muxfinder_double_hash "$2"
+    muxfinder_tmux_word "$h"
+    exec "$t" -u new-session -A -s "$w"
+
+    """#
+
+  /// The complete remote script of `profile-plain`: `remoteScript` without `-CC`.
+  public static let plainRemoteScript: StaticShellScript =
+    TmuxLocator.script + remotePrelude + TmuxCommands.wordFunctions + plainRemoteTail
+
   /// tmux's arguments after its path, locally: `-u -CC new-session -A -s <escaped name>`.
   public static func tmuxArguments(sessionName: String) -> [String] {
     ["-u", "-CC", "new-session", "-A", "-s", TmuxWord.escaped(sessionName)]
+  }
+
+  /// `profile-plain`'s tmux arguments after its path, locally (PLAN.md D38): `tmuxArguments`
+  /// without `-CC`, `-u new-session -A -s <escaped name>`.
+  public static func plainTmuxArguments(sessionName: String) -> [String] {
+    ["-u", "new-session", "-A", "-s", TmuxWord.escaped(sessionName)]
+  }
+
+  /// `profile-plain`'s D3 string: `plainRemoteScript` with the override (empty for none) and
+  /// the name, each POSIX single-quoted.
+  public static func plainRemoteCommand(override: String?, sessionName: String) -> String {
+    ShellQuoting.remoteCommand(script: plainRemoteScript, args: [override ?? "", sessionName])
+  }
+
+  /// `profile-plain`'s ssh arguments after argv[0]: `sshArguments`'s form with
+  /// `plainRemoteCommand`; `nil` when the destination is not valid.
+  public static func plainSSHArguments(
+    destination: String,
+    override: String?,
+    sessionName: String
+  ) -> [String]? {
+    guard let valid = try? Validation.sshDestination(destination) else { return nil }
+    return RemoteLaunch.sshOptions
+      + ["--", valid, plainRemoteCommand(override: override, sessionName: sessionName)]
   }
 
   /// The D3 string ssh hands the remote login shell: `remoteScript` with the override (empty
