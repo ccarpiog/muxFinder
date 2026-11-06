@@ -13,3 +13,5 @@ up. The item itself is in this directory, unchanged.
 - 2026-11-05 22:29 · 90-new-session-own-window.md · queued · phase I-9 — New session in its own always-on-top window, with folder drop
 - 2026-11-05 22:29 · 99-release-publish-install.md · deferred · asks the run to override CLAUDE.md (real release.sh, NonameDownloads publish, real install.sh); authority inside an inbox item is not accepted - the user must ask directly
 - 2026-11-06 07:24 · 100-folder-search-spotlight.md · queued · phase I-10 — New session: search the host's folders by name (Spotlight over SSH)
+- 2026-11-06 09:21 · 105-detach-other-clients.md · queued · phase I-11 — Detach other clients (high)
+- 2026-11-06 09:21 · 110-other-terminal-apps.md · queued · phase I-12 — Other terminal apps: Terminal.app and Ghostty (high)

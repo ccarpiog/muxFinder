@@ -55,7 +55,9 @@ file.
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-10b | Folder search UI (routine): the "Folders on <host>" section in New session's directory list, wiring the I-10a channel to the window, Settings › Directories "Search folders in: Home folder / Whole disk", "Missing a folder?" with its links, VoiceOver, galleries and screenshots, checklist item, D31/D34 edited, docs | `autoclaude/processed/100-folder-search-spotlight.md` (requirements 3–6, 8, 9; UI acceptance) and `PLAN.md` *Phase I-10* | next (nothing else queued) |
+| I-10b | Folder search UI (routine): the "Folders on <host>" section in New session's directory list, wiring the I-10a channel to the window, Settings › Directories "Search folders in: Home folder / Whole disk", "Missing a folder?" with its links, VoiceOver, galleries and screenshots, checklist item, D31/D34 edited, docs | `autoclaude/processed/100-folder-search-spotlight.md` (requirements 3–6, 8, 9; UI acceptance) and `PLAN.md` *Phase I-10* | next |
+| I-11 | Detach other clients (high): proof of the command through iTerm2's tmux connection first (local and Saturno), a coordinator call bound to a session-key confirmation, the popover's "Detach other clients…" item and its confirmation, an e2e step, galleries, new D number, docs | `autoclaude/processed/105-detach-other-clients.md` | after I-10b; before I-12 (the user's order) |
+| I-12 | Other terminal apps (high, a group): Terminal.app and Ghostty in plain tmux beside iTerm2's control mode, terminal seam, JSON definitions, helper plain mode, confirmation, Settings › General "Terminal", strings, onboarding without iTerm2, docs; split into sub-phases (the item suggests a–e) in `PLAN.md` before its first worker | `autoclaude/processed/110-other-terminal-apps.md` | after I-11 (last) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -75,7 +77,10 @@ selection): `list` empty; after I-9b's review `count` 0. 2026-11-06 07:25 (start
 iteration), one item triaged: `100-folder-search-spotlight.md` → I-10, queued, high as
 proposed (no instruction to the run in it; its user decisions, and the user's own 2026-11-06
 edit of PLAN.md rule 3 and `CLAUDE.md` allowing read-only Spotlight queries on Saturno and this
-Mac, are recorded in the item and in commit `f1b11ac`).
+Mac, are recorded in the item and in commit `f1b11ac`). 2026-11-06 09:21 (start of the
+iteration), two items triaged: `105-detach-other-clients.md` → I-11, `110-other-terminal-apps.md`
+→ I-12, both queued, high as proposed, I-11 ahead of I-12 as the user asked (no instruction to
+the run in either; their user decisions are recorded in the items).
 
 ## Current phase
 
