@@ -202,7 +202,7 @@ final class BackgroundControlClient: Sendable {
   } // End of static func scanForExit(_:state:)
 
   /// Whether `processID` has exited, without reaping it (`WNOWAIT`).
-  private static func hasExited(_ processID: pid_t) -> Bool {
+  static func hasExited(_ processID: pid_t) -> Bool {
     var info = siginfo_t()
     while true {
       if waitid(P_PID, id_t(processID), &info, WEXITED | WNOHANG | WNOWAIT) == 0 {
@@ -213,7 +213,7 @@ final class BackgroundControlClient: Sendable {
   } // End of static func hasExited(_:)
 
   /// Polls every 50 ms, up to `time`, until `processID` has exited. Returns whether it did.
-  private static func waitUntilExited(_ processID: pid_t, within time: Duration) async -> Bool {
+  static func waitUntilExited(_ processID: pid_t, within time: Duration) async -> Bool {
     let deadline = ContinuousClock.now + time
     while !hasExited(processID) {
       guard ContinuousClock.now < deadline else { return false }

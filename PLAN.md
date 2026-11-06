@@ -112,6 +112,27 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   standard input as data lines (an id, a scope token, escaped name text) that the script
   splits with parameter expansion, checks, and places into its one fixed predicate as a
   quoted word, never as shell source and never through `eval`.
+  **Extension for a terminal's command text** (decided in Phase I-12a, 2026-11-06, with D38;
+  code in `Sources/MuxFinderCore/Terminals/TerminalCommandText.swift`, tests in
+  `TerminalCommandTextTests`): Terminal.app's `do script` types its text into the user's own
+  login shell, whatever it is (zsh, bash, fish, tcsh…), so that text is shell source. It is
+  `exec`, then the helper path and the helper's words (its constant mode words and the
+  canonical launch id), each POSIX single-quoted, one space apart:
+  `exec '<helper path>' '<mode>' … '<launch id>'`
+  (`TerminalCommandText.shellCommand(helperPath:arguments:)`). The helper path is refused
+  with a clear error ("… move muxFinder to /Applications …") when it holds `'` or `\` (fish
+  reads `\'` and `\\` inside single quotes as escapes, POSIX shells do not), `!` (csh and
+  tcsh expand history inside single quotes) or a control character (C0, DEL or C1: a line
+  break would end the command); it must be absolute. The words must be non-empty ASCII
+  letters, digits, `.`, `_` and `-`. So every word reads the same in every one of those
+  shells, which the tests run: sh, zsh, bash, dash, ksh, tcsh and csh (fish too when
+  installed; it is not on Neptuno), for a helper whose folder name holds spaces, `$`, `;`,
+  parentheses, backquotes, double quotes, `*`, `~`, `#`, `&`, `|`, braces and non-ASCII.
+  `exec` replaces the user's shell with the helper, so no shell code runs after it. D2's
+  stricter character rule for the helper path still applies on top, so today's paths pass
+  both. Ghostty's `command` is no typed text (D38): its words come from D2's character set
+  and need no quoting under any of its parsings. The plain remote attach (D38) is a D3 user
+  with six quoted arguments, the guard's five and the launch token.
 - **D4 — Session identity.** `SessionKey = (hostID, socketPath, serverPID, serverStartTime,
   sessionID)`. `session_created` is kept for revalidation. Names are display data only, and all
   targets use `$N` ids. Before attaching, the helper's guard script checks that
@@ -3507,6 +3528,176 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       `notConfirmed` → "muxFinder detached nothing, because the confirmation was for another
       session.", "Refresh"; `cancelled` → nothing. Every outcome but `cancelled` and
       `notConfirmed` refreshes the host afterwards, so `clientCount` and the offer follow.
+- **D38 — Other terminal apps (plain mode)** (decided in Phase I-12a, 2026-11-06, from
+  `autoclaude/processed/110-other-terminal-apps.md` and the orchestrator's calls in *Phase
+  I-12*; code so far in `Sources/MuxFinderCore/Launch/PlainLaunch.swift` (`PlainLaunch`,
+  `PlainClientIdentification`), `Sources/MuxFinderCore/Launch/PlainBoundCommands.swift`
+  (`BoundSessionIdentity`, the bound local attach, `PlainClientDetach`) and
+  `Sources/MuxFinderCore/Terminals/` (`AutomationPermission`, `TerminalCommandText`), tests in
+  `PlainLaunchTests`, `PlainBoundCommandsTests`, `TerminalCommandTextTests` and
+  `AutomationPermissionTests`, the probes `muxfinder-probe terminals list` and `plain-proof`,
+  `docs/TESTING.md` *Phase I-12a* and *Phase I-12a review fixes*). Outside iTerm2 muxFinder attaches with plain tmux (one
+  window, tmux's status bar, prefix keys and copy mode); iTerm2 keeps native control mode
+  exactly as today. Nothing in the app, the helper or the coordinator uses this yet: I-12b
+  and I-12c wire it.
+  - **The proof** (`plain-proof`, tmux 3.8, on This Mac and on Saturno, no terminal app and
+    no iTerm2): plain clients on pseudo-terminals the harness opens itself, each the
+    controlling terminal of its child's own session, 80 × 24, `TERM=xterm-256color`,
+    everything printed on them drained and discarded. 9 of 9 steps on both hosts, every
+    attach and detach bound as below (*Verified facts*, "Phase I-12a proof").
+  - **The plain attach, bound to the recorded session** (since the review of I-12a). Every
+    plain attach is one tmux command that the server checks and carries out with nothing in
+    between: `tmux -u if-shell -F -t '<id>' '<condition>' "attach-session -t '<id>'"
+    "run-shell 'exit 65'"` (`-d` before `-t` for a move here), never `-CC`. `<condition>`
+    (`BoundSessionIdentity.condition`) is `#{==:…}` checks of `session_id`,
+    `session_created`, `pid` and `start_time`, then `socket_path` and `session_name` when
+    known, joined by `#{&&:…}`. tmux expands it against the session `-t` resolves (a missing
+    id resolves leniently to none, and the condition is false) and runs the chosen command
+    right after `if-shell` in the same command queue, so no server restart (session ids start
+    over at `$0`), rename or other client can come between the check and the attach (the
+    form of `CreatedSession.killIfUnchangedArguments`). When it is false nothing attaches or
+    detaches and the client exits 65, the guard's "changed": `run-shell` of the constant
+    `exit 65` sets an unattached client's exit status (tmux prints `'exit 65' returned 65` on
+    that terminal and touches no pane). With no server tmux exits 1 and, unlike a bare
+    `attach-session`, starts none. The id is single-quoted in the attach for tmux's parser
+    (unquoted, `$3` reads as an environment variable). This Mac: the attach child `<tmux>`
+    with `PlainLaunch.localAttachArguments(session:detachingOthers:)`; `plain-proof` binds all
+    six fields of its own session's record (the name `muxfinder-test-*`), I-12b binds a
+    request's four. SSH hosts: D17's `/usr/bin/ssh -t … -- <destination> <D3 string>` with
+    `PlainLaunch.remoteScript`: the tmux locator; a token step (exactly six arguments, the
+    sixth 36 bytes of `[0-9a-f-]`, else 68; then `set --` back to the guard's five); the
+    guard's identity check (`LaunchGuard.check`, 64–68 as in D17, kept for its distinct
+    codes); then the bound attach with the guard's four values (already checked to be
+    `$<digits>` and decimal digits, so the format the script writes, `c="#{&&:…}"`, holds
+    nothing else; a unit test checks its arguments are the local builder's for the same four
+    values) and `exit "$?"`. tmux runs as a **child** of the `/bin/sh` that ran the check,
+    never through `exec`, so that shell, whose argument list ends with the token, stays the
+    client's parent for as long as it is attached. `PlainLaunch.remoteMoveHereScript` is the
+    same with `attach-session -d`. Exit statuses are D17's (65 also when the session changed
+    between the guard's check and the attach), except that a remote tmux killed by signal n
+    comes back as the shell's 128 + n instead of ssh's 255 (not exercised). A detached plain
+    client exits 0, and so do the shell and ssh (verified). Verified: on a private server the
+    exact session's bound attach reached tmux's attach, while each of eight one-field-off
+    identities, and a restarted server's session with the old id and name, exited 65 with
+    nothing attached and no client detached (`PlainBoundCommandsTests`); in `plain-proof` a
+    stale attach (the server's start time 1 s off) exited 65 and attached nothing on both
+    Macs (locally the bound attach refused it, on Saturno the guard did, since both check the
+    same values), and every real attach on both Macs went through the bound form. Nothing
+    remains between the check and the attach.
+  - **Confirmation on This Mac, by `client_tty`.** The launch's client is the session's client
+    whose `client_tty` (also its `client_name`) is the launch's terminal: exactly one
+    confirms, none is "not yet", two or more confirm nothing (`PlainClientIdentification
+    .local`, over `list-clients -F` of every client filtered in Swift, so no run value enters
+    a tmux format). Verified: one match (its pid the attach child's), none for a terminal with
+    no client, two clients told apart, two clients on one terminal refused. A terminal's path
+    is reused at once: when the process holding a terminal as its controlling terminal exits,
+    macOS revokes the terminal, and the next pseudo-terminal opened gets the same
+    `/dev/ttysNNN` (seen on both Macs). So a match counts only while the launch's helper still
+    runs on that terminal: I-12c takes the terminal path and the attach child's pid from the
+    helper's early report (requirement 5) and requires both.
+  - **Confirmation over SSH, settled: reliable, by the token.**
+    `PlainClientIdentification.remoteScript` runs over discovery's noninteractive ssh
+    (BatchMode; a static script with three quoted arguments: override, session id, token;
+    read-only `list-clients` and `ps`, no file written). For each client of the session it
+    reads `ps -o ppid= -p <client_pid>` and that parent's `ps -ww -o args=`, `match` when the
+    argument list ends with a space and the token. It prints only `match|other <pid>
+    <created> <name>` lines and `end <count>`, never an argument list, and
+    `PlainClientIdentification.remote` refuses a cut-off or malformed answer. Verified on
+    Saturno: the launch's client confirmed, a token nobody carries matched none, two clients
+    with different tokens told apart, two with the same token refused; one ssh connection per
+    reading, 727–744 ms (median 733 ms). Why it is reliable: the token is a fresh random id
+    per launch, present only in that launch's shell; that shell waits on the client and is
+    its parent for as long as it is attached; a client whose shell died is reparented to
+    launchd and never matches; nothing is written on the host. Its limits: a process of the
+    same user on that host could forge an argument list ending with the token (the user's own
+    trust boundary), and other users of that host can read the token with `ps` (it grants
+    nothing: requests stay on this Mac, D2). So a remote plain attach ends **confirmed**, not
+    "Opened in <app>". Remote client names are that host's terminals and are reused too (the
+    move-here client got the first client's), so a client is carried forward by name, pid and
+    creation time together.
+  - **Detach, bound to the identified client** (since the review of I-12a; I-12a first used
+    D37's two commands, a check and then `detach-client`, which could reach a client that took
+    the checked one's terminal in between). One tmux command
+    (`PlainClientDetach.arguments(of:in:)`, run with `tmux -u`): `if-shell -F -t '<id>'
+    '<condition>' "detach-client -t '<name>'" "display-message -p muxfinder-not-this-client"`.
+    `<condition>` is the session's (all six fields, the name included) and, in tmux's client
+    loop `#{L:…}` (every attached client, the ones `detach-client -t` searches), exactly one
+    client named `<name>`, and that client with the recorded `client_pid` and
+    `client_created` attached to the session of that name (`client_session`: session names
+    are unique on a server and the outer check binds the name to the id; inside the loop
+    `session_id` is the target's, never the client's, so it cannot be compared there). The
+    server runs `detach-client` right after `if-shell` in the same queue, so a client that
+    ended, left, or whose terminal another client took (paths are reused at once) is never
+    detached in its place. Outcome: exit 0 with no output `detached`; the marker line, or no
+    server, `notThisClient` ("identity changed, nothing detached"); anything else `failed`.
+    The tmux CLI locally, one BatchMode ssh call remotely (a static script with quoted
+    arguments); never by closing a window. Only a name `OtherClient.isValidName(_:)` accepts
+    is written, single-quoted for tmux's parser. Verified: on a private server with three
+    control clients, the detach of one with its pid, creation time or name off, with any
+    session field off, or of a client of another session, detached nothing; the exact one
+    detached only it (exit 0), and once more found nothing (`PlainBoundCommandsTests`); in
+    `plain-proof` on both Macs a stale detach (the client's creation time 1 s off) detached
+    nothing, and the real one ended only its client (its child exited 0 by itself) in 9–11 ms
+    locally and 714–717 ms over ssh (one connection); locally, while two clients shared a
+    terminal and so a name, the detach of one detached nothing. **What remains:** nothing
+    between the check and the detach. tmux names a client to `detach-client -t` by name only,
+    so the binding rests on that name being unique among attached clients, which the same
+    command checks. D37's residual stays only for iTerm2's control connection, where a
+    guarded command cannot be sent.
+  - **Move here, decided: `attach-session -d`, as D21.** A new plain launch whose attach is
+    the bound `attach-session -d` (`localAttachArguments(session:detachingOthers: true)`,
+    `remoteMoveHereScript`), not D37's per-client detach: it is one tmux command, done by the
+    server as the new client attaches, so no client can come between a listing, a check and a
+    detach, and it needs no listing, no age wait and no extra ssh connection. Bound, it
+    detaches the session's other clients only while the session is exactly the recorded one:
+    a move here with the server's start time 1 s off exited 65 and the other client stayed
+    attached (both Macs). D37 rejected
+    `attach-session -d` only for a command sent through iTerm2's existing control connection
+    (iTerm2 closes and reopens its windows on the `%session-changed` tmux then sends it); a new
+    plain client has no such reaction. D21's confirmation, its refusal while this Mac already
+    shows the session (I-12c generalizes it to any terminal) and its single-flight rules stay.
+    Verified on both Macs: the new client confirmed as the session's only client, the other
+    client's child exited 0 by itself.
+  - **Terminal.app's open form** (its dictionary, `sdef`, Terminal 2.15; the real run is
+    owed): `do script <text>` with no `in` opens a new window running the text in the user's
+    login shell and returns that window's tab; the text is D3's extension. A tab has no id,
+    so the run records its window's `id` (an integer); the tab's `tty` (text) is the terminal
+    the local confirmation compares. Focus kind `tty`: the window whose tab has the launch's
+    `tty`, brought to the front (its `frontmost` or `index`, then `activate`). Never `do
+    script … in` an existing tab or window, and never `do script in new tab` (it defaults to
+    the frontmost window, the user's); never read `contents` or `history`. Close only that
+    window, by its id, once its tab's process ended (`busy` false): a window with a running
+    process asks first.
+  - **Ghostty's open form** (its dictionary, Ghostty 1.3.1, and its docs; the real run is
+    owed): `new surface configuration` with `command` the helper path and its constant mode
+    word, and `wait after command` false (the helper's own wait for Return shows failures,
+    D2); the launch id in `environment variables` (`KEY=VALUE`, under a fixed name I-12b
+    chooses) if the owed run shows they reach the command, else as the last word of
+    `command`; then `new window with configuration`, which returns the window (`id` is text,
+    "Stable ID"; its tabs and terminals have ids too). The words are D2's characters, so the
+    command means the same however Ghostty parses it: per its docs a command with arguments
+    runs through `/bin/sh -c`, `direct:` skips the shell (no quoting, spaces or globs),
+    `shell:` forces it, and it guesses when there is no prefix. The dictionary has no tty,
+    pid or process for a terminal, so focus kind `windowID`: `activate window` (or `focus`
+    its terminal) by the recorded id; close with `close window` by that id, once the helper
+    ended. Never `input text`, `send key` or the mouse commands. Ghostty 1.3 or later
+    (AppleScript); `macos-applescript = false` turns all of it off (how an event is answered
+    then is owed).
+  - **Permission.** Read with `AEDeterminePermissionToAutomateTarget(…, askUserIfNeeded:
+    false)` for the bundle identifier (`AutomationPermission`: 0 granted, -1743 denied, -1744
+    not determined, -600 target not running, else the raw status). It never prompts, never
+    launches the app and sends no event. It is the permission of the app macOS holds
+    responsible for the caller: a command run from this shell reads iTerm2's. On 2026-11-06
+    `terminals list` showed iTerm2 3.7.7 running and granted, and Terminal 2.15 and Ghostty
+    1.3.1 (`com.mitchellh.ghostty`) installed and not running (-600).
+  - **Owed to the user** (*Unattended-run rules* 8: neither app was running, so no Apple event
+    was sent and no window run made): with Terminal, then Ghostty, started by the user and
+    `terminals list` showing `granted` for the app running the command, the steps in
+    `docs/TESTING.md` *Phase I-12a* ("Owed": what `do script` returns and how `tty` reads,
+    whether the window closes when its process ends; whether Ghostty's `environment
+    variables` reach `command`, what its ids look like, and whether `direct:` works through
+    AppleScript), and I-12c's `e2e-plain --terminal terminal|ghostty --local | --ssh
+    saturno-m4`.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -4176,6 +4367,93 @@ pressed, no menu opened; `docs/TESTING.md`, *Phase I-8*):
   display pass), so the hidden-panel tests cannot reach the picker; the real picker's class
   and item count come from the diagnostic, and a pick is tested through the picker's binding.
 
+**Phase I-12a proof.** Verified in Phase I-12a (2026-11-06, macOS 27.3 Build 26C5035r, tmux
+3.8 on Neptuno and Saturno; `muxfinder-probe terminals list` and `plain-proof` run from a shell
+in iTerm2 3.7.7 with `TMUX_TMPDIR` unset; `sdef` of both apps and Ghostty's public docs read;
+no Apple event sent to Terminal or Ghostty, neither running; `docs/TESTING.md`, *Phase
+I-12a*):
+
+- **The apps** (LaunchServices by bundle identifier): iTerm2 3.7.7 at `/Applications/iTerm.app`,
+  running; Terminal 2.15 at `/System/Applications/Utilities/Terminal.app` and Ghostty 1.3.1
+  at `/Applications/Ghostty.app` (`com.mitchellh.ghostty`, as its `Info.plist` says), not
+  running. `AEDeterminePermissionToAutomateTarget` with `askUserIfNeeded` false, from this
+  shell (so for iTerm2 as the responsible app): 0 for iTerm2, -600 (target not running) for
+  Terminal and Ghostty; no prompt appeared and neither app started.
+- **Ghostty's dictionary** (`sdef /Applications/Ghostty.app`, 1.3.1): `new window [with
+  configuration]` returns a window; `new tab [in <window>] [with configuration]` returns a
+  tab; `new surface configuration [from]` returns a record with `font size`, `initial working
+  directory`, `command` ("Command to execute instead of the configured shell"), `initial
+  input`, `wait after command` ("Keep the terminal open after command exit") and `environment
+  variables` (a list of `KEY=VALUE` texts). Windows, tabs and terminals each have an `id`
+  (text, "Stable ID"); a terminal has `name` and `working directory`, and no tty, pid or
+  process. Commands `activate window`, `close window`, `select tab`, `close tab`, `focus` ("a
+  terminal, bringing its window to the front"), `close`, `split`, `perform action`, and the
+  input commands `input text`, `send key` and `send mouse …` (never used).
+- **Ghostty's docs** (ghostty.org, `features/applescript` and the config reference, read on
+  2026-11-06): AppleScript is on by default on macOS; `macos-applescript = false` turns it all
+  off; macOS asks before another app may control Ghostty. Config `command`: looked up in
+  `PATH` when not absolute; with arguments it runs through `/bin/sh -c`; `direct:` skips the
+  shell (no quoting, spaces or globs), `shell:` forces it (both since 1.2.0), and without a
+  prefix Ghostty guesses. `wait-after-command` keeps the terminal until a key is pressed;
+  `env` adds variables for a surface's commands. The pages do not say whether a surface
+  configuration's `environment variables` reach its `command`, how AppleScript's `command`
+  is parsed, or what the ids look like: owed.
+- **Terminal's dictionary** (`sdef /System/Applications/Utilities/Terminal.app`, 2.15): `do
+  script [<text>] [in <tab or window>]` returns "the tab the command was executed in"; `do
+  script in new tab [<text>] [next to <tab or window>]` (default: the frontmost window)
+  returns a tab. A window has `id` (integer, "unique identifier"), `index`, `frontmost`,
+  `visible`, its tabs and `selected tab`; a tab has no id, and has `tty` ("The tab's TTY
+  device", text), `processes` (texts), `busy`, `selected`, `contents` and `history` (never
+  read).
+- **Plain clients on a pseudo-terminal** (`plain-proof --local`): tmux 3.8 reports a plain
+  client with `client_tty` and `client_name` both its terminal's path, `client_termname`
+  `xterm-256color` (from `TERM`), its size from the terminal (80x24), `client_control_mode`
+  0 and flags `attached,focused,UTF-8`. tmux's server draws through the descriptor the
+  client passed as its standard input, so that descriptor must be open read-write (with a
+  read-only one nothing was drawn in 2 s; only the detach line came). A detached plain client
+  exits 0; one ended by SIGTERM exits 1; ssh ended by SIGTERM exits 255. When the process that
+  holds a terminal as its controlling terminal exits, macOS revokes that terminal for every
+  holder (the harness's own descriptor too), its master reads end of file, and the next
+  pseudo-terminal opened gets the same path (locally the move-here client got the first
+  client's `/dev/ttys004` in every run; on Saturno its `/dev/ttys003`). A spawn file action
+  opens a terminal before macOS makes the new session, so it does not become the controlling
+  terminal; a session leader opening it does (`ps -o tty=` shows it).
+- **Bound commands in tmux 3.8** (the review's fixes, on private servers under `mktemp -d`
+  `TMUX_TMPDIR`s with `muxfinder-test-*` sessions, plain clients on pseudo-terminals and
+  control clients, then on the default servers through `plain-proof`): `if-shell -F -t
+  '<id>' '<condition>' '<command>' '<otherwise>'` from the CLI runs the chosen command for
+  that CLI client right after the check (an inserted `attach-session` makes that very client
+  the attached one, with its terminal, pid and parent; an inserted `detach-client -t` detaches
+  the named client); a missing `-t` id makes the condition false with exit 0. Inside the
+  client loop `#{L:…}` (attached clients only) `client_name`, `client_pid`,
+  `client_created` and `client_session` are the client's, `session_id` the target's. An
+  inserted `run-shell 'exit 65'` makes the unattached CLI client exit 65 (it prints `'exit
+  65' returned 65` to that client, 23 bytes on its terminal). A matching bound attach with
+  no terminal on standard input fails with `open terminal failed: not a terminal` (exit 1)
+  before `-d` detaches anyone. With no server `if-shell` exits 1 (`error connecting to …`)
+  and creates no server or socket.
+- **The runs** (`plain-proof`, final code with the review's fixes): `--local` 9 of 9 in
+  1.5 s: the first client confirmed by its `client_tty` 241 ms after its start (readings
+  every 200 ms, each at most 20 ms), a terminal with no client matched none and a stale
+  attach there (the server's start time 1 s off) exited 65 after 60 ms attaching nothing,
+  two clients told apart, two clients on one terminal refused and, while they shared that
+  name, the bound detach of one detached nothing (10 ms), a stale bound detach (creation time
+  1 s off) detached nothing (11 ms) and the real one ended only that client in 9 ms (its child
+  exit 0), a stale move here exited 65 with the other client still attached, the move-here
+  client the only one within 244 ms and the other's child exit 0, its bound detach in 11 ms.
+  `--ssh saturno-m4` 9 of 9 in 20.7 s: the first client confirmed by its token 1661 ms after
+  its ssh started (1661–1678 ms over four runs), readings 727–744 ms (median 730–733 ms, one
+  ssh connection each), a token nobody carries matched none and a stale attach with a new
+  token exited 65 after 792 ms (the guard), two tokens told apart, the same token twice
+  refused, a stale bound detach detached nothing (713 ms) and the real one ended only that
+  client in 717 ms (one connection), a stale move here exited 65 with the other client still
+  attached, the move-here client the only one 1663 ms after its start, its bound detach in
+  714 ms. The runs before the fixes (the same steps without the stale checks, D37's two-command
+  detach): 9 of 9 each, 1.3 s and 17.7 s. A run stopped by SIGTERM during step 4 cleaned up
+  (its two clients ended, its session killed) and exited 143. After every run: no
+  `muxfinder-test-*` session and no launch shell on either Mac, no child process of the
+  harness, nothing in `/private/tmp`.
+
 ## Unattended-run rules (binding for every phase)
 
 The run is unattended and shares this Mac, and this iTerm2 instance, with the user's live
@@ -4183,7 +4461,9 @@ work. The autoclaude session itself runs inside an iTerm2 tab.
 
 1. **Never touch iTerm2 windows, tabs or sessions you did not create in the current test.**
    Never send text to, close, or reorder them. Close or detach only through ids your test
-   recorded at creation.
+   recorded at creation. The same holds for Terminal.app and Ghostty windows and tabs (since
+   Phase I-12a): a test touches only windows it opened, never types into any, and closes one
+   only by the id it recorded, only after its process has ended.
 2. **tmux:** create only sessions named `muxfinder-test-*`, and kill only those. Never run
    `kill-server` or touch other sessions. Applies locally and on Saturno.
 3. **Remote:** Saturno (`saturno-m4`) is authorized for read-only discovery and for
@@ -4203,6 +4483,10 @@ work. The autoclaude session itself runs inside an iTerm2 tab.
    use UI scripting or synthesized keystrokes to dismiss anything.
 7. Never paste terminal contents or window titles into fixtures, logs or docs. Generate protobuf
    fixtures synthetically.
+8. **Never launch Terminal.app or Ghostty** (they restore the user's saved windows and may show
+   dialogs nobody can answer), and never send either an Apple event unless it is already
+   running and its Automation permission reads granted without a prompt. Otherwise its real
+   runs are owed to the user.
 
 ## Phases
 
@@ -5998,6 +6282,131 @@ states, 5 new, and the context menu listing the item) and `popover` (the hint on
 session open here, offline host"), light and dark, inspected. No real run was needed (the core
 did not change); checklist item 25 is owed to the user (two Macs, the real popover, VoiceOver,
 the window size afterwards, and D37's residual race).
+
+### Phase I-12 — Other terminal apps: Terminal.app and Ghostty beside iTerm2 (high)
+
+From the inbox (2026-11-06). The specification, with the user's request and answers verbatim,
+the findings, thirteen requirements and the acceptance, is
+`autoclaude/processed/110-other-terminal-apps.md`. iTerm2 keeps native control mode exactly
+as today. Terminal.app and Ghostty get plain `tmux attach` through a terminal seam above
+`ITerm2Integration`, with small JSON definitions. To be recorded as **D38** (with D3
+extended for Terminal's command text). Split before the first worker:
+
+- **I-12a — proof and decision (high).** Requirement 1: the read-only facts (`sdef` of both
+  apps, the installed versions, the Automation permission's state read without a prompt), the
+  plain-mode confirmation proven locally and on `saturno-m4` (requirement 5, remote
+  identification settled), the real Terminal and Ghostty runs where the gate below allows
+  them (owed otherwise), D38 and D3's extension written, and the facts in *Verified facts* and
+  `docs/TESTING.md`. Only probe code: a read-only `muxfinder-probe terminals list` and the
+  proof's harness command. No app, seam or helper change.
+- **I-12b — core (high).** Definitions (schema, loader under D19's rules, built-ins in
+  `Resources/` copied and signed by `scripts/build-app.sh`, user overrides by id, problems
+  kept per file), argv expansion, Terminal's command text and its refusals, the Apple event
+  handler call over an OSA runner seam, permission states, the terminal seam with the iTerm2
+  backend wrapping today's code unchanged, the plain backend, the helper's plain `attach` and
+  `profile` variants (requirement 4), `terminals list` extended with definitions. Hermetic
+  tests for all of it.
+- **I-12c — coordinator (high).** Plain confirmation (requirement 5, as I-12a settled it),
+  detach and Move here through tmux (requirement 6), "open on this Mac" by process ancestry
+  (requirement 7; discovery's `list-clients` gains `client_pid` and `client_tty`, still
+  read-only), `attach --terminal <id>` and `e2e-plain --terminal terminal|ghostty --local |
+  --ssh saturno-m4`; iTerm2's existing e2e runs and self-tests rerun as regression.
+- **I-12d — UI (routine).** Settings › General "Terminal" (requirement 8), strings following
+  the choice (9), onboarding without iTerm2 (10), persistent work's per-host command with
+  Copy (11), the app never contacting iTerm2 when it is not the choice, galleries light and
+  dark.
+- **I-12e — docs (routine).** `docs/REQUIREMENTS.md` addendum 13, `docs/TERMINALS.md`
+  ("Adding a terminal", later candidates, the Ghostty control-mode note), README,
+  ARCHITECTURE, TESTING, MANUAL-CHECKLIST, `CLAUDE.md` commands and the extended safety
+  rules (also in *Unattended-run rules* below, where I-12a already adds them for its own
+  runs).
+
+The orchestrator's calls for I-12a, made before its worker:
+
+- **Never launch Terminal.app or Ghostty, and never wait on a prompt.** At launch both apps
+  restore the user's saved windows and may show dialogs nobody can answer. A real run may
+  drive a terminal app only when it is **already running** and its Automation permission,
+  as the probe reads it without a prompt (`AEDeterminePermissionToAutomateTarget`,
+  `askUserIfNeeded` false, for the process that would send the events), is **granted**.
+  Otherwise no Apple event is sent to it, and its real runs are recorded as owed to the user,
+  with the exact command. Reading `sdef /Applications/Ghostty.app` and
+  `sdef /System/Applications/Utilities/Terminal.app` launches nothing and is always allowed,
+  as is reading Ghostty's public docs (https://ghostty.org/docs/features/applescript and its
+  `command` reference).
+- **`muxfinder-probe terminals list`** (read-only, prints JSON; sends no Apple event that
+  could prompt, launches nothing, writes nothing): for iTerm2, Terminal.app and Ghostty, the
+  app found through LaunchServices by bundle identifier, its path and version, whether it is
+  running, and the permission's state without a prompt (granted, denied, not determined,
+  target not running, or the raw status). `--help` contacts nothing. I-12b extends it with
+  definitions.
+- **Plain confirmation, proven without a terminal app.** The proof's harness command (named
+  by the worker, recorded in `CLAUDE.md`; it may become I-12c's `e2e-plain`) hosts plain
+  clients in pseudo-terminals it opens itself, so the proof needs no terminal app and no
+  permission: on This Mac, `tmux -u attach-session` of its own `muxfinder-test-*` session on
+  a pty it owns; on `saturno-m4`, `/usr/bin/ssh -t` running D17's remote script with the
+  attach plain (no `-CC`). Requirement 5's checks: locally, exactly one client of the session
+  has the harness's pty as `client_tty`; remotely, a way to tell the launch's client from
+  every other client of the session using only read-only commands over discovery's
+  noninteractive ssh (BatchMode, no remote file write), for example the launch token in the
+  argv of the remote client or its parent shell, read with `ps` by `client_pid`. Each check
+  passes with a match, fails with none, and refuses to confirm with two candidates (a second
+  plain client of the harness, carrying a different token, proves it). If no remote way is
+  reliable, D38 says the remote attach ends as "Opened in <app>", not confirmed. Then
+  `detach-client` aimed at that one client (locally, and over BatchMode ssh) ends only it,
+  and D21's Move here in plain mode (`attach-session -d`, or per-client `detach-client` as
+  D37 chose, the worker's call recorded in D38) leaves exactly the new client.
+- **Terminal and Ghostty real runs, where the gate allows**: open a new window running a
+  command (never typing into an existing tab, never `input text`, `send key` or mouse
+  commands), the command a plain attach of the run's own session; confirm as above; focus
+  that window; detach through tmux; and close only a window the run opened, only after its
+  process has ended (a window with a running process asks before closing: a modal nobody can
+  answer). Learn and record whether Ghostty's `command` is shell-parsed, what `new window`
+  returns, whether `environment variables` reach the command, and what Terminal's `do
+  script` returns and how its tab's `tty` reads.
+- **D3's extension for Terminal's command text** is decided here, from requirement 3:
+  `exec`, then the helper path and the validated token, each POSIX single-quoted; a helper
+  path holding `'`, `\`, a control character or anything fish reads differently inside
+  single quotes is refused with a clear error. Ghostty's form follows what the `sdef` and the
+  docs say about `command` (token in `environment variables` when they reach the command).
+- **Safety rules extended now**, before any real run: *Unattended-run rules* 1 below covers
+  Terminal and Ghostty windows (a test touches only windows it opened, closes them only by
+  the ids it recorded), and rule 8 forbids launching either app. `CLAUDE.md`'s safety rules
+  say the same.
+- **Records**: D38 (what was verified, the remote identification or its absence, Move here's
+  form, Ghostty's and Terminal's open forms, what stayed owed), D3 extended, *Verified facts*
+  "Phase I-12a proof", `docs/TESTING.md` (the commands and results, owed runs listed), and
+  `CLAUDE.md`'s command lines for `terminals list` and the harness. Real runs follow the gate
+  in `PROGRESS.md` *Next action* 3 for anything touching iTerm2; the harness itself touches
+  no iTerm2.
+
+**Outcome of I-12a** (2026-11-06). The proof passed on both Macs and D38 is recorded, with D3's
+extension and *Verified facts* "Phase I-12a proof". `muxfinder-probe plain-proof --local | --ssh
+saturno-m4` (9 of 9 each; with the review's fixes 1.5 s and 20.7 s) proved, with plain clients
+on pseudo-terminals of its own: confirmation by `client_tty` on This Mac; and on SSH hosts
+**remote identification is reliable**: the plain remote script keeps the `/bin/sh` that holds
+the launch token as the tmux client's parent (no `exec`), and a read-only reading over
+discovery's noninteractive ssh matches the token at the end of that parent's arguments (`ps` by
+`client_pid`), so remote plain attaches end confirmed, not "Opened in <app>". In both places a
+match is one candidate, none is none, and two candidates confirm nothing. Every attach and
+detach is **bound** (the review's two findings, fixed): one `if-shell -F` command in which the
+server checks the recorded session (and, for a detach, exactly one client with the recorded
+name, pid and creation time in it) and only then attaches or detaches, so a restarted server's
+session with the same id, or a client that took the checked one's terminal, is never reached; a
+stale attach exits 65 and a stale detach detaches nothing. The bound detach ends only that
+client, and Move here is a new plain client with the bound `attach-session -d`, as D21 (chosen
+over per-client detaches; reasons in D38). Two facts for I-12b and I-12c: a terminal's path is
+reused as soon as its controlling process exits, so the local match must also bind the attach
+child's pid; and tmux draws through the client's standard input, which must be open read-write.
+`muxfinder-probe terminals list` reads the apps and the Automation permission without a prompt.
+Built only as probe code and pure core helpers that nothing uses yet (`PlainLaunch`,
+`PlainClientIdentification`, `BoundSessionIdentity`, `PlainClientDetach`,
+`AutomationPermission`, `TerminalCommandText` with D3's extension and its refusals), with
+hermetic tests (26 new, the bound forms' on a private tmux server among them). Terminal.app and
+Ghostty were not running, so no Apple event was sent: their open forms come from `sdef` and
+Ghostty's docs, and their real window runs, with the facts only they can show (what `do script`
+returns and the `tty` it reads, whether Ghostty's `environment variables` reach `command`, the
+shape of its ids), are owed to the user (`docs/TESTING.md` *Phase I-12a*) and to I-12c's
+`e2e-plain` under the same gate.
 
 ## Deferred (explicitly out of scope for v1)
 

@@ -3373,3 +3373,104 @@ VoiceOver, and the window size afterwards).
 | Attach gallery | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery attach --appearance light --preview-snapshot docs/screenshots/attach-states-light.png`, then `dark` | exit 0 both; 3136 × 4908 px, 16 states and the context menu card (5 new states): the confirmation for one other client and for two others including one in this Mac's iTerm2 (title, explanation, the window-size sentence, the count, "Cancel" and "Detach other clients"), the results card ("Detaching other clients…" on a row whose badge reads "Open in iTerm2 here · also attached elsewhere" on one line, "Detached 1 other client — the session keeps running", "Detached 2 other clients … (1 had already left)" over two lines, "No other clients to detach — they had already left" with an information mark), the problems card (not attached here, this Mac's tab changed, tmux refused a detach; each with "Refresh") and the failures card (a failed check with "Try again", "Refresh" and "How to turn it on", a failed send, a confirmation for another session); the context menu of the open-here row now lists "Detach other clients…". Inspected in crops (`sips`, `/tmp`): nothing truncated or overlapping, readable in both appearances |
 | Popover gallery | `--preview-gallery popover`, light and dark, with `--preview-snapshot docs/screenshots/popover-states-<appearance>.png` | exit 0 both; 4672 × 2200 px, the 11 states; "Selected session open here, offline host" now has 2 clients on its selected row, whose badge reads "Open in iTerm2 here · also attached elsewhere" on one line, inside the row at the popover's width. The hint was kept |
 | Switcher gallery | — | not regenerated: no switcher fixture has a session open here with more clients than attachments, so no switcher row changed |
+
+### Phase I-12a — other terminal apps, the proof and the decision (2026-11-06)
+
+The proof of plain tmux attaches for terminal apps without control mode (PLAN.md Phase I-12,
+its I-12a calls; D38 and D3's extension). Only probe code and pure core helpers that nothing
+uses yet; no app, helper, seam or coordinator change, so no gallery, `--selftest` or `e2e-*`
+run. The harness (`plain-proof`) hosts plain tmux clients on pseudo-terminals it opens itself
+and never contacts iTerm2 or any terminal app; it was run from the repo root with
+`TMUX_TMPDIR` unset, as `.build/debug/muxfinder-probe` (what `swift run` runs) after `swift
+build`. Terminal.app and Ghostty were not running (checked with `pgrep` before, and by
+`terminals list`), so under *Unattended-run rules* 8 no Apple event was sent to either and no
+window run was made: their real runs are owed (below). Before and after every run: no
+`muxfinder-test-*` session on Neptuno or (read-only over BatchMode ssh) on Saturno.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Bundle ids and versions | `plutil -extract CFBundleIdentifier raw` and `CFBundleShortVersionString` of both apps' `Info.plist` | `com.mitchellh.ghostty` 1.3.1; `com.apple.Terminal` 2.15 |
+| Scripting dictionaries | `sdef /Applications/Ghostty.app`; `sdef /System/Applications/Utilities/Terminal.app` (read-only; neither app started) | exit 0 both (318 and 588 lines, read in a scratch folder removed afterwards). Ghostty: `new window`/`new tab [with configuration]` return a window/tab; `new surface configuration` with `command`, `environment variables` (`KEY=VALUE` list), `wait after command`, `initial input`, `initial working directory`, `font size`; window, tab and terminal `id` (text); `activate window`, `focus`, `close window`, `close tab`, `close`; no tty, pid or process. Terminal: `do script [in tab/window]` and `do script in new tab [next to]` return a tab; window `id` (integer), `frontmost`, `index`; tab `tty`, `processes`, `busy`, no id (PLAN.md *Verified facts*, "Phase I-12a proof") |
+| Ghostty's docs | ghostty.org `docs/features/applescript` and `docs/config/reference` (read) | AppleScript on by default, `macos-applescript = false` turns it off, macOS asks before another app controls Ghostty; config `command` runs through `/bin/sh -c` when it has arguments, `direct:` skips the shell, `shell:` forces it (1.2.0); nothing on whether `environment variables` reach the command or on the ids' shape |
+| Terminal apps | `swift run muxfinder-probe terminals list` (and `--help` of `plain-proof`, which contacts nothing) | exit 0: iTerm2 3.7.7 `/Applications/iTerm.app` running, `granted` (0); Terminal 2.15 `/System/Applications/Utilities/Terminal.app` and Ghostty 1.3.1 `/Applications/Ghostty.app` installed, not running, `targetNotRunning` (-600). No prompt, no app started |
+| A read-only standard input (diagnosis) | a scratch Python script (`python3 -I`, in a folder removed afterwards) attaching plain clients of a `muxfinder-test-ptyexp` session (killed afterwards) on pseudo-terminals, counting the bytes drawn, never showing them | a client spawned with its terminal as standard input opened read-write: 994 bytes drawn within 0.5 s, with and without a controlling terminal; through a shell that opened standard input read-only (`<`): 0 bytes in 2 s, only the 49-byte detach line. The harness's trampoline opens the terminal once with `<>` |
+| Plain proof, locally | `swift run muxfinder-probe plain-proof --local` (the phase's code, before the review fixes; rerun in *Phase I-12a review fixes*) | exit 0, 9 of 9 PASS in 1.3 s. 2: client A confirmed by its `client_tty` 233 ms after its start (readings every 200 ms, at most 20 ms each), its pid the child's, its controlling terminal its pseudo-terminal (`ps -o tty=`), tmux seeing `xterm-256color 80x24`, control 0, `attached,focused,UTF-8`; 3: a pseudo-terminal with no client matched none of 1; 4: B and A each confirmed by their own terminal among 2; 5: A2 on A's terminal: 2 candidates among 3, none confirmed, A confirmed again once A2 was ended (SIGTERM, exit 1); 6: the check and `detach-client -t /dev/ttys004` in 22 ms, A's child exit 0 by itself, B still attached; 7: M (`attach-session -d`) the session's only client within 239 ms, B's child exit 0 by itself; M got A's freed `/dev/ttys004`; 8: M detached the same way in 22 ms, exit 0, the session alive with no client; 9: 4 pseudo-terminals closed (4210 bytes discarded, counted only), the session killed, no child process left. Four earlier development runs of intermediate code: 9 of 9 each |
+| Plain proof, Saturno | `swift run muxfinder-probe plain-proof --ssh saturno-m4` (the phase's code, before the review fixes; rerun in *Phase I-12a review fixes*) | exit 0, 9 of 9 PASS in 17.7 s. 2: A confirmed by its token 1674 ms after its ssh started; 3: a token nobody carries matched none of 1; 4: B and A each confirmed by their own token among 2; 5: A2 with A's token: 2 candidates among 3, none confirmed, A confirmed again once A2's ssh was ended (SIGTERM, exit 255); 6: check and `detach-client -t /dev/ttys003` in 1437 ms (two ssh connections), A's ssh exit 0 by itself, B still attached; 7: M the only client 1672 ms after its start, B's ssh exit 0 by itself; M got A's freed remote `/dev/ttys003`; 8: M detached in 1430 ms, exit 0, the session alive; 9: the session killed on Saturno, no child left. 13 readings, 727–744 ms (median 733 ms). An earlier run of the same code: 9 of 9 in 17.7 s |
+| Interrupted run | `plain-proof --ssh saturno-m4` sent SIGTERM 6 s after its start | exit 143: steps 1–3 PASS, 4 FAIL "interrupted", cleanup PASS (2 clients' ssh ended, 2 pseudo-terminals closed, the session killed, no child left) |
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 925 core tests in 91 suites (20 new in 3 suites: `PlainLaunchTests` 11, the remote script run through sh and zsh against a fake tmux (the guard still refuses, the attach is a child of the shell holding the token, `-d` for a move here, bad tokens 68) and the remote reading against real waiting launches (a match, none, the same token twice ambiguous); `TerminalCommandTextTests` 6, the text read the same by sh, zsh, bash, dash, ksh, tcsh and csh (fish not installed, skipped); `AutomationPermissionTests` 3) and 485 UI tests in 47 suites (unchanged) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Leftovers after every run | `tmux ls` on Neptuno and, read-only over BatchMode ssh, on Saturno; `ps -A -ww -o args=` on both, counted for the scripts' and sessions' names only; `pgrep`; `ls /private/tmp` | no `muxfinder-test-*` session and no launch shell on either Mac, no process of the harness, no folder or file of the runs in `/private/tmp` |
+
+**Owed to the user** (Terminal and Ghostty real runs; *Unattended-run rules* 8 let an
+unattended run do none of them). Start the app yourself, then from a shell in iTerm2 run
+`swift run muxfinder-probe terminals list` until it shows that app `running`; the first
+`osascript` below asks for the Automation permission if it is `notDetermined`. Each step opens
+only a new window and closes only that one, by its id. Record the answers' shapes in PLAN.md
+D38 and here, never a window title or terminal contents.
+
+1. Terminal, what `do script` returns:
+   `osascript -e 'tell application "Terminal"' -e 'set t to do script "exec /bin/sleep 20"' -e 'delay 1' -e 'return {t, tty of t, busy of t}' -e 'end tell'`
+   (expected: the tab as a reference through its window's id, a `/dev/ttysNNN` path, `true`).
+   After 20 s, `osascript -e 'tell application "Terminal" to exists window id <n>'` shows
+   whether the window closed itself when its process ended (Settings › Profiles › Shell,
+   "When the shell exits"); if it is still there and `busy` is false, `osascript -e 'tell
+   application "Terminal" to close window id <n>'`.
+2. Terminal, a plain attach confirmed by its `tty`:
+   `/opt/homebrew/bin/tmux new-session -d -s muxfinder-test-owed sleep 600`, then
+   `osascript -e 'tell application "Terminal" to tty of (do script "exec /opt/homebrew/bin/tmux -u attach-session -t =muxfinder-test-owed")'`;
+   `/opt/homebrew/bin/tmux list-clients -F '#{client_tty} #{session_name}'` must show that
+   `tty` for `muxfinder-test-owed`; `/opt/homebrew/bin/tmux detach-client -t <that tty>` ends
+   it (the window closes or shows the process ended); then
+   `/opt/homebrew/bin/tmux kill-session -t =muxfinder-test-owed`.
+3. Ghostty, whether `environment variables` reach a two-word `command`, and the ids:
+   `osascript -e 'tell application "Ghostty"' -e 'set cfg to new surface configuration' -e 'set command of cfg to "/usr/bin/printenv MUXFINDER_OWED_CHECK"' -e 'set environment variables of cfg to {"MUXFINDER_OWED_CHECK=reached"}' -e 'set wait after command of cfg to true' -e 'set w to new window with configuration cfg' -e 'return {id of w, id of focused terminal of selected tab of w}' -e 'end tell'`
+   (the window shows `reached` when they do); then
+   `osascript -e 'tell application "Ghostty" to close window id "<window id>"'`. Repeat with
+   `"direct:/usr/bin/printenv MUXFINDER_OWED_CHECK"` as the command.
+4. Ghostty, a plain attach: as step 2 with `set command of cfg to "/opt/homebrew/bin/tmux -u attach-session -t =muxfinder-test-owed"`
+   and `wait after command` false; `list-clients` shows one client of the session on a
+   `/dev/ttys…`; detach it with `detach-client -t <that tty>`; the window closes by itself or
+   is closed by its id; then kill the session.
+5. Optional: with `macos-applescript = false` in Ghostty's config (restart Ghostty), the error
+   number step 3 gets, for I-12d's "Ghostty's AppleScript is turned off".
+6. Once I-12c has built it: `swift run muxfinder-probe e2e-plain --terminal terminal --local`,
+   `… --terminal terminal --ssh saturno-m4`, `… --terminal ghostty --local` and `…
+   --terminal ghostty --ssh saturno-m4`, each with that app running and `granted`.
+
+
+### Phase I-12a review fixes (2026-11-06)
+
+The adversarial review's two findings (`docs/reviews/phase-I-12a.md`; PLAN.md D38): the
+harness's detach checked a client and then ran `detach-client -t <name>` as a second command
+(a second ssh connection remotely), so a client that took the checked one's terminal in
+between (terminal paths are reused at once) could be detached in its place; and the local
+attaches named the session by its id alone, which a restarted server reuses. Both are now
+**bound**: one `if-shell -F -t '<id>' '<condition>' '<command>' '<otherwise>'` that the tmux
+server checks and carries out in one command queue, nothing in between
+(`Sources/MuxFinderCore/Launch/PlainBoundCommands.swift`: `BoundSessionIdentity`,
+`PlainLaunch.localAttachArguments(session:detachingOthers:)`, `PlainClientDetach`; the remote
+script's attach the same, after the guard). The forms were tried first on private servers
+(`TMUX_TMPDIR=$(mktemp -d /tmp/mfx.XXXXXX)`, `muxfinder-test-exp1` and `-exp2`, plain clients
+on pseudo-terminals of a scratch script and control clients; the sessions ended, every folder
+removed), then the real runs again from the repo root with `TMUX_TMPDIR` unset after `swift
+build`. No iTerm2, Terminal or Ghostty contact.
+
+| Check | Command | Observed result |
+|---|---|---|
+| tmux 3.8, the bound attach (private server) | `tmux -u if-shell -F -t '$0' '<session_id, session_created, pid, start_time, session_name checks>' "attach-session [-d] -t '$0'" "run-shell 'exit 65'"`, on a pseudo-terminal and with standard input `/dev/null` | matching, on a terminal: the client attached (`attached,focused,UTF-8`, its pid the tmux process's); with `-d` the other client of `$0` exited 0 and a client of `$1` stayed; one value off: exit 65 (`'exit 65' returned 65` on its terminal), nothing attached or detached; matching with no terminal: `open terminal failed: not a terminal` (exit 1) and, with `-d`, the other client still attached; with no server: exit 1 (`error connecting to …`), no server and no socket created |
+| tmux 3.8, the bound detach (private server) | `if-shell -F -t '$0' '<session checks, #{==:#{L:#{?#{==:#{client_name},<name>},1,}},1} and the client loop on name, client_pid, client_created, client_session>' "detach-client -t '<name>'" 'display-message -p muxfinder-not-this-client'`; `display-message -p -t '$0' '<the condition>'` to read it | a client of `$1` named against `$0`, the pid off, the session's creation time off, a missing id `$7`, the client's creation time off: condition 0, the marker printed, exit 0, every client still listed; the exact one: condition 1, no output, exit 0, that client's process exited 0, the others stayed. `#{L:…}` listed both clients of `$0` with their own names and `client_session`, `session_id` the target's for each |
+| Regressions fail on the old code | each fix reverted in turn in the builder, the suites run, the fix restored | the detach's client binding dropped (the session's condition only, as the old two-command detach acted): `buildsTheBoundDetach` (1 issue) and `bindsTheDetachOnAPrivateServer` (20 issues: the clients with pid, creation time or name off, and the client of another session, were detached); the local attach back to the bare `-u attach-session [-d] -t <id>`: `buildsTheBoundLocalAttach` (3 issues), `bindsTheAttachOnAPrivateServer` (18 issues: the restarted server's session with the old id and name and all 16 variant runs reached tmux's attach, exit 1, instead of 65), and `attachesAsAChildOfTheTokenShell` (sh and zsh) and `moveHereDetachesOthers` (the remote script's recorded arguments no longer the builder's); the remote script's tail back to `"$t" -u attach-session -t "$id"`: `buildsTheRemoteScripts`, `attachesAsAChildOfTheTokenShell`, `moveHereDetachesOthers` and `readsTheLaunchClientByItsToken` fail; all pass restored. In the reverted attach's runs the no-server case's bare `attach-session` started a private server (a bare attach starts one; it found no session and exited), re-creating 4 private `/tmp/mfx-*` test folders after the test had removed them, each holding only a dead socket; they were removed. The final code's runs leave none |
+| Build | `swift build -Xswiftc -warnings-as-errors` | exit 0 |
+| Unit tests | `swift test` | exit 0: 931 core tests in 92 suites (`PlainBoundCommandsTests` 7 new: the condition, its refusals, the bound attach and detach text, the detach outcome, on a private server the attach (a restarted server's session with the old id and name refused, eight one-field-off identities refused with 65 for attach and move here, the exact one reaching tmux's attach, exit 1 with no server and none started) and the detach (three control clients: pid, creation time, name, any session field off, or a client of another session, detached nothing; the exact one only its client); `PlainLaunchTests` 10, the old local-arguments test replaced, the remote script's recorded arguments compared with the local builder's for the guard's four values, its 65 passed through) and 485 UI tests in 47 suites (unchanged) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Plain proof, locally | `swift run muxfinder-probe plain-proof --local` (final code) | exit 0, 9 of 9 PASS in 1.5 s. 2: A confirmed by its `client_tty` 241 ms after its start; 3: a pseudo-terminal with no client matched none, a stale attach there (the server's start time 1 s off) exited 65 after 60 ms, still none and 1 client; 5: with A2 on A's terminal 2 candidates among 3, and the bound detach of A (two clients of that name) detached nothing in 10 ms, all 3 stayed; 6: a stale bound detach of A (creation time 1 s off) detached nothing in 11 ms, A and B stayed; the bound detach of `/dev/ttys004` in 9 ms, A's child exit 0 by itself, B still attached; 7: a stale move here exited 65 after 60 ms, B still attached; M (bound `attach-session -d`) the only client within 244 ms, B's child exit 0 by itself; 8: M's bound detach in 11 ms, exit 0, the session alive with no client; 9: 5 pseudo-terminals closed (4492 bytes discarded, counted only), the session killed, no child left. Readings 17, median 11 ms, at most 20 ms |
+| Plain proof, Saturno | `swift run muxfinder-probe plain-proof --ssh saturno-m4` (final code) | exit 0, 9 of 9 PASS in 20.7 s. 2: A confirmed by its token 1661 ms after its ssh started (the remote bound attach); 3: a token nobody carries matched none, a stale attach with a new token exited 65 after 792 ms (the guard refused it), still none; 5: A2 with A's token: 2 candidates among 3, none confirmed (A2 has its own remote terminal, so no shared name); 6: a stale bound detach of A detached nothing (713 ms), the bound detach of `/dev/ttys003` in 717 ms (one ssh connection), A's ssh exit 0 by itself, B still attached; 7: a stale move here exited 65 after 792 ms, B still attached; M the only client 1663 ms after its start, B's ssh exit 0 by itself; 8: M's bound detach in 714 ms, the session alive; 9: the session killed on Saturno, no child left. Readings 16, median 730 ms, at most 740 ms |
+| Leftovers after both runs | `tmux ls` on Neptuno and, read-only over BatchMode ssh, on Saturno; `ps -A -ww -o args=` on both, counted for the scripts' and sessions' names only; `ls -d /tmp/mfx.*` | no `muxfinder-test-*` session and no launch shell on either Mac, no process of the harness or of the scratch script, no `mfx.*` folder |
+
+What remains: nothing between a check and its attach or detach. A remote stale attach is
+refused by the guard before the bound attach, since both check the same four values; the
+remote bound attach's refusal is covered by the hermetic test that its arguments are the local
+builder's, whose refusals run on a private server. tmux names a client to `detach-client -t`
+by name only, so the detach's binding rests on that name being unique among attached clients,
+which the same command checks.

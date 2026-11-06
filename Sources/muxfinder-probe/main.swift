@@ -23,6 +23,8 @@ let usage = """
   \(E2EProfileCommand.usage)
   \(E2EBuryCommand.usage)
   \(E2EDetachOthersCommand.usage)
+  \(TerminalsCommand.usage)
+  \(PlainProofCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -65,6 +67,10 @@ case "e2e-bury":
   exit(await E2EBuryCommand.run(Array(arguments.dropFirst())))
 case "e2e-detach-others":
   exit(await E2EDetachOthersCommand.run(Array(arguments.dropFirst())))
+case "terminals":
+  exit(await TerminalsCommand.run(Array(arguments.dropFirst())))
+case "plain-proof":
+  exit(await PlainProofCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

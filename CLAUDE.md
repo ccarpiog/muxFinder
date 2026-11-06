@@ -235,6 +235,34 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   (sends every tmux connection the read-only identity `display-message`; in unattended runs
   only while `list-connections` shows none of the user's). Prove `apiDisabled` with
   `--socket <missing path>`, never by quitting iTerm2 or sending a bogus cookie.
+- Terminal apps check (read-only, prints JSON; launches nothing, sends no Apple event, writes
+  nothing, never contacts iTerm2's API; PLAN.md D38): `swift run muxfinder-probe terminals
+  list` prints iTerm2, Terminal and Ghostty (found through LaunchServices by bundle
+  identifier: path, version, whether running) and the Automation permission's state for each,
+  read with `AEDeterminePermissionToAutomateTarget` without a prompt (`granted`, `denied`,
+  `notDetermined`, `targetNotRunning`, or `other` with the status). The permission read is
+  that of the app the command runs in (iTerm2 for this shell). It is the gate of
+  *Unattended-run rules* 8: an Apple event to Terminal or Ghostty only while it shows
+  `running` and `granted`.
+- Plain attach proof (PLAN.md D38; contacts no iTerm2 and no terminal app, opens no window,
+  with `TMUX_TMPDIR` unset; `--help` contacts nothing): `swift run muxfinder-probe plain-proof
+  --local | --ssh saturno-m4` (9 steps, about 1.5 s locally, 21 s on Saturno) creates its own
+  `muxfinder-test-*` session (a `sleep 600` window) and attaches plain clients (no `-CC`) on
+  pseudo-terminals it opens itself (output drained and discarded, never shown); remotely each
+  is `/usr/bin/ssh -t` with discovery's noninteractive options and no connection sharing,
+  running `PlainLaunch.remoteScript` with a token of its own. Every attach and detach is
+  bound (D38): one `tmux -u if-shell -F -t '<id>' '<condition>' …` in which the server checks
+  the recorded session (and, for a detach, exactly one client with the recorded name, pid and
+  creation time in it) before it attaches (`attach-session [-d]`, else exit 65) or detaches
+  (`PlainClientDetach`, else a marker: nothing detached). It proves that a launch's client is
+  told apart (locally by `client_tty`, remotely by the token at the end of its parent shell's
+  arguments, read with `ps` over noninteractive ssh), that none matches without a client and
+  a stale attach attaches nothing, that two candidates confirm nothing, that a stale detach
+  detaches nothing and the bound detach ends only that client, and that a stale move here
+  detaches nobody while a move here with `attach-session -d` leaves only the new client; it
+  prints one PASS/FAIL line per step and
+  cleans up on every way out (its children ended, its pseudo-terminals closed, only its own
+  session killed, then no such session and no child process left).
 - Launch helper (iTerm2 runs it in a launch tab; by hand only for checks):
   `.build/debug/muxfinder-launch attach <uuid>` takes `<uuid>.request.json` from
   `~/Library/Application Support/muxFinder/launch/`; `muxfinder-launch ssh-setup <uuid>`
@@ -361,6 +389,11 @@ instance and these tmux servers.
   `kill-server`.
 - Never close, send text to, or otherwise touch iTerm2 windows/tabs/sessions the current test did
   not create. Detach tmux attachments with `detach-client`; never close tmux tabs to detach.
+- The same for Terminal.app and Ghostty windows and tabs: touch only those the test opened,
+  never type into any, close one only by its recorded id after its process has ended. Never
+  launch Terminal.app or Ghostty, and send either an Apple event only while it is already
+  running and its Automation permission reads granted without a prompt; otherwise its real
+  runs are the user's.
 - Remote hosts: only `saturno-m4`, only for discovery and `muxfinder-test-*` sessions, no remote
   file writes. Read-only Spotlight folder queries (`mdfind`, `mdutil -s`, readability tests)
   on Saturno and this Mac are allowed too; record only counts and timings, never folder names

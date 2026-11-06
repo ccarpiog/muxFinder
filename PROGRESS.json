@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T13:03:57Z",
+  "updated": "2026-11-06T14:15:36Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -708,11 +708,65 @@
     {
       "id": "I-12",
       "title": "Other terminal apps: Terminal.app and Ghostty",
+      "status": "in_progress",
+      "risk": "high",
+      "summary": "Lets muxFinder open sessions in Terminal.app and Ghostty with plain tmux; split into I-12a to I-12e, I-12a done.",
+      "added": "2026-11-06T10:29:06Z",
+      "started": "2026-11-06T13:06:57Z",
+      "status_since": "2026-11-06T13:06:57Z"
+    },
+    {
+      "id": "I-12a",
+      "title": "Other terminals: proof and decision",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-12",
+      "summary": "Proves plain tmux confirmation, detach and Move here on both Macs and records D38; real Terminal and Ghostty runs are owed to the user.",
+      "review": "docs/reviews/phase-I-12a.md",
+      "narrative": "docs/progress-archive/i-12a.md",
+      "added": "2026-11-06T13:06:57Z",
+      "started": "2026-11-06T13:06:57Z",
+      "status_since": "2026-11-06T14:15:36Z"
+    },
+    {
+      "id": "I-12b",
+      "title": "Other terminals: definitions, terminal seam, helper plain mode",
       "status": "queued",
       "risk": "high",
-      "summary": "Open sessions in Terminal.app or Ghostty with plain tmux beside iTerm2's control mode, through a terminal setting and JSON definitions.",
-      "added": "2026-11-06T10:29:06Z",
-      "status_since": "2026-11-06T10:29:06Z"
+      "parent": "I-12",
+      "summary": "Adds JSON terminal definitions, a terminal seam with iTerm2 wrapped unchanged, a plain backend and the helper plain mode.",
+      "added": "2026-11-06T13:06:57Z",
+      "status_since": "2026-11-06T13:06:57Z"
+    },
+    {
+      "id": "I-12c",
+      "title": "Other terminals: coordinator, confirmation, detection, e2e-plain",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-12",
+      "summary": "Confirms, detaches and moves plain attachments through tmux and detects sessions open in any terminal on this Mac.",
+      "added": "2026-11-06T13:06:57Z",
+      "status_since": "2026-11-06T13:06:57Z"
+    },
+    {
+      "id": "I-12d",
+      "title": "Other terminals: Settings, strings, onboarding, galleries",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-12",
+      "summary": "Adds the Terminal setting, strings that follow the chosen terminal, onboarding without iTerm2 and persistent work commands.",
+      "added": "2026-11-06T13:06:57Z",
+      "status_since": "2026-11-06T13:06:57Z"
+    },
+    {
+      "id": "I-12e",
+      "title": "Other terminals: documentation",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-12",
+      "summary": "Documents plain mode, adding a terminal, later candidates and the extended safety rules.",
+      "added": "2026-11-06T13:06:57Z",
+      "status_since": "2026-11-06T13:06:57Z"
     },
     {
       "id": "I-13",
