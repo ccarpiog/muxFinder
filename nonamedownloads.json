@@ -1,0 +1,11 @@
+{
+  "apps": [
+    {
+      "slug": "muxfinder",
+      "name": "muxFinder",
+      "bundleIds": [
+        "cc.carpio.muxfinder"
+      ]
+    }
+  ]
+}

@@ -43,7 +43,13 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   for a release): `scripts/release.sh` runs `build-app.sh --release` (Developer ID identity,
   secure timestamp), notarizes through the notarytool keychain profile `AC_NOTARY_PROFILE`,
   staples, requires `spctl` "source=Notarized Developer ID" and writes `build/muxFinder.zip`.
-  A Developer ID build makes macOS ask for the Automation permission again once.
+  A Developer ID build makes macOS ask for the Automation permission again once. Version
+  numbers follow PLAN.md D35 (build +1 every release; minor up for features, patch for fixes).
+- Publish to NonameDownloads, the private download site (only when the user asks): follow
+  `~/Developer/Utils/NonameDownloads/docs/NONAMEDOWNLOADS.md`, with the app declared in
+  `nonamedownloads.json`. Hand `nd publish` the `build/muxFinder.zip` that `scripts/release.sh`
+  writes after stapling. This repository is public: keep the runbook and the site's address out
+  of it.
 - Icon (dev only; outputs committed): `scripts/dev/icon/build-icon.sh` regenerates
   `Resources/AppIcon.icns` and `Resources/MenuBarIcon{,@2x,@3x}.png` from
   `scripts/dev/icon/` (see its README).
@@ -324,7 +330,9 @@ instance and these tmux servers.
 - Never close, send text to, or otherwise touch iTerm2 windows/tabs/sessions the current test did
   not create. Detach tmux attachments with `detach-client`; never close tmux tabs to detach.
 - Remote hosts: only `saturno-m4`, only for discovery and `muxfinder-test-*` sessions, no remote
-  file writes.
+  file writes. Read-only Spotlight folder queries (`mdfind`, `mdutil -s`, readability tests)
+  on Saturno and this Mac are allowed too; record only counts and timings, never folder names
+  or paths.
 - Never write iTerm2 preferences, other iTerm2 profiles, `~/.ssh/*` or shell startup files. The
   app owns only `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json` and
   `~/Library/Application Support/muxFinder/`.

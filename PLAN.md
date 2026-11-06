@@ -2999,6 +2999,17 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     showing a failure after close only on the session's row (there is no row for a session that
     was never created, and the popover may be closed); remembering the window's frame across
     closes (the orchestrator's call: a fresh opening appears where the user just looked).
+- **D35 — Version numbers** (decided by the user, 2026-11-06, for the 0.2.0 release; the
+  numbers live in `scripts/build-app.sh`'s Info.plist template, `CFBundleShortVersionString`
+  and `CFBundleVersion`).
+  - **Build number:** every release adds 1, whatever else changes.
+  - **Version:** the minor number goes up (patch back to 0) when user-facing features were
+    added since the last published release; the patch number goes up when only fixes were.
+  - **The last published release** is the one `nd list muxfinder` shows (NonameDownloads),
+    never a number guessed from the repository. `nd` refuses a version and build it already
+    has; never pass `--replace` without the user's agreement.
+  - **History:** 0.1.0 (1), 2026-11-04; 0.2.0 (2), 2026-11-06 (New session's keyboard host
+    picker, its own window and the folder drop, Phases I-8 and I-9).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -3680,7 +3691,10 @@ work. The autoclaude session itself runs inside an iTerm2 tab.
    `kill-server` or touch other sessions. Applies locally and on Saturno.
 3. **Remote:** Saturno (`saturno-m4`) is authorized for read-only discovery and for
    creating/attaching/detaching/killing `muxfinder-test-*` sessions. No other host. No file
-   writes on remote hosts.
+   writes on remote hosts. Also authorized (by the user, 2026-11-06, for remote folder
+   search): read-only Spotlight queries for folders on Saturno and on this Mac (`mdfind`,
+   `mdutil -s`, and readability tests such as `[ -r ~/Documents ]`). Record only counts and
+   timings, never a folder name or path, in logs, fixtures, docs or commits.
 4. **Never write** iTerm2 preferences (`com.googlecode.iterm2`), profiles other than
    `DynamicProfiles/muxFinder.json`, `~/.ssh/*`, or shell startup files.
 5. Do not launch `muxFinder.app` through LaunchServices (`open`) in a way that triggers the
