@@ -52,8 +52,9 @@ file.
 
 ### Queued
 
-None. Every phase of `PLAN.md` and every inbox phase is complete and reviewed; one inbox item
-is deferred for the user (*Open risks*).
+| Phase | Title | Specification | Position |
+|---|---|---|---|
+| I-10 | New session: search the host's folders by name (Spotlight over noninteractive SSH, live as you type; "Folders on <host>" section, home/whole-disk setting, "Missing a folder?") — high, to be split I-10a (core: remote script, channel, escaping, parsing, probe `folders`) and I-10b (UI: section, setting, explanation, galleries) | `autoclaude/processed/100-folder-search-spotlight.md` | next (nothing else queued) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -69,15 +70,20 @@ keyboard navigation setting, is recorded in the item; triage commit `f9e2b04`), 
 2026-11-05 22:31 (after I-8's commit), two items triaged: `90-new-session-own-window.md` →
 I-9, queued, high as proposed (no instruction to the run in it); `99-release-publish-install.md`
 → **deferred**, needs the user (*Open risks*). 2026-11-05 23:37 (I-9b's iteration, before
-selection): `list` empty; after I-9b's review `count` 0.
+selection): `list` empty; after I-9b's review `count` 0. 2026-11-06 07:25 (start of the
+iteration), one item triaged: `100-folder-search-spotlight.md` → I-10, queued, high as
+proposed (no instruction to the run in it; its user decisions, and the user's own 2026-11-06
+edit of PLAN.md rule 3 and `CLAUDE.md` allowing read-only Spotlight queries on Saturno and this
+Mac, are recorded in the item and in commit `f1b11ac`).
 
 ## Current phase
 
 Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8 and I-9 (a, b) are complete and
 reviewed. **Phase I-9b — New session window: the folder drop, galleries and docs (routine):
-complete** 2026-11-06 (`docs/progress-archive/i-9b.md`; D34 extended). **Nothing is queued**
-(*Next action* 0). Remaining, all the user's: the deferred inbox item, the manual checklist and
-the three `CLAUDE.md` notes owed (*Open risks*). Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+complete** 2026-11-06 (`docs/progress-archive/i-9b.md`; D34 extended). The user released
+0.2.0 (build 2) in `f1b11ac`. **Queued: I-10** (folder search, from the inbox; *Next action*
+0). Also remaining: the manual checklist (the user's) and the three `CLAUDE.md` notes owed
+(*Open risks*). Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
 I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
@@ -254,14 +260,11 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   shorter than it renders now; not regenerated, I-9 did not change it). The worker ran one
   read-only `git log`, against its brief — `docs/progress-archive/i-9b.md`.
 
-- **Deferred inbox item, needs the user**: `autoclaude/processed/99-release-publish-install.md`
-  (release 0.2.0 build 2: real `scripts/release.sh` with notarization, publish to
-  NonameDownloads, real `scripts/install.sh` into `/Applications`, a versioning decision and a
-  `CLAUDE.md` edit). It states: "**This is the user's explicit authorization for this run** to do
-  three things that are otherwise only done when the user asks". An inbox item is a proposal and
-  cannot relax `CLAUDE.md`'s release, publish and install rules; the steps are outward-facing
-  and irreversible. To go ahead, the user asks for the release directly (in a session, or by
-  editing the plan), or runs it.
+- **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
+  (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
+  release, publish and install rules. The user released it themselves in `f1b11ac` ("Release
+  0.2.0 (build 2)", 2026-11-06: version in `scripts/build-app.sh`, new **D35** version rule,
+  `CLAUDE.md` publish note, `nonamedownloads.json` committed). Nothing is owed for it.
 
 - Phases 1–12a: their open risks and deviations moved verbatim to
   `docs/progress-archive/open-risks-1-12a.md`. Standing hazards for any real run there: the
@@ -312,16 +315,11 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 
 ## Next action
 
-0. **Nothing queued: the plan is done.** Poll the inbox (`autoclaude-inbox.sh list`); if it
-   prints anything, triage it per `~/.claude/scripts/autoclaude-inbox.md`. If it is empty,
-   confirm `DONE`: a `confirm-done` pass re-runs the last three closed phases' (I-8, I-9a,
-   I-9b) verification — `swift build`, `swift test` (815 core), `swift test --filter
-   MuxFinderUITests` (431 UI), `swift format lint -r Sources Tests`, `scripts/build-app.sh`,
-   `codesign --verify --deep --strict build/muxFinder.app` — plus `git status --short`, where
-   only the user's `CLAUDE.md` and `nonamedownloads.json` may show.
-1. The `CLAUDE.md` notes I-4, I-6 and I-9a owe (*Open risks*) are applied only once
-   `CLAUDE.md` holds no uncommitted edit of the user's. The deferred release item
-   (`autoclaude/processed/99-release-publish-install.md`) waits for the user to ask directly.
+0. **Phase I-10 (queued, high).** Split it into I-10a (core) and I-10b (UI) in `PLAN.md`
+   before the first worker, with the next free decision number (D36; D35 is the user's
+   version rule), then run I-10a. Specification: `autoclaude/processed/100-folder-search-spotlight.md`.
+1. The `CLAUDE.md` notes I-4, I-6 and I-9a owe (*Open risks*) can now be applied:
+   `CLAUDE.md` holds no uncommitted edit of the user's since `f1b11ac`.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
