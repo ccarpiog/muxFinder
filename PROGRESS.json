@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T14:15:36Z",
+  "updated": "2026-11-06T15:10:00Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -731,12 +731,36 @@
     {
       "id": "I-12b",
       "title": "Other terminals: definitions, terminal seam, helper plain mode",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
       "parent": "I-12",
-      "summary": "Adds JSON terminal definitions, a terminal seam with iTerm2 wrapped unchanged, a plain backend and the helper plain mode.",
+      "summary": "Adds terminal definitions, a terminal seam and the helper plain mode; split into I-12b1 (done) and I-12b2.",
       "added": "2026-11-06T13:06:57Z",
-      "status_since": "2026-11-06T13:06:57Z"
+      "started": "2026-11-06T14:18:37Z",
+      "status_since": "2026-11-06T14:18:37Z"
+    },
+    {
+      "id": "I-12b1",
+      "title": "Other terminals: definitions, loader, AppleScript runner",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-12b",
+      "summary": "Adds strict JSON terminal definitions with built-ins for Terminal and Ghostty, a safe loader and an AppleScript handler runner.",
+      "review": "docs/reviews/phase-I-12b1.md",
+      "narrative": "docs/progress-archive/i-12b1.md",
+      "added": "2026-11-06T14:18:37Z",
+      "started": "2026-11-06T14:18:37Z",
+      "status_since": "2026-11-06T15:10:00Z"
+    },
+    {
+      "id": "I-12b2",
+      "title": "Other terminals: terminal seam and helper plain mode",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-12b",
+      "summary": "Puts iTerm2 behind a terminal seam unchanged, adds a plain backend and the helper plain attach and profile modes.",
+      "added": "2026-11-06T14:18:37Z",
+      "status_since": "2026-11-06T14:18:37Z"
     },
     {
       "id": "I-12c",

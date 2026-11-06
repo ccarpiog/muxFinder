@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "ghostty",
+  "displayName": "Ghostty",
+  "bundleIdentifier": "com.mitchellh.ghostty",
+  "minimumVersion": "1.3",
+  "notes": "Opens each session in a new Ghostty window with plain tmux: one window, tmux's status bar, prefix keys and copy mode. Needs Ghostty 1.3 or later with its AppleScript support on (macos-applescript, on by default).",
+  "open": {
+    "kind": "appleScript",
+    "script": "ghostty.applescript",
+    "command": "words"
+  },
+  "focus": {
+    "kind": "windowID"
+  },
+  "keepsMinimumLifetime": false
+}

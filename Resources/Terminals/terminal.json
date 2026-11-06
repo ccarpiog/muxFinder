@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "terminal",
+  "displayName": "Terminal",
+  "bundleIdentifier": "com.apple.Terminal",
+  "minimumVersion": "2.0",
+  "notes": "Opens each session in a new Terminal window with plain tmux: one window, tmux's status bar, prefix keys and copy mode.",
+  "open": {
+    "kind": "appleScript",
+    "script": "terminal.applescript",
+    "command": "shellText"
+  },
+  "focus": {
+    "kind": "tty"
+  },
+  "keepsMinimumLifetime": false
+}

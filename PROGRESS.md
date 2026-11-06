@@ -54,12 +54,13 @@ file.
 | I-11a | Detach other clients, proof and core: `attach-session -d` rejected on real runs (iTerm2 reopens windows), per-client checked `detach-client`, `detachOtherClients(of:confirmation:)` with typed results and 10 s age guard, `tmuxCommandFailed` at the API boundary, `e2e-detach-others` 9/9 on both hosts (D37) | high | opus (impl + review-fix worker); orchestrator regression run and one `CLAUDE.md` edit | Codex, ship-with-fixes, `docs/reviews/phase-I-11a.md` | `docs/progress-archive/i-11a.md` |
 | I-11b | Detach other clients, the UI: popover item and offer rule, in-popover confirmation, pending row, results through `SessionProblem`, refresh, row hint "also attached elsewhere", VoiceOver, galleries; switcher offers no "Try again" for popover-only confirmations (D25, D32, D37 edited) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-11b.md` | `docs/progress-archive/i-11b.md` |
 | I-12a | Other terminals, proof and decision: `terminals list` (permission read without a prompt), `plain-proof` 9/9 on both hosts (pty-hosted plain clients, remote token identification, `attach-session -d` Move here, bound attach and detach), Terminal's command text, D38 and D3 extended; Terminal and Ghostty window runs owed (neither running) | high | opus (impl + review-fix worker); split, calls and safety rules by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12a.md` | `docs/progress-archive/i-12a.md` |
+| I-12b1 | Other terminals, definitions: strict schema 1 (unknown and duplicate keys refused), loader under D19's rules with per-file problems, built-in Terminal and Ghostty definitions and scripts in `Resources/Terminals/` (bundled, signed), `shellText`/`words`/`exec` command forms, `NSAppleScript` handler runner seam, app facts without a prompt, `terminals list` extended; no built-in script compiled (D38 extended) | high | opus (impl + review-fix worker); split and calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12b1.md` | `docs/progress-archive/i-12b1.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-12b–e | Other terminal apps, the rest of the group as split in `PLAN.md` *Phase I-12*: b core (definitions, seam, plain backend, helper plain mode; high), c coordinator (confirmation, detach, detection, `e2e-plain`; high), d UI (routine), e docs (routine) | `autoclaude/processed/110-other-terminal-apps.md` | next (b first) |
+| I-12b2–e | Other terminal apps, the rest of the group as split in `PLAN.md` *Phase I-12*: b2 terminal seam and helper plain mode (high), c coordinator (confirmation, detach, detection, `e2e-plain`; high), d UI (routine), e docs (routine) | `autoclaude/processed/110-other-terminal-apps.md` | next (b2 first) |
 | I-13 | Update check (high, a group): GitHub `releases/latest` check at launch and daily (toggle on by default), popover notice and icon dot, one-click Update (download, SHA-256, `ditto`, Developer ID + notarization check, D27-style swap, relaunch), hand-written, no Sparkle; split a (core) / b (UI) in `PLAN.md` before its first worker | `autoclaude/processed/120-update-check-github.md` | after I-12 (last) |
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
@@ -88,16 +89,18 @@ the iteration), one item triaged: `120-update-check-github.md` → I-13, queued 
 as proposed (no instruction to the run in it; its user decisions are recorded in the item). At
 I-13's selection settle first whether *Unattended-run rules* 3 ("no other host") lets a run
 make the item's read-only GitHub GETs (`update check`, `update verify`); if not, those real
-runs are owed to the user.
+runs are owed to the user. 2026-11-06 14:17 (start of I-12b1's iteration): `list` empty.
 
 ## Current phase
 
 Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8, I-9 (a, b), I-10 (a, b) and
-I-11 (a, b) and I-12a are complete and reviewed. The user released 0.2.0 (build 2) in
-`f1b11ac`. **Phase I-12 (other terminal apps) is split into I-12a–e** in `PLAN.md` *Phase
-I-12*; **I-12a — proof and decision (high): complete** 2026-11-06
-(`docs/progress-archive/i-12a.md`). **Next: I-12b** (core; *Next action* 0), then I-12c–e,
-then **I-13** (update check, a group to split a/b). Also remaining:
+I-11 (a, b), I-12a and I-12b1 are complete and reviewed. The user released 0.2.0 (build 2)
+in `f1b11ac`. **Phase I-12 (other terminal apps) is split into I-12a–e**, and **I-12b into
+I-12b1/I-12b2**, in `PLAN.md` *Phase I-12*; **I-12a** (proof and decision) and **I-12b1**
+(definitions, loader, AppleScript runner) complete 2026-11-06
+(`docs/progress-archive/{i-12a,i-12b1}.md`). **Next: I-12b2** (terminal seam and helper plain
+mode; *Next action* 0), then I-12c–e, then **I-13** (update check, a group to split a/b).
+Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
@@ -149,6 +152,12 @@ I-11a/I-11b, I-12 into I-12a–e.
   `docs/TESTING.md` *Phase I-12a, Owed*) — `terminals list` exit 0, `plain-proof --local` and
   `--ssh saturno-m4` 9/9 each on the final code, nothing left behind, D38 recorded; 931 core +
   485 UI pass — `docs/progress-archive/i-12a.md`.
+- Phase I-12b1: all criteria met, 2026-11-06 — schema, loader rules, overrides, command forms,
+  runner and app facts tested hermetically (992 core + 485 UI pass); the four built-in files
+  bundled and sealed (`codesign --verify` exit 0); `terminals list` exit 0 with both
+  built-ins and no problems, and on private folders a user definition, an override and a
+  problem; Terminal and Ghostty never started, no built-in script compiled (owed to a real
+  run) — `docs/progress-archive/i-12b1.md`.
 
 ## Decisions
 
@@ -192,6 +201,13 @@ I-11a/I-11b, I-12 into I-12a–e.
   Move here in plain mode is `attach-session -d`; every attach and detach is one bound
   `if-shell -F` command (review fix); Terminal's text also refuses `!` —
   `docs/progress-archive/i-12a.md`.
+- Phase I-12b: split into I-12b1 (definitions, loader, runner) and I-12b2 (seam, plain
+  backend's open/focus/close, helper plain mode, early report) in `PLAN.md` *Phase I-12*
+  before the first worker, with the calls for I-12b1 there (schema, fixed handler names,
+  `shellText`/`words`, Ghostty's token as the last word of `command` for either answer of the
+  owed fact, no built-in script compiled by any check). The workers' additions (no ACL,
+  `.applescript` names, placeholders at most once, duplicate keys refused, UTF-8 only) are in
+  D38's "Definitions (I-12b1)" and `docs/progress-archive/i-12b1.md`.
 
 ## Open risks / deviations
 
@@ -225,6 +241,10 @@ I-11a/I-11b, I-12 into I-12a–e.
   remote bound attach's refusal is tested only through the local builder. One `swift test` run
   made beside other commands failed a folder search transport timing bound (load-sensitive,
   untouched code); alone it passed.
+- I-12b1: compiling and calling the built-in Terminal and Ghostty scripts is owed to a real
+  run (their fit with the dictionaries checked only against `sdef`); the same folder search
+  timing test failed once in a worker's full run (2.018 s against 2 s) and passed in every
+  later run — `docs/progress-archive/i-12b1.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -278,37 +298,39 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phases I-9b, I-10a, I-10b: Codex wrote each file (`autoclaude-review.sh`): I-9b `ship`; I-10a
   `ship-with-fixes` (1 blocker + 2 should-fix), I-10b `ship-with-fixes` (2 should-fix), all
   fixed with regressions failing on the old code — `docs/reviews/phase-I-{9b,10a,10b}.md`.
-- Phase I-11a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 1
-  blocker (check not binding the detach: narrowed, not closable within tmux 3.8 and iTerm2
-  3.7.7, recorded in D37 and *Open risks*) + 2 should-fix (an error counted as a detach; age
-  guard missing later clients), both fixed; a review-fix worker did all three, each regression
-  failing with its fix reverted; re-verified by the orchestrator — `docs/reviews/phase-I-11a.md`.
-- Phase I-11b: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
-  blockers, 1 should-fix ("Try again" from the switcher set a confirmation only the popover
-  draws); a review-fix worker fixed it, 2 regressions failing with the fix reverted;
-  re-verified by the orchestrator — `docs/reviews/phase-I-11b.md`.
-- Phase I-12a: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 1
-  blocker (the harness's detach could hit a replacement client after tty reuse) + 1 should-fix
-  (local attach trusted a session id without revalidating the server); a review-fix worker
-  bound both into one `if-shell -F` command each, regressions failing with each fix reverted,
-  `plain-proof` 9/9 again on both hosts; re-verified by the orchestrator —
-  `docs/reviews/phase-I-12a.md`.
+- Phases I-11a, I-11b, I-12a: Codex wrote each file (`autoclaude-review.sh`), all
+  `ship-with-fixes` (I-11a 1 blocker narrowed in D37 + 2 should-fix; I-11b 1 should-fix;
+  I-12a 1 blocker + 1 should-fix, both bound into one `if-shell -F` command); review-fix
+  workers fixed them with regressions failing on the old code, re-verified —
+  `docs/reviews/phase-I-{11a,11b,12a}.md`, summaries in the phases' archives.
+- Phase I-12b1: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
+  blockers, 1 should-fix (duplicate JSON member names passed the strict schema); a review-fix
+  worker added `JSONDuplicateNameScanner` and `.duplicateKey`, six raw-JSON regressions (five
+  fail with the scan removed); re-verified by the orchestrator — `docs/reviews/phase-I-12b1.md`.
 
 ## Next action
 
-0. **Phase I-12b (queued, high): Other terminals, core.** Poll the inbox first. Then read
-   `PLAN.md` *Phase I-12* (the split; the I-12b bullet; the "Outcome of I-12a" paragraph), D38
-   and requirements 2–4 of `autoclaude/processed/110-other-terminal-apps.md`; write the
-   orchestrator's calls for I-12b in *Phase I-12* before its worker (where the seam sits, how
-   the iTerm2 backend wraps today's code unchanged, the definition schema and loader under
-   D19's rules, built-ins in `Resources/`, the helper's plain `attach` and `profile` variants
-   reusing `PlainLaunch.swift`/`PlainBoundCommands.swift`, Ghostty's token variable, designed
-   for either answer of the owed Ghostty facts); select it with acceptance criteria and
-   deliverables. If I-12b is too big for one worker, split it (e.g. b1 definitions and seam,
-   b2 helper plain mode) and record that. Then I-12c, I-12d, I-12e. Real runs, if any, follow
-   the gate in item 3 and *Unattended-run rules* 8. After I-12, **I-13** (`autoclaude/processed/120-update-check-github.md`, split a core / b UI; first
-   settle whether *Unattended-run rules* 3 lets a run make its read-only GitHub GETs, see the
-   *Inbox* note).
+0. **Phase I-12b2 (queued, high): Other terminals, terminal seam and helper plain mode.** Poll
+   the inbox first. Then read `PLAN.md` *Phase I-12* (the "I-12b split, and the
+   orchestrator's calls" block: the I-12b2 bullet), D38 (with its "Definitions (I-12b1)"
+   sub-bullet) and requirements 2, 4 and 5 of `autoclaude/processed/110-other-terminal-apps.md`;
+   write the orchestrator's calls for I-12b2 in *Phase I-12* before its worker (where the seam
+   sits and its operations: open, confirm, focus, detach, open here; how the iTerm2 backend
+   wraps today's `ITerm2Integration` code unchanged and every existing test and e2e still
+   passes; the plain backend's open, focus and close from a `TerminalDefinition` through the
+   `AppleScriptRunner` seam or `ProcessRunner` for `exec`, its confirm, detach and open-here
+   left to I-12c; the helper's plain `attach` (local bound attach from
+   `PlainLaunch.localAttachArguments`, remote `PlainLaunch.remoteScript` over `ssh -t`; no OSC
+   1337, no status-report wait, no bury; result file, explanation and wait for Return kept;
+   10 s minimum lifetime per `keepsMinimumLifetime`) and plain `profile` variants chosen by an
+   explicit argument; the early report file next to the request with the helper's terminal
+   path and its attach child's pid; the request schema's terminal field); select it with
+   acceptance criteria and deliverables. Then I-12c, I-12d, I-12e. Real runs, if any, follow
+   the gate in item 3 and *Unattended-run rules* 8 (never start Terminal or Ghostty; never
+   compile a built-in script outside the app's own use). After I-12, **I-13**
+   (`autoclaude/processed/120-update-check-github.md`, split a core / b UI; first settle
+   whether *Unattended-run rules* 3 lets a run make its read-only GitHub GETs, see the *Inbox*
+   note).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -350,29 +372,23 @@ I-11a/I-11b, I-12 into I-12a–e.
   `Sources/MuxFinderCore/Terminals/{AutomationPermission,TerminalCommandText}.swift`, probe
   `Sources/muxfinder-probe/{TerminalsCommand,PlainProofCommand,PlainProofRun,PlainProofTerminal}.swift`;
   tests `Tests/MuxFinderCoreTests/{PlainLaunch,PlainBoundCommands,TerminalCommandText,AutomationPermission}Tests.swift`.
+- Terminal definitions (I-12b1): `Sources/MuxFinderCore/Terminals/{TerminalDefinition,TerminalDefinitionParser,TerminalDefinitionProblem,TerminalDefinitionLoader,TerminalLaunchCommand,AppleScriptRunner,TerminalScriptCalls,TerminalAppFacts,JSONDuplicateNameScanner}.swift`,
+  built-ins `Resources/Terminals/`; tests
+  `Tests/MuxFinderCoreTests/{TerminalDefinition,TerminalDefinitionLoader,TerminalLaunchCommand,AppleScriptRunner}Tests.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-12a (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format lint
-  -r Sources Tests` exit 0; `swift test` 931 core tests in 92 suites and 485 UI tests in 47
-  suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0; `terminals list` exit 0; no `muxfinder-test-*` session left on
-  either host. Workers: `-warnings-as-errors` builds exit 0; `plain-proof` 9/9 locally (1.5 s)
-  and on Saturno (20.7 s) on the final code — `docs/progress-archive/i-12a.md`.
-
-- Phase I-11b (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `swift test` 905 core tests in 88 suites and 485 UI tests in
-  47 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0. No real e2e (no core change). Workers: `-warnings-as-errors`
-  builds exit 0 — `docs/progress-archive/i-11b.md`.
-- Phase I-11a (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `swift test` 905 core tests in 88 suites and 468 UI tests in
-  46 suites passed; `scripts/build-app.sh` exit 0; `codesign --verify --deep --strict
-  build/muxFinder.app` exit 0; `swift run muxfinder-probe e2e-local` 16/16 (66.1 s, threads
-  16 → 22), no leftovers. Workers: `-warnings-as-errors` build exit 0; `e2e-detach-others`
-  9/9 locally and on Saturno on the final code — `docs/progress-archive/i-11a.md`.
-- Phases 1–I-10b: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
+- Phase I-12b1 (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `swift test` 992 core tests in 97 suites and 485 UI tests in
+  47 suites passed; `scripts/build-app.sh` exit 0 (the four files in
+  `Contents/Resources/Terminals/`); `codesign --verify --deep --strict build/muxFinder.app`
+  exit 0; `.build/debug/muxfinder-probe terminals list` exit 0 (both built-ins, 0 problems);
+  `pgrep -x Terminal` and `pgrep -x ghostty` empty. No real e2e (nothing wired in). Workers:
+  `-warnings-as-errors` builds exit 0; `terminals list` on private folders —
+  `docs/progress-archive/i-12b1.md`.
+- Phases 1–I-12a: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`
+  (I-12a: 931 core + 485 UI, `plain-proof` 9/9 on both hosts; I-11a: `e2e-local` 16/16).
 
 ## Git state
 
@@ -400,5 +416,8 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phase I-10b: `6f4aec2`, pushed.
 - Phase I-11a: `53f2d95`, pushed. Inbox triage (I-13): `5dfb622`.
 - Phase I-11b: `148da51`, pushed.
-- Phase I-12a: the commit carrying this checkpoint ("Phase I-12a: other terminals, proof and
-  decision"), pushed (SHA and push result in the run's status line and the next checkpoint).
+- Phase I-12a: `59e2306`, pushed.
+- Phase I-12b1: the commit carrying this checkpoint ("Phase I-12b1: other terminals,
+  definitions, loader, AppleScript runner"), pushed (SHA and push result in the run's status
+  line and the next checkpoint). The tree was clean when this iteration started (empty
+  preflight file).

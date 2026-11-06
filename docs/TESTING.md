@@ -3474,3 +3474,37 @@ remote bound attach's refusal is covered by the hermetic test that its arguments
 builder's, whose refusals run on a private server. tmux names a client to `detach-client -t`
 by name only, so the detach's binding rests on that name being unique among attached clients,
 which the same command checks.
+
+
+### Phase I-12b1 — terminal definitions, loader and AppleScript runner (2026-11-06)
+
+The terminal definitions (PLAN.md D38, *Definitions (I-12b1)*): the schema and its parser,
+the loader under D19's rules, the two built-ins in `Resources/Terminals/`, the launch
+command's forms and `exec` argv expansion, the AppleScript runner seam with its handler
+contract, per-definition app facts, and `terminals list` extended. Nothing in the app, the
+helper or the coordinator uses them yet, so no gallery, `--selftest` or `e2e-*` run. No
+script of a built-in was compiled anywhere (compiling a `tell` block reads the target app's
+dictionary); Terminal and Ghostty were not running, so no Apple event was sent to either
+(*Unattended-run rules* 8). No iTerm2 API contact, no tmux.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 986 core tests in 97 suites (55 new in 5 suites: `TerminalDefinitionTests` 25, every schema refusal (unknown key at the top, in each `open` kind and in `focus`; bad and reserved ids; bad names, bundle ids, versions, notes, script names, executables; a placeholder or brace inside a longer argument, unknown placeholders, each placeholder not exactly once, too many arguments; `tty`/`windowID` focus with `exec`; missing, newer, zero, negative, text, fractional and boolean `schemaVersion`), version comparison, both built-ins loading cleanly with the forbidden commands absent from their text; `TerminalDefinitionLoaderTests` 13, on private temporary folders: links (a file, a script, the folder, a folder on its path, `/var`), folder modes other than 0700, another owner, ACLs on folder and file, group- or world-writable files (0644 accepted), a FIFO and a folder named `*.json`, 64 KiB and 256 KiB limits at and over the edge, 33 files, a missing folder and a dangling link (no problem, nothing created), an unsafe folder (exactly one problem, built-ins kept), overrides, duplicate ids in either folder; `TerminalLaunchCommandTests` 6, `shellText`, `words` and its 23 refused characters, `exec` argv expansion and its refusals; `AppleScriptRunnerTests` 8, the real runner over three test scripts with no `tell` block (arguments passed as values, a wrong shape, a raised error with its number, a missing handler -1708, a syntax error -2741), the strict open reply, the fake; `TerminalAppFactsTests` 3, over a fake inspector) and 485 UI tests in 47 suites (unchanged). A first full run had one failure in `FolderSearchTransportTests.answersAndEndsAtEndOfInput` (2.018 s against its 2 s bound under the parallel load; untouched by this phase), which passed alone (8 of 8) and in the full rerun |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| App bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, Apple Development identity; `Contents/Resources/Terminals/` holds the four files, identical to `Resources/Terminals/` (`diff -r`), sealed in `_CodeSignature/CodeResources`; verify exit 0 |
+| Terminal apps, before and after | `pgrep -x Terminal`; `pgrep -x ghostty` (before the first probe run and after the last) | exit 1, no output, both times: neither app ran, none was started |
+| `terminals list`, from the repository | `swift run muxfinder-probe terminals list`; `--help` | exit 0: the three app rows as in I-12a (iTerm2 running and `granted`; Terminal 2.15 and Ghostty 1.3.1 installed, not running, `targetNotRunning` -600); `definitions` Ghostty and Terminal, `builtIn`, open `appleScript` with `words` / `shellText`, focus `windowID` / `tty`, minimum version `meets`, permission `targetNotRunning`; `problems` empty (the real user folder does not exist: only looked at, not created). `--help` exit 0, contacts nothing; a missing option value exit 64 |
+| `terminals list`, private folders | `mktemp -d /private/tmp/mfx.XXXXXX` holding `builtin/` (the four built-in files) and `terminals/` (0700: an `exec` definition `wezterm`, a definition with id `terminal` and its own script, and `broken.json` with `--command={helper}`), then `terminals list --builtin-directory <it>/builtin --user-directory <it>/terminals` | exit 0: `ghostty` `builtIn`, `terminal` `userOverride` (`my-terminal.json`), `wezterm` `user` (permission `notNeeded`, `notInstalled`); one problem, `broken.json` `placeholderInsideArgument` ("Its argument 1 has a placeholder or a brace inside other text. …"). The same user folder named through `/tmp`: no user definition, one problem `unsafeFolder.symbolicLink`. The folder was removed afterwards |
+
+The first private-folder run found a probe bug, fixed before the runs above: the probe passed
+its folder options through `standardizedFileURL`, which turns `/private/tmp/…` into the
+symbolic link `/tmp/…`, so the user folder was refused; the options are now taken as given.
+
+**Owed** (to the user, or to I-12c's `e2e-plain` under the same gate): compiling and calling
+the built-in scripts, with that app running and `terminals list` showing it `granted` for the
+app running the command: Terminal's open (the window found by the new tab's `tty`, the window
+id and tty returned), focus (`set index … to 1`, the tab `selected`), close (refused with 1001
+while busy, then closed by id); whether `do script` on a Terminal that was not running opens a
+second window; Ghostty's open (`new window with configuration`, the id's shape), `activate
+window` and `close window` by id. The I-12a owed steps stay as listed there.

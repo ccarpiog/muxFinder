@@ -235,15 +235,28 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   (sends every tmux connection the read-only identity `display-message`; in unattended runs
   only while `list-connections` shows none of the user's). Prove `apiDisabled` with
   `--socket <missing path>`, never by quitting iTerm2 or sending a bogus cookie.
-- Terminal apps check (read-only, prints JSON; launches nothing, sends no Apple event, writes
-  nothing, never contacts iTerm2's API; PLAN.md D38): `swift run muxfinder-probe terminals
-  list` prints iTerm2, Terminal and Ghostty (found through LaunchServices by bundle
+- Terminal apps check (read-only, prints JSON; launches nothing, sends no Apple event,
+  compiles no script, writes nothing, never contacts iTerm2's API; PLAN.md D38):
+  `swift run muxfinder-probe terminals list [--builtin-directory <dir>] [--user-directory
+  <dir>]` prints iTerm2, Terminal and Ghostty (found through LaunchServices by bundle
   identifier: path, version, whether running) and the Automation permission's state for each,
   read with `AEDeterminePermissionToAutomateTarget` without a prompt (`granted`, `denied`,
-  `notDetermined`, `targetNotRunning`, or `other` with the status). The permission read is
-  that of the app the command runs in (iTerm2 for this shell). It is the gate of
-  *Unattended-run rules* 8: an Apple event to Terminal or Ghostty only while it shows
-  `running` and `granted`.
+  `notDetermined`, `targetNotRunning`, or `other` with the status); then `definitions` (the
+  terminal definitions `TerminalDefinitionLoader` loads: id, name, source `builtIn`, `user`
+  or `userOverride`, open kind and command form, focus kind, and the same app facts with the
+  minimum version check; `notNeeded` for an `exec` one's permission) and `problems` (each
+  unusable file or folder with its reason). Built-ins come from `--builtin-directory`, by
+  default `Resources/Terminals/` when run from the repository root, else none; user
+  definitions from `--user-directory`, by default the real
+  `~/Library/Application Support/muxFinder/terminals/` (read only; never create it). In
+  checks pass private folders with no symbolic link on their path (`mktemp -d
+  /private/tmp/mfx.XXXXXX`, not `/tmp` or `/var`, which are links: the user folder's rules
+  refuse them), the user one mode 0700; and check `pgrep -x Terminal` and `pgrep -x ghostty`
+  show the same before and after. The permission read is that of the app the command runs in
+  (iTerm2 for this shell). It is the gate of *Unattended-run rules* 8: an Apple event to
+  Terminal or Ghostty only while it shows `running` and `granted`. Nothing compiles a
+  built-in script outside such a real run: compiling a `tell` block reads that app's
+  dictionary.
 - Plain attach proof (PLAN.md D38; contacts no iTerm2 and no terminal app, opens no window,
   with `TMUX_TMPDIR` unset; `--help` contacts nothing): `swift run muxfinder-probe plain-proof
   --local | --ssh saturno-m4` (9 steps, about 1.5 s locally, 21 s on Saturno) creates its own

@@ -3698,6 +3698,61 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     variables` reach `command`, what its ids look like, and whether `direct:` works through
     AppleScript), and I-12c's `e2e-plain --terminal terminal|ghostty --local | --ssh
     saturno-m4`.
+  - **Definitions (I-12b1)** (2026-11-06; code in `Sources/MuxFinderCore/Terminals/`:
+    `TerminalDefinition`, `TerminalDefinitionParser`, `TerminalDefinitionProblem`,
+    `TerminalDefinitionLoader`, `TerminalLaunchCommand`, `AppleScriptRunner`,
+    `TerminalScriptCalls`, `TerminalAppFacts`; built-ins in `Resources/Terminals/`; tests in
+    `TerminalDefinitionTests`, `TerminalDefinitionLoaderTests`, `TerminalLaunchCommandTests`,
+    `AppleScriptRunnerTests`, `TerminalAppFactsTests`; `docs/TESTING.md` *Phase I-12b1*). Nothing in the app, the helper
+    or the coordinator uses them yet (I-12b2, I-12c).
+    **Schema 1**, strict (unknown keys refused at every level; so is a member name twice in
+    one object, compared after its escapes are decoded (`duplicateKey`, checked by
+    `JSONDuplicateNameScanner` before any value is read; UTF-8 text only, a UTF-16 file
+    `notJSON`); the first problem reported):
+    `id` `[a-z0-9-]`, 1–32 bytes, never `iterm2`; `displayName` 1–64 characters, no control
+    character; `bundleIdentifier` dot-separated parts of ASCII letters, digits and `-`;
+    `minimumVersion` dotted decimal (1–8 parts of 1–9 digits); optional `notes` (≤ 1 KiB, no
+    control character but line feed and tab); `open` `{"kind": "appleScript", "script",
+    "command": "shellText" | "words"}` (the script a name of `[A-Za-z0-9._-]`, ≤ 64 bytes, not
+    hidden, ending `.applescript`) or `{"kind": "exec", "executable", "arguments"}` (a relative
+    path with no empty, `.` or `..` part; at most 64 arguments, each literal or exactly one of
+    `{helper}`, `{mode}`, `{token}`, a brace anywhere else refused, and each placeholder exactly
+    once); `focus` `{"kind": "tty" | "windowID" | "app"}`, the first two only with
+    `appleScript`; optional `keepsMinimumLifetime` (false). Built-ins: Terminal (`shellText`,
+    focus `tty`, minimum 2.0) and Ghostty (`words`, focus `windowID`, minimum 1.3: the token is
+    the last word of `command`, not an environment variable). **`words`** are each
+    `[A-Za-z0-9._/+-]` (a helper path with a space or anything else is refused,
+    "… Move muxFinder to /Applications …"); `shellText` is `TerminalCommandText`; an `exec`
+    argv puts each value in as one whole argument and resolves `executable` inside the app
+    LaunchServices found. **The loader** reads, never writes or creates: built-ins from a
+    folder passed in (the bundle's `Contents/Resources/Terminals/`, which
+    `scripts/build-app.sh` fills and the signature seals; no owner or mode rule); user
+    definitions from `~/Library/Application Support/muxFinder/terminals/`, reached from `/` one
+    `O_NOFOLLOW` component at a time (a symbolic link anywhere on the path, so also `/tmp` and
+    `/var`, makes it unsafe; a path that does not exist, even through a link, is missing and
+    no problem), the user's, mode exactly 0700, no extended ACL, else one problem and no user
+    definition; each file (`*.json`, not hidden, in name order, at most 32, the rest problems)
+    opened `O_NOFOLLOW | O_NONBLOCK`, a regular file of the user's, not group- or
+    world-writable (readable is fine), no extended ACL, ≤ 64 KiB, its script under the same
+    rules, ≤ 256 KiB and UTF-8 with no NUL. Two files of one folder with one id are both
+    refused; a user id equal to a built-in's overrides it (`userOverride`). Every problem keeps
+    the file's name and a plain sentence. **The handler contract** as the calls above; a
+    handler raises -1728 for a window that is not there, and Terminal's `muxfinder_close`
+    raises 1001 (and closes nothing) while a tab is `busy`; each script opens with a header
+    saying muxFinder calls its handlers with values and never builds source. **The runner**
+    (`AppleScriptRunning`, main actor): `NSAppleScriptRunner` compiles the text the loader
+    read, once, and calls a handler in one `kASSubroutineEvent` with a list of texts; a reply
+    is `nothing` (`typeNull`, a bare `return`), text, a list or another type by code; failures
+    carry the OSA number, read whether `NSAppleScript` gives it as a number or as text (it gave
+    "-1708" as text). `FakeAppleScriptRunner` records compiles and calls. **App facts**
+    (`TerminalAppFacts`, behind `TerminalAppInspecting`): LaunchServices path and version, the
+    minimum check (`meets`, `tooOld`, `unknown`, `notInstalled`), running, and the permission
+    (`notNeeded` for `exec`). **Owed:** compiling and calling the built-ins (the first compile
+    reads the app's dictionary, which may launch it, so no check of this phase compiled them):
+    with the app running and `granted`, by the user or I-12c's `e2e-plain`; it shows whether
+    Terminal's `do script` finds its window by the new tab's `tty`, whether `set index … to 1`
+    with `selected` brings the tab forward, whether `do script` on a Terminal that was not
+    running opens a second window, and Ghostty's ids, `activate window` and `close window`.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -6305,7 +6360,7 @@ extended for Terminal's command text). Split before the first worker:
   handler call over an OSA runner seam, permission states, the terminal seam with the iTerm2
   backend wrapping today's code unchanged, the plain backend, the helper's plain `attach` and
   `profile` variants (requirement 4), `terminals list` extended with definitions. Hermetic
-  tests for all of it.
+  tests for all of it. **Split into I-12b1 and I-12b2** (below, after the outcome of I-12a).
 - **I-12c — coordinator (high).** Plain confirmation (requirement 5, as I-12a settled it),
   detach and Move here through tmux (requirement 6), "open on this Mac" by process ancestry
   (requirement 7; discovery's `list-clients` gains `client_pid` and `client_tty`, still
@@ -6407,6 +6462,95 @@ Ghostty's docs, and their real window runs, with the facts only they can show (w
 returns and the `tty` it reads, whether Ghostty's `environment variables` reach `command`, the
 shape of its ids), are owed to the user (`docs/TESTING.md` *Phase I-12a*) and to I-12c's
 `e2e-plain` under the same gate.
+
+**I-12b split, and the orchestrator's calls** (2026-11-06, before its first worker). I-12b is
+two workers' worth, so:
+
+- **I-12b1 — definitions, loader, AppleScript runner (high).** Requirement 3 and the
+  `terminals list` extension. Nothing in the app, helper or coordinator uses them yet.
+- **I-12b2 — terminal seam and helper plain mode (high).** Requirement 2 (the seam: open,
+  confirm, focus, detach, open here; the iTerm2 backend wrapping today's code unchanged; the
+  plain backend's open, focus and close from a definition, its confirm, detach and open-here
+  left to I-12c, which wires them into the coordinator) and requirement 4 (the helper's plain
+  `attach` and `profile` variants, chosen by an explicit argument, and requirement 5's early
+  report: the helper's terminal path and its attach child's pid, written next to the
+  request).
+
+Calls for I-12b1:
+
+- **Where.** `Sources/MuxFinderCore/Terminals/`, beside `AutomationPermission` and
+  `TerminalCommandText` (both reused, not rewritten). Built-ins in `Resources/Terminals/`
+  (`terminal.json`, `terminal.applescript`, `ghostty.json`, `ghostty.applescript`), copied by
+  `scripts/build-app.sh` into `Contents/Resources/Terminals/` and sealed by the app's
+  signature (`codesign --verify --deep --strict` still exit 0).
+- **Schema** (`schemaVersion` 1; unknown keys refused at every level; every string checked):
+  `id` (`[a-z0-9-]`, 1–32 bytes; `iterm2` reserved, since iTerm2 is code), `displayName`
+  (1–64 characters, no control character), `bundleIdentifier`, `minimumVersion` (dotted
+  decimal), optional `notes` (at most 1 KiB), `open`, `focus`, optional
+  `keepsMinimumLifetime` (default false). `open` is one of: `{"kind": "appleScript",
+  "script": "<file name>", "command": "shellText" | "words"}` — the script a plain file name
+  (no `/`, no leading `.`) in the definition's own folder, called through fixed handler names
+  (`muxfinder_open`, `muxfinder_focus`, `muxfinder_close`; never configurable), and `command`
+  saying which form of the launch command the script receives: `shellText`, D3's extension
+  (`TerminalCommandText`, for Terminal's `do script`), or `words`, the helper path, the mode
+  word and the token as separate values, each limited to D2's characters plus `/`, `.`, `_`,
+  `+`, `-` (no space; a helper path outside them is refused with a clear error, so Ghostty's
+  `command` means the same under every parsing its docs list); or `{"kind": "exec",
+  "executable": "<path inside the app bundle>", "arguments": [ … ]}` — the executable
+  relative to the app LaunchServices finds (no leading `/`, no `..`), the arguments literal
+  or exactly one whole placeholder among `{helper}`, `{mode}`, `{token}` (a placeholder
+  inside a longer argument, or an unknown one, is refused at load). `focus` is `{"kind":
+  "tty" | "windowID" | "app"}`; `tty` and `windowID` need `open.kind` `appleScript`.
+- **Ghostty's token goes in `command`, not `environment variables`**, as the last word, for
+  either answer of the owed fact (whether `environment variables` reach `command`): the
+  words are D2's characters, so the reason to prefer the environment (`command`'s parsing)
+  does not arise. The built-in Ghostty definition is `command` `words`; Terminal's
+  `shellText`.
+- **The handler contract.** `muxfinder_open(commandText, helperPath, modeWord, token)` (the
+  unused form an empty text) returns a list of two texts `{windowID, tty}`, either empty
+  when unknown; `muxfinder_focus(windowID, tty)` and `muxfinder_close(windowID)` return
+  nothing. Swift reads the reply strictly (anything else is a typed failure). Terminal's
+  script never uses `do script … in`, `contents` or `history`; Ghostty's never `input text`,
+  `send key` or the mouse commands; close only by the recorded id (D38).
+- **The runner seam.** A protocol (compile a script file once, call a handler with text
+  arguments in one Apple event, read a typed reply or a typed failure carrying the OSA
+  error number), the real one over `NSAppleScript` (`kASAppleScriptSuite` /
+  `kASSubroutineEvent`, `keyASSubroutineName`, the arguments as a list descriptor, script
+  source never built from values) on the main actor, and a fake. **Nothing in a test, the
+  probe or the build compiles a built-in script**: compiling a `tell` block reads the target
+  app's dictionary, which must never risk launching Terminal or Ghostty (*Unattended-run
+  rules* 8). Hermetic tests compile only test scripts with no `tell` block (a handler
+  echoing its arguments, one returning a wrong shape, one raising an error) and check the
+  built-ins' text for the forbidden commands. Compiling and calling the built-ins is part of
+  the owed real runs.
+- **The loader, under D19's rules.** Built-ins from a directory passed in (the bundle's
+  `Contents/Resources/Terminals/` in the app; `Resources/Terminals/` or a test folder in
+  checks). User definitions from `~/Library/Application Support/muxFinder/terminals/`
+  (passed in, never created by the loader): the folder owned by the user, mode 0700, no
+  symbolic link on the way; each file a regular file owned by the user, not group- or
+  world-writable, opened without following links, at most 64 KiB (a script at most
+  256 KiB), at most 32 definition files. A user definition overrides the built-in with its
+  id; two user files with one id are both refused. Every unusable file is kept with its
+  problem (path's last component and a plain reason) and is never fatal; a missing user
+  folder is no problem; an unsafe folder makes every user definition unusable with one
+  problem.
+- **Per definition**, with no Apple event and nothing launched: the app found through
+  LaunchServices by bundle identifier (path, version), whether it meets `minimumVersion`
+  (numeric dotted comparison; unreadable is "unknown", not a pass), whether it is running,
+  and the Automation permission without a prompt (`AutomationPermission`; `exec` definitions
+  need none: "not needed").
+- **`terminals list`** keeps its iTerm2, Terminal and Ghostty rows as they are and adds
+  `definitions` (each: id, display name, source `builtIn` / `user` / `userOverride`, open
+  kind and command form, focus kind, the app facts above) and `problems` (each unusable file
+  and its reason); `--builtin-directory <dir>` and `--user-directory <dir>` for checks
+  (default the repository's `Resources/Terminals/` when run from it, else none, and the real
+  user folder, read-only). It still launches nothing, sends no Apple event that could prompt
+  and writes nothing; it compiles no script.
+- **Tests**: hermetic, for the schema's every refusal, the loader's every file rule (on
+  private folders from `mktemp -d`-like temporary directories), override and duplicate
+  rules, argv expansion, the `words` limits, the version comparison, the runner over test
+  scripts and the fake, and both built-ins loading cleanly with the forbidden commands
+  absent.
 
 ## Deferred (explicitly out of scope for v1)
 
