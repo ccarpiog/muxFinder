@@ -75,7 +75,8 @@ extension AppModel {
   }
 
   /// Cancel, Esc (once the directory list is closed), ⌘W and the window's close button (PLAN.md
-  /// D34): the window closes with its directory list, "Open existing" stops looking (its lookup
+  /// D34): the window closes with its directory list and its drop highlight (Phase I-9b),
+  /// "Open existing" stops looking (its lookup
   /// is cancelled and opens nothing), and a creation in progress goes on, keeping its draft for
   /// its outcome (a collision or a failure brings the window back with it,
   /// `newSessionCreationFailed()`; a success shows on its row). Otherwise the draft is dropped:
@@ -83,6 +84,7 @@ extension AppModel {
   public func closeNewSession() {
     guard isNewSessionShown else { return }
     closeDirectoryList()
+    directoryDragEnded()
     if let id = currentLookupID { lookups[id]?.cancel() }
     currentLookupID = nil
     if newSessionDraft.state == .findingExisting { newSessionDraft.state = .collision }

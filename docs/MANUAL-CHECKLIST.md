@@ -326,10 +326,9 @@ the real popover, press keys in it or create a session from the real app, and th
   6. Steps 2, 4 and 5 again with Saturno chosen (a saved `~/…` directory resolves in
      Saturno's home folder; its own recents and session folders are listed, not This Mac's).
      Change the host while the field holds text, with the list open.
-  7. Keys, in New session with the cursor in Directory: ⌥↓ (the list opens on its first row),
-     ↑/↓ (the highlight moves, the session list behind does not), Return (the highlighted
-     directory fills the field and the list closes), ⌥↓ then Esc (only the list closes), Esc
-     again (New session closes). Open the list with the mouse and press Return with nothing
+  7. Keys, in the New session window with the cursor in Directory: ⌥↓ (the list opens on its
+     first row), ↑/↓ (the highlight moves), Return (the highlighted directory fills the field
+     and the list closes), ⌥↓ then Esc (only the list closes), Esc again (the window closes). Open the list with the mouse and press Return with nothing
      highlighted (New session creates). ⌥↓, then type in Directory and press Return (the
      highlight went with the typing; New session creates in what you typed, name
      `muxfinder-test-typed`). With macOS's keyboard navigation on (System Settings ›
@@ -343,8 +342,8 @@ the real popover, press keys in it or create a session from the real app, and th
   3: the saved list matches the tab after Save, and New session lists it for both hosts; the
   last Save removes only the entry removed in the tab and keeps the one saved from New
   session (the tab then lists it). 6:
-  the list follows the host, and the field keeps its text. 7: as described, and every other
-  popover key works as in item 16. 8: "Recent" disappears for This Mac only. With nothing
+  the list follows the host, and the field keeps its text. 7: as described (item 23 has the
+  rest of the window's keys). 8: "Recent" disappears for This Mac only. With nothing
   recent, saved or reported, the list says "Nothing to pick yet".
 - **Undo:** remove the saved entries in Settings › Directories (Save) and clear the recent
   ones from New session's list.
@@ -383,12 +382,12 @@ open the real switcher panel.
      open it again and click another session once; then open it again and quickly double-click
      a session; then open it again and quickly double-click a session already open in iTerm2
      here.
-  10. With more than about three sessions listed (so the list is taller than the New session
-      form), open the switcher over a window of another app (TextEdit, say) and click "New
-      session…" once; press Esc, then quickly double-click "New session…"; press Esc. Type a
-      new name such as `muxfinder-test-switcher`, quickly
-      double-click "New session “muxfinder-test-switcher”…" near its right end, then press
-      Return in the form; afterwards kill that session (`/opt/homebrew/bin/tmux kill-session -t
+  10. With more than about three sessions listed, open the switcher over a window of another
+      app (TextEdit, say) and click "New session…" once; press Esc in the New session window,
+      then open the switcher again and quickly double-click "New session…"; press Esc. Open the
+      switcher, type a new name such as `muxfinder-test-switcher`, quickly double-click "New
+      session “muxfinder-test-switcher”…" near its right end, then press Return in the window;
+      afterwards kill that session (`/opt/homebrew/bin/tmux kill-session -t
       '=muxfinder-test-switcher'`).
   11. Open the switcher from TextEdit (or any app with a text field focused) and press Esc;
       open it again and click outside it; open it again and press ⌘Tab.
@@ -422,12 +421,11 @@ open the real switcher panel.
   switcher is gone; the double click opens the session once (one launch, no second tab); on a
   session already open here it brings iTerm2 forward, the switcher closes a moment later, and
   its second click selects or clicks nothing in iTerm2's window. 10: one click on "New
-  session…" shows the form at once; a quick double click under the long list shows the form
-  once, and its second click acts on nothing in the form (no directory list opens, Cancel and
-  Create are not pressed) and clicks nothing behind the panel (the window underneath is
-  untouched and the switcher stays open, the panel shrinking to the form a moment later). The
-  form shows This Mac and the name filled in, with the
-  directory list button; Return creates, the session opens in iTerm2 and the switcher closes. 11: each closes it and the focus is back in the app you were in (TextEdit's cursor
+  session…" closes the switcher and opens the New session window at once (item 23); a quick
+  double click opens it once, and its second click acts on nothing in the window (no
+  directory list opens, Cancel and Create are not pressed) and clicks nothing behind it (the
+  window underneath is untouched). The window shows This Mac and the name filled in, with the
+  directory list button; Return creates, the window closes and the session opens in iTerm2. 11: each closes it and the focus is back in the app you were in (TextEdit's cursor
   where it was), with no muxFinder window left and muxFinder never in front. 12: only one of
   the popover and the switcher shows at a time; ⌘, opens Settings (the switcher closes), ⌘R
   shows the hosts' spinners in the popover later. 13: Saturno's sessions are missing and a
@@ -468,44 +466,49 @@ unit-tested, but no unattended run may launch the app through LaunchServices or 
 
 ## 20. Tab in New session
 
-Owed by Phase I-6 (PLAN.md D30, D31): the panels' key view loop and where each Tab and ⇧Tab
-step takes the focus were read in process (`--preview-key-view-loop`, `docs/TESTING.md`
-*Phase I-6*) and are unit-tested, but no unattended run may press a key.
+Owed by Phase I-6 (PLAN.md D30, D31; in the New session window since D34, Phase I-9): the
+window's key view loop and where each Tab and ⇧Tab step takes the focus were read in process
+(`--preview-key-view-loop`, `docs/TESTING.md` *Phases I-6 and I-9a*) and are unit-tested, but
+no unattended run may press a key.
 
 - **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), first
   with macOS's keyboard navigation off (System Settings › Keyboard › "Keyboard navigation"),
   then with it on:
-  1. Open the popover, press ⌘N, click in Name and type `muxfinder-test-tab`. Press Tab, then
-     ⇧Tab, then Tab again and type a directory of yours in Directory; press Return.
-  2. In the same form before Return (or a new one): press Tab several times from Name, then
-     ⇧Tab several times. Then ⌥↓ in Directory to open the directory list and press Tab.
-  3. Open the session switcher (item 18's shortcut), press ⌘N (the cursor is in Name), name
-     `muxfinder-test-tab2`, then steps 1 and 2 there.
+  1. Open the popover and press ⌘N (the popover closes and the New session window opens,
+     the cursor in Name); type `muxfinder-test-tab`. Press Tab, then ⇧Tab, then Tab again and
+     type a directory of yours in Directory; press Return.
+  2. In a new New session window: press Tab several times from Name, then ⇧Tab several
+     times. Then ⌥↓ in Directory to open the directory list and press Tab.
+  3. Open the session switcher (item 18's shortcut), press ⌘N (the switcher closes, the
+     window opens with the cursor in Name), name `muxfinder-test-tab2`, then steps 1 and 2
+     there.
   4. Kill both sessions (`tmux kill-session -t '=muxfinder-test-tab'` and
      `'=muxfinder-test-tab2'`).
 - **Expect:** 1: Tab puts the cursor in Directory and ⇧Tab back in Name, with no beep; Return
-  creates the session in the directory typed, and it opens. 2: with keyboard navigation off,
-  Tab and ⇧Tab go only between Name and Directory; with it on, Tab goes Name, Directory, the
-  list's button, Cancel, Create, the Host picker, Name (⇧Tab the other way), a focus ring on
-  each. Tab never closes the panel or reaches anything outside the form. With the list open,
-  Tab moves on and the list stays open (Esc closes it). 3: the same in the switcher.
+  creates the session in the directory typed, the window closes, and the session opens. 2:
+  with keyboard navigation off, Tab and ⇧Tab go only between Name and Directory; with it on,
+  Tab goes Name, Directory, the list's button, Cancel, Create, the Host picker, Name (⇧Tab the
+  other way), a focus ring on each. Tab never closes the window or reaches anything outside
+  the form (not its close button). With the list open, Tab moves on and the list stays open
+  (Esc closes it). 3: the same in the window opened from the switcher.
 - **Undo:** step 4; set keyboard navigation back as you had it.
 
 ## 21. Typing in Directory filters the directory list
 
-Owed by Phase I-7 (PLAN.md D31): the filter, the list opening and closing as you type, its
-keys and the match count announcement are unit-tested over the model, and the filtered and
-"No matching directories" states were rendered in the galleries, but no unattended run may
-press a key, turn VoiceOver on or create a session from the real app, and the real
+Owed by Phase I-7 (PLAN.md D31; in the New session window since D34, Phase I-9): the filter,
+the list opening and closing as you type, its keys and the match count announcement are
+unit-tested over the model, and the filtered and "No matching directories" states were
+rendered in the New session window's gallery (`new-session-states-*.png`), but no unattended
+run may press a key, turn VoiceOver on or create a session from the real app, and the real
 `directories.json` is the user's.
 
 - **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
   This Mac turned on, at least one saved directory and one recent directory (item 17 leaves
   both), and a tmux session started in a folder of yours (`tmux new-session -d -s
   muxfinder-test-filter -c <folder>`):
-  1. Open the popover, ⌘N, This Mac. In Directory, type part of a saved directory, then part of
-     a recent one, then part of the session's folder (also as `~/…` when it is under your home
-     folder, and as `/Users/<you>/…` for a saved `~/…` one).
+  1. Open the popover, ⌘N (the New session window opens), This Mac. In Directory, type part of
+     a saved directory, then part of a recent one, then part of the session's folder (also as
+     `~/…` when it is under your home folder, and as `/Users/<you>/…` for a saved `~/…` one).
   2. Press ↓, then ↓ and ↑ a few times, then Return. Then type something no entry contains.
   3. Clear the field. Type part of a directory again, press Esc, then type one more letter.
   4. Click the button at the end of Directory (or ⌥↓) and type something no entry contains;
@@ -514,7 +517,8 @@ press a key, turn VoiceOver on or create a session from the real app, and the re
      listed one (the parent of a saved directory, say), so the list opens, and press Return
      with nothing highlighted.
   6. With VoiceOver on (⌘F5), steps 1 to 3 again.
-  7. Open the session switcher (item 18's shortcut), ⌘N, and steps 1 to 4 there.
+  7. Close the window (Esc), open the session switcher (item 18's shortcut), ⌘N, and steps 1
+     to 4 in the window it opens.
   8. Kill the sessions (`tmux kill-session -t '=muxfinder-test-filter'` and
      `'=muxfinder-test-filtered'`).
 - **Expect:** 1: the list opens by itself as you type, with nothing highlighted, and trims
@@ -527,46 +531,97 @@ press a key, turn VoiceOver on or create a session from the real app, and the re
   again while something still matches. 4: the list stays open, saying "No matching directories" above "Save this directory"
   and "Clear recent directories on <host>"; clearing the field shows every entry again. 5: the
   session is created in the folder typed, not in a listed entry. 6: VoiceOver says the field's
-  hint (typing filters the list) and, after the typing, how many directories match ("3
-  matching directories", "No matching directories"). 7: the same in the switcher.
+  hint (typing filters the list; dropping a folder from Finder fills in its path) and, after
+  the typing, how many directories match ("3 matching directories", "No matching
+  directories"). 7: the same in the window opened from the switcher.
 - **Undo:** step 8.
 
 ## 22. Change the host from the keyboard in New session
 
-Owed by Phase I-8 (PLAN.md D30, D31, D32): which view has the focus after ⇧Tab from Name and
-where the panels' key monitor sends each key with it were read in process
-(`--preview-key-view-loop`, `docs/TESTING.md` *Phase I-8*) and the routing is unit-tested, but
-no unattended run may press a key or open a menu, so what AppKit's pop-up button does with
-each key is yours to see.
+Owed by Phase I-8 (PLAN.md D30, D31, D32; in the New session window since D34, Phase I-9):
+which view has the focus after ⇧Tab from Name and where the window's key monitor sends each
+key with it were read in process (`--preview-key-view-loop`, `docs/TESTING.md` *Phases I-8 and
+I-9a*) and the routing is unit-tested, but no unattended run may press a key or open a menu,
+so what AppKit's pop-up button does with each key is yours to see.
 
 - **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
   at least two hosts turned on and macOS's keyboard navigation on (System Settings › Keyboard ›
   "Keyboard navigation"):
-  1. Open the popover, press ⌘N and click in Name. Press ⇧Tab.
+  1. Open the popover, press ⌘N (the New session window opens) and click in Name. Press ⇧Tab.
   2. Press Space. In the menu, press ↓ (↑ if the host shown is the last one), then Return.
   3. Press Space again, then Esc. Then, with the menu closed, press ↑ and ↓ (and ⌥↓).
   4. Click the button at the end of Directory (the directory list opens), press ↓ once (a
      row is highlighted), then click in Name and press ⇧Tab. Press Space, pick another host
      with ↓ (or ↑) and Return, then press Esc once.
   5. Press Tab (back to Name), type `muxfinder-test-host` and press Return.
-  6. Open the session switcher (item 18's shortcut), press ⌘N (the cursor is in Name), then
-     steps 1 to 5 there, naming the session `muxfinder-test-host2`.
+  6. Open the session switcher (item 18's shortcut), press ⌘N (the switcher closes and the
+     window opens, the cursor in Name), then steps 1 to 5 there, naming the session
+     `muxfinder-test-host2`.
   7. Turn keyboard navigation off, open New session again, click in Name and press ⇧Tab.
   8. Kill both sessions on the hosts you picked (`tmux kill-session -t
      '=muxfinder-test-host'` and `'=muxfinder-test-host2'`, over ssh for an SSH host).
 - **Expect:** 1: a focus ring on the Host picker. 2: Space opens the host menu over the
-  picker (the panel stays open); ↓ moves to the next host and Return picks it: the picker
+  picker (the window stays open); ↓ moves to the next host and Return picks it: the picker
   shows it, and the directory list's "Sessions on <host>" section (when you open it) names
-  that host. 3: Esc closes only the menu, not New session or the panel. ↑ and ↓ on the closed
-  picker do what macOS does with them (open the menu, or step to the next host: note which),
-  never moving anything else; ⌥↓ opens no directory list. 4: the directory list stays open
-  while the focus is on Host and while the host menu is open, its rows following the host
-  picked (the highlight goes only if the new host's list lacks that row); Esc then closes
-  the list and New session stays (a second Esc would close it). 5: the session is created on the
-  host picked, and it opens. 6: the same in the switcher's form (Esc in step 3 never closes
-  the switcher). 7: with keyboard navigation off, ⇧Tab from Name goes to Directory (Host is
-  skipped).
+  that host. 3: Esc closes only the menu, not the window. ↑ and ↓ on the closed picker do
+  what macOS does with them (open the menu, or step to the next host: note which), never
+  moving anything else; ⌥↓ opens no directory list. 4: the directory list stays open while
+  the focus is on Host and while the host menu is open, its rows following the host picked
+  (the highlight goes only if the new host's list lacks that row); Esc then closes the list
+  and the window stays (a second Esc would close it). 5: the session is created on the host
+  picked, the window closes, and the session opens. 6: the same in the window opened from the
+  switcher (Esc in step 3 closes only the menu). 7: with keyboard navigation off, ⇧Tab from
+  Name goes to Directory (Host is skipped).
 - **Undo:** step 8; set keyboard navigation back as you had it.
+
+## 23. The New session window and a folder dropped from Finder
+
+Owed by Phases I-9a and I-9b (PLAN.md Phase I-9, D34): the window's opening, ending and
+failure-after-close rules, its placement and height, its keys and the folder drop (the pure
+function, the model, and the drop target ahead of the field editor in the real window, never
+shown) are unit-tested, and the window's states were rendered (`new-session-states-*.png`),
+but no unattended run may show the real window, switch apps, move between Spaces, drag from
+Finder, press a key or turn VoiceOver on.
+
+- **Do**, from the installed app (after `scripts/build-app.sh` and `scripts/install.sh`), with
+  This Mac turned on and a folder of yours under your home folder (say `~/Documents`):
+  1. Open the popover and click "New session" (or press ⌘N). Then press Esc, open the session
+     switcher (item 18's shortcut) and press ⌘N there (or click "New session…").
+  2. Type the name `muxfinder-test-drop`. Switch to Finder (click its Dock icon or ⌘Tab),
+     browse to your folder, open a few windows, switch Spaces and come back, and put a
+     full-screen app in front for a moment.
+  3. Drag your folder from Finder onto the Directory field (not being edited); then click in
+     Directory, type a few letters (the directory list may open) and drag the folder onto the
+     field again while you edit it; once more onto the list button at its end. Drag a folder
+     from outside your home folder too (say `/Applications/Utilities`), then yours again.
+  4. Press Return.
+  5. Open New session again, type a name and a directory, and click the window's close
+     button; open it again. Type a name, press Esc (with the directory list closed); open it
+     again. Type a name, press ⌘W; open it again.
+  6. With the window open and a name typed, click the popover's "New session" (or ⌘N in the
+     popover), then ⌘N in the session switcher.
+  7. Drag onto Directory, in turn: a file, an app (`/Applications/Safari.app`), two folders at
+     once, some selected text from TextEdit, and a link from Safari's address bar.
+  8. With VoiceOver on (⌘F5), move to the Directory field.
+  9. Kill the session (`tmux kill-session -t '=muxfinder-test-drop'`).
+- **Expect:** 1: each time the popover or the switcher closes and one titled "New session"
+  window opens where it was, the cursor in Name, muxFinder not becoming the active app (the
+  menu bar keeps the app you were in); from the switcher, the name is filled in from its
+  filter. 2: the window stays above the other apps' windows the whole time, on every Space
+  and beside the full-screen app, with its draft as typed; clicking into it makes it key
+  without taking the app in front's menu bar. 3: while the folder hovers over the field or
+  its button, the pointer shows "+" and the field an accent ring; dropping fills Directory with
+  `~/Documents` (your folder, `~/…`, never `/Users/<you>/…`), replacing what was there, with no
+  path or file name typed at the cursor besides, and the directory list closed (it does not
+  reopen); a folder outside your home folder fills in its absolute path. While the directory
+  list opens and closes the window grows and shrinks, its top edge staying put. 4: the session is
+  created in that folder (its first pane starts there), the window closes and the session
+  opens in iTerm2. 5: each of the three closes the window, and the next opening is a fresh,
+  empty form. 6: the window comes forward with its draft unchanged (the switcher's filter does
+  not replace the name), and the popover and switcher close. 7: each shows no "+" and no ring,
+  and dropping changes nothing (no text inserted in the field). 8: VoiceOver reads the field's
+  hint, ending with "Dropping a folder from Finder here fills in its path."
+- **Undo:** step 9.
 
 ## Results
 
@@ -594,3 +649,4 @@ each key is yours to see.
 | 20 | | | |
 | 21 | | | |
 | 22 | | | |
+| 23 | | | |

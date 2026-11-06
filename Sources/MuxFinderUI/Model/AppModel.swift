@@ -216,6 +216,9 @@ public final class AppModel {
   /// New session's directory list: open or closed and how it was opened, the highlighted row,
   /// the last problem.
   public internal(set) var directoryPicker = DirectoryPickerState()
+  /// Whether a drag that would fill the Directory field (one folder from Finder) hovers over
+  /// its row, so the field shows the drop highlight (PLAN.md D34, Phase I-9b).
+  public internal(set) var isDirectoryDropTargeted = false
   /// Attachments in this Mac's iTerm2 that muxFinder made or found, by session.
   public internal(set) var attachedHere: [SessionKey: AttachmentRecord] = [:]
   /// The latest actions that ended, oldest first (at most `finishedActionLimit`).
@@ -436,6 +439,7 @@ public final class AppModel {
     directoryLists = fixture.directoryLists
     directoryStatus = fixture.directoryStatus
     directoryPicker = fixture.directoryPicker
+    isDirectoryDropTargeted = fixture.directoryDropTargeted
     attachedHere = fixture.attachedHere
     shownExplanation = fixture.shownExplanation
     switcherSearchText = fixture.switcherSearchText

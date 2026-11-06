@@ -3,12 +3,13 @@ import Foundation
 import MuxFinderUI
 import SwiftUI
 
-/// `--preview-fixtures` mode (PLAN.md D22, D23, D24, D25, D32): a plain `NSApplication` with
-/// one normal window showing every popover state, or with `--preview-gallery settings` every
-/// Settings window state, with `--preview-gallery onboarding` every onboarding window state,
-/// with `--preview-gallery attach` every session-action state, or with `--preview-gallery
-/// switcher` every session switcher state, from synthetic fixtures. No SwiftUI scene, menu bar
-/// item, switcher panel, refresh engine, host list, login item, hotkey or iTerm2 is involved,
+/// `--preview-fixtures` mode (PLAN.md D22, D23, D24, D25, D32, D34): a plain `NSApplication`
+/// with one normal window showing every popover state, or with `--preview-gallery settings`
+/// every Settings window state, with `--preview-gallery onboarding` every onboarding window
+/// state, with `--preview-gallery attach` every session-action state, with `--preview-gallery
+/// switcher` every session switcher state, or with `--preview-gallery new-session` every New
+/// session window state, from synthetic fixtures. No SwiftUI scene, menu bar item, switcher
+/// panel, refresh engine, host list, directory list, login item, hotkey or iTerm2 is involved,
 /// and nothing is written except the PNG a `--preview-snapshot` asks for. With
 /// `--preview-key-view-loop popover|switcher` there is no gallery window: muxFinder's real New
 /// session window (PLAN.md D34) shows the form over that entry point's fixture while
@@ -64,6 +65,7 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     case .onboarding: hosting = NSHostingView(rootView: OnboardingGallery())
     case .attach: hosting = NSHostingView(rootView: AttachGallery())
     case .switcher: hosting = NSHostingView(rootView: SwitcherGallery())
+    case .newSession: hosting = NSHostingView(rootView: NewSessionGallery())
     }
     let window = NSWindow(
       contentRect: NSRect(origin: .zero, size: hosting.fittingSize),

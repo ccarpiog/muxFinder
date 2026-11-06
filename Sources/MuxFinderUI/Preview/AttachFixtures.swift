@@ -3,12 +3,13 @@ import MuxFinderCore
 
 /// The session actions' states for `--preview-fixtures --preview-gallery attach` (PLAN.md
 /// D25): progress and results, every failure with its recoveries, the Move here dialog, Detach
-/// and the banners. The New session form's states (empty, invalid name, creating, collision;
-/// its directory list open with entries, with nothing to pick, with the directory saved
-/// already, with an unusable file, filtered by typing and with no matching directory, D31) are
-/// `newSessionStates`: the form is in its own window now (D34), not in the popover, so the
-/// gallery leaves them out. Synthetic data only (invented session names and paths, `*.example`
-/// destinations, a fake socket path, fixed ids); building them runs nothing.
+/// and the banners. The New session form's states (empty, invalid name, creating, collision,
+/// failed, a folder dragged over Directory; its directory list open with entries, with nothing
+/// to pick, with the directory saved already, with an unusable file, filtered by typing and
+/// with no matching directory, D31) are `newSessionStates`: the form is in its own window now
+/// (D34), whose gallery (`--preview-gallery new-session`) shows them, not the attach gallery.
+/// Synthetic data only (invented session names and paths, `*.example` destinations, a fake
+/// socket path, fixed ids); building them runs nothing.
 public enum AttachFixtures {
   /// Shorthand.
   typealias Fixtures = PreviewFixtures
@@ -233,6 +234,26 @@ public enum AttachFixtures {
       state: hosts(saturno: [], neptuno: neptuno), showsNewSession: true, newSessionDraft: draft)
   }()
 
+  /// The form after a creation that failed (the folder is missing on the host), shown in the
+  /// window under the fields.
+  public static let newSessionFailed: PreviewFixture = {
+    var draft = NewSessionDraft(
+      hostID: Fixtures.saturno.id, name: "site-preview", directory: "~/projects/archive")
+    draft.state = .failed(SessionCreationError.directoryMissing.message)
+    return PreviewFixture(
+      id: "new-session-failed", title: "New session: creation failed",
+      state: hosts(saturno: [], neptuno: neptuno), showsNewSession: true, newSessionDraft: draft)
+  }()
+
+  /// A folder dragged from Finder over the Directory field, which shows its drop highlight
+  /// (PLAN.md D34, Phase I-9b); the field still holds what was typed before.
+  public static let newSessionFolderDrag = PreviewFixture(
+    id: "new-session-folder-drag", title: "New session: folder dragged over Directory",
+    state: hosts(saturno: [], neptuno: neptuno), showsNewSession: true,
+    newSessionDraft: NewSessionDraft(
+      hostID: Fixtures.neptuno.id, name: "site-preview", directory: "~/projects"),
+    directoryDropTargeted: true)
+
   // MARK: - New session's directory list (PLAN.md D31)
 
   /// A synthetic session on `host` that started in `folder` (`nil`: none reported).
@@ -379,11 +400,14 @@ public enum AttachFixtures {
     iTermFailures, moveHere, detach, detachProblems, banners,
   ]
 
-  /// The New session form's states (the New session window's, PLAN.md D34), in order; not in
-  /// the attach gallery, whose popovers no longer show the form.
+  /// The New session form's states as the popover opens it (the New session window's, PLAN.md
+  /// D34), in the order of the window's gallery (`NewSessionGallery`, which adds the switcher's
+  /// `SwitcherFixtures.form`): editing, the directory list's states, busy, the collision, the
+  /// failure and the drop highlight. Not in the attach gallery, whose popovers no longer show
+  /// the form.
   public static let newSessionStates = [
-    newSession, newSessionInvalid, newSessionCreating, newSessionCollision,
-    newSessionDirectories, newSessionNothingToPick, newSessionSavedAlready,
-    newSessionUnusableFile, newSessionFiltered, newSessionNoMatches,
+    newSession, newSessionInvalid, newSessionDirectories, newSessionNothingToPick,
+    newSessionSavedAlready, newSessionUnusableFile, newSessionFiltered, newSessionNoMatches,
+    newSessionCreating, newSessionCollision, newSessionFailed, newSessionFolderDrag,
   ]
 }

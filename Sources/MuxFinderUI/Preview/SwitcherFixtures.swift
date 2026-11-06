@@ -5,10 +5,11 @@ import MuxFinderCore
 /// D32, Phase I-3b): the list, a filtered list, New session with a name from the filter, an
 /// action in progress, a failure while it showed and one carried from a closed switcher, no
 /// hosts turned on, and hosts checking or unreachable. The New session form as the switcher
-/// opens it (also with its directory list filtered by typing, and with no matching directory,
-/// D31) is in `newSessionStates`: it shows in its own window now (D34), not in the switcher,
-/// so the gallery leaves it out. Synthetic data only (invented session names, `*.example`
-/// destinations, a fake socket path, fixed ids); building them runs nothing.
+/// opens it, its name from the filter, is `form`: it shows in its own window now (D34), whose
+/// gallery (`--preview-gallery new-session`) shows it, not the switcher gallery; its directory
+/// list states are those of the popover's (`AttachFixtures.newSessionStates`), the window
+/// being the same from both entry points. Synthetic data only (invented session names,
+/// `*.example` destinations, a fake socket path, fixed ids); building them runs nothing.
 public enum SwitcherFixtures {
   /// Shorthand.
   typealias Fixtures = PreviewFixtures
@@ -57,31 +58,13 @@ public enum SwitcherFixtures {
     id: "switcher-new-session-name", title: "New session with a name",
     state: liveHosts, switcherSearchText: "deploy-docs")
 
-  /// The New session form, its name filled in from the filter, for This Mac.
+  /// The New session form as the switcher opens it, its name filled in from the filter, for
+  /// This Mac (the New session window's gallery and `--preview-key-view-loop switcher`).
   public static let form = PreviewFixture(
-    id: "switcher-form", title: "New session form", state: liveHosts, showsNewSession: true,
+    id: "switcher-form", title: "New session: name from the switcher's filter",
+    state: liveHosts, showsNewSession: true,
     newSessionDraft: NewSessionDraft(hostID: Fixtures.neptuno.id, name: "deploy-docs"),
     directoryStatus: .usable(droppedEntryCount: 0))
-
-  /// The form for This Mac with `~/proj` typed in Directory: the list the typing opened keeps
-  /// the matching recent and saved directories, nothing highlighted.
-  public static let formFiltered = PreviewFixture(
-    id: "switcher-form-filtered", title: "New session form: typing filters the list",
-    state: liveHosts, showsNewSession: true,
-    newSessionDraft: NewSessionDraft(
-      hostID: Fixtures.neptuno.id, name: "deploy-docs", directory: "~/proj"),
-    directoryLists: AttachFixtures.filterLists, directoryStatus: .usable(droppedEntryCount: 0),
-    directoryPicker: DirectoryPickerState(opening: .typing))
-
-  /// The form with a directory typed that no entry contains, the list opened with ⌥↓: "No
-  /// matching directories" above the actions.
-  public static let formNoMatches = PreviewFixture(
-    id: "switcher-form-no-matches", title: "New session form: no matching directories",
-    state: liveHosts, showsNewSession: true,
-    newSessionDraft: NewSessionDraft(
-      hostID: Fixtures.neptuno.id, name: "deploy-docs", directory: "~/archive/2019"),
-    directoryLists: AttachFixtures.filterLists, directoryStatus: .usable(droppedEntryCount: 0),
-    directoryPicker: DirectoryPickerState(opening: .request))
 
   /// An Open in progress: "Waiting for iTerm2…" on the selected row.
   public static let opening = PreviewFixture(
@@ -128,8 +111,4 @@ public enum SwitcherFixtures {
     list, filtered, newSessionName, opening, failure, carriedFailure, noHosts,
     checkingAndUnreachable,
   ]
-
-  /// The New session form as the switcher opens it (the New session window's, PLAN.md D34), in
-  /// order; not in the switcher gallery, whose panels no longer show the form.
-  public static let newSessionStates = [form, formFiltered, formNoMatches]
 }

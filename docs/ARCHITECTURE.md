@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D33); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D34); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -23,7 +23,7 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | ├ `Profiles/` | Persistent profile generator, installer and remover, the hash snapshot of iTerm2's other profiles, the `e2e-profile` run. |
 | ├ `Diagnostics/` | Operation log (ring buffer plus `os.Logger`); outcomes and timings, never terminal content. |
 | └ `Concurrency/` | Small helpers for awaited, cancellable tasks. |
-| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
+| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the New session window (`NewSessionWindow`, `NewSessionWindowController`, the folder drop's `FolderDrop` and `FolderDropView`), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
 | `MuxFinderApp` (executable) | Entry point, the menu bar app's shell (a plain `NSApplication` with muxFinder's own main menu, `MainMenu`; no SwiftUI `App` or scene, D33) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
 | `muxfinder-launch` (executable) | The helper iTerm2 runs in a launch tab: `attach <id>`, `ssh-setup <id>`, `profile <host id>`. Bundled next to the app. |
 | `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, iTerm2 queries, single attaches and detaches, the `e2e-*` real runs, host list and profile checks. Not bundled. |
@@ -75,15 +75,16 @@ over full-screen apps (`MenuBarPopover`, only AppKit wiring). Every decision is
   (`PopoverHeightLimit`).
 - **Model glue:** `popoverVisibilityChanged` follows the panel (open and not occluded), so
   attachment checks run only while it (or the session switcher) shows; a key monitor hands the
-  popover's shortcuts to `AppModel.handle(_:)` first (one it does not use, such as ⌥↓ outside
-  New session, goes on to the focused view). Which keys it hands over is a pure decision,
+  popover's shortcuts to `AppModel.handle(_:)` first (one it does not use, such as ⌥↓, goes on
+  to the focused view). Which keys it hands over is a pure decision,
   `PanelKeyRoute` (Phase I-8), over the key and the panel's first responder at that moment:
   while a menu tracks (`MenuTrackingObserver`) or an input method composes, none; with a
   pop-up button focused (New session's Host picker), not ↑, ↓ or ⌥↓, which AppKit gives the
   picker (Space, no shortcut, opens its menu); Return and Esc always. Tab and ⇧Tab are no
-  shortcut: they follow AppKit's key view loop, which the panel recalculates as SwiftUI swaps
-  the list and the New session form (`autorecalculatesKeyViewLoop`; with AppKit's default the
-  form's fields led nowhere, Phase I-6). Opening it closes the session switcher.
+  shortcut: they follow AppKit's key view loop, which the panels and the New session window
+  recalculate as SwiftUI changes their views (`autorecalculatesKeyViewLoop`; with AppKit's
+  default New session's fields led nowhere, Phase I-6). Opening it closes the session
+  switcher; its "New session" (⌘N) opens the New session window (D34, below) and closes it.
 
 The placement diagnostic `--report-popover-placement` opens it through the button's own action
 and checks the frame against the anchor and the menu bar.
@@ -95,13 +96,15 @@ The menu bar app runs on a plain `NSApplication` (`MuxFinderMenuBarApp.run()`): 
 shutdown) and its main menu is muxFinder's own (`MainMenu` in `MuxFinderUI`). There is no
 SwiftUI `App` or scene, because SwiftUI (on macOS 27.3) shows its first scene's window when
 launching finishes, even an empty `Settings` scene (the empty "muxFinder Settings" window
-every launch showed before D33). So only muxFinder's code makes windows: the popover and switcher panels, Settings
-and onboarding, the last shown at launch only while there is no `hosts.json`.
+every launch showed before D33). So only muxFinder's code makes windows: the popover and switcher panels, Settings,
+onboarding (shown at launch only while there is no `hosts.json`) and the New session window
+(made at its first opening, D34).
 
 The main menu is never shown (an accessory app has no menu bar); it carries the key
 equivalents: the Edit commands every text field uses (Undo, Redo, Cut, Copy, Paste, Paste and
 match style, Delete, Select all), Quit (⌘Q, `terminate:`), Hide, Close (⌘W, disabled for the
-borderless panels) and Minimize, all to the first responder. It has no Settings item: ⌘, is
+borderless panels, enabled for the titled New session window, which it closes like Cancel) and
+Minimize, all to the first responder. It has no Settings item: ⌘, is
 the popover's and the switcher's key, taken by their key monitor. Settings and onboarding
 handle the editing keys and ⌘W themselves too (`SettingsWindow`). Preview mode and the
 self-tests run their own plain `NSApplication` with no main menu.
@@ -172,22 +175,22 @@ the popover, the AppKit wiring (`SessionSwitcher`) holds no decisions:
   placeholder with no host turned on; the selection kept on the same session across updates.
 - **Keys** go through the same local key monitor as the popover's (`PanelKeyTrackingView`,
   routed by `PanelKeyRoute`: not while an input method composes or a menu tracks, and not ↑,
-  ↓ or ⌥↓ while the Host picker has the focus) to `AppModel.handleSwitcherKey(_:)`: the
-  list's keys, or in the New session form (`NewSessionPanelView`, shared with the popover)
-  the popover's panel keys. A click activates a row as Return does (`AppModel.clickSwitcherItem(_:)`), and
+  ↓ or ⌥↓ while a pop-up button has the focus) to `AppModel.handleSwitcherKey(_:)`: the
+  list's keys; ⌘N and the New session row open the New session window (D34, below), named
+  from the filter, and close the switcher. A click activates a row as Return does (`AppModel.clickSwitcherItem(_:)`), and
   the switcher's tracking view also monitors its window's left mouse button events, so the
   rest of that click's sequence reaches no view (`SwitcherClickSequence`); through the
   double-click interval the controller keeps the panel no shorter than it was and holds back a
   success close (`SwitcherController.holdForClick()`), so that rest lands on the panel, never
   on the window behind it.
 - **Actions** (`AppModelSwitcher.swift`): Return or a click opens through the popover's Open
-  (D25); an Open or New session started while the switcher shows is followed
-  (`switcherActions`): its success closes the switcher, a failure stays on its row, and one
-  that arrives after the switcher closed is carried to the top of its next opening
+  (D25); an Open started while the switcher shows, and the attach of a New session draft the
+  switcher made (its creation, or its "Open existing"), are followed (`switcherActions`): a
+  success closes the switcher if it still shows, a failure stays on its row, and one that
+  arrives after the switcher closed is carried to the top of its next opening
   (`switcherCarriedFailures`) and stays on the popover row. A pinned row the engine does not list opens through its retained
-  target on its host as enabled now (or says its host is no longer turned on); a creation
-  failure held back by the popover's Move here confirmation shows once that ends or at the
-  switcher's next opening.
+  target on its host as enabled now (or says its host is no longer turned on). A creation
+  that fails brings the New session window back instead (D34).
 - **Visibility:** the model combines the popover's and the switcher's (`isSessionListVisible`),
   so the engine hears `.popoverOpened` and `.popoverClosed` once per change of "either one is
   visible", and opening one closes the other (`closePopover`, `closeSwitcher`); both
@@ -197,6 +200,54 @@ the popover, the AppKit wiring (`SessionSwitcher`) holds no decisions:
   press (`PopoverController.isButtonPressHeld`) to the popover the press opens.
 
 `--preview-gallery switcher` renders every state from synthetic fixtures.
+
+## The New session window (D34)
+
+New session has a window of its own, so going to Finder for a folder no longer loses it: the
+popover and the switcher close on any click elsewhere or app switch. The AppKit wiring
+(`NewSessionWindow`: the panel `NewSessionPanel` and its host, made at the first opening and
+reused) holds no decisions; the model and `NewSessionWindowController` do, over a
+`NewSessionWindowSurface` seam (a fake in tests):
+
+- **The window:** a titled, closable, non-activating `NSPanel` titled "New session" at the
+  floating level (above other apps' normal windows, below the popover, the switcher and
+  menus), on every Space and beside full-screen apps; it becomes key without activating
+  muxFinder, never hides when muxFinder is inactive and never closes on a click elsewhere or
+  an app switch. It hosts the form (`NewSessionPanelView`, 540 pt wide) at its natural height,
+  which follows the directory list with the top edge fixed (`NewSessionWindowPlacement`).
+- **The model** (`AppModelNewSession.swift`): `newSessionWindow` says whether it shows and
+  holds the latest request, numbered so the controller carries it out once: a user's opening
+  (key) or a failure's comeback (not key). The controller is installed by the app shell only,
+  so the self-tests drive the model with no window, and preview mode builds the window only
+  for its diagnostics. The popover's own `panel` holds only the Move here confirmation, so
+  both can show at once.
+- **Opening** from the popover or the switcher (which close as it opens) places a fresh
+  window's top centre at theirs, clamped to that display, with a fresh draft (named from the
+  switcher's filter); an opening while it shows only brings it forward, draft and frame as
+  they are.
+- **Keys:** the panels' key monitor and `PanelKeyRoute`, to `handleNewSessionKey(_:)`: Return
+  creates, ⌥↓, ↑/↓ and Esc as the directory list's (D31), then Esc closes the window; ⌘W and
+  the close button close it like Cancel; ⌘, opens Settings.
+- **Ending:** Cancel, Esc, ⌘W and the close button drop the draft (a creation under way goes on
+  with it); a success closes the window and the attach goes on on its row; a collision or a
+  failure stays in it, and one that ends after the window was closed brings it back with that
+  draft, in front but not key.
+- **The folder drop** (Phase I-9b): one folder dragged from Finder onto the Directory field's
+  row (the field and its list button) fills the field with its path, `~/…` under This Mac's
+  home folder (the directory list's `~` rule, by whole path components) and absolute
+  elsewhere, as a pick: the list closes and does not reopen, and the draft checks the text as
+  typed text, for every host. `FolderDrop` is that rule as a pure function over plain facts
+  (the dropped items' URLs and their directory and package resource values); anything but
+  exactly one `file:` URL of a folder that is not a package is refused, and the drag shows no
+  "+". `FolderDropView`, an invisible AppKit view laid over the row, is the drag's
+  destination: AppKit gives a drag to the frontmost registered view under the pointer, and it
+  registers for every type the field editor takes, so the field editor never inserts a path
+  or other text of its own whether or not the field is being edited, while its `hitTest(_:)`
+  lets clicks through. It reads only the dropped URL's own resource values and logs nothing;
+  the field shows an accent ring while a drop would fill it (`isDirectoryDropTargeted`).
+
+`--preview-gallery new-session` renders every state of the window from synthetic fixtures,
+the drop highlight included.
 
 ## Attach flow and the launch protocol
 
@@ -243,10 +294,10 @@ self-tests use an in-memory store; preview fixtures have none. Directories are u
 never appear in logs, diagnostics or fixtures.
 
 **The picker.** New session's Directory field stays a text field, with a pull-down button at
-its end that opens a list drawn inside the popover panel, under the field (not a SwiftUI
-`Menu` or `NSMenu`: a menu runs its own tracking loop, so its keys would bypass the popover's
-key monitor and `AppModel.handle(_:)`, it cannot be opened from the text field by a key, and
-the preview galleries could not render it). `DirectoryPickerContent` is a pure value built
+its end that opens a list drawn inside the New session window, under the field (not a SwiftUI
+`Menu` or `NSMenu`: a menu runs its own tracking loop, so its keys would bypass the window's
+key monitor and `AppModel.handleNewSessionKey(_:)`, it cannot be opened from the text field by
+a key, and the preview galleries could not render it). `DirectoryPickerContent` is a pure value built
 from the lists, the host's listed sessions and the field: "Recent" (that host's), "Saved" (the
 shared list) and "Sessions on <host>" (the distinct start folders of its sessions, sorted, at
 most 10), each only when not empty, else "Nothing to pick yet"; then "Save this directory"
@@ -259,7 +310,7 @@ written `~` and with a leading `~` spelled out (the home folder is injected,
 `AppEnvironment.homeDirectory`; an SSH host's is unknown, so its entries are matched as
 stored). The actions are never filtered. Its keys are `PopoverKey`s: ⌥↓ opens the list, ↑/↓
 move inside the rows shown, Return picks the highlighted row (with none it creates, as in the
-field) and Esc closes the list before the panel, keeping the text; editing the field drops the
+field) and Esc closes the list before the window, keeping the text; editing the field drops the
 highlight, so Return then creates. The list keeps those keys wherever the focus is, except
 that with the Host picker focused ↑, ↓ and ⌥↓ are the picker's (the list stays open, its
 highlight unchanged; Return and Esc keep their list meaning; Phase I-8). A user edit (not a pick or a host change) opens the list
@@ -267,8 +318,8 @@ while an entry matches and closes it again when none does or the field is emptie
 button or ⌥↓ opened it (`DirectoryPickerState.opening`); VoiceOver then hears the match count
 through `AppEnvironment.announce`. Rows
 are identified by section and UTF-8 bytes, as the store compares directories, so two
-spellings of one accented name are two rows. Picking only fills the field; the draft checks
-it like typed text before any request. Every load (at each New session opening) and change
+spellings of one accented name are two rows. Picking only fills the field, as does a folder
+dropped from Finder (D34, above); the draft checks it like typed text before any request. Every load (at each New session opening) and change
 runs on one queue in `AppModel` (`AppModelDirectories.swift`); a refused change is shown in
 the list and logged by its code only.
 
@@ -385,3 +436,4 @@ All in `PLAN.md` *Decisions*:
 | | | D31 | New session directories and session start folders |
 | | | D32 | Session switcher shortcut and panel |
 | | | D33 | The menu bar app on a plain `NSApplication` |
+| | | D34 | New session in its own window, with folder drop |

@@ -226,7 +226,8 @@ struct DirectoryFilterContentTests {
         == [["~/projects"], ["/Users/me/projects-old"]])
   } // End of func noTildeRuleOnSSHHosts()
 
-  /// The Directory field's accessibility hint says that typing filters the list.
+  /// The Directory field's accessibility hint says that typing filters the list (and, since
+  /// Phase I-9b, that a folder can be dropped on it: `FolderDropTests`).
   @Test @MainActor func theFieldsHintMentionsTheFilter() {
     #expect(DirectoryFieldView.hint.hasPrefix("Typing filters the list"))
   }
@@ -496,8 +497,8 @@ struct DirectoryFilterModelTests {
   } // End of func theHomeFolderAndTheAnnouncerAreInjected()
 
   /// The gallery states: filtered by typing on This Mac (the `~` rule finding a session
-  /// folder), no matching directory with the button's list, and both in the switcher's form;
-  /// synthetic paths only.
+  /// folder) and no matching directory with the button's list (the New session window's, the
+  /// same from both entry points); synthetic paths only.
   @Test func galleryFixturesCoverTheFilter() {
     let filtered = AppModel(fixture: AttachFixtures.newSessionFiltered)
     #expect(filtered.directoryPicker.opening == .typing)
@@ -511,12 +512,7 @@ struct DirectoryFilterModelTests {
     #expect(noMatches.directoryPicker.opening == .request)
     #expect(noMatches.directoryPickerContent?.noMatches == true)
     #expect(noMatches.directoryPickerContent?.items.count == 2)
-    let form = AppModel(fixture: SwitcherFixtures.formFiltered)
-    #expect(form.directoryPicker.opening == .typing)
-    #expect(form.directoryPickerContent?.sections.map(\.kind) == [.recent, .saved])
-    let formNone = AppModel(fixture: SwitcherFixtures.formNoMatches)
-    #expect(formNone.directoryPickerContent?.noMatches == true)
-    let models = [filtered, noMatches, form, formNone]
+    let models = [filtered, noMatches]
     let paths = models.flatMap { $0.directoryPickerContent?.sections.flatMap(\.entries) ?? [] }
     #expect(paths.allSatisfy { $0.hasPrefix("~/") || $0.hasPrefix("/Users/example/") })
   } // End of func galleryFixturesCoverTheFilter()

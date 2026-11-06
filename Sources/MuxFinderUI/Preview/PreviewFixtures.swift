@@ -42,6 +42,9 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var directoryStatus: DirectoryListStatus
   /// New session's directory list: open or closed (and how), the highlighted row.
   public var directoryPicker: DirectoryPickerState
+  /// Whether a folder dragged from Finder hovers over the Directory field (its drop highlight,
+  /// PLAN.md D34, Phase I-9b).
+  public var directoryDropTargeted: Bool
   /// This Mac's home folder for the directory list's `~` rule (a synthetic one).
   public var homeDirectory: String?
   /// The session switcher's search text (PLAN.md D32).
@@ -72,6 +75,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     directoryLists: DirectoryLists = DirectoryLists(),
     directoryStatus: DirectoryListStatus = .notLoaded,
     directoryPicker: DirectoryPickerState = DirectoryPickerState(),
+    directoryDropTargeted: Bool = false,
     homeDirectory: String? = PreviewFixtures.homeDirectory,
     switcherSearchText: String = "",
     switcherSelection: SwitcherContent.Item? = nil,
@@ -96,6 +100,7 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.directoryLists = directoryLists
     self.directoryStatus = directoryStatus
     self.directoryPicker = directoryPicker
+    self.directoryDropTargeted = directoryDropTargeted
     self.homeDirectory = homeDirectory
     self.switcherSearchText = switcherSearchText
     self.switcherSelection = switcherSelection

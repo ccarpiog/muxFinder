@@ -155,8 +155,9 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   keeps failing), at most three hosts at a time, so an unreachable host does not hold up the
   others.
 - **Keys:** ↑/↓ select, Return opens, ⌘F search (host or session name), ⌘R refresh, ⌘N new
-  session, ⌘, Settings, Esc closes. In New session, Tab and ⇧Tab move between Name and
-  Directory, typing in Directory filters the directory list, and ⌥↓ opens it (below); with
+  session (its own window), ⌘, Settings, Esc closes. In the New session window, Tab and ⇧Tab
+  move between Name and Directory, typing in Directory filters the directory list, ⌥↓ opens
+  it, Return creates, and Esc closes the list and then the window, as ⌘W does (below); with
   macOS's keyboard navigation on, ⇧Tab from Name reaches the Host picker, where Space opens
   the host menu.
 - **Open a session:** click it (or Return). muxFinder checks the session is still the one
@@ -181,16 +182,28 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
 - **Detach from this Mac** (context menu) detaches iTerm2's tmux client with tmux's own
   `detach-client`; the session and its processes keep running. muxFinder never closes tmux
   tabs to detach (closing a tmux window in iTerm2 can kill it).
-- **New session:** pick the host, a name and optionally a working directory there. muxFinder
-  creates the session (refusing a name that exists, never replacing work) and opens it. The
+- **New session:** the popover's "New session" (or ⌘N), or the session switcher's (below),
+  opens a small window of its own titled "New session" where the popover or switcher was,
+  and the popover or switcher closes. The window floats above other apps' windows, on every
+  Space and beside full-screen apps, without making muxFinder the active app, and stays until
+  the session is created, Cancel, Esc, ⌘W or its close button, so you can go to Finder to
+  look for a folder and come back to it. Closing it drops what you typed (a creation already
+  under way goes on and shows on its row); opening it while it shows only brings it forward,
+  as you left it. Pick the host, a name and optionally a working directory there. muxFinder
+  creates the session (refusing a name that exists, never replacing work), closes the window
+  and opens the session; a name taken ("Open existing") or another failure stays in the
+  window, and one that comes after you closed the window brings the window back with it. The
   Directory field takes any path (`~/…` is in that host's home folder; empty is the home
-  folder itself). The button at its end, or ⌥↓, lists that host's recent directories (the last
+  folder itself). Drag a folder from Finder onto the field (or its button) to fill in its
+  path: under your home folder it is written `~/…`, which a remote host with the same layout
+  understands too, and elsewhere in full; while the folder hovers the field shows a ring, and
+  a file, an app, several items or text are refused. The button at its end, or ⌥↓, lists that host's recent directories (the last
   8 it created sessions in), your saved directories (one list for every host) and the folders
   the host's sessions started in. Typing in Directory filters that list (case and accents
   ignored) and opens it while something matches, closing it again when nothing does; on This
   Mac, `~/proj` also finds `/Users/<you>/projects` and the other way round. Click one, or move
   with ↓ (or ↑) and press Return, to put it in the field; Esc closes the list and keeps what you
-  typed (a second Esc closes New session), and Return with nothing highlighted creates in what
+  typed (a second Esc closes the window), and Return with nothing highlighted creates in what
   the field holds (typing in the field takes the highlight away). Opened with the button or
   ⌥↓, the list stays open while you type, saying "No matching directories" when nothing
   matches. Tab and ⇧Tab
@@ -200,7 +213,7 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   Host picker the keys are macOS's own: Space opens the host menu (↑ and ↓ go to the picker
   too, as macOS handles them), where ↑/↓ move, Return or Space picks and Esc closes only the
   menu; Return with the
-  menu closed still creates, and Esc still closes New session (or the directory list first,
+  menu closed still creates, and Esc still closes the window (or the directory list first,
   which stays open while you change the host, keeping its highlight). "Save this
   directory" adds what the field holds to the saved list; "Clear recent directories on
   <host>" forgets that host's recent ones. Settings › Directories edits the saved list: add
@@ -230,9 +243,9 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   popover does: a session already open here is brought forward, any other one is attached. The
   last row is always "New session…"; when what you typed is a valid session name nobody uses
   yet, it reads "New session “<name>”…" and fills the name in. A click on it, Return on it or
-  ⌘N shows the New session form inside the panel, for This Mac by default and with the directory list;
-  Tab and ⇧Tab move between its fields, and the Host picker takes its keys, as in the
-  popover; Return creates, Esc goes back to the list. ⌘R refreshes and ⌘, opens Settings; Move here and
+  ⌘N closes the switcher and opens the New session window (above) where the switcher was, for
+  This Mac by default, with that name filled in (a window already open comes forward as it
+  is, its name kept). ⌘R refreshes and ⌘, opens Settings; Move here and
   Detach stay in the popover. The panel shows the row's progress, closes once the session is
   open (or as soon as iTerm2 comes forward), and stays open with the explanation and its
   buttons when something fails. A failure that arrives after the panel closed shows on the

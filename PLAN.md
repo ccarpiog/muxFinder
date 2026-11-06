@@ -1579,7 +1579,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `AttachFixtures.all` (11 states: progress and results, every failure in six cards, both
     check-failure cards with a focus that did not bring its tab forward, Move here, two detach
     cards, the banners; the New session form's states, empty, with an invalid name, creating,
-    after a collision and D31's list states, are `AttachFixtures.newSessionStates`, D34) and
+    after a collision, failed, a folder dragged over Directory and D31's list states, are
+    `AttachFixtures.newSessionStates`, shown by the New session window's gallery, D34) and
     the context menu of a session open here and of one attached elsewhere; screenshots
     `docs/screenshots/attach-states-{light,dark}.png`.
 
@@ -2532,7 +2533,7 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Previews (Phase I-2b):** New session's fixtures show the list open (three sections, a
     highlighted recent row, a long path shortened), nothing to pick, a value saved already and
     an unusable file (`AttachFixtures.newSessionStates`; out of the attach gallery since D34,
-    the New session window's gallery is Phase I-9b's); the Settings gallery shows the
+    in the New session window's, `--preview-gallery new-session`); the Settings gallery shows the
     Directories tab with unsaved edits and an inline issue, and with an unusable file;
     synthetic paths only. `--preview-snapshot`
     sizes the preview window to its content's natural size before drawing, since a titled
@@ -2782,8 +2783,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Gallery:** `--preview-gallery switcher` (`SwitcherFixtures`, synthetic): the list, a
     filtered list, New session with a name, opening, a failure, a failure since the last
     opening, no hosts, hosts checking or unreachable; `docs/screenshots/switcher-states-*.png`.
-    The New session form as the switcher opens it is `SwitcherFixtures.newSessionStates`, for
-    the New session window's gallery (D34, Phase I-9b).
+    The New session form as the switcher opens it, its name from the filter, is
+    `SwitcherFixtures.form`, in the New session window's gallery (D34, Phase I-9b).
   - **The diagnostic** (`--report-hotkey-registration`; the orchestrator's call: allowed with
     bounds, not UI scripting): in its own process, through `CarbonHotkeyRegistrar`, it
     registers ⌃⌥⇧⌘F19 (expected registered), again (expected taken), unregisters it, registers
@@ -2858,8 +2859,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `Views/NewSessionWindow.swift`, `Views/PopoverWindowBridge.swift` (`PanelKeyTrackingView`'s
   mouse filter), `Sources/MuxFinderApp/AppDelegate.swift`; tests
   `Tests/MuxFinderUITests/NewSessionWindowTests.swift` and the suites listed in
-  `docs/TESTING.md`, *Phase I-9a*. The folder drop, the window's gallery and the user docs are
-  Phase I-9b's).
+  `docs/TESTING.md`, *Phase I-9a*. The folder drop, the window's gallery and the user docs came
+  in Phase I-9b, below).
   - **The choice** (the user's decisions): New session was a form drawn inside the popover and
     the session switcher, borderless panels that close on resigning key, a click elsewhere or
     another app becoming active (D30, D32), so going to Finder for a folder lost it without a
@@ -2892,8 +2893,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     show at the same time. The controller is installed by the app shell only (`AppDelegate`,
     normal mode, `--report-menu-bar-item` included; never `--report-popover-placement`): the
     self-tests drive `newSession()`, `createSession()` and `closeNewSession()` with no window,
-    and preview mode builds the window only for `--preview-key-view-loop` (below) and the
-    window's gallery (Phase I-9b).
+    and preview mode builds the window only for `--preview-key-view-loop` (below); the
+    window's gallery draws its content without a window (Phase I-9b).
   - **Opening** (`newSession()` from the popover's ⌘N and button, `newSessionFromSwitcher()`
     from the switcher's ⌘N and New session row; both `openNewSession(from:source:prefill:)`):
     a fresh opening (the window closed) starts a fresh draft for This Mac (or the first enabled
@@ -2956,12 +2957,43 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **Also retired:** `PopoverPanel.newSession` and `PanelView`; `cancelPanel()` closes only Move
     here; the popover's `handle(_:)` lost the form's keys; `closePopover` takes a reason. The
     attach and switcher galleries lost their inline form states (kept as
-    `AttachFixtures.newSessionStates` and `SwitcherFixtures.newSessionStates` for the window's
-    gallery, Phase I-9b).
+    `AttachFixtures.newSessionStates` and `SwitcherFixtures.form` for the window's gallery,
+    Phase I-9b, which retired the switcher's filtered and no-match form states as duplicates
+    of the popover's).
   - **The diagnostic:** `--preview-fixtures --preview-key-view-loop popover|switcher` (Phase
     I-6, I-8) now builds the real New session window over that entry point's fixture
     (`AttachFixtures.newSession`, `SwitcherFixtures.form`) and inspects its form; the step that
     showed the panel with the list before the form is gone.
+  - **The folder drop** (Phase I-9b, the orchestrator's calls in *Phase I-9*; code
+    `Sources/MuxFinderUI/Model/FolderDrop.swift`, the drop section of
+    `AppModelDirectories.swift`, `Views/FolderDropView.swift`, `DirectoryFieldView`; tests
+    `Tests/MuxFinderUITests/FolderDropTests.swift`): one folder dragged from Finder onto the
+    Directory field's row (the field and its list button, not the whole window) fills the
+    field as a pick (`fillDirectoryField(_:)`: the list closes and does not reopen, nothing is
+    announced), its path standardized by its text alone (no symbolic link resolved) and written
+    `~/…` under This Mac's home folder (I-7's, `thisMacHome`, compared by whole path
+    components; the home itself `~`), absolute elsewhere, then checked as typed text for every
+    host (D31). `FolderDrop.outcome(for:home:)` is that rule as a pure function over plain
+    facts; anything but exactly one `file:` URL whose resource values say directory and not
+    package (a file, an `.app`, several items, none, text, a link, a promise without a URL) is
+    refused and the drag shows no "+", as is any drop while the window is closed or the draft
+    busy. The drag's destination is `FolderDropView`, an invisible AppKit view laid over the
+    row in front of the field: AppKit gives a drag to the frontmost view under the pointer
+    registered for one of its types (`_hitTest:dragTypes:` was seen to work that way, in a
+    throwaway probe, never in muxFinder's code), and the view registers for every type the
+    field editor accepts, so the field editor (which would insert a path at the caret) never
+    becomes the destination over the row, edited or not; its `hitTest(_:)` answers no view, so
+    clicks reach the field. It reads only the dropped URL's own resource values (a Finder file
+    reference URL resolved to its path), never the folder's contents, and logs nothing. The
+    field shows an accent ring just outside it while a drop would fill it
+    (`AppModel.isDirectoryDropTargeted`, cleared on exit, at the drop and when the window
+    closes); its accessibility hint ends "Dropping a folder from Finder here fills in its
+    path."
+  - **The gallery** (Phase I-9b): `--preview-gallery new-session` (`NewSessionGallery`) draws
+    each state in a window-like frame: `AttachFixtures.newSessionStates` with
+    `SwitcherFixtures.form` second (editing from both entry points, an invalid name, the
+    directory list's six states, creating, a collision, a failure, the drop highlight);
+    `docs/screenshots/new-session-states-{light,dark}.png`.
   - **Considered:** a window that activates muxFinder, as Settings does (the frontmost app would
     lose its menu bar and the focus, for a form the user fills while looking elsewhere);
     showing a failure after close only on the session's row (there is no row for a session that
@@ -5048,6 +5080,43 @@ even while closed. The inline form states left the attach and switcher galleries
 fixtures for I-9b); `--preview-key-view-loop popover|switcher` now inspects the window over
 that entry point's fixture. Changed and removed tests: `docs/TESTING.md`, *Phase I-9a*. 815
 core + 406 UI tests pass; `--selftest new-session-local` 7/7.
+
+The orchestrator's calls for I-9b, made before its worker (requirement 6's "decide which"):
+
+- **Drop target: the Directory field's row only** (the field and its list button), not the
+  whole window: the user's decision reads "onto Directory", the Name field and the buttons
+  keep their own meaning, and the highlight belongs on the field the drop fills. A drop on
+  the field fills it the same way whether or not the field is being edited: the field
+  editor never inserts its own text for a dropped file.
+- **What counts as a folder.** Exactly one item, a `file:` URL whose resource values say
+  directory and not package (an `.app` or other bundle is refused like a file, as Finder
+  shows it); anything else (a file, several items, a non-file drag, a promise without a URL)
+  is refused and shows no "+". Only the URL's own resource values are read, never the
+  folder's contents. The path is used as dropped (standardized, trailing slash dropped, no
+  symbolic link resolved).
+- **The `~` rule.** Under This Mac's home folder, compared by whole path components (a
+  sibling such as `<home>2` is not under it), the path becomes `~/…`; the home itself
+  becomes `~`; anything else stays absolute. This Mac's home is the one I-7's `~` rule uses.
+  The text then goes through D31's checks like typed text, for every host.
+- **The fill is a pick** (`fillDirectoryField(_:)`): the directory list closes and does not
+  reopen on that change (I-7), the highlight drops, and the path is never logged.
+
+Outcome of I-9b (2026-11-05): as decided above, recorded in D34 (*The folder drop*, *The
+gallery*). `FolderDrop` is the rule as a pure function over plain facts; the model decides the
+highlight and the fill (`directoryDropOutcome(_:)`, `directoryDragMoved(_:)`,
+`dropOnDirectoryField(_:)`; a closed window or a busy draft takes none); `FolderDropView`, an
+invisible AppKit view laid over the Directory row, is the drag's destination ahead of the field
+editor (registered for every type it accepts, so it never inserts text of its own), letting
+clicks through. The field shows an accent ring while a folder hovers, and its VoiceOver hint
+mentions the drop. `--preview-gallery new-session` renders the window's 13 states (the
+popover's New session fixtures with a failure and the drop highlight added, and the switcher's
+`form`; the switcher's filtered and no-match form fixtures retired as duplicates); the
+new-session, attach and switcher screenshots were regenerated and inspected (the popover
+gallery, unchanged by I-9, was not). `docs/MANUAL-CHECKLIST.md` gained item 23 (the window and
+the drop) and items 17, 18 and 20–22 describe the window; `README.md` and
+`docs/ARCHITECTURE.md` describe the window and the drop (`docs/REQUIREMENTS.md`, the verbatim
+brief, has no inline form to change). Tests and changed tests: `docs/TESTING.md`, *Phase
+I-9b*. 815 core + 431 UI tests pass.
 
 ## Deferred (explicitly out of scope for v1)
 

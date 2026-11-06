@@ -63,6 +63,7 @@ passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the
 | New session's Tab order, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34): Tab from Name to Directory and ⇧Tab back; with macOS's keyboard navigation on, the Host picker, the directory list's button, Cancel and Create too, in reading order; never out of the panel, never closing it; Tab with the directory list open moves on and leaves it open; an input method's marked text gets Tab first (PLAN.md Phase I-6, D30, D31). | Read in process in the real panels (`--preview-key-view-loop`, before and after the fix: the focus moved by the key bindings' own action messages, no event) and tested hermetically. Real key presses, with keyboard navigation off and on, then a creation: by a person (checklist 20). | Phase I-6, 2026-11-04 (*Phase I-6* below): before the fix the form's fields led nowhere (Name → none) and Tab stayed in Name in both panels; after it Name → Directory → the list's button → Cancel → Create → Host picker → Name, and back; `NewSessionTabOrderTests`. |
 | New session: typing in Directory filters the directory list, combo-box style, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34): each section keeps the entries that contain the trimmed text (case and diacritics ignored; an exact match always), on This Mac also with the home folder written `~` or spelled out; "No matching directories" apart from "Nothing to pick yet"; the actions never filtered; typing opens the list while something matches, highlighting nothing, and closes a list it opened when nothing matches or the field is cleared, a list the button or ⌥↓ opened staying; Esc keeps the text; ↓/⌥↓ highlight the first match and the arrows stay in the rows shown; Return with nothing highlighted creates; a pick never reopens it; a host change re-filters; VoiceOver hears the match count (PLAN.md Phase I-7, D31). | Tested hermetically and in the preview renders (both appearances). Typing, the keys, VoiceOver and a creation in the real popover and switcher: by a person (checklist 21). | Phase I-7, 2026-11-04 (*Phase I-7* below): `DirectoryFilterContentTests` and `DirectoryFilterModelTests` (`DirectoryFilterTests.swift`); `docs/screenshots/attach-states-*.png` and `switcher-states-*.png` regenerated and inspected. |
 | New session: the Host picker from the keyboard, in the popover and the session switcher (since Phase I-9a in the New session window, PLAN.md D34), with macOS's keyboard navigation on: ⇧Tab from Name reaches it; while it (an `NSPopUpButton`) has the focus, the panels' key monitor leaves ↑, ↓ and ⌥↓ to it (Space already reached it), Return still creates and Esc still closes the panel; while a menu tracks every key is the menu's; with the directory list open the list keeps its highlight and Return and Esc their list meaning; with any other focus nothing changes; a host picked from the menu acts as a click (PLAN.md Phase I-8, D30, D31, D32). | Read in process in the real panels (`--preview-key-view-loop`: the first responder after the window's own step back from Name and the monitor's route for each key, before and after the fix; no event, no menu opened) and tested hermetically (the routing as a pure function, the menu tracking observer, a pick through the picker's binding). What AppKit's pop-up button does with each key, the menu opening from the panel, and a creation on the host picked: by a person (checklist 22). | Phase I-8, 2026-11-05 (*Phase I-8* below): before the fix ↑/↓/⌥↓ went to the panel's handler with the picker focused (↑/↓ swallowed, ⌥↓ opening the directory list), after it to the picker; `PanelKeyRouteTests`, `MenuTrackingObserverTests`, `HostPickerBindingTests` (`HostPickerKeyboardTests.swift`). |
+| The New session window and a folder dropped from Finder (PLAN.md Phase I-9, D34): one titled, floating, non-activating window opened from the popover and the switcher, which close as it opens; it stays above other apps on every Space and beside full-screen apps until Create succeeds, Cancel, Esc, ⌘W or its close button, which drop the draft; an opening while it shows brings it forward unchanged; a failure after closing brings it back, not key. One folder dragged onto the Directory field or its button fills the field as a pick, `~/…` under This Mac's home folder, absolute elsewhere, whether or not the field is being edited (the field editor never inserts text of its own); a file, an app, several items, text or a link are refused with no "+"; a highlight while a folder hovers; the field's VoiceOver hint mentions the drop. | Tested hermetically: the model, placement and keys over fake surfaces (Phase I-9a), the drop as a pure function, in the model, and its AppKit drop target in the real window, never shown, over private pasteboards; the window's states rendered in both appearances. The real window over other apps and Spaces, a real drag from Finder, the keys, VoiceOver and a creation: by a person (checklist 23). | Phases I-9a and I-9b, 2026-11-05 (*Phases I-9a and I-9b* below): `NewSessionWindowTests`, `FolderDropFunctionTests`, `FolderDropModelTests`, `FolderDropTargetTests` (`FolderDropTests.swift`); `docs/screenshots/new-session-states-*.png`. |
 
 ## Unit tests (`swift test`)
 
@@ -1192,6 +1193,27 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   filter after each opening; the model with no window; the placement as pure functions (the
   fresh frame clamped, a request's frame, the height with the top fixed) and the controller's
   resize.
+- **The folder drop** (`Tests/MuxFinderUITests/FolderDropTests.swift`; PLAN.md D34, Phase
+  I-9b). `FolderDrop.outcome(for:home:)` as a pure function over plain facts (no disk): a
+  folder under the home folder `~/…`, the home itself `~`, one outside absolute, a sibling
+  such as `/Users/me2` absolute (whole components), a file, a package, two items, none, a
+  non-file URL, no URL and a relative `file:` URL refused, a trailing slash (in the URL or the
+  home) dropped, a path needing no change kept, no rule without a home or with `/`, `//`, `.`
+  and `..` standardized by text, percent escapes decoded, `/tmp` never resolved. In the model:
+  the fill opens no list (the same text typed would) and announces nothing, closes a list the
+  button or the typing opened, replaces the field's text; a refused drop changes nothing; the
+  highlight follows the drag (on for a folder, off for a refusal, on exit, at the drop, when
+  the window closes); a closed window or a busy draft takes none; an SSH host gets the same
+  `~/…` and the draft's checks (a line break shows its issue); no home, no `~`; the gallery's
+  highlight fixture and the field's hint. In the real New session window (never shown): one
+  `FolderDropView`, covering the Directory field and in front of it and of its field editor
+  while edited, registered for file URLs and every type that field editor registers, clicks at
+  the field's centre reaching the field (or its editor), never focused or an accessibility
+  element; its decisions over private pasteboards (`NSPasteboard.withUniqueName()`) holding
+  folders, a file and an `.app` in a private temporary folder: a folder, also as a Finder file
+  reference URL, shows copy and fills `~/folder`; a file, an `.app`, two folders, text, a link
+  and a move-only source show none and fill nothing; reading the drag (resource values, a link,
+  text); the operation shown.
 - **The panels' key routing and the Host picker** (`Tests/MuxFinderUITests/HostPickerKeyboardTests.swift`;
   PLAN.md D30, D31, D32, Phase I-8). `PanelKeyRoute.decide` as a pure function: Space is no
   panel key and always reaches the focused view; with a pop-up button focused, ↑, ↓ and ⌥↓ go
@@ -3031,3 +3053,36 @@ written, and nothing went through LaunchServices. No `e2e-*` run was needed.
 | Popover placement | `CFFIXED_USER_HOME=$(mktemp -d) build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement` (in the background) | exit 0, "after-fix check: passed" (both offsets 0), the popover appeared after 122 ms; `pgrep -P` empty while it ran, the private home empty |
 | Key view loop | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-key-view-loop popover`, then `switcher` | exit 0 each, now over the real New session window (`NewSessionPanel` "New session", `autorecalculatesKeyViewLoop` yes; key no and app active no from the bundle binary, as in Phase I-6's bundle run): the Name field focused at the opening (with the switcher's prefilled name), Tab Name → Directory → the list's button → Cancel → Create → Host picker → Name and ⇧Tab back, the list staying open; with the picker focused ↑, ↓, ⌥↓ and Space go to it, Return and Esc as before |
 | New session self-test | `build/muxFinder.app/Contents/MacOS/muxFinder --selftest new-session-local` (`TMUX_TMPDIR` unset; `iterm2 status` connected; iTerm2 17 threads before, 20 after) | exit 0, passed (7 steps): listed 107 ms; new session created and confirmed 1.16 s; launch tab buried; the same name refused as a collision with "Open existing" offered and nothing launched; detach 10.1 s; launch tab left 248 ms after the detach; kill. Afterwards no `muxfinder-test-*` session and nothing of the run in `iterm2 list-sessions` (tabs or buried sessions) |
+
+### Phase I-9b — the folder drop, the window's gallery and the docs (2026-11-05)
+
+One folder dragged from Finder onto the New session window's Directory field (or its list
+button) fills the field as a pick, `~/…` under This Mac's home folder (PLAN.md Phase I-9, its
+I-9b calls, D34). The rule is a pure function (`FolderDrop`), the model decides the highlight
+and the fill (`AppModelDirectories.swift`), and an invisible AppKit view in front of the field
+(`FolderDropView`) is the drag's destination, so the field editor never inserts text of its
+own. Tested hermetically: the function over plain facts; the model over fixtures; the drop
+target in the real New session window (never shown), its place in front of the field and of
+its field editor, its registered types against that field editor's, clicks going through, and
+its decisions over private pasteboards holding folders, a file and an `.app` in a private
+temporary folder (never the general pasteboard). Owed to a person: a real drag from Finder,
+the window over other apps and Spaces, the keys, VoiceOver and a creation (checklist 23; items
+17, 18, 20, 21 and 22 now describe the window). Every check below ran with private folders or
+none: no real `hosts.json`, `directories.json` or `preferences.json` was read or written,
+nothing went through LaunchServices, and no `--selftest` or `e2e-*` run was needed (the model
+behind creating did not change). Before writing the drop target, a throwaway probe outside the
+repository (a window never shown) confirmed that AppKit looks for a drag's destination
+frontmost first among views registered for its types (`-[NSView _hitTest:dragTypes:]`), so a
+view laid over the field is found before the field editor, edited or not, while `hitTest(_:)`
+still gives clicks to the field; muxFinder's code uses no private API.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build`; `swift build -Xswiftc -warnings-as-errors` | exit 0, no warnings; exit 0 |
+| Unit tests | `swift test` | exit 0: 815 core tests in 81 suites and 431 UI tests in 43 suites (25 new in 3 suites: `FolderDropFunctionTests`, `FolderDropModelTests`, `FolderDropTargetTests`, `FolderDropTests.swift`). Changed: `AttachFlowTests.attachFixturesCoverEveryState` (the New session states now include a failure and the drop highlight), `DirectoryFilterModelTests.galleryFixturesCoverTheFilter` (the switcher's filtered and no-match form fixtures were retired as duplicates of the popover's in the window's gallery; the two popover fixtures are still checked); `DirectoryFilterContentTests.theFieldsHintMentionsTheFilter` only gained a sentence in its comment (the hint still starts the same) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+| Bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0, signed by the "Apple Development" identity, not notarized; exit 0 |
+| App shell | `CFFIXED_USER_HOME=$(mktemp -d) build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`, then `kill -TERM <pid>` after 3 s | exit 0, no child while it ran, the private home still empty; the other windows the hidden popover panel and onboarding, no New session window |
+| New session gallery | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --preview-gallery new-session --appearance light --preview-snapshot docs/screenshots/new-session-states-light.png`, then `dark` | exit 0 both; 3448 × 3760 px, 13 states in window-like frames, inspected (the drop highlight cropped with `sips` into `/tmp`): editing as the popover and as the switcher open it (the name from the filter), an invalid name, the directory list open with a highlighted row, nothing to pick, saved already, an unusable file, filtered by typing, no matching directories, creating (fields off), a name taken with "Open existing", a failed creation, and a folder dragged over Directory (an accent ring just outside the field); readable in both appearances |
+| Attach and switcher galleries | `--preview-gallery attach` and `switcher`, light and dark, with `--preview-snapshot docs/screenshots/<gallery>-states-<appearance>.png` | exit 0 all four, regenerated and inspected now that their inline form states are gone (Phase I-9a): attach 3136 × 3386 px (was 3136 × 6104), the 11 session-action states and the context menu card; switcher 3448 × 2260 px (was 3448 × 3120), its 8 states, "New session…" rows but no form |
+| Popover gallery | `--preview-gallery popover --appearance light --preview-snapshot <png in /tmp>` | exit 0, 4672 × 2200 px as in Phases I-6 to I-8; it holds no New session state and I-9 changed nothing in it, so `popover-states-*.png` were not regenerated |

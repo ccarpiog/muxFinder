@@ -9,16 +9,22 @@ import SwiftUI
 /// button once Tab reaches it (with macOS's keyboard navigation on). Tab with the list open
 /// moves on and leaves it open: its rows take no focus (SwiftUI draws them, so they are not in
 /// the window's key view loop) and its keys are the model's wherever the focus is in the form
-/// (PLAN.md D31).
+/// (PLAN.md D31). One folder dragged from Finder onto the field or its button fills the field
+/// with its path (`~/…` under This Mac's home folder) through `DirectoryDropZone`, an AppKit
+/// drop target laid over the row, whether or not the field is being edited; the field shows a
+/// highlight while such a drag hovers, and every other drag is refused (PLAN.md D34, Phase
+/// I-9b).
 struct DirectoryFieldView: View {
   /// The field's caption, also its accessibility label.
   static let title = "Directory (optional)"
   /// The field's placeholder.
   static let prompt = "Home folder on the host"
-  /// The field's accessibility hint: typing filters the list.
+  /// The field's accessibility hint: typing filters the list; a folder can be dropped on it.
   static let hint =
     "Typing filters the list of recent, saved and session directories. Option-Down Arrow "
-    + "shows the list."
+    + "shows the list. Dropping a folder from Finder here fills in its path."
+  /// How far the drop highlight reaches outside the field, in points.
+  static let highlightOutset: CGFloat = 3
 
   /// The model whose draft the field edits.
   @Bindable var model: AppModel
@@ -41,7 +47,15 @@ struct DirectoryFieldView: View {
         .disabled(draft.isBusy)
         .accessibilityLabel(Self.title)
         .accessibilityHint(Self.hint)
+        .overlay {
+          if model.isDirectoryDropTargeted { dropHighlight }
+        }
         pullDownButton(content)
+      }
+      .overlay {
+        DirectoryDropZone(model: model)
+          .allowsHitTesting(false)
+          .accessibilityHidden(true)
       }
       if let issue = draft.directoryIssue {
         Text(issue)
@@ -55,6 +69,15 @@ struct DirectoryFieldView: View {
       }
     } // End of VStack holding the field
   } // End of var body
+
+  /// The drop highlight: an accent ring just outside the field, while a folder that would fill
+  /// it is dragged over the row.
+  private var dropHighlight: some View {
+    RoundedRectangle(cornerRadius: 5 + Self.highlightOutset)
+      .strokeBorder(Color.accentColor, lineWidth: 2.5)
+      .padding(-Self.highlightOutset)
+      .allowsHitTesting(false)
+  }
 
   /// The button that opens and closes the list; with nothing to pick it says so.
   private func pullDownButton(_ content: DirectoryPickerContent?) -> some View {

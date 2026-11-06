@@ -4,10 +4,11 @@ import Foundation
 ///
 /// - `--preview-fixtures`: no menu bar item, no refresh engine, no host list, no iTerm2; one
 ///   normal window renders every state from synthetic fixtures, for screenshots.
-/// - `--preview-gallery popover|settings|onboarding|attach|switcher` (or `--preview-gallery=…`;
-///   with `--preview-fixtures`): which states the window shows, the popover's (the default),
-///   the Settings window's, the onboarding window's, the session actions' (Phase 10), or the
-///   session switcher's (PLAN.md D32, Phase I-3b).
+/// - `--preview-gallery popover|settings|onboarding|attach|switcher|new-session` (or
+///   `--preview-gallery=…`; with `--preview-fixtures`): which states the window shows, the
+///   popover's (the default), the Settings window's, the onboarding window's, the session
+///   actions' (Phase 10), the session switcher's (PLAN.md D32, Phase I-3b), or the New session
+///   window's (PLAN.md D34, Phase I-9b). An unknown name shows the popover's.
 /// - `--appearance light|dark` (or `--appearance=…`): forces the appearance of the app's own
 ///   windows (`NSApp.appearance`); the system appearance and every preference stay as they
 ///   are.
@@ -82,13 +83,15 @@ public struct AppLaunchOptions: Sendable, Hashable {
     case settings
     /// The onboarding window's states.
     case onboarding
-    /// The session actions' states: progress, results, failures, Move here, Detach, New
-    /// session and the banners (PLAN.md D25).
+    /// The session actions' states: progress, results, failures, Move here, Detach and the
+    /// banners (PLAN.md D25).
     case attach
-    /// The session switcher's states: the list, a filtered list, New session with a name, the
-    /// form, an action in progress, failures, no hosts, hosts checking or unreachable
-    /// (PLAN.md D32).
+    /// The session switcher's states: the list, a filtered list, New session with a name, an
+    /// action in progress, failures, no hosts, hosts checking or unreachable (PLAN.md D32).
     case switcher
+    /// The New session window's states: editing, the directory list open and filtered, busy,
+    /// a collision, a failure and a folder dragged over Directory (PLAN.md D34, Phase I-9b).
+    case newSession = "new-session"
   }
 
   /// Which entry point's New session form `--preview-key-view-loop` inspects in the New

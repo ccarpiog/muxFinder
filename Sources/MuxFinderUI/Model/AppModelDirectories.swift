@@ -18,6 +18,10 @@ import os
 /// - **Picking only fills the field:** the Directory field then holds the entry as typed text
 ///   would, and the draft checks it (`NewSessionDraft.directoryIssue`, `request(hosts:command:)`)
 ///   before any request, whatever its source (D3, D18).
+/// - **A folder dropped from Finder** on the field's row (D34, Phase I-9b) fills the field as a
+///   pick does, its path written `~/…` under This Mac's home folder (`FolderDrop`,
+///   `dropOnDirectoryField(_:)`); anything else is refused, and the field shows a highlight only
+///   while a drop would fill it (`directoryDragMoved(_:)`).
 /// - **The field is the list's search** (Phase I-7): the content is filtered by the field's
 ///   text (`DirectoryPickerContent`), and a user edit of the field opens the list while an
 ///   entry matches and closes it again when none does or the field is left empty, unless the
@@ -232,6 +236,48 @@ extension AppModel {
     changeDirectoryLists(
       .clearRecents(hostID: hostID), hostID: hostID,
       problem: "muxFinder couldn't clear the recent directories.")
+  }
+
+  // MARK: - A folder dropped from Finder (PLAN.md D34, Phase I-9b)
+
+  /// What dropping `items` on the Directory field's row would do now: `FolderDrop`'s outcome
+  /// over This Mac's home folder (`thisMacHome`, the directory list's `~` rule), for every
+  /// host; refused as `unavailable` while the window is closed, the draft busy (its fields are
+  /// off) or after `shutdown()`.
+  public func directoryDropOutcome(_ items: [FolderDrop.Item]) -> FolderDrop.Outcome {
+    guard isNewSessionShown, !newSessionDraft.isBusy, lifecycle != .stopped else {
+      return .refused(.unavailable)
+    }
+    return FolderDrop.outcome(for: items, home: thisMacHome)
+  }
+
+  /// A drag of `items` entered or moved over the Directory field's row: the field shows the
+  /// drop highlight (`isDirectoryDropTargeted`) while the drop would fill it, and not
+  /// otherwise. Returns whether it would.
+  @discardableResult
+  public func directoryDragMoved(_ items: [FolderDrop.Item]) -> Bool {
+    let fills = directoryDropOutcome(items).text != nil
+    if isDirectoryDropTargeted != fills { isDirectoryDropTargeted = fills }
+    return fills
+  }
+
+  /// The drag left the Directory field's row, or ended: the highlight goes.
+  public func directoryDragEnded() {
+    if isDirectoryDropTargeted { isDirectoryDropTargeted = false }
+  }
+
+  /// `items` dropped on the Directory field's row: the highlight goes and, for one folder, the
+  /// field takes its path (`directoryDropOutcome(_:)`) as a pick (`fillDirectoryField(_:)`: no
+  /// edit, so the list does not reopen and nothing is announced), replacing what it held, and
+  /// the directory list closes. The draft then checks the text like typed text (PLAN.md D31).
+  /// Anything else changes nothing. Returns whether the field was filled. Never logs the path.
+  @discardableResult
+  public func dropOnDirectoryField(_ items: [FolderDrop.Item]) -> Bool {
+    directoryDragEnded()
+    guard let text = directoryDropOutcome(items).text else { return false }
+    fillDirectoryField(text)
+    closeDirectoryList()
+    return true
   }
 
   // MARK: - The store

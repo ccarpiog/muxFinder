@@ -48,13 +48,12 @@ file.
 | I-8 | New session: change the host from the keyboard — `PanelKeyRoute` leaves ↑/↓/⌥↓ to a focused pop-up button, every key to a tracking menu (D30–D32 edited; spec `autoclaude/processed/80-new-session-host-picker-keyboard.md`) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-8.md` | `docs/progress-archive/i-8.md` |
 | I-9a | New session window: the model and the window — one titled floating non-activating "New session" panel from the popover and the switcher, draft out of `panel`, failure after close brings it back (D34; D22, D25, D30–D33 edited; spec `autoclaude/processed/90-new-session-own-window.md`) | high | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-9a.md` | `docs/progress-archive/i-9a.md` |
 
+| I-9b | New session window: the folder drop — pure `FolderDrop`, a drop view over the Directory row ahead of the field editor, `~/…` under This Mac's home, files/packages/several refused; `--preview-gallery new-session`, screenshots, checklist 23 (D34 extended) | routine | opus (impl worker) | Codex, ship, `docs/reviews/phase-I-9b.md` | `docs/progress-archive/i-9b.md` |
+
 ### Queued
 
-| Phase | Title | Specification | Position |
-|---|---|---|---|
-| I-9b | New session window: the folder drop (pure function, Directory field wiring, refusal of files/several/non-file drags, `~/…` under This Mac's home), `--preview-gallery new-session`, screenshots for every changed gallery, checklist, README/ARCHITECTURE/REQUIREMENTS (split from I-9, `PLAN.md` *Phase I-9*) | `autoclaude/processed/90-new-session-own-window.md` (requirement 6, acceptance's gallery and checklist) | next (the plan's last remaining phase); routine |
-
-Every phase of `PLAN.md` and every earlier inbox phase is complete and reviewed but I-9b, queued.
+None. Every phase of `PLAN.md` and every inbox phase is complete and reviewed; one inbox item
+is deferred for the user (*Open risks*).
 
 **Inbox**: 2026-11-04 17:12, one item triaged, `40-empty-settings-window-at-launch.md` →
 queued as I-4 (triage commit `3804a78`), now complete. 2026-11-04 17:47 (after I-4's commit),
@@ -69,15 +68,16 @@ routine as proposed (no instruction to the run in it; its user decision, follow 
 keyboard navigation setting, is recorded in the item; triage commit `f9e2b04`), now complete.
 2026-11-05 22:31 (after I-8's commit), two items triaged: `90-new-session-own-window.md` →
 I-9, queued, high as proposed (no instruction to the run in it); `99-release-publish-install.md`
-→ **deferred**, needs the user (*Open risks*).
+→ **deferred**, needs the user (*Open risks*). 2026-11-05 23:37 (I-9b's iteration, before
+selection): `list` empty; after I-9b's review `count` 0.
 
 ## Current phase
 
-Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8 and I-9a are complete and
-reviewed. **Phase I-9a — New session window: the model and the window (high): complete**
-2026-11-05 (`docs/progress-archive/i-9a.md`; D34). **Next: I-9b** (routine; *Next action* 0);
-one inbox item is deferred for the user (*Open risks*). Then the user's manual checklist and the two `CLAUDE.md` notes owed (*Open
-risks*) remain. Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
+Phases 1–14, I-1 (a, b), I-2 (a, b), I-3 (a, b), I-4 to I-8 and I-9 (a, b) are complete and
+reviewed. **Phase I-9b — New session window: the folder drop, galleries and docs (routine):
+complete** 2026-11-06 (`docs/progress-archive/i-9b.md`; D34 extended). **Nothing is queued**
+(*Next action* 0). Remaining, all the user's: the deferred inbox item, the manual checklist and
+the three `CLAUDE.md` notes owed (*Open risks*). Phase 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
 I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
@@ -103,38 +103,16 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   `--report-hotkey-registration` 8/8; I-3b the switcher, 815 core + 324 UI tests); the real
   presses, clicks and keys owed (checklist 15–18) — `docs/progress-archive/{14,i-1a,i-1b,
   i-2a,i-2b,i-3a,i-3b}.md`.
-- Phase I-4: all criteria met, 2026-11-04 — SwiftUI's `Settings` scene was the window; after
-  the fix the shell check under an empty home lists only the hidden popover panel and
-  onboarding; 12 new UI tests; checklist 19; the `CLAUDE.md` note owed — `docs/progress-archive/i-4.md`.
-- Phase I-5: all criteria met, 2026-11-04 — one click on a session row opens it as Return
-  does, on "New session…" shows the form as ⌘N does; a second activation of a row opening
-  starts nothing; the rest of an activating click's sequence is dropped and the panel held
-  (no shrink, success/app-switch/resign-key closes waiting) through the double-click
-  interval; 14 new UI tests (815 core + 350 UI pass), no existing assertion changed; gallery
-  unchanged; a real double click owed (checklist 18) — `docs/progress-archive/i-5.md`.
-- Phase I-6: all criteria met, 2026-11-04 — diagnosed in process (the panels' key view loop
-  was never recalculated after the form replaced the list); native fix; Tab order Name →
-  Directory → list button → Cancel → Create → Host → Name and back, in both panels; 4 new UI
-  tests (815 core + 354 UI pass); galleries unchanged; real presses owed (checklist 20) —
-  `docs/progress-archive/i-6.md`.
-- Phase I-7: all criteria met, 2026-11-04 — pure filter (10 content tests) and model behaviour
-  (12 model tests: open on a match without a highlight, close only a typing-opened list, the
-  clearing rule, Esc, arrows in filtered rows, Return creates, a pick does not reopen, host
-  change, busy, announcement); 5 existing tests' field value changed, expectations kept; attach
-  and switcher galleries gained the filtered and no-match states, screenshots regenerated and
-  inspected; 815 core + 376 UI pass; real typing and VoiceOver owed (checklist 21) —
-  `docs/progress-archive/i-7.md`.
-- Phase I-8: all criteria met, 2026-11-05 — diagnosed in process (⇧Tab from Name reaches the
-  Host picker, an `NSPopUpButton`, but the monitor took ↑/↓/⌥↓ wherever the focus was); pure
-  `PanelKeyRoute.decide` wired into both panels' monitor, `MenuTrackingObserver`; diagnostic
-  before/after in `docs/TESTING.md`; 14 new UI tests, no existing test changed (815 core + 390
-  UI pass); galleries unchanged; real presses owed (checklist 22) — `docs/progress-archive/i-8.md`.
-- Phase I-9a: all criteria met, 2026-11-05 — model tests for opening from both entry points,
-  reopening, every ending, the failure-after-close rule from either entry point, Move here with
-  the window, the panels leaving it alone, keys, placement and height (18 new UI tests, 815
-  core + 406 UI pass; changed and removed tests in `docs/TESTING.md`, *Phase I-9a*);
-  `--selftest new-session-local` 7/7; shell and placement checks pass; the real window owed
-  (I-9b's checklist item) — `docs/progress-archive/i-9a.md`.
+- Phases I-4 to I-9a: all criteria met, 2026-11-04 to 2026-11-05 (I-9a: 815 core + 406 UI
+  tests, `--selftest new-session-local` 7/7); real presses, clicks and windows owed
+  (checklist 19–22) — verbatim in `docs/progress-archive/head-i-4-i-9a.md`.
+- Phase I-9b: all criteria met, 2026-11-06 — `FolderDrop.outcome(for:home:)` with the
+  specification's cases and more (package, sibling prefix, zero items, non-file URL, trailing
+  slash); the fill closes the list without reopening it; 25 new UI tests, 2 changed (recorded
+  in `docs/TESTING.md` *Phase I-9b*; 815 core + 431 UI pass); `--preview-gallery new-session`
+  13 states incl. the 7 required, light and dark, inspected; attach and switcher screenshots
+  regenerated; checklist 23 new, 17, 18, 20–22 updated; real drags owed (checklist 23) —
+  `docs/progress-archive/i-9b.md`.
 
 ## Decisions
 
@@ -204,39 +182,18 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   new visibility before its panel shows, so a swap is never a close to the engine. The interim
   popover toggle is removed, and `.shortcut` became `.switcherOpened`. D22's visibility rule
   and D30 are edited — `docs/progress-archive/i-3b.md`.
-- Phase I-4: new **D33** — the menu bar app runs on a plain `NSApplication` with a hand-built
-  main menu (`MainMenu`), because SwiftUI opens its `Settings` scene by itself at launch and no
-  documented API keeps a SwiftUI scene closed; D22 and D30 edited. The `CLAUDE.md` command-note
-  edit the item asked for was withheld: that file holds the user's uncommitted edit —
-  `docs/progress-archive/i-4.md`.
-- Phase I-5: **D32** *Keys* edited ("A click activates a row, as in the popover"). Two
-  additions beyond the specification, both needed for its requirement 2: `SwitcherClickSequence`
-  (a local mouse monitor drops the rest of an activating click's sequence in the switcher's
-  window) and, from the review, `SwitcherController.holdForClick()` (the panel keeps its
-  height and waits to close on success, app switch or resign key until
-  `NSEvent.doubleClickInterval` has passed) — `docs/progress-archive/i-5.md`.
-- Phase I-6: the native route (`PopoverPanelWindow.autorecalculatesKeyViewLoop = true`), not
-  model-held focus, since AppKit's own loop gives the reading order once recalculated; Tab with
-  the directory list open moves on and leaves it open (D31); D30, D32 edited —
-  `docs/progress-archive/i-6.md`.
-- Phase I-7: the orchestrator's `~` rule (field as typed; on This Mac each entry also with its
-  home folder as `~` and its `~` spelled out; SSH hosts as stored) and clearing rule (empty
-  text never opens, closes a typing-opened list), both in `PLAN.md` "### Phase I-7"; the
-  "opened by" state `DirectoryPickerState.opening` (`request`/`typing`); a pick fills through
-  `fillDirectoryField(_:)`, no edit; the announcement through `AppEnvironment.announce` —
-  `docs/progress-archive/i-7.md`.
-- Phase I-8: the orchestrator's calls in `PLAN.md` "### Phase I-8" — a generic rule (any
-  `NSPopUpButton` first responder keeps ↑/↓/⌥↓; Return still creates, Esc still closes), every
-  key passes through while a menu tracks, and with the directory list open and Host focused the
-  list stays open and keeps Return/Esc (D31) — `docs/progress-archive/i-8.md`.
-- Phase I-9: split into I-9a (high) and I-9b (routine), recorded in `PLAN.md` *Phase I-9* with
-  the orchestrator's calls before the first worker: a non-activating titled `NSPanel` at the
-  floating level on every Space and over full-screen apps; top centre at the source's top
-  centre, clamped, no frame remembered across closes; ⌘W like Cancel, ⌘, opens Settings, ⌘R/⌘F
-  not the window's; the draft dropped on every ending but a running creation's; **a failure or
-  collision after close brings the window back, not key**, replacing the switcher-only
-  deferred path. I-9a's review fix: the switcher follows "Open existing" of a draft it made,
-  as it does the draft's creation — `docs/progress-archive/i-9a.md`, D34.
+- Phases I-4 to I-9: new **D33** (I-4, plain `NSApplication`) and **D34** (I-9a, the New
+  session window); D30–D32 edited by I-5 to I-8; I-9 split into I-9a/I-9b with the
+  orchestrator's calls in `PLAN.md` *Phase I-9* — verbatim in
+  `docs/progress-archive/head-i-4-i-9a.md`.
+- Phase I-9b: the orchestrator's calls in `PLAN.md` *Phase I-9* ("calls for I-9b"): the drop
+  target is the Directory row only (the user's "onto Directory"); one non-package folder URL,
+  everything else refused with no "+"; the path as dropped, `~` by whole components; the fill
+  a pick. The worker's route: an invisible AppKit drop view in front of the field and its
+  field editor, registered for every type the field editor takes, clicks passing through. The
+  switcher's `formFiltered`/`formNoMatches` fixtures retired as duplicates of the window's
+  states. `docs/REQUIREMENTS.md` left as it is (the verbatim brief, never inline) —
+  `docs/progress-archive/i-9b.md`.
 
 ## Open risks / deviations
 
@@ -287,9 +244,15 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   without activation, ⌘W, height growth: I-9b's checklist item). ⌘R/⌘F in the window beep;
   ⌘N is swallowed. The committed attach and switcher screenshots show the inline form until
   I-9b. One first `swift test` run had 1 core-suite issue (core untouched), not reproduced in
-  three reruns. A **third `CLAUDE.md` note owed**: "with `--preview-gallery attach` every
-  session-action state" leaves out the New session form, which I-9b's `--preview-gallery
-  new-session` will hold — `docs/progress-archive/i-9a.md`.
+  three reruns. A **third `CLAUDE.md` note owed**: the `--preview-fixtures` paragraph should
+  add `--preview-gallery new-session` (every New session window state) to its gallery list
+  and `new-session-states-*.png` to its screenshot list (made concrete by I-9b) —
+  `docs/progress-archive/i-9a.md`, `i-9b.md`.
+- I-9b: no real drag was made; that the drop view gets drags ahead of the field editor in the
+  real window rests on one throwaway probe of the worker's (deleted; the shipped code uses no
+  private API) — checklist 23. The popover gallery's committed screenshot predates I-6 (32 px
+  shorter than it renders now; not regenerated, I-9 did not change it). The worker ran one
+  read-only `git log`, against its brief — `docs/progress-archive/i-9b.md`.
 
 - **Deferred inbox item, needs the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2: real `scripts/release.sh` with notarization, publish to
@@ -339,52 +302,26 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   4 should-fix). Review-fix workers fixed all of them, each regression failing with its fix
   reverted; re-verified by the orchestrator — `docs/reviews/phase-I-{2a,2b,3a,3b}.md`, summaries
   in `docs/progress-archive/i-{2a,2b,3a,3b}.md`.
-- Phase I-4: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
-  blockers, 1 should-fix (the extended shell report wrote stdout synchronously on the main
-  actor). Fixed inline by the orchestrator through `NonblockingLineWriter`; re-verified; the
-  full-pipe regression is not run (the report is ~5 KB) — `docs/reviews/phase-I-4.md`.
-- Phase I-5: Codex wrote the file (`autoclaude-review.sh`, 12 min) → `ship-with-fixes`, 0
-  blockers, 1 should-fix (the New session form shrinks the panel, so a double click's second
-  click reaches the app behind). Fixed by a review-fix worker (`holdForClick()`, covering a
-  success close too), regressions failing with their fix reverted; re-verified by the
-  orchestrator — `docs/reviews/phase-I-5.md`.
-- Phase I-6: Codex wrote the file (`autoclaude-review.sh`, 12 min) → `ship-with-fixes`, 0
-  blockers, 1 should-fix (the diagnostic's synchronous stdout could strand its key panel).
-  Fixed inline by the orchestrator (`NonblockingLineWriter`, bounded flush, 30 s watchdog exit
-  3); re-verified — `docs/reviews/phase-I-6.md`.
-- Phase I-7: Codex wrote the file (`autoclaude-review.sh`, 12 min) → `ship`, 0 findings (not
-  verified: checklist 21's live checks) — `docs/reviews/phase-I-7.md`.
-- Phase I-8: Codex wrote the file (`autoclaude-review.sh`, 12 min) → `ship`, 0 findings (not
-  verified: checklist 22's live checks) — `docs/reviews/phase-I-8.md`.
-- Phase I-9a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
-  blockers, 1 should-fix (preserve switcher ownership through "Open existing"). Fixed by a
-  review-fix worker (`switcherExistingOpened`, `followSwitcherAction`), its regression failing
-  with the fix reverted; re-verified by the orchestrator — `docs/reviews/phase-I-9a.md`.
+- Phases I-4 to I-9a: Codex wrote each file (`autoclaude-review.sh`, 12–20 min): I-4, I-5,
+  I-6 and I-9a `ship-with-fixes` (one should-fix each, all fixed and re-verified), I-7 and I-8
+  `ship` — verbatim in `docs/progress-archive/head-i-4-i-9a.md`, reports in
+  `docs/reviews/phase-I-{4,5,6,7,8,9a}.md`.
+- Phase I-9b: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship`, 0 findings (not
+  verified: checklist 23's real drags, click-through, keys and VoiceOver while Directory is
+  being edited) — `docs/reviews/phase-I-9b.md`.
 
 ## Next action
 
-0. **Phase I-9b (queued, routine)**: poll the inbox first, then select I-9b (`PLAN.md` *Phase
-   I-9*, its I-9b bullet; specification `autoclaude/processed/90-new-session-own-window.md`,
-   requirement 6 and the acceptance's gallery, screenshot and checklist bullets). Decide and
-   record before the worker the item's open drop call: **the drop target** (the Directory field
-   only, or anywhere on the window). Deliverables: the drop as a pure function (dropped URLs +
-   This Mac's home → the field's new text or a refusal; tests: folder under home, outside,
-   home itself, a file, two folders, a path needing no change; the fill counts as a pick and
-   does not reopen the list), its wiring with a highlight and the VoiceOver hint, the
-   `--preview-gallery new-session` gallery from `AttachFixtures.newSessionStates` /
-   `SwitcherFixtures.newSessionStates` plus the drop highlight, light and dark through
-   `--preview-snapshot`, inspected; `docs/screenshots/` regenerated for the window's gallery
-   and the changed attach and switcher galleries; `docs/MANUAL-CHECKLIST.md` (a new item; 20,
-   21, 22 updated for the window); `README.md`, `docs/ARCHITECTURE.md`,
-   `docs/REQUIREMENTS.md`; D34 gains the drop. Shared verification, bundle and signature; no
-   real run needed (the model is unchanged); never `CLAUDE.md` (its notes are owed, item 1).
-1. **After I-9b: nothing queued.** Poll the inbox (`autoclaude-inbox.sh list`); if
-   it is empty, confirm `DONE` (a `confirm-done` pass re-runs the last three closed phases'
-   verification: `swift build`, `swift test`, `swift format lint -r Sources Tests`,
-   `scripts/build-app.sh`, `codesign --verify --deep --strict build/muxFinder.app`, plus
-   `git status --short`, where only the user's `CLAUDE.md` and `nonamedownloads.json` may
-   show). The `CLAUDE.md` notes I-4, I-6 and I-9a owe (*Open risks*) are applied only once
-   `CLAUDE.md` holds no uncommitted edit of the user's.
+0. **Nothing queued: the plan is done.** Poll the inbox (`autoclaude-inbox.sh list`); if it
+   prints anything, triage it per `~/.claude/scripts/autoclaude-inbox.md`. If it is empty,
+   confirm `DONE`: a `confirm-done` pass re-runs the last three closed phases' (I-8, I-9a,
+   I-9b) verification — `swift build`, `swift test` (815 core), `swift test --filter
+   MuxFinderUITests` (431 UI), `swift format lint -r Sources Tests`, `scripts/build-app.sh`,
+   `codesign --verify --deep --strict build/muxFinder.app` — plus `git status --short`, where
+   only the user's `CLAUDE.md` and `nonamedownloads.json` may show.
+1. The `CLAUDE.md` notes I-4, I-6 and I-9a owe (*Open risks*) are applied only once
+   `CLAUDE.md` holds no uncommitted edit of the user's. The deferred release item
+   (`autoclaude/processed/99-release-publish-install.md`) waits for the user to ask directly.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
    Settings, Sirio, the LaunchServices Automation prompt, launch at login from
@@ -512,7 +449,11 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   placement and sizing `Model/NewSessionWindowController.swift`, the panel
   `Views/NewSessionWindow.swift` (built by the app shell only); inline-form fixtures kept for
   I-9b in `Preview/AttachFixtures.swift` and `Preview/SwitcherFixtures.swift`; tests
-  `Tests/MuxFinderUITests/NewSessionWindowTests.swift`.
+  `Tests/MuxFinderUITests/NewSessionWindowTests.swift`. Folder drop (I-9b): pure
+  `Model/FolderDrop.swift`, drop view `Views/FolderDropView.swift` (over the Directory row in
+  `Views/DirectoryPickerViews.swift`), gallery `Preview/NewSessionGallery.swift`
+  (`--preview-gallery new-session`, `docs/screenshots/new-session-states-*.png`); tests
+  `Tests/MuxFinderUITests/FolderDropTests.swift`.
 - Tests: `Tests/MuxFinderCoreTests/` (fixtures in `Fixtures/discovery/`, `Fixtures/iterm2/`).
 - iTerm2 fixture generator (dev only, `-I`): `scripts/dev/gen-iterm2-fixtures.py`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/`.
@@ -530,6 +471,12 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
   build/muxFinder.app` exit 0; `--report-menu-bar-item` under an empty private home exit 0, no
   child, home empty. Worker: `--report-popover-placement` exit 0 (passed), `--selftest
   new-session-local` 7/7 (iTerm2 17 → 20 threads) — `docs/progress-archive/i-9a.md`.
+- Phase I-9b (final tree, orchestrator, 2026-11-06): `swift build` exit 0; `swift test` exit
+  0, 815 core tests in 81 suites; `swift test --filter MuxFinderUITests` exit 0, 431 UI tests
+  in 43 suites; `swift format lint -r Sources Tests` exit 0; `scripts/build-app.sh` exit 0;
+  `codesign --verify --deep --strict build/muxFinder.app` exit 0. Worker: `swift build
+  -warnings-as-errors` exit 0, `--report-menu-bar-item` under a private home exit 0, no child,
+  home empty; no real run — `docs/progress-archive/i-9b.md`.
 - Phases 1–I-7: each phase's final-tree verification is in `docs/progress-archive/<phase>.md`.
 
 ## Git state
@@ -550,8 +497,8 @@ I-2 into I-2a/I-2b, I-3 into I-3a/I-3b.
 - Phase I-5: `8f08b99`, pushed. Phase I-6: `26cef52`, pushed. Inbox triage (I-7): `79bea34`,
   pushed. Phase I-7: `84a0adf`, pushed. Inbox triage (I-8): `f9e2b04`. Phase I-8: `b8ffe91`,
   pushed. Inbox triage (I-9 queued, item 99 deferred): `8588893`; phase summaries `223ab3a`,
-  `99c224f`, pushed. Phase I-9a: the commit carrying this checkpoint ("Phase I-9a: New session
-  in its own floating window"), pushed (SHA and push result in the run's status line and the
-  next checkpoint).
+  `99c224f`, pushed. Phase I-9a: `da48655`, pushed. Phase I-9b: the commit carrying this
+  checkpoint ("Phase I-9b: drop a Finder folder on New session's Directory"), pushed (SHA
+  and push result in the run's status line and the next checkpoint).
 - The runner's preflight file for the I-4 run names `CLAUDE.md` (the user's NonameDownloads
   note) and `nonamedownloads.json`: the user's, left uncommitted and untouched.

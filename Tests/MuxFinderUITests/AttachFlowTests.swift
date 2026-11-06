@@ -839,7 +839,8 @@ struct FailureMessageTests {
   /// The session-action fixtures show every state: each progress and result, every attach
   /// failure but the three a banner covers, every detach problem, both focuses that did not
   /// bring the tab forward, the Move here panel and both banners; the New session form's states
-  /// are apart (`newSessionStates`, the window's, PLAN.md D34); all from synthetic data.
+  /// are apart (`newSessionStates`, the window's, PLAN.md D34: editing, creating, a collision, a
+  /// failure and a folder dragged over Directory, Phase I-9b); all from synthetic data.
   @Test func attachFixturesCoverEveryState() {
     let fixtures = AttachFixtures.all
     let activities = fixtures.flatMap { $0.activities.values }
@@ -858,8 +859,12 @@ struct FailureMessageTests {
     let forms = AttachFixtures.newSessionStates
     #expect(forms.allSatisfy { $0.showsNewSession })
     let sheets = forms.map(\.newSessionDraft)
-    #expect(Set(sheets.map(\.state)) == [.editing, .creating, .collision])
+    #expect(
+      Set(sheets.map(\.state)) == [
+        .editing, .creating, .collision, .failed(SessionCreationError.directoryMissing.message),
+      ])
     #expect(sheets.contains { $0.nameIssue != nil })
+    #expect(forms.filter(\.directoryDropTargeted).count == 1, "the drop highlight, Phase I-9b")
     #expect(Set((fixtures + forms).map(\.id)).count == fixtures.count + forms.count)
     #expect(Set(fixtures.flatMap(\.banners).map(\.kind)) == [.vanished, .changed])
     #expect(Set(fixtures.map(\.id)).count == fixtures.count)
