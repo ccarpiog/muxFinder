@@ -3258,9 +3258,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **History:** 0.1.0 (1), 2026-11-04; 0.2.0 (2), 2026-11-06 (New session's keyboard host
     picker, its own window and the folder drop, Phases I-8 and I-9); 0.3.0 (3), 2026-11-06
     (folder search over Spotlight and Detach other clients, Phases I-10 and I-11; built from
-    the `release/0.3.0` branch at I-11b, so none of I-12's work is in it). `main`'s
-    `scripts/build-app.sh` still says 0.2.0 (2), so the next release from `main` needs a build
-    above 3 (the version from the rule above, against the last published release).
+    the `release/0.3.0` branch at I-11b, so none of I-12's work is in it); 0.4.0 (4),
+    2026-11-07 (other terminal apps and the in-app update check, Phases I-12 and I-13; built
+    from `main`, the first release that can update itself).
 
 - **D36 — Folder search over Spotlight** (decided by the orchestrator for Phase I-10,
   2026-11-06, from `autoclaude/processed/100-folder-search-spotlight.md`; the core in Phase
