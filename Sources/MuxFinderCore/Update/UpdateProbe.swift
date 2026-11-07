@@ -25,6 +25,7 @@ public enum UpdateProbe {
                              update-state.json is read and written; any other folder is a
                              usage error, and its permissions are never changed. Without it
                              nothing is read or written.
+    \(UpdateVerifyProbe.usage)
     """
 
   /// The running version used without `--running-version`.
@@ -51,6 +52,8 @@ public enum UpdateProbe {
     case help
     /// Run one check.
     case check(Options)
+    /// Verify a release zip (`update verify`).
+    case verify(UpdateVerifyProbe.Options)
   }
 
   /// Why the arguments were rejected.
@@ -65,11 +68,12 @@ public enum UpdateProbe {
       throw UsageError(message: "update needs a subcommand")
     }
     if ["help", "--help", "-h"].contains(subcommand) { return .help }
-    guard subcommand == "check" else {
+    guard subcommand == "check" || subcommand == "verify" else {
       throw UsageError(message: "unknown update subcommand")
     }
     let rest = arguments.dropFirst()
     if rest.contains("--help") || rest.contains("-h") { return .help }
+    if subcommand == "verify" { return .verify(try UpdateVerifyProbe.parse(rest)) }
     var options = Options(runningVersion: defaultRunningVersion, stateDirectory: nil)
     var seen: Set<String> = []
     var remaining = rest[...]
@@ -137,11 +141,13 @@ public enum UpdateProbe {
   }
 
   /// Runs `update …` with `arguments` (the words after `update`) and returns the exit status.
-  /// `makeTransport` is called only for a check that sends, with the running version; `--help`
-  /// and unusable arguments contact nothing.
+  /// `makeTransport` is called only for a check that sends, with the running version (`update
+  /// verify --latest` included); `verifyEnvironment` only for `update verify` with usable
+  /// arguments; `--help` and unusable arguments contact nothing.
   public static func run(
     _ arguments: [String],
     makeTransport: (String) -> any UpdateCheckTransport,
+    verifyEnvironment: @autoclosure () -> UpdateVerifyProbe.Environment = .live,
     now: () -> Date = { Date() },
     standardOutput: (String) -> Void,
     standardError: (String) -> Void
@@ -154,6 +160,10 @@ public enum UpdateProbe {
         return answeredStatus
       case .check(let parsed):
         options = parsed
+      case .verify(let parsed):
+        return await UpdateVerifyProbe.run(
+          parsed, makeCheckTransport: makeTransport, environment: verifyEnvironment(), now: now,
+          standardOutput: standardOutput, standardError: standardError)
       }
     } catch {
       standardError("muxfinder-probe: \(error.message)\n\nusage:\n\(usage)")
@@ -180,7 +190,7 @@ public enum UpdateProbe {
     standardOutput(String(decoding: data, as: UTF8.self))
     let answered = output.outcome != "rateLimited" && !output.outcome.hasPrefix("failed.")
     return answered && output.state?.saved != false ? answeredStatus : failedStatus
-  } // End of static func run(_:makeTransport:now:standardOutput:standardError:)
+  } // End of static func run(_:makeTransport:verifyEnvironment:now:standardOutput:…)
 
   /// Runs one check with `options` over `store` (or an empty state) and returns its output.
   static func check(

@@ -868,12 +868,15 @@ in the results.
 - **Undo:** item 13 (`scripts/uninstall.sh`); end the test session with
   `/opt/homebrew/bin/tmux kill-session -t '=muxfinder-test-ui'`.
 
-## 30. The update check against GitHub (`update check`)
+## 30. The update check and download against GitHub (`update check`, `update verify --latest`)
 
-Owed by Phase I-13a (PLAN.md D39): no unattended run sends a request to GitHub or any other
-server (*Unattended-run rules* 3), so the check was tested only through a `URLProtocol` stub
-and fakes. This item needs the network and sends anonymous requests to `api.github.com`, each
-counting against GitHub's limit for requests without a token (60 an hour per address).
+Owed by Phases I-13a and I-13b1 (PLAN.md D39): no unattended run sends a request to GitHub or
+any other server (*Unattended-run rules* 3), so the check and the download were tested only
+through a `URLProtocol` stub and fakes (the verification itself ran for real on a local copy
+of 0.2.0's zip). This item needs the network and sends anonymous requests to
+`api.github.com`, each counting against GitHub's limit for requests without a token (60 an
+hour per address), and step 5 downloads the latest release's `muxFinder.zip` (about 6 MB)
+from GitHub.
 
 - **Do:** from the repository, `swift build`, then:
   1. `swift run muxfinder-probe update check --running-version 0.1.0`
@@ -882,6 +885,10 @@ counting against GitHub's limit for requests without a token (60 an hour per add
   3. `S=$(mktemp -d /private/tmp/mfx.XXXXXX)`, then `swift run muxfinder-probe update check
      --state "$S"` twice, then `ls -l "$S"` and `cat "$S/update-state.json"`.
   4. Optionally, with Wi-Fi off: `swift run muxfinder-probe update check`.
+  5. `V=$(mktemp -d /private/tmp/mfx.XXXXXX)`, then `swift run muxfinder-probe update verify
+     --into "$V" --team-id <your Team ID> --latest --running-build 1` (the Team ID is the
+     `TeamIdentifier` that `codesign -dv /Applications/muxFinder.app` prints for a release
+     copy), then `ls "$V" "$V/extracted"`.
 - **Expect:**
   1. Exit 0, JSON with `outcome` `newer`, `sent` true, `latestTag` the latest published tag
      (`v0.2.0` when this was written), `newer` true, `releasePage`
@@ -897,10 +904,18 @@ counting against GitHub's limit for requests without a token (60 an hour per add
      `asset` (`url` `https://github.com/ccarpiog/muxFinder/releases/download/<tag>/muxFinder.zip`,
      `sha256` the digest the release page shows, `size`).
   4. Exit 1, `outcome` `failed.offline` (or `failed.timedOut` after at most 15 s).
+  5. Exit 0, JSON with `mode` `latest`, `check.outcome` `newer`, `check.latestTag` the latest
+     published tag, `expectedVersion` its version, every step (`download`, `digest`,
+     `extraction`, `shape`, `signature`, `notarization`, `versions`) `passed`, `verdict`
+     `verified`, `bundle.path` `extracted/muxFinder.app` with the release's version and
+     build, `zipSize` the asset's size, `cleanedUp` true, and no Team ID in the output. The
+     folder holds only `extracted/muxFinder.app` (the zip is deleted). Nothing is installed,
+     moved or launched.
   If GitHub's limit is used up, a run prints `outcome` `rateLimited` with
   `rateLimitedUntil` and exits 1; with `--state`, the next run before that time prints the
-  same with `sent` false. Nothing is downloaded or installed in any run.
-- **Undo:** `rm -r "$S"`.
+  same with `sent` false. Steps 1 to 4 download and install nothing; step 5 downloads into
+  `$V` only and installs nothing.
+- **Undo:** `rm -r "$S" "$V"`.
 
 ## Results
 

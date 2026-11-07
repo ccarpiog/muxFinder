@@ -353,10 +353,12 @@ final class ManualUpdateClock: UpdateClock, Sendable {
   }
 }
 
-/// The `URLProtocol` stub the `URLSession` transport's tests register on its configuration (and
-/// only it, so no request can reach the network). It claims every request, records it, and
-/// answers as the test's route says; routes are keyed by the second path component of the
-/// URL (`/stub/<key>/…`), so tests running in parallel never share one.
+/// The `URLProtocol` stub the `URLSession` transports' tests register on their configuration
+/// (and only it, so no request can reach the network). It claims every request, records it,
+/// and answers as the test's route says; routes are keyed by the second path component of the
+/// URL (`/stub/<key>/…`), or by the tag of a release download URL
+/// (`/ccarpiog/muxFinder/releases/download/<tag>/muxFinder.zip`, I-13b1), so tests running in
+/// parallel never share one.
 final class UpdateStubProtocol: URLProtocol, @unchecked Sendable {
   /// How the stub answers one request.
   enum Answer: Sendable {
@@ -366,6 +368,9 @@ final class UpdateStubProtocol: URLProtocol, @unchecked Sendable {
     case redirect(to: URL, status: Int)
     /// No answer: this error.
     case failure(URLError.Code)
+    /// An HTTP answer with headers and the first part of a body, then nothing more until the
+    /// request is cancelled (I-13b1's cancel test).
+    case hold(status: Int, headers: [String: String], body: Data)
   }
 
   /// One route: the answers in order (the last one repeats) and the requests seen.
@@ -397,9 +402,18 @@ final class UpdateStubProtocol: URLProtocol, @unchecked Sendable {
     routes.withLock { $0[key] = nil }
   }
 
-  /// The route key in `url`, or `nil`.
+  /// Registers `answers` under `key` (a release tag for download URLs).
+  static func register(_ answers: [Answer], key: String) {
+    routes.withLock { $0[key] = Route(answers: answers) }
+  }
+
+  /// The route key in `url`, or `nil`: a release download URL's tag, else the second path
+  /// component.
   static func key(of url: URL?) -> String? {
     let parts = url?.path(percentEncoded: false).split(separator: "/") ?? []
+    if parts.count == 6, parts[0] == "ccarpiog", parts[2] == "releases", parts[3] == "download" {
+      return String(parts[4])
+    }
     return parts.count >= 2 ? String(parts[1]) : nil
   }
 
@@ -445,6 +459,11 @@ final class UpdateStubProtocol: URLProtocol, @unchecked Sendable {
         offset = end
       } // End of loop over the body's chunks
       client.urlProtocolDidFinishLoading(self)
+    case .hold(let status, let headers, let body):
+      let response = HTTPURLResponse(
+        url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+      client.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+      client.urlProtocol(self, didLoad: body)
     }
   } // End of func startLoading()
 

@@ -4759,9 +4759,17 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `UpdateCheck.swift`, `UpdateState.swift`, `UpdateStateStore.swift`, `UpdateScheduler.swift`,
   `UpdateProbe.swift`), `Config/PreferencesStore.swift` (D32) and
   `Sources/muxfinder-probe/UpdateCommand.swift`; tests `Tests/MuxFinderCoreTests/Update*Tests.swift`
-  and `UpdateTestSupport.swift`, `docs/TESTING.md` *Phase I-13a*). muxFinder tells the user
-  when GitHub has a newer release; from I-13b an Update button downloads, verifies and installs
-  it, and I-13c adds the UI. This entry is the check; I-13b and I-13c extend it.
+  and `UpdateTestSupport.swift`, `docs/TESTING.md` *Phase I-13a*; the download and
+  verification, core, in Phase I-13b1: `UpdateStaging.swift`, `UpdateDownload.swift`,
+  `UpdateArchive.swift`, `UpdateExtraction.swift`, `UpdateCodeCheck.swift`,
+  `UpdateBundleVersions.swift`, `UpdateVerification.swift`, `UpdateVerifyProbe.swift`, tests
+  `UpdateDownloadTests`, `UpdateArchiveTests`, `UpdateExtractionTests`, `UpdateCodeCheckTests`,
+  `UpdateBundleVersionsTests`, `UpdateVerifierTests`, `UpdateVerifyProbeTests` and
+  `UpdateVerifyTestSupport.swift`,
+  `docs/TESTING.md` *Phase I-13b1*). muxFinder tells the user when GitHub has a newer release;
+  from I-13b an Update button downloads, verifies and installs it, and I-13c adds the UI. This
+  entry is the check and, below it, the download and verification; I-13b2 and I-13c extend
+  it.
   - **Why no Sparkle:** the user chose a hand-written updater with no dependency (decision 2
     of the specification). It uses GitHub's API and the stapled `muxFinder.zip` that
     `scripts/release.sh` already writes, so no appcast, no signing key of its own and no
@@ -4873,9 +4881,184 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     request), the scheduler and the probe only over fakes, and every body is synthetic JSON
     written by hand. The real `update check` run is the user's (`docs/MANUAL-CHECKLIST.md`
     item 30).
-  - **Not yet:** nothing in the app creates the scheduler (I-13c wires it in normal mode
-    only: no diagnostic mode contacts the network or writes the state file); the download,
-    verification and install are I-13b's.
+  - **The download and verification (I-13b1)**, from a release offer to a verified
+    `muxFinder.app` in a private staging folder (*Phase I-13* "The orchestrator's calls for
+    I-13b1"; no UI, swap, relaunch or eligibility):
+    - **The staging folder is given** (`UpdateStagingFolder`; I-13b2 chooses it, the probe
+      takes `--into`): checked once (absolute, no empty, `.` or `..` component, a trailing
+      slash ignored, no symbolic link on its path, a folder of the user's, no permission for
+      group or others, no extended ACL), its device and inode recorded; every later use
+      reopens it with `O_NOFOLLOW` and refuses it when it is another folder (`replaced`) or no
+      longer private. Its own permissions are never changed. Files are created there with
+      `O_CREAT | O_EXCL | O_NOFOLLOW`, any inherited ACL removed and mode 0600 before the
+      first byte; folders with `mkdirat` (0700, no ACL). Removal never follows a link, makes
+      the user's read-only folders 0700 to empty them (an archive may carry one), and touches
+      only the names the run created.
+    - **The download** (`UpdateDownloader` over `UpdateDownloadTransport`;
+      `URLSessionUpdateDownloadTransport` writes through `UpdateDownloadSink`): only an asset
+      whose URL is exactly `https://github.com/ccarpiog/muxFinder/releases/download/<tag>/muxFinder.zip`
+      for the release's tag (`foreignURL` otherwise, before anything is created), into a new
+      `muxFinder.zip`. One session per download (ephemeral, no cookie, cache or credential
+      storage, TLS 1.2 at least, invalidated afterwards); the request carries only `Accept:
+      application/octet-stream`, `Accept-Encoding: identity` (worker's call: so
+      `Content-Length` is the file's size and no compressed transfer changes the count),
+      `Accept-Language: en` and `User-Agent: muxFinder/<short version>`: no token. **Redirect
+      allowlist** (`UpdateSource.downloadHosts`): `https` on exactly `github.com`,
+      `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, port 443 or
+      none, no user or password, at most 5 redirects (worker's number); a refusal is
+      `redirectRefused` with `notHTTPS`, `hostNotAllowed`, `credentialsOrPort` or
+      `tooManyRedirects`, never the host's name. Another final status is `httpStatus`. A
+      `Content-Length` other than the declared size stops it before reading
+      (`contentLengthMismatch`); the first byte past the declared size cancels it
+      (`tooLarge`); fewer bytes are `incomplete`; SHA-256 is computed while streaming
+      (CryptoKit) and a digest other than the release's is `digestMismatch`. Progress is
+      reported after each 64 KiB write (bytes so far of the declared size). Cancel is task
+      cancellation: the request is cancelled and the result is `cancelled`. Any failure
+      deletes the file. **Timeouts:** 30 s request (a stall) and 20 min resource (50 MiB at
+      about 350 kbit/s; worker's number); `offline`, `timedOut` and `other` as the check's.
+      The probe's zip mode copies a local file through the same sink (`copyLocalFile`: opened
+      without following a link at its last component, a regular file of 1 byte to 50 MiB,
+      never read past the size it had when checked; `sourceUnreadable` or `tooLarge`
+      otherwise).
+    - **Extraction** (`UpdateExtractor`): `/usr/bin/ditto -x -k <zip> <staging>/extracted` as
+      an argv array through `PosixSpawnProcessRunner`, only `PATH` in its environment, a 120 s
+      bound (worker's number), into the fresh `extracted` folder. Checked on this Mac: `ditto`
+      keeps `..` components and absolute names inside the destination, writes a FIFO or
+      socket entry as an empty regular file, turns the `._` AppleDouble entries of our zips
+      into extended attributes, and refuses an empty zip; it also takes each entry's name from
+      its local header (not its directory record), unpacks an entry no directory record lists
+      (with a warning, exit 0), and writes everything a deflate stream holds whatever size the
+      directory and data descriptor declare (a 20 MiB entry declared as 1,000 bytes unpacked
+      to 20 MiB, exit 0). So the expansion is bounded twice (review fix, worker's numbers in
+      `UpdateArchiveLimits.standard`, generous for the 0.2.0 zip's 29 entries, about 19.2 MB
+      declared, largest entry about 12.6 MB, highest ratio about 3.7):
+      - **Before `ditto`, the archive check** (`UpdateArchiveCheck`, failures
+        `archive.<problem>` of the extraction step), which reads the zip itself and unpacks
+        nothing: the end record searched for from the end in the last 65,557 bytes, the one
+        whose comment ends exactly at the end of the file; the directory (at most 16 MiB)
+        ending exactly where the end record begins; any ZIP64 record or extra field, or a
+        saturated count, size or offset, refused (`zip64`; a release zip is at most 50 MiB);
+        every local header agreeing with its directory record (flags, method, name, CRC and
+        sizes, or zero with a data descriptor whose CRC and sizes agree) and the entries
+        covering every byte before the directory with no gap and no overlap, so what `ditto`
+        walks is what was checked (`malformed` otherwise, as for any other inconsistency:
+        sizes a stored or deflated entry cannot have, a folder name with data); no entries
+        `empty`; more than 20,000 entries `tooManyEntries`; one entry declaring over 128 MiB
+        `entryTooLarge`, or over 1 MiB at a ratio above 100 `ratioTooHigh`; over 256 MiB
+        declared in total `tooLarge`; encryption, a method other than stored or deflate, or a
+        Unix type other than a regular file, folder or link `unsupportedEntry`; a name that
+        is empty, over 1,024 bytes, over 40 components, not UTF-8, absolute, with an empty,
+        `.` or `..` component, a backslash or NUL `unsafeName`; a first component other than
+        `muxFinder.app` (or the AppleDouble companion `._muxFinder.app`, or those two under
+        `__MACOSX/`) `outsideApp`; two names equal without case in one Unicode form
+        `duplicateName`; a name below an entry that is a link `belowLink`.
+      - **While `ditto` runs, the watchdog** (`UpdateExpansionWatch`): every 50 ms (worker's
+        number) a walk of `extracted` that never follows a link counts entries, regular
+        files' and links' sizes and the extended attribute values of files and folders (where
+        `._` entries end up); past 20,000 entries, 256 MiB, 40 levels, or a folder it cannot
+        open, it cancels the run, so the runner stops `ditto`'s process group (SIGTERM, SIGKILL
+        after 2 s) and waits for it, and the step fails `expansionExceeded`; the walk runs once
+        more when `ditto` ends (it can write a few tens of MiB between two measures), and the
+        usual cleanup deletes the partial contents. Seen on this Mac: a 512 MiB entry declared
+        at twice its packed size was stopped mid-run; a 64 MiB one is caught mid-run or at
+        `ditto`'s end. The shape walk below still runs after `ditto`.
+    - **The shape** (`UpdateBundleShape`): exactly one top-level entry (`noApp`,
+      `extraEntries`), named exactly `muxFinder.app` (`wrongName`), a real folder by `lstat`
+      (`appNotADirectory`); then a descriptor walk that never follows a link, bounded at
+      10,000 entries, 256 MiB in regular files and 32 levels (worker's numbers; the 0.2.0
+      bundle has 14 entries, about 19.2 MB and no link) (`tooManyEntries`, `tooLarge`,
+      `tooDeep`), where each entry is a regular file, a folder or a symbolic link
+      (`unsupportedEntry`). A link's target may not be absolute (`symbolicLinkAbsolute`) or
+      empty, and is resolved lexically from the link's own folder, `..` going up and never
+      above the app; a `..` that would back out of a component that is itself a link is
+      refused too (worker's addition: lexically `MacOS/up/../..` with `up → ..` stays inside,
+      physically it climbs out) (`symbolicLinkEscapes`). The walked `muxFinder.app` is opened
+      once (`O_NOFOLLOW`), checked to be the folder `lstat` saw, kept open, and its identity
+      (`UpdateBundleIdentity`: device and inode) recorded for the steps after it.
+    - **The code check** (`SecurityUpdateCodeChecker`, `UpdateCodeRequirement`):
+      `SecStaticCodeCreateWithPath` and `SecStaticCodeCheckValidityWithErrors` with
+      `kSecCSStrictValidate`, `kSecCSCheckAllArchitectures`, `kSecCSCheckNestedCode`,
+      `kSecCSRestrictSymlinks` and `kSecCSRestrictToAppLike` (all pass the 0.2.0 bundle);
+      never the revocation-check flag, never `kSecCSAllowNetworkAccess`. The Team ID is an
+      `UpdateTeamID`, exactly 10 uppercase ASCII letters or digits, so nothing else can enter
+      the requirement string. In order, on one static code object: the signature alone
+      (`unsigned`, `invalid`), then separate requirements for the identifier `identifier
+      "cc.carpio.muxfinder"` (`notOurs`), the Developer ID markers `anchor apple generic and
+      certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate
+      leaf[field.1.2.840.113635.100.6.1.13] exists` (`notDeveloperID`) and `certificate
+      leaf[subject.OU] = "<team>"` (`otherTeam`): the signature step; then the full
+      requirement, all of those `and notarized` (`notNotarized`): the notarization step.
+    - **The notarization proof** (2026-11-07, on a copy of `build/muxFinder.zip`, 0.2.0's
+      stapled Developer ID release, unpacked with `ditto` in a private folder, through
+      Security.framework with the flags above; `codesign --verify --strict --deep -R`
+      agreed): the `notarized` clause, alone and joined to the rest of the requirement,
+      **passed the stapled bundle** (status 0) and **failed an ad hoc re-signed copy**
+      (`errSecCSReqFailed`, −67050), as every other clause did for that copy. So `notarized`
+      joins the requirement and `spctl` is not used. Also seen: with the stapled ticket
+      removed (`Contents/CodeResources` deleted) the clause still passed with network access
+      disabled, because the system had recorded that ticket for the bundle's code directory
+      hash when it read the stapled copy. The clause is satisfied by a ticket Apple issued
+      for exactly that code, stapled or already known to this Mac; `scripts/release.sh`
+      staples it, so the check needs no network.
+    - **The versions** (`UpdateBundleVersions`), read only after the code check and through
+      the shape walk's open `muxFinder.app` folder (never a path resolved again):
+      `Contents/Info.plist` opened without following a link (`Contents` a real folder), a
+      regular file of at most 256 KiB holding a dictionary (`infoUnreadable`);
+      `CFBundleIdentifier` exactly `cc.carpio.muxfinder` (`identifierMismatch`);
+      `CFBundleShortVersionString` an `UpdateVersion` (`shortVersionUnparseable`) equal to the
+      release's (`shortVersionNotTag`); `CFBundleVersion` 1 to 9 ASCII digits with no sign,
+      space or leading zero, at least 1 (`buildUnparseable`), strictly greater than the
+      running build (`buildNotNewer`), which is parsed the same way with `0` allowed
+      (`runningBuildUnknown` otherwise).
+    - **The result** (`UpdateVerifier`, `UpdateVerificationReport`): seven steps in order,
+      `download`, `digest`, `extraction`, `shape`, `signature`, `notarization`, `versions`,
+      each `passed`, `failed` or `notRun`, and the outcome: verified (the bundle's path,
+      `extracted/muxFinder.app` inside the staging folder, its version, build and identity)
+      or failed (the step, a machine-readable code and a reason). The first failure stops the
+      steps after it and deletes everything the run created; on success only the zip is
+      deleted. **The result is bound to the checked bundle** (review fix): the folder at the
+      bundle's path must have the recorded identity, by `lstat` and a real folder, right
+      before and right after the code check (which takes the path) and after the versions are
+      read; otherwise `bundleChanged` ("the download changed while it was being checked") at
+      the signature step (before or after the code check) or the versions step, and the usual
+      cleanup. What this cannot see, the contents of that same folder changed after the check
+      by another process of the same user inside the private 0700 staging folder, is closed by
+      I-13b2: **requirement for I-13b2: right before the swap, compare the folder at the
+      bundle's path with `UpdateVerifiedBundle.identity` again and run the code check
+      (`UpdateCodeChecking`, same team, notarized) on it again, then swap only that folder,
+      refusing the update on any difference.**
+      A cancelled task stops at the next step (the download and `ditto` at once). Reasons are
+      lowercase phrases for "Couldn't update: …" with no path, host or Team ID ("the download
+      doesn't match the release's checksum", "the app is signed by another developer", "the
+      app isn't notarized by Apple").
+    - **Probe** (`UpdateVerifyProbe`): `muxfinder-probe update verify --into <dir> --team-id
+      <id> (--zip <file> --sha256 <hex> --expect-version <x.y.z> | --latest)
+      [--running-build <n>]`. `--into` follows `--state`'s rules, must be under `/private/tmp`
+      or `/private/var/folders` and empty; `--zip` absolute, an existing regular file, not a
+      link; `--sha256` 64 hex characters or `sha256:<hex>`; `--running-build` defaults to 0.
+      Unusable arguments or folders are usage errors (64) before anything is written or sent.
+      The latest mode sends `update check`'s request (running version 0.0.0), then downloads
+      the offered asset: a failed check is `failedStep` `check`, a release without an
+      installable asset `download` `noInstallableAsset`. JSON: the mode, the expected
+      version, the running build, the check (latest), every step's verdict with code and
+      reason, the verdict, the bundle's path inside `--into` with its version and build, the
+      zip's size, the shape walk's counts and `cleanedUp`; never the Team ID or a path in the
+      home folder. Exit 0 verified, 1 a check failed. It never installs, swaps, launches or
+      opens anything; `--help` contacts nothing.
+    - **Runs:** the tests reach `URLSession` only through `UpdateStubProtocol` (download URLs
+      routed by their tag), build zips with `ditto -c -k` in private folders and sign stubs
+      only ad hoc. The real zip-mode runs (2026-11-07, copies of `build/muxFinder.zip` in
+      `mktemp -d /private/tmp/mfx.XXXXXX` folders, the digest from `shasum -a 256`, the Team
+      ID from the copy's unpacked bundle by `codesign -dv`, all folders removed afterwards):
+      the copy passed every check (exit 0); a copy with one byte changed failed the digest
+      (exit 1, nothing left); another well-formed Team ID failed `otherTeam` (exit 1, nothing
+      left). After the review fixes (the archive check, the watchdog and the identity binding)
+      a fresh copy passed every check again (exit 0). The latest mode was never run: its real
+      run is the user's (`docs/MANUAL-CHECKLIST.md` item 30).
+  - **Not yet:** nothing in the app creates the scheduler or the verifier (I-13c wires them
+    in normal mode only: no diagnostic mode contacts the network or writes the state file);
+    the running app's eligibility, the staging root on the installed bundle's volume, the
+    swap, the relauncher and leftover cleanup are I-13b2's.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -8446,6 +8629,107 @@ The orchestrator's calls for I-13a, made before its worker:
   probe line (real runs the user's) and a safety-rules line mirroring rule 3's network
   sentence; `docs/TESTING.md` a Phase I-13a section; `docs/MANUAL-CHECKLIST.md` an item for
   the real `update check` run. README and ARCHITECTURE wait for I-13c.
+
+**I-13b split (at its selection, 2026-11-07).** The install pipeline is two coherent halves,
+each a worker's phase: **I-13b1 — download and verification (high)**: from a release offer
+to a verified bundle in a private staging folder (download, digest, extraction, shape,
+signature, Team ID, notarization, versions) and probe `update verify`, with the real local
+runs on a copy of `build/muxFinder.zip`; **I-13b2 — eligibility and install (high)**: the
+running app's eligibility, the staging root on the installed bundle's volume, the swap with
+D27's binding and rollback, the relauncher, leftover cleanup, what old helpers read from
+their bundle and D14 compatibility, and the pipeline type tying b1's steps together for
+I-13c. Neither has UI.
+
+The orchestrator's calls for I-13b1, made before its worker:
+
+- **Where.** `Sources/MuxFinderCore/Update/` (new files of the worker's naming); probe
+  `Sources/muxfinder-probe/UpdateCommand.swift` extended; tests
+  `Tests/MuxFinderCoreTests/Update*Tests.swift`. Apple frameworks only (Foundation,
+  Security, CryptoKit or CommonCrypto); no dependency.
+- **The staging folder is given.** b1's steps work inside a folder the caller hands them
+  (b2 chooses it on the bundle's volume): an existing private folder of the user's (no
+  permission for group or others, no ACL, no symbolic link on its absolute path), refused
+  otherwise before anything is written. Every file b1 writes is created there exclusively
+  (`O_EXCL`, 0600 files, 0700 folders) and never written through a link.
+- **The download.** A protocol (`UpdateDownloadTransport` or similar) with a `URLSession`
+  implementation like `URLSessionUpdateTransport`'s: one ephemeral session per download (no
+  cookie, cache or credential storage, TLS 1.2 at least, invalidated afterwards), the same
+  `User-Agent` and constant `Accept-Language: en`, `Accept: application/octet-stream`, no
+  token. It fetches only the offer's asset URL (exactly
+  `https://github.com/ccarpiog/muxFinder/releases/download/<tag>/muxFinder.zip`, as the
+  parser accepted it), follows a redirect only to `https` on an allowlist of GitHub's
+  download hosts (`github.com`, `objects.githubusercontent.com`,
+  `release-assets.githubusercontent.com`; any other refuses with a typed reason naming the
+  host's absence from the list, never its name in a log), streams to a file in the staging
+  folder, reports progress (bytes so far of the asset's declared size), stops past the
+  declared size (a `Content-Length` other than the declared size stops it before reading),
+  requires exactly the declared size at the end, and computes SHA-256 while streaming; a
+  digest other than the offer's deletes the file and fails (`digestMismatch`). Cancel is
+  task cancellation: the request is cancelled, the partial file deleted, the result
+  `cancelled`. Timeouts: a 30 s request timeout (stall) and a resource timeout fit for
+  50 MiB on a slow line (the worker's number, recorded). Covered only with a `URLProtocol`
+  stub that is the sole protocol class on its sessions (as `UpdateStubProtocol`), never a
+  real request.
+- **Extraction.** `/usr/bin/ditto -x -k <zip> <folder>` as an argv array through the
+  project's process runner, into a fresh empty folder inside the staging folder, with a time
+  bound. Then the shape: exactly one top-level entry, named `muxFinder.app`, a real
+  directory (`lstat`), and a walk of the whole tree (bounded in entries and total bytes, the
+  worker's numbers, generous for a 20 MB bundle): no entry other than a regular file, a
+  directory or a symbolic link, and no symbolic link whose target is absolute or resolves
+  outside that `muxFinder.app` (lexically, `..` counted). The `._` entries in our zips
+  become extended attributes under `ditto`, so the real 0.2.0 zip must pass.
+- **The code check.** `SecStaticCodeCreateWithPath` and `SecStaticCodeCheckValidityWithErrors`
+  with strict validation, all architectures and nested code (plus the symlink and
+  app-like restrictions the SDK offers, if they pass the real 0.2.0 bundle), against one
+  requirement compiled with `SecRequirementCreateWithString`: identifier
+  `cc.carpio.muxfinder`, `anchor apple generic`, the Developer ID intermediate marker
+  (`certificate 1[field.1.2.840.113635.100.6.2.6] exists`), the Developer ID Application
+  leaf marker (`certificate leaf[field.1.2.840.113635.100.6.1.13] exists`) and
+  `certificate leaf[subject.OU] = "<team id>"`, the Team ID a parameter (b2 passes the
+  running app's; the probe takes `--team-id`), validated as 10 uppercase ASCII letters or
+  digits before it enters the requirement string (the one runtime value in it). Never the
+  revocation-check flag. Each failure maps to a typed reason (signature invalid, not ours,
+  not Developer ID, other team, not notarized), from separate requirement checks if that is
+  what tells them apart.
+- **Notarization.** The worker proves on the real 0.2.0 bundle whether the requirement
+  language's `notarized` clause passes for a stapled bundle and fails for an ad hoc copy;
+  if it does, it joins the requirement; otherwise `/usr/sbin/spctl --assess --type execute
+  <path>` as argv (exit status only) is the check. Proof and result recorded in D39 and the
+  archive. *Unattended-run rules* 3: the operating system's assessment of a local file is
+  allowed, even where the OS consults Apple on its own; nothing of ours sends a request.
+- **Versions.** Read only after the code check (Info.plist is sealed): `CFBundleIdentifier`
+  exactly `cc.carpio.muxfinder`, `CFBundleShortVersionString` parsed by `UpdateVersion`
+  and equal to the offer's tag, `CFBundleVersion` a plain positive integer (1 to 9 digits)
+  strictly greater than the running build (a parameter; an unparseable running build
+  refuses). Typed reasons for each.
+- **The result.** One typed value per step (digest, extraction, shape, signature and
+  requirement, notarization, versions) and an overall verdict with the verified bundle's
+  path; any failure stops the steps after it and deletes what b1 wrote in the staging
+  folder except, on success, the verified bundle. Reasons are short and user-presentable
+  (I-13c shows them after "Couldn't update:"), with no path, host or Team ID in them.
+- **Probe.** `muxfinder-probe update verify --into <dir> --team-id <id> (--zip <file>
+  --sha256 <hex> --expect-version <x.y.z> | --latest) [--running-build <n>]`: `--into` an
+  existing empty private folder (rules as `--state`'s, absolute, under `/private/tmp` or
+  `/private/var/folders`); the zip mode copies the file in (never reads past 50 MiB) and runs
+  every step but the network; the latest mode runs `update check`'s request, then the
+  download, then the rest. Prints JSON with each step's verdict (never a path inside the
+  user's home, never the Team ID) and the overall; exit 0 all passed, 1 a check failed, 64
+  usage. It never installs, swaps, launches or opens anything. `--help` contacts nothing. Its
+  arguments and output are tested over injected transports and synthetic zips.
+- **What may run for real in I-13b1.** Only the zip mode, a few runs: on a copy of
+  `build/muxFinder.zip` (0.2.0's stapled release zip) in `mktemp -d /private/tmp/mfx.XXXXXX`
+  folders, the digest from `shasum -a 256` of that copy, the Team ID read from that copy's
+  extracted bundle (`codesign -dv`); it must pass every check. Then a copy with one byte
+  changed must fail the digest, and a run with another well-formed Team ID must fail the
+  team check. The latest mode is never run (the run rule).
+- **Signing in tests and runs.** Only ad hoc (`codesign -s - --force`, no `--timestamp`), on
+  stubs built in temporary folders; never a keychain identity (a key-access prompt nobody can
+  answer), never `notarytool`, `stapler`, `--timestamp` or anything else that contacts Apple
+  on our behalf. The private folders are removed afterwards.
+- **Docs in this phase.** D39 extended ("The download and verification (I-13b1)");
+  `CLAUDE.md`'s update probe line covers `update verify` (zip mode real, latest mode the
+  user's); `docs/TESTING.md` a Phase I-13b1 section with the real zip-mode results (verdicts
+  only); `docs/MANUAL-CHECKLIST.md` item 30 gains the real `update verify --latest` run.
 
 ## Deferred (explicitly out of scope for v1)
 

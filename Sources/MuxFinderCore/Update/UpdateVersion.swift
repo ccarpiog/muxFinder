@@ -83,6 +83,13 @@ public enum UpdateSource {
   public static let webHost = "github.com"
   /// The installable asset's exact name.
   public static let assetName = "muxFinder.zip"
+  /// The hosts a download may be redirected to (PLAN.md D39, I-13b1): GitHub's own and its
+  /// release download hosts, only over `https`.
+  public static let downloadHosts: Set<String> = [
+    "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com",
+  ]
+  /// The bundle identifier every installable `muxFinder.app` must have.
+  public static let bundleIdentifier = "cc.carpio.muxfinder"
 
   /// `GET /repos/ccarpiog/muxFinder/releases/latest` on GitHub's API (drafts and prereleases
   /// are left out by GitHub itself).

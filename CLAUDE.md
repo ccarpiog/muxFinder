@@ -235,22 +235,37 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   session with its `startDirectory`, so the same counts-only rule as `discover`). Without
   `--attachments` it never contacts iTerm2; `--attachments` asks every tmux connection, so
   the same caution as `iterm2 attachments`.
-- Update check (PLAN.md D39; it contacts `api.github.com`, so its real run is the user's,
-  never an unattended run's: *Unattended-run rules* 3, `docs/MANUAL-CHECKLIST.md` item 30;
-  `--help` contacts nothing): `swift run muxfinder-probe update check [--running-version
-  <x.y.z>] [--state <dir>]` sends one anonymous `GET
-  /repos/ccarpiog/muxFinder/releases/latest` (unless a rate limit kept in the state holds it)
-  and prints JSON: the outcome, the latest tag, newer than the running version (default
-  `0.0.0`), the release page, the asset's and digest's presence and the size; exit 0
-  answered, 1 failed or rate limited, 64 usage. Without `--state` it reads and writes
-  nothing; `--state` reads and writes `update-state.json` only in that folder (an existing
-  private folder of yours: no permission for group or others, no ACL, no symbolic link on its
-  path, such as one from `mktemp -d /private/tmp/mfx.XXXXXX`; any other is a usage error, exit
-  64 before anything is sent, and its permissions are never changed). Its arguments and
-  output are tested over an injected transport (`UpdateProbeTests`); test the state only
-  through `UpdateStateStore` (or
-  `InMemoryUpdateStateStore`) on a private folder, never on the real
-  `~/Library/Application Support/muxFinder/update-state.json`.
+- Update probe (PLAN.md D39; `--help` contacts nothing; both install, swap, launch and open
+  nothing). `swift run muxfinder-probe update check [--running-version <x.y.z>]
+  [--state <dir>]` contacts `api.github.com`, so its real run is the user's, never an
+  unattended run's (*Unattended-run rules* 3, `docs/MANUAL-CHECKLIST.md` item 30): it sends
+  one anonymous `GET /repos/ccarpiog/muxFinder/releases/latest` (unless a rate limit kept in
+  the state holds it) and prints JSON: the outcome, the latest tag, newer than the running
+  version (default `0.0.0`), the release page, the asset's and digest's presence and the
+  size; exit 0 answered, 1 failed or rate limited, 64 usage. Without `--state` it reads and
+  writes nothing; `--state` reads and writes `update-state.json` only in that folder (an
+  existing private folder of yours: no permission for group or others, no ACL, no symbolic
+  link on its path, such as one from `mktemp -d /private/tmp/mfx.XXXXXX`; any other is a
+  usage error, exit 64 before anything is sent, and its permissions are never changed).
+  `swift run muxfinder-probe update verify --into <dir> --team-id <id> (--zip <file> --sha256
+  <hex> --expect-version <x.y.z> | --latest) [--running-build <n>]` (D39 *The download and
+  verification (I-13b1)*) runs the update's steps (size and SHA-256, `ditto -x -k`, one
+  `muxFinder.app` with no link out, the Developer ID signature of that team with
+  notarization through Security.framework, then the versions) and prints each step's verdict
+  as JSON, never the Team ID; exit 0 verified, 1 a check failed, 64 usage. `--into` is an
+  existing empty private folder under `/private/tmp` or `/private/var/folders` (`--state`'s
+  rules); the verified app is left at `<dir>/extracted/muxFinder.app` and everything else
+  written there is deleted (on a failure, everything). Its zip mode contacts no server and
+  may run for real, a few runs per phase, only on a copy of `build/muxFinder.zip` in a
+  `mktemp -d /private/tmp/mfx.XXXXXX` folder (the digest from `shasum -a 256` of the copy,
+  the Team ID from the copy's unpacked bundle by `codesign -dv`, never written into docs or
+  logs), the folders removed afterwards; its latest mode sends `update check`'s request and
+  downloads from GitHub, so its real run is the user's (item 30). Both are tested over
+  injected transports (`UpdateProbeTests`, `UpdateVerifyProbeTests`, synthetic zips built
+  with `ditto -c -k`); sign test stubs only ad hoc (`codesign -s - --force`, no
+  `--timestamp`, never a keychain identity, `notarytool` or `stapler`); test the state only
+  through `UpdateStateStore` (or `InMemoryUpdateStateStore`) on a private folder, never on
+  the real `~/Library/Application Support/muxFinder/update-state.json`.
 - iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe
   iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`, `attachments`
   (sends every tmux connection the read-only identity `display-message`; in unattended runs
@@ -500,10 +515,10 @@ instance and these tmux servers.
   or paths.
 - No request to GitHub's API or download hosts, or to any other server, in a test or a run
   (*Unattended-run rules* 3): the update check's and download's real runs are the user's, and
-  `swift test` reaches `URLSessionUpdateTransport` only through a `URLProtocol` stub that is
-  the only protocol class on its sessions. The operating system's own signature and
-  notarization assessment of a local file (`codesign --verify`, `spctl`) is not such a
-  request.
+  `swift test` reaches `URLSessionUpdateTransport` and `URLSessionUpdateDownloadTransport`
+  only through a `URLProtocol` stub that is the only protocol class on their sessions. The
+  operating system's own signature and notarization assessment of a local file (`codesign
+  --verify`, `spctl`, Security.framework's `SecStaticCode` checks) is not such a request.
 - Never write iTerm2 preferences, other iTerm2 profiles, `~/.ssh/*` or shell startup files. The
   app owns only `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json` and
   `~/Library/Application Support/muxFinder/`.

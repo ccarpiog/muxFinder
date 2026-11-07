@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T02:25:58Z",
+  "updated": "2026-11-07T03:45:09Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -923,12 +923,36 @@
     {
       "id": "I-13b",
       "title": "Update check: the install pipeline",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
       "parent": "I-13",
-      "summary": "Downloads, verifies the digest, signature and notarization, swaps the bundle with rollback and relaunches; no UI.",
+      "summary": "Downloads, verifies and installs a release with rollback and relaunch; split into I-13b1 (download and verification) and I-13b2 (eligibility and install).",
       "added": "2026-11-07T01:39:59Z",
-      "status_since": "2026-11-07T01:39:59Z"
+      "started": "2026-11-07T02:29:41Z",
+      "status_since": "2026-11-07T02:29:41Z"
+    },
+    {
+      "id": "I-13b1",
+      "title": "Install pipeline: download and verification",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-13b",
+      "summary": "Downloads the release zip, checks its SHA-256, unzips it safely and verifies signature, team, notarization and versions; probe update verify.",
+      "review": "docs/reviews/phase-I-13b1.md",
+      "narrative": "docs/progress-archive/i-13b1.md",
+      "added": "2026-11-07T02:29:41Z",
+      "started": "2026-11-07T02:29:41Z",
+      "status_since": "2026-11-07T03:45:09Z"
+    },
+    {
+      "id": "I-13b2",
+      "title": "Install pipeline: eligibility and install",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-13b",
+      "summary": "Checks the running copy can update, swaps the bundle in place with rollback, relaunches and cleans up leftovers safely.",
+      "added": "2026-11-07T02:29:41Z",
+      "status_since": "2026-11-07T02:29:41Z"
     },
     {
       "id": "I-13c",
