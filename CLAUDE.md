@@ -1,11 +1,14 @@
 # muxFinder — agent instructions
 
 A native macOS menu bar app (SwiftUI + AppKit) that discovers tmux sessions on the user's Macs and
-attaches them in iTerm2 through native tmux control mode (`tmux -CC`). Product brief:
-`docs/REQUIREMENTS.md`. Phased plan, architecture, decisions and verified environment facts:
-`PLAN.md`. Progress checkpoint (written by autoclaude runs): `PROGRESS.md`. User docs:
-`README.md`; overview: `docs/ARCHITECTURE.md`; tested vs expected-to-work matrix and real-check
-results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
+attaches them in iTerm2 through native tmux control mode (`tmux -CC`), or in Terminal, Ghostty or
+a terminal added by a JSON definition with plain tmux (PLAN.md D38). Product brief:
+`docs/REQUIREMENTS.md` (with its addendum on other terminal apps). Phased plan, architecture,
+decisions and verified environment facts: `PLAN.md`. Progress checkpoint (written by autoclaude
+runs): `PROGRESS.md`. User docs: `README.md`; other terminal apps, plain mode and adding a
+terminal: `docs/TERMINALS.md`; overview: `docs/ARCHITECTURE.md`; tested vs expected-to-work
+matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
+`docs/MANUAL-CHECKLIST.md`.
 
 ## Language and text
 
@@ -298,9 +301,9 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   (`terminal` a definition id; `attach` and `attach-plain` refuse each other's with 72), runs
   the bound plain attach (no `-CC`, `-d` for a move here; remotely `PlainLaunch.remoteScript`
   with the token) with its terminal opened read-write as the child's standard input, writes
-  `<uuid>.report.json` (its terminal, its attach child's pid and start time) right after the
-  spawn, writes no `Disinter` or status report request, and holds the 10 s minimum only with
-  the request's `keepsMinimumLifetime`; `muxfinder-launch ssh-setup <uuid>`
+  `<uuid>.report.json` (its pid, its terminal, its attach child's pid and start time) right
+  after the spawn, writes no `Disinter` or status report request, and holds the 10 s minimum
+  only with the request's `keepsMinimumLifetime`; `muxfinder-launch ssh-setup <uuid>`
   ("Set up SSH in iTerm2…", PLAN.md D24, run in iTerm2's tab or, with another terminal chosen,
   in that terminal's window, D38) takes only an ssh setup request (`"kind":"sshSetup"`;
   each mode refuses the other kind with 72) and runs plain interactive
@@ -324,9 +327,11 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   `MUXFINDER_LAUNCH_TEST_MODE=1` (or a `test-mode` file in the launch directory) writes an
   argv digest (in `attach`, `attach-plain` and `profile-plain` mode also the attach child's
   pid, in `attach` each launch tab restore) and honors a request's `testLaunchDelaySeconds`
-  and `testSuppressDisinter` (ignored outside test mode, and by `attach-plain`);
+  (also in `attach-plain`) and `testSuppressDisinter` (`attach` only: `attach-plain` writes no
+  `Disinter`); both are ignored outside test mode.
   `MUXFINDER_LAUNCH_NO_WAIT=1` skips the wait for Return and the 10 s minimum
-  lifetime (on a terminal the helper never exits younger). Exit codes and the digest format:
+  lifetime (on a terminal the helper never exits younger, except `attach-plain` without
+  `keepsMinimumLifetime`). Exit codes and the digest format:
   PLAN.md D14, D26, D38, `docs/TESTING.md`.
 - iTerm2 golden fixtures (dev only; output committed, tests never run Python):
   `"$HOME/Library/Application Support/iTerm2/iterm2env-3.14/versions/3.14.0/bin/python3" -I
@@ -343,10 +348,12 @@ results: `docs/TESTING.md`; checks owed to the user: `docs/MANUAL-CHECKLIST.md`.
   out; one-off `attach --local | --ssh <dest> --session '<$id>'`
   (focuses instead when the session is attached already; asks every tmux connection first,
   so the same caution as `iterm2 attachments`; with `--terminal <id>` other than `iterm2`,
-  plus `--builtin-directory`/`--user-directory` as for `terminals list`, it attaches in that
-  terminal app through the plain backend and prints the client record, but only while the app
-  runs and, for an AppleScript definition, its permission reads `granted` (checked before
-  discovery and again right before the request write and every Apple event or spawn): else
+  plus `--builtin-directory`/`--user-directory` as for `terminals list` (`--profile` is
+  iTerm2's only), it contacts no iTerm2, attaches in that terminal app through the plain
+  backend and prints the client record (a session already open in a terminal app on this Mac
+  is brought forward instead, `appFocused`), but only while the app runs and, for an
+  AppleScript definition, its permission reads `granted` (checked before discovery and again
+  right before the request write and every Apple event or spawn): else
   exit 2 with the reason, nothing sent or launched and any request withdrawn, so its real run
   is a plain run under *Unattended-run rules* 8; `--help` contacts nothing), `new-session
   --local | --ssh <dest> --name

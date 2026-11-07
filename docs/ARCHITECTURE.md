@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D36); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D38); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -14,20 +14,22 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | `MuxFinderCore` (library) | All logic, no SwiftUI, fully unit-testable. |
 | ├ `Process/` | `ProcessRunner` over `posix_spawn` (argv only, own process group, hard timeouts, bounded output); `StreamingProcess`, a long-lived child with its standard input kept open and its output handed over as it arrives (D36). |
 | ├ `Shell/` | POSIX single-quoting for the one remote command string, input validation. |
-| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), the session switcher shortcut and the folder search scope (`GlobalShortcut`, `PreferencesStore` on `preferences.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
-| ├ `Tmux/` | tmux locator, the static discovery script and its parser, session identity, error classification, session creation commands. |
+| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), the session switcher shortcut, the folder search scope and the terminal choice (`GlobalShortcut`, `PreferencesStore` on `preferences.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
+| ├ `Tmux/` | tmux locator, the static discovery script and its parser (each client's terminal and creation time in a framed `tty` record, D38), session identity, error classification, session creation commands. |
 | ├ `FolderSearch/` | Folder search over Spotlight (D36): the static script, `FolderSearchText` (escaping and limits), `FolderSearchOutputParser`, the local and SSH transport and its fake, and the `FolderSearchChannel` actor. |
 | ├ `Refresh/` | `RefreshCoordinator` actor (concurrency limit, cadence, backoff, stale results dropped), `HostSnapshot`, sleep/wake and network events. |
 | ├ `ITerm2/` | The hand-written iTerm2 API client: WebSocket over iTerm2's Unix socket, a minimal protobuf codec, typed requests, the `ITerm2Integration` protocol and its fake. |
-| ├ `Launch/` | The launch protocol shared with the helper: request and result files, the guard script, remote launch strings, `LaunchHelper` itself (with its launch tab restore, `TerminalStatusRequest`), profile mode. |
-| ├ `Attach/` | `AttachCoordinator` (revalidate, launch, confirm, focus, detach, move here, create and attach; the launch tab's bury and recovery in `AttachCoordinatorBurial`), `AttachmentIndex`, `LaunchTab`, `SSHSetupLauncher`. |
+| ├ `Launch/` | The launch protocol shared with the helper: request, result and early report files, the guard script, remote launch strings, `LaunchHelper` itself (with its launch tab restore, `TerminalStatusRequest`), profile mode, and the plain modes with their bound tmux commands (`LaunchHelperPlain`, `PlainLaunch`, `PlainBoundCommands`, D38). |
+| ├ `Attach/` | `AttachCoordinator` (revalidate, launch, confirm, focus, detach, move here, create and attach; the launch tab's bury and recovery in `AttachCoordinatorBurial`), `AttachmentIndex`, `LaunchTab`, `SSHSetupLauncher`, the steps both backends share (`AttachSharedSteps`). |
+| ├ `Terminals/` | The terminal backends (D38, below): the seam `TerminalBackend`, `ITerm2TerminalBackend`, `PlainTerminalBackend` and its tmux commands, the window layer `PlainTerminalWindows` with its AppleScript runner and spawner, terminal definitions and their loader, the terminal choice, the Automation permission read, local client attribution over the process table. |
+| ├ `E2EPlain/` | The `e2e-plain` real run's arguments, gate, steps and cleanup (`E2EPlainRun`), behind seams so they are tested hermetically. |
 | ├ `Profiles/` | Persistent profile generator, installer and remover, the hash snapshot of iTerm2's other profiles, the `e2e-profile` run. |
 | ├ `Diagnostics/` | Operation log (ring buffer plus `os.Logger`); outcomes and timings, never terminal content. |
 | └ `Concurrency/` | Small helpers for awaited, cancellable tasks. |
-| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the New session window (`NewSessionWindow`, `NewSessionWindowController`, the folder drop's `FolderDrop` and `FolderDropView`), the Settings and onboarding windows, the attach state machine, preview fixtures, the self-test driver. |
+| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the New session window (`NewSessionWindow`, `NewSessionWindowController`, the folder drop's `FolderDrop` and `FolderDropView`), the Settings and onboarding windows, the terminal picker (`TerminalPickerModel`), the one source of per-terminal strings (`TerminalWording`), the persistent work commands (`PersistentWorkContent`), the attach state machine, preview fixtures, the self-test driver. |
 | `MuxFinderApp` (executable) | Entry point, the menu bar app's shell (a plain `NSApplication` with muxFinder's own main menu, `MainMenu`; no SwiftUI `App` or scene, D33) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
-| `muxfinder-launch` (executable) | The helper iTerm2 runs in a launch tab: `attach <id>`, `ssh-setup <id>`, `profile <host id>`. Bundled next to the app. |
-| `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, folder search, iTerm2 queries, single attaches and detaches, the `e2e-*` real runs, host list and profile checks. Not bundled. |
+| `muxfinder-launch` (executable) | The helper a terminal runs: in an iTerm2 launch tab `attach <id>`, in another terminal's window `attach-plain <id>`, in either `ssh-setup <id>`, and for persistent work `profile <host id>` (iTerm2) or `profile-plain <host id>`. Bundled next to the app. |
+| `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, folder search, iTerm2 queries, the terminal apps, definitions and local clients, single attaches (in any terminal) and detaches, the plain attach proof, the `e2e-*` real runs, host list and profile checks. Not bundled. |
 
 Tests: `Tests/MuxFinderCoreTests` and `Tests/MuxFinderUITests` (Swift Testing), hermetic: fakes
 for processes, clocks and iTerm2, no ssh, tmux only on private sockets (PLAN.md D11).
@@ -48,9 +50,12 @@ for processes, clocks and iTerm2, no ssh, tmux only on private sockets (PLAN.md 
    and session id (D4), each with its start folder when it is plain text (one holding a control
    character or invalid UTF-8 is dropped and counted); failures are classified (unreachable,
    sign-in needed, host key, tmux not found, no server).
-4. While the popover or the session switcher is visible, `AttachmentIndex` (D16) asks iTerm2
-   which tmux connections exist and which server and session each one shows, so a row can say
-   "open in iTerm2 on this Mac" from evidence rather than from a client count.
+4. While the popover or the session switcher is visible, and only while iTerm2 is the chosen
+   terminal, `AttachmentIndex` (D16) asks iTerm2 which tmux connections exist and which
+   server and session each one shows, so a row can say "open in iTerm2 on this Mac" from
+   evidence rather than from a client count. Whatever the choice, This Mac's clients are traced
+   to the terminal app they run in (`LocalClientAttributor`, D38), so a row can also say "Open
+   in Terminal on this Mac".
 5. `HostSnapshot`s (live or stale) reach `AppModel` through one update stream; `PopoverContent`
    (and the switcher's `SwitcherContent`) is a pure value computed from them, the search text
    and the per-session activity (D22, D32).
@@ -357,6 +362,91 @@ click → AttachCoordinator: rediscover (still the same session?) → already op
   outcome but `cancelled` and `notConfirmed`; quitting cancels it.
 - "Set up SSH in iTerm2…" opens the same kind of tab running plain interactive ssh (D24).
 
+## Terminal backends (D38)
+
+Every session action goes through a terminal backend, so the same app opens sessions in
+iTerm2 with native control mode or in another terminal app with plain tmux. The user-facing
+reference, with the definition format, is `docs/TERMINALS.md`.
+
+- **The seam** (`TerminalBackend`, `Sendable`): the coordinator's session operations with their
+  signatures and result types (`attach`, `moveHere`, `createAndAttach`, `currentSession`,
+  `detach`, `detachOtherClients`, `state`), the backend's `terminal`, and `focus(_:)` over a
+  `TerminalAttachmentHandle`: an iTerm2 launch tab, a plain window, or an app on this Mac.
+  `AppModel` keeps one backend per terminal id, built at the first action that needs it
+  (`AppEnvironment.makeTerminalBackend`), and each backend's records apart, so a change of
+  terminal never routes one terminal's record to another's backend ("Detach (opened in …)"
+  runs on the backend that keeps it).
+- **The choice** (`TerminalChoice.resolve`, pure): `preferences.json`'s `terminal`, or by
+  default iTerm2 when installed, else Terminal; `iterm2`, or a loaded definition whose app is
+  installed at a readable version meeting its minimum; otherwise `unavailable` with the
+  reason, never replaced. Until launch has read the setting the choice is `unresolved`, which
+  contacts iTerm2 no more than a plain choice does. A change while an action runs waits for it.
+- **The iTerm2 backend** (`ITerm2TerminalBackend`) wraps `AttachCoordinator` and forwards every
+  operation unchanged, so iTerm2's path is the one above; its tests run each scenario directly
+  and through the wrapper and compare everything. Only with iTerm2 chosen does the app contact
+  iTerm2: D16's checks (`RefreshCoordinator.setAttachmentChecksEnabled(_:)`), Settings' profile
+  list, "Set up SSH in iTerm2…" and D26's launch rewrite are off otherwise
+  (`TerminalSeamTests.aPlainChoiceNeverContactsITerm2`).
+- **The plain backend** (`PlainTerminalBackend`, an actor per loaded definition, with the
+  coordinator's flights, waiters and budgets): revalidate by discovery; refuse a session name
+  tmux could not bind (`{`, `[`, `]`); bring forward its own live window, or, for an Open on
+  This Mac, the app a client of the session already runs in (`appFocused`); write a plain
+  request (`terminal`, `keepsMinimumLifetime`); open a window through the window layer; confirm only once the
+  helper's early report exists, locally by the client whose `client_tty` is the report's
+  terminal and whose pid and kernel start time are the report's attach child's, over SSH by the
+  launch token at the end of the client's parent shell's arguments
+  (`PlainClientIdentification`, read-only `ps` over discovery's ssh). Detach is the bound
+  `PlainClientDetach` (one `if-shell -F` the server checks and carries out: the client's name,
+  pid and creation time and the session's identity); Move here is a new launch with the bound
+  `attach-session -d`, refused while the backend's own window still holds the session; Detach
+  other clients detaches each other client with a bound detach that also checks the kept
+  client. An earlier launch that may still attach blocks new ones (`earlierLaunchPending`).
+  tmux runs through `PlainTmuxCommands`: a static script by argv locally, discovery's
+  BatchMode ssh with D3's string remotely, 12 s bounds. Attachments live in memory only.
+- **The window layer** (`PlainTerminalWindows`, main actor): the app's facts first
+  (LaunchServices path and version against the minimum, running, the Automation permission
+  read without a prompt; not installed, too old, unknown version or `denied` stop with nothing
+  sent), then the launch command in the definition's form (`TerminalLaunchCommand`: D3's
+  extension for `shellText`, D2's characters for `words`, an argv for `exec`), then for
+  `appleScript` the definition's script compiled once (`NSAppleScriptRunner`) and
+  `muxfinder_open` called with values in one Apple event, or for `exec` a detached
+  `posix_spawn` (own session, `/dev/null`, reaped). Focus by tty, window id or app activation
+  (`NSRunningApplication`, no event); focus and close only of windows its own open recorded
+  for the same loaded definition, never sent to an app that is not running; records forgotten
+  when a window is gone or its app was seen not running. Failures are one enum,
+  `PlainTerminalWindowError`. The backend never closes a window; only `e2e-plain`'s cleanup
+  does. Under the probe's `unattended` policy the layer applies the gate again (the app
+  running, an AppleScript one's permission `granted`) right before every request write, Apple
+  event and spawn.
+- **The helper's plain modes:** `attach-plain <uuid>` takes only a plain request, runs the
+  guard, then the bound attach (`tmux -u if-shell -F … attach-session`, never `-CC`, `-d` for a
+  move here) locally, or `/usr/bin/ssh -t` with `PlainLaunch.remoteScript` and the launch id as
+  token, its child's standard input the window's terminal opened again read-write; it writes
+  the early report (`<uuid>.report.json`: its pid, its terminal, the attach child's pid and
+  start time) right after the spawn; no OSC 1337, no status report, nothing buried; the result,
+  the explanation and the wait for Return as `attach`; the 10 s minimum only with
+  `keepsMinimumLifetime`. `profile-plain <host id>` is `profile` without `-CC`. `ssh-setup`
+  runs unchanged in any terminal (`PlainSSHSetupLauncher` opens its window).
+- **Local client attribution** (`LocalClientAttributor` over `SystemProcessTable`): each of
+  This Mac's clients, from discovery's `client_tty` and `client_created`, is walked up its
+  parents by pid (`sysctl`, `proc_pidpath`, `NSRunningApplication`; at most 64 steps; a reused
+  pid refused by start time) to iTerm2 (its job server) or a definition's app. The refresh
+  engine attaches the result to This Mac's sessions (`localAttachments`); an SSH host's clients
+  are never attributed.
+- **Definitions** (`TerminalDefinition`, schema 1, strict; `TerminalDefinitionLoader`): the
+  built-ins from the bundle's `Contents/Resources/Terminals/`, the user's from
+  `~/Library/Application Support/muxFinder/terminals/` under D19's rules (no link on the path,
+  the user's, 0700, no ACL; files the user's, not writable by others, size-limited), a user id
+  overriding a built-in's. Read once per process (`TerminalCatalogCache`), shared by the
+  choice, the plain backends and the attributor; never written.
+- **The UI** follows the applied choice through one wording source (`TerminalWording`): "Open
+  in Terminal", "Show window", the picker in Settings › General and onboarding
+  (`TerminalPickerModel`, the permission read off the main actor), the Persistent profiles
+  tab's commands (`PersistentWorkContent`), each plain failure's own line
+  (`SessionProblem.plainAttach`). With iTerm2 every string is the earlier one, byte for byte.
+- **The real run** in another terminal is `e2e-plain` (`E2EPlainRun`), behind *Unattended-run
+  rules* 8's gate; it closes only its own windows, by recorded id, once their helper ended.
+
 ## New session directories (D31)
 
 `directories.json`, beside `hosts.json` in muxFinder's folder and kept apart from it, holds one
@@ -469,10 +559,10 @@ use a fake.
 ## Security rules
 
 - No shell or AppleScript source is ever built from runtime values. Local processes get argv
-  arrays. The one place a shell must parse data, the remote ssh command, is
+  arrays. Where a shell must parse data, the remote ssh command is
   `/bin/sh -c '<static script>' muxfinder '<arg1>' '<arg2>' …` with every argument
-  single-quoted (D3). tmux words are escaped for tmux's own parser where needed (D18). The
-  folder search script takes its queries on standard input as data lines it checks and puts
+  single-quoted (D3), and Terminal's command text is D3's extension (below). tmux words are
+  escaped for tmux's own parser where needed (D18). The folder search script takes its queries on standard input as data lines it checks and puts
   into its one fixed predicate as a quoted word, never as shell source (D3, D36).
 - Host names, session names, paths and directories are validated and treated as data;
   discovery output is framed and length-checked, so a session name or start folder cannot
@@ -482,6 +572,20 @@ use a fake.
 - Private files: 0700 folders, 0600 files, extended ACLs stripped, atomic writes, symbolic
   links refused (D8, D14, D19, D31, D32). Logs hold outcomes and timings, never terminal contents
   or directories.
+- Other terminal apps (D38): AppleScript is compiled only from a definition's static script
+  file, as read, and its handlers get values as arguments of one Apple event. Terminal's `do
+  script` text is shell source in the user's own shell, so it is D3's extension: `exec` and
+  POSIX single-quoted words, refusing a helper path with `'`, `\`, `!` or a control character;
+  Ghostty's command words are D2's characters plus `+`; an `exec` definition is spawned with an
+  argv, never through a shell.
+- User terminal definitions can make muxFinder run a program, so they load only from a folder
+  of the user's reached without a symbolic link, mode 0700, no ACL, each file the user's, not
+  writable by others, size-limited; unknown keys and duplicate keys are refused (D19, D38).
+- Another terminal's windows are only ever new ones muxFinder opened: never typed into or read,
+  focused only through the definition that opened them, detached through tmux (never by
+  closing a window), and closed only by `e2e-plain`'s cleanup, by recorded id, once their
+  helper ended. With another terminal chosen, nothing contacts iTerm2 but the user's own
+  "Detach (opened in iTerm2)".
 
 ## Persistent profiles (D26)
 
@@ -491,12 +595,17 @@ use a fake.
 atomically, under an `flock` in muxFinder's own folder, and replaces or removes it only while
 it holds a generated document (`isGenerated`). The helper's `profile` mode reads `hosts.json`
 and runs `tmux -u -CC new-session -A -s <name>` (or the same over ssh); a nesting guard
-(`TMUX` or `MUXFINDER_LAUNCHED` set) and any failure fall back to the login shell.
+(`TMUX` or `MUXFINDER_LAUNCHED` set) and any failure fall back to the login shell. Other
+terminals get no generated file (D38): with one chosen, the Persistent profiles tab shows per
+opted-in host the command `exec '<helper>' 'profile-plain' '<host id>'` (D3's extension) to
+paste into that terminal's own settings, and `profile-plain` is `profile` without `-CC`;
+Install is refused then, Remove stays the user's.
 
 ## Packaging (D7, D27)
 
 `scripts/build-app.sh` builds release arm64, assembles the bundle (both executables in
-`Contents/MacOS/`), and signs it with hardened runtime: the first "Apple Development" identity,
+`Contents/MacOS/`, the built-in terminal definitions in `Contents/Resources/Terminals/`), and
+signs it with hardened runtime: the first "Apple Development" identity,
 or ad hoc; never notarized. `scripts/install.sh` and `scripts/uninstall.sh` copy, replace and
 remove it; they stop only the copy's own `muxFinder` process (SIGTERM, to the process whose
 executable, as the kernel reports it, has that file's inode; never a process that only maps
@@ -533,3 +642,4 @@ All in `PLAN.md` *Decisions*:
 | | | D35 | Version numbers |
 | | | D36 | Folder search over Spotlight |
 | | | D37 | Detach other clients |
+| | | D38 | Other terminal apps (plain mode) |

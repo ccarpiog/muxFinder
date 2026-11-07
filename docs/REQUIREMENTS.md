@@ -305,3 +305,26 @@ Prioritize a dependable first version: host setup, discovery, native iTerm2 atta
 Defer cloud synchronization, terminal previews, AI features, process migration, reboot resurrection, and elaborate workspace management.
 
 Start with the iTerm2 integration proof, then build the smallest polished app that meets these requirements. Continue through implementation and verification rather than stopping after proposing a plan.
+
+## Addendum, 2026-11-06: other terminal apps
+
+Added after the brief, which stays as written above. On 2026-11-06 the user asked: "Right now this app is really iTerm2 centric. Would it be possible to generalize it and make it work with other terminal apps? Terminal.app, Ghostty, etc". Their decisions, quoted verbatim from the specification's *User decisions* (`autoclaude/processed/110-other-terminal-apps.md`; its "requirement 13" is the specification's documentation requirement):
+
+> - **Plain mode is accepted outside iTerm2.**
+>   - No other terminal ships tmux control mode. Ghostty has internal parser work, but nothing
+>     user-facing was found on 2026-11-06.
+>   - So Terminal.app and Ghostty get ordinary `tmux attach`: one window, tmux's status bar,
+>     prefix keys and copy mode.
+>   - iTerm2 keeps native `-CC` exactly as today.
+>   - `docs/REQUIREMENTS.md` says "Every attachment must use iTerm2's native tmux control mode"
+>     and rejects plain tmux. It gets an addendum (requirement 13) instead of an edit of the
+>     verbatim brief.
+> - **For everyone.** Someone without iTerm2 must be able to install muxFinder, get through
+>   onboarding and use it.
+> - **Generalize as much as possible.** Terminal.app and Ghostty come first. Other terminals come
+>   later, with a written note about them.
+> - **Terminal definitions are small JSON files**, not TOML. TOML would need a third-party
+>   parser, and every other muxFinder file is already JSON.
+> - **One "Terminal" setting** in Settings › General, defaulting to iTerm2 when it is installed.
+
+For Terminal and Ghostty, this addendum supersedes the brief's requirement that every attachment use iTerm2's native tmux control mode only (*Requirements that define the product*): they attach with plain tmux in one window. With iTerm2 nothing changes: every attachment there still uses iTerm2's native tmux control mode through `tmux -CC`. Details: `docs/TERMINALS.md`, and `PLAN.md` decision D38.

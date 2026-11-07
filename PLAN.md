@@ -4731,6 +4731,15 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       Open, "Show window", Detach, Move here and "Detach other clients…" in Terminal and
       Ghostty, the real permission and AppleScript-off lines (and Ghostty's number), "Show in
       Terminal" and "Detach (opened in …)" after a change.
+  - **The docs (I-12e)** (2026-11-07; requirement 13; `docs/TESTING.md` *Phase I-12e*).
+    `docs/TERMINALS.md` is the user-facing reference for other terminal apps: plain mode and
+    what it costs, the built-ins and how the choice resolves, the Automation permission,
+    persistent work per terminal, "Adding a terminal" (schema 1 as `TerminalDefinitionParser`
+    takes it, the open, command and focus kinds, the placeholders, the user folder's rules,
+    overrides, the problems list), the safety rules, a worked `exec` example checked to load
+    with `terminals list`, and the later candidates. `docs/REQUIREMENTS.md` gained the dated
+    addendum; README, `docs/ARCHITECTURE.md` (*Terminal backends (D38)*), `docs/TESTING.md`,
+    `docs/MANUAL-CHECKLIST.md` (item 29) and `CLAUDE.md` point to it. No code changed.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -8135,6 +8144,60 @@ Calls for I-12d (the UI; 2026-11-06, at its selection). I-12d is too wide for on
 - **Records:** D38 "The UI (I-12d2)", D25/D32/D37 sentences the change invalidates,
   `docs/TESTING.md` *Phase I-12d2*, `docs/MANUAL-CHECKLIST.md` (real Open, Show window,
   Detach, Move here in Terminal and Ghostty, the errors).
+
+Calls for I-12e (the docs; 2026-11-07, at its selection). One worker, routine, **documents
+only**: no file under `Sources/`, `Tests/`, `Resources/` or `scripts/` changes, and no real
+run of any kind. Every fact comes from D38's sections (I-12a to "The UI (I-12d2)"), D3's
+extension, the code (`Sources/MuxFinderCore/Terminals/`, `Resources/Terminals/`) and the
+probe commands' `--help` (which contacts nothing); never from memory. The repository is
+public: no host name beyond those the docs already name, no user path (only `~/…` forms of
+muxFinder's own folders), nothing of the private download site.
+
+- **`docs/REQUIREMENTS.md`:** the brief above stays byte for byte; one dated addendum at the
+  end ("Addendum, 2026-11-06: other terminal apps") quoting the user's decisions verbatim from
+  the specification's *User decisions* (plain mode outside iTerm2, for everyone, generalize,
+  JSON definitions, one Terminal setting), and saying in a sentence that it supersedes the
+  brief's "iTerm2's native tmux control mode only" for Terminal and Ghostty, iTerm2 unchanged.
+- **`docs/TERMINALS.md`** (new): what plain mode is beside iTerm2's control mode, and what it
+  costs (one window, tmux's status bar, prefix keys and copy mode); the built-ins (Terminal,
+  Ghostty from 1.3) and how the choice resolves; the Automation permission and what reads it;
+  persistent work per terminal (where to paste the command); **"Adding a terminal"**: the
+  schema 1 keys exactly as the parser takes them, the open, command and focus kinds, the
+  whole-argument placeholders, the minimum version, the user folder
+  (`~/Library/Application Support/muxFinder/terminals/`) and its rules, override by id, the
+  problems list; the safety rules (what muxFinder never does to another terminal); a worked
+  `exec` example that **loads** (the worker writes it into a private folder from `mktemp -d
+  /private/tmp/mfx.XXXXXX`, mode 0700, and runs `swift run muxfinder-probe terminals list
+  --builtin-directory Resources/Terminals --user-directory <that folder>`, read-only, with
+  `pgrep -x Terminal` and `pgrep -x ghostty` the same before and after; it must show under
+  `definitions` with source `user` and no entry under `problems`; the folder removed after);
+  **later candidates**: WezTerm (`wezterm start -- …`), Kitty (`kitty @ launch` or
+  `--single-instance`), Alacritty (`alacritty msg create-window`) and Warp, each with what
+  would be needed; and the sentence "Ghostty may ship tmux control mode; revisit native mode
+  for it then."
+- **README:** requirements (iTerm2 or Terminal or Ghostty 1.3+), permissions (Automation for
+  the chosen plain terminal), first run (the Terminal step), usage (the choice and what
+  changes in plain mode), persistent profiles (the plain command), scope and limitations
+  (plain mode's), a pointer to `docs/TERMINALS.md`. Existing iTerm2 text stays true.
+- **`docs/ARCHITECTURE.md`:** a "Terminal backends (D38)" section (the seam, the iTerm2
+  backend wrapping the coordinator, the plain backend, the window layer, the helper's plain
+  modes, local client attribution, definitions and their loader), the modules list, the
+  security rules and the decision index brought up to date.
+- **`docs/TESTING.md`:** the tested vs expected-to-work matrix gains Terminal and Ghostty
+  rows (hermetic, gate refusals real, window runs owed); one *Phase I-12e* note (docs only,
+  the example's load check); nothing earlier rewritten except a sentence it falsifies.
+- **`docs/MANUAL-CHECKLIST.md`:** items 26–28 checked against the specification's
+  acceptance (Automation granted for Terminal and Ghostty; open, detach and Move here in each,
+  locally and for a session on Saturno; pasting the persistent work command into Ghostty's
+  config; onboarding on a Mac without iTerm2, if one is available); anything missing added.
+- **`CLAUDE.md`:** the first paragraph names `docs/TERMINALS.md`; every probe command and flag
+  it documents for I-12 (`terminals list`, `local-clients`, `plain-proof`, `attach
+  --terminal`, `e2e-plain`, the helper's plain modes) checked against `--help` and the code,
+  sentences that are wrong corrected in place; the safety rules and *Unattended-run rules* 1
+  and 8 checked to say the same (a test touches only what it opened), tightened if they
+  differ, nothing relaxed.
+- **`PLAN.md`:** D38 gains a short "The docs (I-12e)" paragraph naming `docs/TERMINALS.md` as
+  the user-facing reference; nothing else of D38 rewritten.
 
 ## Deferred (explicitly out of scope for v1)
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T01:07:56Z",
+  "updated": "2026-11-07T01:36:39Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -708,12 +708,12 @@
     {
       "id": "I-12",
       "title": "Other terminal apps: Terminal.app and Ghostty",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Lets muxFinder open sessions in Terminal.app and Ghostty with plain tmux; split into I-12a to I-12e, I-12a to I-12d done.",
+      "summary": "Lets muxFinder open sessions in Terminal.app and Ghostty with plain tmux; split into I-12a to I-12e, all done.",
       "added": "2026-11-06T10:29:06Z",
       "started": "2026-11-06T13:06:57Z",
-      "status_since": "2026-11-06T13:06:57Z"
+      "status_since": "2026-11-07T01:36:39Z"
     },
     {
       "id": "I-12a",
@@ -887,12 +887,15 @@
     {
       "id": "I-12e",
       "title": "Other terminals: documentation",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "I-12",
-      "summary": "Documents plain mode, adding a terminal, later candidates and the extended safety rules.",
+      "summary": "Documents plain mode, adding a terminal with a worked example, later candidates and the safety rules; docs only.",
+      "review": "docs/reviews/phase-I-12e.md",
+      "narrative": "docs/progress-archive/i-12e.md",
       "added": "2026-11-06T13:06:57Z",
-      "status_since": "2026-11-06T13:06:57Z"
+      "started": "2026-11-07T01:09:57Z",
+      "status_since": "2026-11-07T01:36:39Z"
     },
     {
       "id": "I-13",

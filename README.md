@@ -2,12 +2,15 @@
 
 A small native macOS menu bar app that finds the tmux sessions running on your Macs and opens
 them in iTerm2 through iTerm2's native tmux integration (`tmux -CC`), so you keep iTerm2's own
-windows, tabs, split panes, scrolling, selection and keys.
+windows, tabs, split panes, scrolling, selection and keys. Without iTerm2, or if you prefer,
+it opens them in Terminal or Ghostty instead, with plain tmux in one window per session
+(`docs/TERMINALS.md`).
 
-Click the menu bar icon, see your computers and their tmux sessions, click one: iTerm2 opens
-(or comes forward) with that session attached. The session and its processes stay on the
-computer where they run; muxFinder only finds them and opens them. Every Mac can be a work
-host; there is no central server, no daemon on the remote Macs, no cloud account.
+Click the menu bar icon, see your computers and their tmux sessions, click one: iTerm2 (or the
+terminal you chose) opens or comes forward with that session attached. The session and its
+processes stay on the computer where they run; muxFinder only finds them and opens them. Every
+Mac can be a work host; there is no central server, no daemon on the remote Macs, no cloud
+account.
 
 It also creates new persistent sessions ("New session") and can install iTerm2 "Persistent
 work" profiles that start every new tab inside a tmux session, for when you forget to start
@@ -17,9 +20,16 @@ tmux.
 
 - **macOS 14 or later on Apple Silicon** (the app is built for arm64 only). Developed and
   tested on macOS 27.2.
-- **iTerm2**, tested with **3.7.6** (API protocol 1.21) only. Its Python API must be on:
-  iTerm2 › Settings › General › Magic › "Enable Python API". muxFinder talks to that API
-  directly (it does not need iTerm2's Python runtime or any script).
+- **A terminal app**, chosen in Settings › General › Terminal (`docs/TERMINALS.md`):
+  - **iTerm2** (the default when it is installed), tested with **3.7.6** (API protocol 1.21)
+    and **3.7.7** only. Its Python API must be on: iTerm2 › Settings › General › Magic › "Enable Python
+    API". muxFinder talks to that API directly (it does not need iTerm2's Python runtime or
+    any script).
+  - Or **Terminal** (macOS's own, the default without iTerm2) or **Ghostty 1.3 or later** (with
+    its AppleScript on, as it is by default), which attach with plain tmux. Both were tested
+    only with stand-ins; their real runs are owed (`docs/MANUAL-CHECKLIST.md` items 26–29).
+    Other terminals can be added with a small definition file (`docs/TERMINALS.md`, "Adding a
+    terminal").
 - **tmux on every host**, tested with tmux 3.8 from Homebrew (`/opt/homebrew/bin/tmux`).
   Without a per-host override muxFinder looks for `/opt/homebrew/bin/tmux`,
   `/usr/local/bin/tmux`, `/opt/local/bin/tmux`, `/usr/bin/tmux`, then `command -v tmux`. It
@@ -30,9 +40,10 @@ tmux.
   `~/.ssh/config`, keys and agent, unchanged. Background discovery is noninteractive
   (`BatchMode`), so it needs key authentication (a key your agent holds) and a known host
   key; a host that would ask for a password or a passphrase shows "Sign-in needed". "Set up
-  SSH in iTerm2…" opens a tab for the interactive part, such as accepting a new host key.
-  Host names are whatever ssh resolves: an alias from your ssh config, a DNS name, or a
-  Tailscale MagicDNS name such as `saturno-m4`. The remote login shell must be a POSIX shell
+  SSH in iTerm2…" opens a tab for the interactive part, such as accepting a new host key
+  (with another terminal chosen, "Set up SSH in Terminal…" opens a window of it). Host names
+  are whatever ssh resolves: an alias from your ssh config, a DNS name, or a Tailscale
+  MagicDNS name such as `saturno-m4`. The remote login shell must be a POSIX shell
   (zsh or bash, the macOS default).
 - **To build:** a Swift 6 toolchain (developed with Xcode 27.1, Swift 6.4). No third-party
   packages.
@@ -120,7 +131,17 @@ says which kind it installed.
   settings"). muxFinder contacts iTerm2 only while iTerm2 is running and the popover, the
   session switcher or the Settings window is open, or when you act on a session or choose
   "Set up SSH in iTerm2…";
-  never at launch, and discovery never starts iTerm2.
+  never at launch, and discovery never starts iTerm2. With another terminal chosen it never
+  contacts iTerm2, except "Detach (opened in iTerm2)" for an attachment it opened there before
+  you changed the choice.
+- **Automation (control Terminal or Ghostty)**, only with that terminal chosen: muxFinder
+  opens each session's window through the app's AppleScript, so the first time it does,
+  macOS asks whether "muxFinder" may control "Terminal" (or "Ghostty"); allow it. Settings ›
+  General shows each terminal's permission without asking ("Allowed", "Not allowed", "Not
+  asked yet", "Checked when the app is running") and offers "Allow in System Settings…"; if it
+  is refused, Open says "muxFinder isn't allowed to control Terminal, …" and offers "Open
+  System Settings…" (Privacy & Security › Automation). A terminal added with an `exec`
+  definition needs no permission.
 - **Launch at login** is off until you turn on "Open muxFinder when you log in" in Settings ›
   General. It uses macOS's login item service for the installed app, so turn it on from the
   copy in `/Applications`; macOS may ask you to approve it under System Settings › General ›
@@ -130,24 +151,30 @@ says which kind it installed.
   permission either.
 
 Started from Finder, the app has its own identity, so the Automation prompt appears the first
-time it contacts iTerm2 (started from a terminal inside iTerm2, it inherits iTerm2's
-permission and no prompt appears). See `docs/MANUAL-CHECKLIST.md` for what to expect.
+time it contacts iTerm2, or opens a Terminal or Ghostty window (started from a terminal inside
+iTerm2, it inherits iTerm2's permissions and no prompt appears). See
+`docs/MANUAL-CHECKLIST.md` for what to expect.
 
 ## First run and host setup
 
-With no saved host list, the first launch opens a short onboarding window. It explains that
-the original host must stay powered on and reachable, that a disconnected client does not end
-a tmux session, that a host reboot ends its running processes, and that muxFinder does not
-sync files or move work between computers. It offers Saturno, Neptuno and Sirio as examples
-(SSH, turned off, nothing assumed about their names or users): pick which one is **This Mac**
-(discovered and opened locally, without ssh to localhost), fill in the SSH destinations of the
-others and save.
+With no saved host list, the first launch opens a short onboarding window. Its first step is
+the terminal, the same picker as Settings › General: iTerm2 is preselected when it is
+installed, otherwise Terminal, and you can choose any terminal listed. With iTerm2 its last
+step is iTerm2's Python API; with another terminal it explains what plain tmux means and, for
+Terminal and Ghostty, the Automation permission. It works on a Mac without iTerm2, and opening
+it contacts no iTerm2. It explains that the original host must stay powered on and
+reachable, that a disconnected client does not end a tmux session, that a host reboot ends its
+running processes, and that muxFinder does not sync files or move work between computers. It
+offers Saturno, Neptuno and Sirio as examples (SSH, turned off, nothing assumed about their
+names or users): pick which one is **This Mac** (discovered and opened locally, without ssh to
+localhost), fill in the SSH destinations of the others and save.
 
 Later, Settings › Hosts adds, edits, turns off and removes hosts. Each host has a display
 name, a mode (This Mac or SSH), an SSH destination (any alias or `user@host` ssh accepts), an
-optional tmux path, an optional iTerm2 profile for the tabs muxFinder opens, and the
-persistent profile fields (below). "Test connection" runs one discovery. The host list lives in
-`~/Library/Application Support/muxFinder/hosts.json`; no keys or passwords are stored.
+optional tmux path, an optional iTerm2 profile for the tabs muxFinder opens (used only with
+iTerm2), and the persistent profile fields (below). "Test connection" runs one discovery. The
+host list lives in `~/Library/Application Support/muxFinder/hosts.json`; no keys or passwords
+are stored.
 
 ## Usage
 
@@ -182,6 +209,19 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   session is already open in iTerm2 here, it brings that tab forward instead of opening a
   second one; repeated clicks while a launch is pending start only one. A session that
   disappeared since the last refresh is reported, never recreated.
+- **With Terminal or Ghostty chosen** (Settings › General › Terminal; `docs/TERMINALS.md`),
+  Open ("Open in Terminal") opens a new window of that app running muxFinder's helper, which
+  attaches with plain tmux: the session's windows and panes stay inside that one window, with
+  tmux's status bar, prefix keys and copy mode. The row reads "Waiting for Terminal…", then
+  "Confirmed — open in Terminal on this Mac"; a session already open in muxFinder's window is
+  brought forward ("Already open here — brought its Terminal window forward"), and "Show
+  window" takes the place of "Show tab". Detach from this Mac, Move here… and Detach other
+  clients… work through tmux as with iTerm2; muxFinder never closes the window (after a
+  detach its helper ends, and the terminal's own setting decides whether the window closes).
+  A session with a client in a terminal app on this Mac reads "Open in Terminal on this Mac",
+  with "Show in Terminal", whichever terminal is chosen. A session whose name has `{`, `[` or
+  `]` cannot be opened in Terminal or Ghostty. If the chosen terminal is gone or too old, the
+  popover and Settings say so; muxFinder never picks another one for you.
 - **The launch tab is hidden while attached.** Once the session's first window shows,
   muxFinder hides the tab it opened (it buries it through iTerm2's API), so one open (or New
   session, or Move here) shows only the session's windows. While the session is attached, that
@@ -300,8 +340,10 @@ persistent profile fields (below). "Test connection" runs one discovery. The hos
   app you were in. Opening the switcher closes the popover and the other way round.
 - **Set up SSH in iTerm2…** (on a host that needs a sign-in or has a host key problem) opens an
   iTerm2 tab running plain `ssh <destination>`, where you sign in or accept the host key the
-  normal way. muxFinder never weakens host key checking.
-- **Quit** (in the popover) leaves every tmux session and every iTerm2 tab running.
+  normal way. With another terminal chosen it reads "Set up SSH in Terminal…" (or Ghostty)
+  and opens a new window of that app instead. muxFinder never weakens host key checking.
+- **Quit** (in the popover) leaves every tmux session and every iTerm2 tab (or terminal
+  window) running.
 
 ## Persistent profiles
 
@@ -325,16 +367,36 @@ profile your default: iTerm2 › Settings › Profiles, select it, Other Actions
 - Moving the app is handled: at its next launch muxFinder updates an installed file to the
   new helper path. "Remove profiles" removes the file.
 
+**With Terminal or Ghostty chosen**, muxFinder never writes that terminal's settings.
+Settings › Persistent profiles then shows "Persistent work in Terminal" (or Ghostty): for each
+saved host whose persistent profile is on, the command `exec '<helper path>' 'profile-plain'
+'<host id>'` with a Copy button, and where to paste it: in Terminal, Settings › Profiles ›
+Shell › Run command, with "Run inside shell" kept on; in Ghostty's config file, after
+`command = `, then reload its config. A window that runs it attaches that host's session with
+plain `tmux new-session -A -s <name>`, with the same no-nesting rule and the same fallback to
+your login shell. "Install profiles" is not offered then; "Remove profiles" still is while
+muxFinder's iTerm2 file is installed. The command holds the helper's path, so copy it again
+after moving the app (details in `docs/TERMINALS.md`, "Persistent work").
+
 ## Scope and limitations
 
 - **Default tmux server only:** muxFinder sees each user's default tmux server on each host,
   not servers started with `-L` or `-S` (named sockets are a possible later addition).
 - **Tested hosts:** Neptuno (the development Mac) and Saturno over Tailscale. Sirio was
-  offline during development, so nothing Sirio-specific was tried. iTerm2 3.7.6 is the only
-  iTerm2 tested.
+  offline during development, so nothing Sirio-specific was tried. iTerm2 3.7.6 and 3.7.7 are
+  the only iTerm2 versions tested.
 - **Open in iTerm2 here** is known only for tmux connections in this Mac's iTerm2, matched by
   asking each connection which server and session it shows; a client count cannot say which
   other computer is attached, so muxFinder does not guess.
+- **Plain mode** (Terminal, Ghostty and terminals you add): one window per session, with
+  tmux's status bar, prefix keys and copy mode instead of the terminal's own tabs, panes and
+  scrolling; a session whose name has `{`, `[` or `]` cannot be opened there; a session
+  attached by hand in a plain terminal on another Mac shows only as attached somewhere (only
+  This Mac's clients are traced to their app); muxFinder never closes those windows itself.
+  Terminal and Ghostty were tested only with stand-ins (their scripts were never run for real;
+  `docs/MANUAL-CHECKLIST.md` items 26–29 are owed), and Ghostty's "AppleScript is turned off"
+  line rests on a guessed error number. Details, and how to add a terminal, in
+  `docs/TERMINALS.md`.
 - **Not in this version:** deleting sessions, cloud sync, terminal previews, AI features,
   moving running processes between computers, bringing sessions back after a reboot,
   workspace management, a published download (`scripts/release.sh` makes a notarized zip, but
@@ -342,7 +404,7 @@ profile your default: iTerm2 › Settings › Profiles, select it, Other Actions
 - **Known rough edges** (details in `docs/TESTING.md` and `PROGRESS.md`): a few checks need a
   person and are listed in `docs/MANUAL-CHECKLIST.md` (the real popover by hand, launch at
   login, "Show tab", the first Finder launch, Sirio, persistent profiles from Settings, the
-  hidden launch tab);
+  hidden launch tab, Terminal and Ghostty for real);
   quitting can take up to 15 s while an open is in flight; iTerm2 3.7.6 shows a modal warning
   for tabs that end within 3 s of opening, so muxFinder's tabs never end sooner than 10 s. A
   launch tab can be left under Session › Buried Sessions when its attachment ended abnormally
@@ -363,12 +425,13 @@ scripts/uninstall.sh
 It quits the app (SIGTERM to each installed copy's `muxFinder`, up to 20 s, never forced),
 then removes `DynamicProfiles/muxFinder.json` only when it is muxFinder's generated file (the
 app's own code decides), `~/Library/Application Support/muxFinder` (host list, directories,
-preferences such as the session switcher shortcut, launch folder),
+preferences such as the session switcher shortcut and the terminal choice, your terminal
+definitions, launch folder),
 `muxFinder.app` from `/Applications` and `~/Applications`, and the app's preferences
 (`cc.carpio.muxfinder`, where macOS keeps the menu bar item's state). Helpers still running in
-iTerm2 tabs are left alone and end with their tabs. It does not touch your tmux sessions,
-iTerm2's preferences or other profiles, `~/.ssh` or shell files. Two things are left to you,
-and the script prints them:
+iTerm2 tabs (or other terminals' windows) are left alone and end with them. It does not
+touch your tmux sessions, iTerm2's preferences or other profiles, `~/.ssh` or shell files.
+Two things are left to you, and the script prints them:
 
 - **Launch at login:** turn off "Open muxFinder when you log in" in muxFinder's Settings ›
   General before uninstalling, or remove muxFinder afterwards in System Settings › General ›
@@ -378,12 +441,17 @@ and the script prints them:
 By hand instead: quit muxFinder, use Settings › Persistent profiles › "Remove profiles", then
 delete the app and `~/Library/Application Support/muxFinder`.
 
+A persistent work command you pasted into Terminal's or Ghostty's settings stays there until
+you remove it yourself; once muxFinder is gone it cannot run.
+
 ## More
 
+- `docs/TERMINALS.md`: Terminal, Ghostty and plain mode, the terminal choice and its
+  permission, and adding a terminal.
 - `docs/ARCHITECTURE.md`: how it is built, in one page.
 - `docs/TESTING.md`: unit tests, real checks and the tested vs expected-to-work matrix.
 - `docs/MANUAL-CHECKLIST.md`: the checks owed to a person.
 - `docs/INTEGRATION-PROOF.md`: what the attach path does against the real iTerm2.
-- `PLAN.md`: the plan and every design decision (D1–D36).
+- `PLAN.md`: the plan and every design decision (D1–D38).
 
 License: MIT (`LICENSE`).

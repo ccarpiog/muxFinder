@@ -62,19 +62,19 @@ file.
 | I-12c3b | Other terminals, the plain runs: `e2e-plain --terminal <id> --local \| --ssh saturno-m4` (rule-8 gate first and at every side-effect boundary, 9 steps through `PlainTerminalBackend`, cleanup closing windows only on positive evidence their helper ended), hermetic on a private tmux server, gate refusals real, plain real runs owed (neither app running), iTerm2's four `e2e-*` real as regression (D38 extended) | high | opus (impl and real-run worker, review-fix worker); calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12c3b.md` | `docs/progress-archive/i-12c3b.md` |
 | I-12d1 | Other terminals, Settings, onboarding and SSH setup: the Terminal picker (permission states read without a prompt, off the main actor; unavailable choice kept; problems; "Check again" re-resolves), `TerminalWording`, SSH setup in a plain terminal (`PlainSSHSetupLauncher`), per-host persistent work command with Copy, onboarding without iTerm2, galleries (D38 extended; I-12d split into d1/d2) | routine | opus (impl + review-fix worker); split and calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12d1.md` | `docs/progress-archive/i-12d1.md` |
 | I-12d2 | Other terminals, the popover, the switcher and the session states: every action, state and failure line through `TerminalWording` (iTerm2 unchanged), each plain error mapped exhaustively, "earlier launch pending" naming its holder, local attachments in another app, detach-others "Stopped after detaching N" / "Some may have been detached", "Detach (opened in <terminal>)" through that terminal's cached backend, galleries per terminal (D38 extended) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-12d2.md` | `docs/progress-archive/i-12d2.md` |
+| I-12e | Other terminals, the docs: `docs/TERMINALS.md` ("Adding a terminal" with a worked `exec` example that loads, later candidates, the Ghostty control-mode note), `docs/REQUIREMENTS.md` addendum, README, ARCHITECTURE, TESTING, MANUAL-CHECKLIST (item 29), `CLAUDE.md` corrected against the code; documents only | routine | opus (docs worker); review fix and two README corrections inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12e.md` | `docs/progress-archive/i-12e.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-12e | Other terminal apps, the docs (routine): `docs/REQUIREMENTS.md` addendum 13, `docs/TERMINALS.md`, README, ARCHITECTURE, TESTING, MANUAL-CHECKLIST, `CLAUDE.md` commands and safety rules (`PLAN.md` *Phase I-12*) | `autoclaude/processed/110-other-terminal-apps.md` | next |
-| I-13 | Update check (high, a group): GitHub `releases/latest` check at launch and daily (toggle on by default), popover notice and icon dot, one-click Update (download, SHA-256, `ditto`, Developer ID + notarization check, D27-style swap, relaunch), hand-written, no Sparkle; split a (core) / b (UI) in `PLAN.md` before its first worker | `autoclaude/processed/120-update-check-github.md` | after I-12 (last) |
+| I-13 | Update check (high, a group): GitHub `releases/latest` check at launch and daily (toggle on by default), popover notice and icon dot, one-click Update (download, SHA-256, `ditto`, Developer ID + notarization check, D27-style swap, relaunch), hand-written, no Sparkle; split a (core) / b (UI) in `PLAN.md` before its first worker | `autoclaude/processed/120-update-check-github.md` | next (last) |
 
 **Inbox**: every triage through 2026-11-06 (items 40 to 120, item 99 deferred and then resolved
 by the user) is logged verbatim in `docs/progress-archive/inbox-log.md`. Standing note: at
 I-13's selection settle first whether *Unattended-run rules* 3 ("no other host") lets a run
 make the item's read-only GitHub GETs (`update check`, `update verify`); if not, those real
-runs are owed to the user. 2026-11-06 19:48 (start of I-12c3b's iteration): `list` empty.
+runs are owed to the user. 2026-11-07 01:08 (start of I-12e's iteration): `list` empty.
 
 ## Current phase
 
@@ -90,8 +90,9 @@ I-12c1/I-12c2/I-12c3**, and **I-12c3 into I-12c3a/I-12c3b**; **I-12c1** (the pla
 complete 2026-11-06 (`docs/progress-archive/{i-12c1,i-12c2,i-12c3a,i-12c3b}.md`). **I-12d is
 split into I-12d1/I-12d2**; **I-12d1** (Settings, onboarding, SSH setup) complete 2026-11-06
 and **I-12d2** (popover, switcher, session states) complete 2026-11-07
-(`docs/progress-archive/{i-12d1,i-12d2}.md`). **Next: I-12e** (docs; *Next action* 0), then
-**I-13** (update check, a group to split a/b).
+(`docs/progress-archive/{i-12d1,i-12d2}.md`). **I-12e** (the docs) complete 2026-11-07
+(`docs/progress-archive/i-12e.md`), so **Phase I-12 is complete**. **Next: I-13** (update
+check, a group to split a/b; *Next action* 0), the last queued phase.
 Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
@@ -132,14 +133,14 @@ I-11a/I-11b, I-12 into I-12a–e.
   `docs/progress-archive/head-i-11a-i-12c2.md` and each phase's archive.
 - Phases I-12c3a to I-12d1: all criteria met, 2026-11-06 — verbatim in
   `docs/progress-archive/head-i-12a-i-12d1.md` and each phase's archive.
-- Phase I-12d2: all criteria met, 2026-11-07 — every I-12d2 bullet of `PLAN.md` implemented
-  through `TerminalWording`, iTerm2's strings and expectations unchanged; each plain error
-  mapped by exhaustive switches; hermetic (1183 core in 129 suites + 548 UI in 55 suites pass;
-  `aPlainChoiceNeverContactsITerm2` passes); popover, attach and switcher screenshots replaced,
-  light and dark, through `--preview-snapshot`; no real terminal-app run (`pgrep` empty before
-  and after). One existing test file changed: three plain-mode placeholder expectations of
-  I-12c3a in `TerminalSeamTests.swift` (this phase's charter), no iTerm2 expectation —
-  `docs/progress-archive/i-12d2.md`.
+- Phase I-12d2: all criteria met, 2026-11-07 — verbatim in
+  `docs/progress-archive/head-i-12d2.md` and `i-12d2.md`.
+- Phase I-12e: all criteria met, 2026-11-07 — documents only (`git diff --stat -- Sources
+  Tests Resources scripts` empty); `docs/REQUIREMENTS.md` 23 lines added, 0 removed;
+  `docs/TERMINALS.md` covers every item of its call, the Ghostty sentence verbatim; its worked
+  `exec` example loads through `terminals list --user-directory <private 0700 folder>` (source
+  `user`, no problems); `pgrep -x Terminal` / `ghostty` none before and after; `swift build`
+  and lint exit 0 — `docs/progress-archive/i-12e.md`.
 
 ## Decisions
 
@@ -166,14 +167,11 @@ I-11a/I-11b, I-12 into I-12a–e.
   I-12c).
 - Phases I-12c3a to I-12d1 (the I-12d split among them): their decision lines moved verbatim
   to `docs/progress-archive/head-i-12a-i-12d1.md`.
-- Phase I-12d2: one worker, per "Calls for I-12d" in `PLAN.md`. The workers' calls — a row's
-  lines name the terminal whose backend ran the action, menus follow the current choice;
-  host-problem, Test connection, Detect, "Creating…" and Quit's help follow the choice too;
-  three core initialisers / `reason(of:)` made public for the fixtures; Move here dimmed only
-  by iTerm2's attachment index (the plain backend checks its own record at the move);
-  a detach retry keeps its terminal's record and backend; -1708 from a user definition worded
-  as a possibility (missing handler or AppleScript off) — D38 "The UI (I-12d2)",
-  `docs/progress-archive/i-12d2.md`.
+- Phase I-12d2: verbatim in `docs/progress-archive/head-i-12d2.md` (D38 "The UI (I-12d2)").
+- Phase I-12e: "Calls for I-12e" written in `PLAN.md` at selection (documents only, every fact
+  from D38, the code or `--help`, one read-only probe run for the example); D38 gains "The docs
+  (I-12e)"; the worked example is a fictional `exec` terminal (no real candidate installed) —
+  `docs/progress-archive/i-12e.md`.
 
 ## Open risks / deviations
 
@@ -206,13 +204,13 @@ I-11a/I-11b, I-12 into I-12a–e.
   Owed*, checklist 26), the picker's real permission states, "Set up SSH" in Terminal and
   Ghostty and pasting the persistent work command (I-12d1, checklist 27); load-sensitive
   folder search / directory store timing tests that fail once under load.
-- I-12d2 (**for the user**): every new line was seen only over stand-ins and in the galleries
-  (no real terminal-app run, neither app running) — real Open, Show window, Detach, Move here,
-  Detach other clients and the permission / AppleScript-off lines in Terminal and Ghostty are
-  checklist 28. Ghostty's AppleScript-off error numbers (-1708, -10004) are unverified; a user
-  definition's -1708 is worded as a possibility. "Detach (opened in iTerm2)" contacts iTerm2
-  while a plain terminal is chosen (an explicit user action). The plain popover fixtures show an
-  empty Saturno host (cosmetic) — `docs/progress-archive/i-12d2.md`.
+- I-12d2 (**for the user**): real Open, Show window, Detach, Move here, Detach other clients
+  and the permission / AppleScript-off lines in Terminal and Ghostty, checklist 28; Ghostty's
+  AppleScript-off error numbers unverified — verbatim in `docs/progress-archive/head-i-12d2.md`.
+- I-12e: `terminals list --help` exits 64 after printing the usage (`terminals --help` 0; both
+  contact nothing; code out of scope); `docs/TESTING.md`'s "Unit tests" row still points to
+  Phase I-8's counts; onboarding on a Mac without iTerm2 is checklist 29 —
+  `docs/progress-archive/i-12e.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -270,27 +268,30 @@ I-11a/I-11b, I-12 into I-12a–e.
   verbatim in `docs/progress-archive/head-i-11a-i-12c2.md`.
 - Phases I-12c3a to I-12d1: Codex wrote each file, all `ship-with-fixes`, every finding fixed —
   verbatim in `docs/progress-archive/head-i-12a-i-12d1.md`.
-- Phase I-12d2: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
-  blockers + 3 should-fix (stale plain-window records dimming Move here permanently; a detach's
-  "Try again" lost after a change of terminal; a missing script handler's -1708 read as
-  Ghostty's AppleScript turned off); a review-fix worker fixed all three (and the same retry bug
-  in plain "Detach from this Mac"), each regression failing with its fix reverted; re-verified
-  by the orchestrator — `docs/reviews/phase-I-12d2.md`.
+- Phase I-12d2: Codex → `ship-with-fixes`, 3 should-fix, all fixed — verbatim in
+  `docs/progress-archive/head-i-12d2.md`, report `docs/reviews/phase-I-12d2.md`.
+- Phase I-12e: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
+  blockers + 1 should-fix (`docs/TERMINALS.md` said Open still opens in the chosen terminal for
+  a session with a local client in another app; with a plain choice the backend brings that
+  app forward and opens nothing); fixed inline by the orchestrator against
+  `PlainTerminalBackend.swift` — `docs/reviews/phase-I-12e.md`.
 
 ## Next action
 
-0. **Phase I-12e (queued, routine): Other terminals, the docs.** Poll the inbox first. Scope:
-   the I-12e bullet of `PLAN.md` *Phase I-12* (`docs/REQUIREMENTS.md` addendum 13,
-   `docs/TERMINALS.md` with "Adding a terminal", later candidates and the Ghostty control-mode
-   note, README, ARCHITECTURE, TESTING, MANUAL-CHECKLIST, `CLAUDE.md` commands and the extended
-   safety rules, also in *Unattended-run rules*); the requirements are in
-   `autoclaude/processed/110-other-terminal-apps.md`; the facts in D38's sections (I-12a to
-   "The UI (I-12d2)"). No "Calls for I-12e" exist yet: write them in `PLAN.md` at selection
-   (docs only, no code; what each document gains; the repository is public, so no host names
-   beyond those already documented, no user paths). Mark it `in_progress` with the helper, then
-   spawn its worker. No real run. After I-12, **I-13**
-   (`autoclaude/processed/120-update-check-github.md`, split a core / b UI; first settle the
-   GitHub GETs question, see the *Inbox* note).
+0. **Phase I-13 (queued, high, a group): Update check.** Poll the inbox first. The
+   specification is `autoclaude/processed/120-update-check-github.md`; the plan has no
+   *Phase I-13* section yet. At selection, in this order: (1) settle the *Inbox* note's
+   question — whether *Unattended-run rules* 3 ("No other host") lets a run make the item's
+   read-only GitHub GETs (`update check`, `update verify`); read the specification for what the
+   user said; if it does not clearly authorize them, the real GETs are owed to the user and the
+   phases stay hermetic (never relax a rule on your own reading); (2) write *Phase I-13* in
+   `PLAN.md` with the split I-13a (core: the check, download, SHA-256, signature and
+   notarization check, the swap, all hermetic over fakes) and I-13b (UI: toggle, popover
+   notice, icon dot, Update), a new decision number after D38, and "Calls for I-13a"; (3) add
+   the rows with the helper's `write` (a proposal under `$TMPDIR`: every phase, I-13 split into
+   I-13a / I-13b with `parent`), mark I-13a `in_progress`, then spawn its worker. Never run
+   `scripts/release.sh`, `install.sh` or a real update swap; the release, notarization and
+   publish rules in `CLAUDE.md` stay the user's.
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -365,16 +366,16 @@ I-11a/I-11b, I-12 into I-12a–e.
   `Preview/{TerminalSessionFixtures,TerminalAttachFixtures}.swift`; tests
   `Tests/MuxFinderUITests/{TerminalSessionWordingTests,TerminalSessionModelTests,TerminalReviewFixTests}.swift`,
   `Tests/MuxFinderCoreTests/TerminalPublicInitTests.swift`.
+- Other terminals, user-facing reference (I-12e): `docs/TERMINALS.md`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/` (inbox log: `inbox-log.md`).
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-12d2 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `swift test` passed, 1183 core tests in 129 suites and 548 UI
-  tests in 55 suites; `codesign --verify --deep --strict build/muxFinder.app` exit 0 (bundle
-  from the review-fix worker's `scripts/build-app.sh`, exit 0); `pgrep -x Terminal` and `pgrep
-  -x ghostty` empty before and after — `docs/progress-archive/i-12d2.md`.
-- Phases 1–I-12d1: each phase's final-tree verification is in
+- Phase I-12e (final tree, orchestrator, 2026-11-07): `git diff --stat -- Sources Tests
+  Resources scripts` empty; `swift build` exit 0; `swift format lint -r Sources Tests` exit 0;
+  no test suite run (no code, test or resource changed; the last full run, I-12d2's: 1183 core
+  + 548 UI pass) — `docs/progress-archive/i-12e.md`.
+- Phases 1–I-12d2: each phase's final-tree verification is in
   `docs/progress-archive/<phase>.md`.
 
 ## Git state
@@ -402,8 +403,7 @@ I-11a/I-11b, I-12 into I-12a–e.
 - All pushed: I-10a `267dc0b` (inbox triage I-11, I-12 `f03de09`), I-10b `6f4aec2`, I-11a
   `53f2d95` (inbox triage I-13 `5dfb622`), I-11b `148da51`, I-12a `59e2306`, I-12b1 `e60149d`,
   I-12b2 `d008435`, I-12b3 `06f7d6e`, I-12c1 `73718f1`, I-12c2 `e2c0ea8`, I-12c3a `eb4c352`,
-  I-12c3b `c6bb07b`, I-12d1 `f711bc5`.
-- Phase I-12d2: the commit carrying this checkpoint ("Phase I-12d2: other terminals, the
-  popover, the switcher and the session states"), pushed (SHA and push result in the run's
-  status line and the next checkpoint). The tree was clean when this iteration started (empty
-  preflight file).
+  I-12c3b `c6bb07b`, I-12d1 `f711bc5`, I-12d2 `227fdb5`.
+- Phase I-12e: the commit carrying this checkpoint ("Phase I-12e: other terminals, the docs"),
+  pushed (SHA and push result in the run's status line and the next checkpoint). The tree was
+  clean when this iteration started (empty preflight file).
