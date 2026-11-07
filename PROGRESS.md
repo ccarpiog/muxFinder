@@ -84,7 +84,8 @@ I-13a's iteration): `list` empty. 2026-11-07 02:27 (start of I-13b1's iteration)
 empty. 2026-11-07 03:45 (start of I-13b2's iteration): `list` empty. 2026-11-07 05:33 (start
 of I-13c1's iteration): `list` empty. 2026-11-07 06:17 (start of I-13c2a's iteration): `list`
 empty. 2026-11-07 06:56 (record only, no phase): `list` empty. 2026-11-07 06:59 (I-13c2b's
-calls only): `list` empty.
+calls only): `list` empty. 2026-11-07 07:03 (I-13c2b's acceptance criteria only): `list`
+empty.
 
 ## Current phase
 
@@ -111,11 +112,12 @@ complete 2026-11-07 (`docs/progress-archive/i-13c1.md`). **I-13c2 is split into
 I-13c2a/I-13c2b** (`PLAN.md` "I-13c2 split"); **I-13c2a** (the update flow, model and wiring)
 complete 2026-11-07 (`docs/progress-archive/i-13c2a.md`). **Next: I-13c2b** (the update
 views; *Next action* 0), then I-13c3 (the documents), the last queued phase. **I-13c2b is
-selected and its calls are written** (`PLAN.md` *Phase I-13* "The orchestrator's calls for
-I-13c2b", 2026-11-07 07:01), but **no worker has run and no code changed**: the 2026-11-07
-06:59 iteration began 24 min before the run's 24 h cap, too short for a worker, verification
-and review, so it stopped after the calls. Its row is `in_progress` ("calls written, no
-worker yet"). The 06:56 iteration before it moved the I-13 head lines to
+selected, its calls are written** (`PLAN.md` *Phase I-13* "The orchestrator's calls for
+I-13c2b", 2026-11-07 07:01) **and its acceptance criteria and deliverables are written**
+(*Next action* 0, 2026-11-07 07:05), but **no worker has run and no code changed**: the
+2026-11-07 06:59 and 07:03 iterations each began less than 25 min before the run's 24 h cap
+(07:23), too short for a worker, verification and review, so they stopped after the calls
+and the criteria. Its row is `in_progress` ("calls and acceptance written, no worker yet"). The 06:56 iteration before it moved the I-13 head lines to
 `docs/progress-archive/head-i-13a-i-13c2a.md`.
 Also remaining:
 the manual checklist (the user's). Phase
@@ -306,13 +308,37 @@ I-11a/I-11b, I-12 into I-12a–e.
 
 ## Next action
 
-0. **Phase I-13c2b (in progress, routine; calls written, no worker yet): the update views.**
-   Poll the inbox first. The calls are already in `PLAN.md` *Phase I-13* ("The orchestrator's
-   calls for I-13c2b"): re-read them with D39's "The notice (I-13c1)", "The update flow
-   (I-13c2a)" and "Not yet" parts and the specification
-   `autoclaude/processed/120-update-check-github.md` (*UI*), adjust them only if the code
-   shows one is wrong (recording why), then write the acceptance criteria and spawn the
-   worker. In short, render
+0. **Phase I-13c2b (in progress, routine; calls and acceptance written, no worker yet): the
+   update views.** Poll the inbox first. The calls are already in `PLAN.md` *Phase I-13*
+   ("The orchestrator's calls for I-13c2b", lines ~9346–9393): hand them to the worker with
+   D39's "The notice (I-13c1)", "The update flow (I-13c2a)" and "Not yet" parts and the
+   specification `autoclaude/processed/120-update-check-github.md` (*UI*); the worker adjusts
+   a call only if the code shows it wrong, recording why. Spawn the worker with these
+   **acceptance criteria** (written 2026-11-07 07:05):
+   (a) one pure function (e.g. `UpdateNoticeContent`) of the shown release, `UpdateFlow.offer`
+   and `UpdateFlow.state` yields the notice's lines and its buttons (shown, enabled); unit
+   tests cover every state against every offer (`reading`, `update`, `download(reason:)`),
+   `failed` with `canUpdate` true and false, and assert no line holds a path, URL or header;
+   (b) `UpdateViews.swift` renders the notice only through that value, per state as the calls
+   say (the switcher still shows no notice); each button calls its flow method (`update()`,
+   `download()`, `cancel()`, `quitAndInstall()`, `notNow()`, `installAndRelaunch()`) and the
+   Release page link goes through the injected opener, tested over a fake pipeline and opener;
+   (c) VoiceOver labels, the bar's value and the announcements for a failure and the ask, as
+   in the calls; (d) the `popover` gallery shows the 13 synthetic states the calls list (no
+   pipeline, no scheduler), each within `PopoverHeightLimit` with buttons never truncated, and
+   `docs/screenshots/popover-states-{light,dark}.png` are regenerated with `--preview-snapshot`;
+   (e) D39 gains "The update views (I-13c2b)" and its "Not yet" line is edited,
+   `docs/TESTING.md` a Phase I-13c2b section, `docs/MANUAL-CHECKLIST.md` item 32;
+   (f) `swift build` (no warnings), `swift format lint -r Sources Tests`, `env -u TMUX_TMPDIR
+   swift test`, `scripts/build-app.sh` and `codesign --verify --deep --strict
+   build/muxFinder.app` all exit 0, and `--report-menu-bar-item` / `--report-popover-placement`
+   with `CFFIXED_USER_HOME=$(mktemp -d)` exit 0 leaving each private home without
+   `update-state.json` or an `update` folder, the real support folder unchanged.
+   **Deliverables**: `Sources/MuxFinderUI/Views/UpdateViews.swift`, the mapping's file,
+   `Sources/MuxFinderUI/Preview/UpdateFixtures.swift` and the gallery wiring, tests under
+   `Tests/MuxFinderUITests/`, the two screenshots, `PLAN.md` D39, `docs/TESTING.md`,
+   `docs/MANUAL-CHECKLIST.md`. Budget a full iteration (worker, about 6 min of `swift test`,
+   build, galleries, a 20 min review). In short, render
    `UpdateModel.flow` (`Sources/MuxFinderUI/Model/UpdateFlow.swift`) in the popover notice
    (`Views/UpdateViews.swift`): **Update** or **Download** with the reason's phrase,
    "Downloading… 40%" (no percent without a total) with **Cancel**, "Checking the
@@ -401,3 +427,7 @@ I-11a/I-11b, I-12 into I-12a–e.
   that commit messages carry no AI reference. It is pushed; it was not rewritten because
   that needs a force-push, which the workflow forbids. Reword it yourself if you want it gone
   (an interactive rebase and a force-push of `main`). Later commits carry no trailer.
+- 2026-11-07 07:03 iteration (I-13c2b's acceptance criteria only, no code): the tree was
+  clean at start (empty preflight file). It commits this checkpoint and `PROGRESS.json` as
+  "Checkpoint: …" for the same reason (its deadline, 07:23, is the run's 24 h cap). SHA and
+  push result in the run's status line.
