@@ -396,4 +396,8 @@ I-11a/I-11b, I-12 into I-12a–e.
 - 2026-11-07 06:59 iteration (I-13c2b's calls only, no code): the tree was clean at start
   (empty preflight file). It commits `PLAN.md`'s calls with this checkpoint and
   `PROGRESS.json` as "Plan: …", for the same reason as above (the run's 24 h cap is this
-  iteration's deadline). SHA and push result in the run's status line.
+  iteration's deadline): `252a33d`, pushed to `origin/main`. **Deviation, for the user:**
+  `252a33d`'s message ends with a `Co-Authored-By: Claude …` trailer, against the global rule
+  that commit messages carry no AI reference. It is pushed; it was not rewritten because
+  that needs a force-push, which the workflow forbids. Reword it yourself if you want it gone
+  (an interactive rebase and a force-push of `main`). Later commits carry no trailer.
