@@ -68,7 +68,8 @@ staples the ticket, checks Gatekeeper's verdict, and leaves `build/muxFinder.zip
 distribution. It needs a notarytool keychain profile named `AC_NOTARY_PROFILE` (or the name in
 `MUXFINDER_NOTARY_PROFILE`), created once with `xcrun notarytool store-credentials`. macOS ties
 the Automation permission (below) to the certificate, so the first Developer ID build you run
-asks for it again.
+asks for it again. That zip, attached as is to a GitHub release, is what the in-app update
+installs (*Updates*, below; the release contract is in `PLAN.md` D35).
 
 The app icon and the menu bar icon are generated files in `Resources/`; their sources and the
 script that regenerates them are in `scripts/dev/icon/`.
@@ -378,6 +379,72 @@ your login shell. "Install profiles" is not offered then; "Remove profiles" stil
 muxFinder's iTerm2 file is installed. The command holds the helper's path, so copy it again
 after moving the app (details in `docs/TERMINALS.md`, "Persistent work").
 
+## Updates
+
+muxFinder tells you when a newer release is out on GitHub and, for a release build, installs
+it when you click **Update**. Nothing is downloaded or installed before that click.
+
+- **What the check sends:** one anonymous `GET` of
+  `https://api.github.com/repos/ccarpiog/muxFinder/releases/latest` (GitHub leaves out drafts
+  and prereleases). No account, token, identifier or analytics: besides the standard `Accept`
+  headers it carries only muxFinder's version (`User-Agent: muxFinder/<version>`) and the
+  `ETag` of the last answer, so an unchanged release comes back as a short "not modified"
+  with no body.
+- **When:** a few seconds after launch when a check is due, then about once a day (24 h after
+  the last successful check, also when the Mac wakes), and whenever you click "Check for
+  updates…". A failure in the background is silent and tried again later (not within the
+  hour, and never before GitHub's rate limit ends). It never runs with a mode flag: the
+  preview galleries, the self-tests, the `--report-*` checks and `--remove-persistent-profiles`
+  send nothing and read or write no update state. What it remembers (the last check, the
+  `ETag`, the latest release, the version whose notice you saw) is `update-state.json` in
+  `~/Library/Application Support/muxFinder/`.
+- **Turning it off:** Settings › General › Updates › "Check for updates automatically" (on
+  by default, kept in `preferences.json`). Off, nothing is sent until you click "Check for
+  updates…". The same section shows the result ("You're up to date (<version> (<build>))",
+  "muxFinder <version> is available", "Couldn't check: no connection") and "Last checked …".
+- **The notice and the dot:** when a newer release is out, the popover shows "muxFinder
+  <version> is available" with **What's new** (the release page in your browser), and the menu
+  bar icon gets a small dot (VoiceOver: "muxFinder, update available") until the popover has
+  shown the notice once; a later release brings the dot back.
+- **Update** downloads the release's `muxFinder.zip` from GitHub ("Downloading… 40%", with
+  **Cancel**), checks its size and SHA-256 against the release's, unpacks it, and checks that
+  it is muxFinder, signed with the same Developer ID as your copy and notarized by Apple, with
+  the release's version and a newer build ("Checking the download…"). If quitting would lose
+  something (text in the New session window, unsaved Settings changes) it asks first: **Quit
+  and install**, or **Not now** and later **Install and relaunch**. Then muxFinder puts the
+  new app in place of the old one at the same path ("Installing…"), starts a small
+  relauncher and quits ("Relaunching…"); the relauncher waits for muxFinder to end (at most a
+  minute) and opens the new copy. Your tmux sessions, iTerm2 tabs and terminal windows are
+  not touched, and attached sessions stay attached. The old copy is kept aside in
+  muxFinder's `update` folder while anything still runs from it (the helper of a session
+  opened before the update) and removed at a later launch. Since the new copy carries the
+  same Developer ID, macOS should not ask for the Automation permission again.
+- **When the update fails** before muxFinder quits, the notice says "Couldn't update:
+  <reason>" with a **Release page** link, and muxFinder keeps running. A failure during or
+  after the swap (the relauncher could not start, say) is followed by an attempt to put the
+  old copy back. If that attempt fails, the reason ends with "and the change couldn't be
+  undone": the new version is in place but the old one is still running, so quit muxFinder
+  and open it again. If something else changed the app meanwhile, the reason is "something
+  else changed muxFinder during the update": nothing more is moved, whatever is at the app's
+  path stays there, and a `run-…` folder marked `recovery-required` stays in the
+  `update` folder (never removed by muxFinder; check the installed app, reinstall it if
+  needed, then delete that folder). Once muxFinder has quit, nothing watches the relaunch:
+  if the new version does not open by itself within a minute, nothing says so; open it as
+  usual (it is already installed).
+- **Download instead of Update:** the notice offers **Download** (the release page, to
+  install by hand) with "Can't update in place: <reason>" when this copy cannot replace
+  itself: it is not signed with a Developer ID (everyday builds from `scripts/build-app.sh`
+  are signed "Apple Development" or ad hoc); macOS runs it from a temporary location (an app
+  opened where it was downloaded; move it to `/Applications` first); it is on a read-only
+  disk, in a folder you cannot change, or another user's; it is on another disk than
+  muxFinder's `update` folder (in your home folder's `Library`), or that folder cannot be
+  used; or the release has no installable download (a single `muxFinder.zip` with its
+  checksum).
+
+The check, the download and the update itself have run only against stand-ins so far (the
+verification also on a local copy of a release zip); their real runs are owed
+(`docs/MANUAL-CHECKLIST.md` items 30–33).
+
 ## Scope and limitations
 
 - **Default tmux server only:** muxFinder sees each user's default tmux server on each host,
@@ -399,12 +466,11 @@ after moving the app (details in `docs/TERMINALS.md`, "Persistent work").
   `docs/TERMINALS.md`.
 - **Not in this version:** deleting sessions, cloud sync, terminal previews, AI features,
   moving running processes between computers, bringing sessions back after a reboot,
-  workspace management, a published download (`scripts/release.sh` makes a notarized zip, but
-  none is published), Intel builds.
+  workspace management, Intel builds.
 - **Known rough edges** (details in `docs/TESTING.md` and `PROGRESS.md`): a few checks need a
   person and are listed in `docs/MANUAL-CHECKLIST.md` (the real popover by hand, launch at
   login, "Show tab", the first Finder launch, Sirio, persistent profiles from Settings, the
-  hidden launch tab, Terminal and Ghostty for real);
+  hidden launch tab, Terminal and Ghostty for real, the update check and the update for real);
   quitting can take up to 15 s while an open is in flight; iTerm2 3.7.6 shows a modal warning
   for tabs that end within 3 s of opening, so muxFinder's tabs never end sooner than 10 s. A
   launch tab can be left under Session › Buried Sessions when its attachment ended abnormally
@@ -426,7 +492,7 @@ It quits the app (SIGTERM to each installed copy's `muxFinder`, up to 20 s, neve
 then removes `DynamicProfiles/muxFinder.json` only when it is muxFinder's generated file (the
 app's own code decides), `~/Library/Application Support/muxFinder` (host list, directories,
 preferences such as the session switcher shortcut and the terminal choice, your terminal
-definitions, launch folder),
+definitions, launch folder, the update check's state and `update` folder),
 `muxFinder.app` from `/Applications` and `~/Applications`, and the app's preferences
 (`cc.carpio.muxfinder`, where macOS keeps the menu bar item's state). Helpers still running in
 iTerm2 tabs (or other terminals' windows) are left alone and end with them. It does not
@@ -452,6 +518,6 @@ you remove it yourself; once muxFinder is gone it cannot run.
 - `docs/TESTING.md`: unit tests, real checks and the tested vs expected-to-work matrix.
 - `docs/MANUAL-CHECKLIST.md`: the checks owed to a person.
 - `docs/INTEGRATION-PROOF.md`: what the attach path does against the real iTerm2.
-- `PLAN.md`: the plan and every design decision (D1–D38).
+- `PLAN.md`: the plan and every design decision (D1–D39).
 
 License: MIT (`LICENSE`).

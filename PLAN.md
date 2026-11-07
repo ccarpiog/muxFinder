@@ -3239,8 +3239,28 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   - **The last published release** is the one `nd list muxfinder` shows (NonameDownloads),
     never a number guessed from the repository. `nd` refuses a version and build it already
     has; never pass `--replace` without the user's agreement.
+  - **The release contract** (Phase I-13c3, 2026-11-07; D39 is the reference, `CLAUDE.md`'s
+    release line says the same): for the in-app update to install a release, it must be a
+    published GitHub release on `ccarpiog/muxFinder`, not a draft or prerelease, and the one
+    GitHub shows as Latest (`releases/latest` is the only release the app asks for, and it
+    leaves drafts and prereleases out); tagged exactly `v<x.y.z>` equal to the bundle's
+    `CFBundleShortVersionString` (no `V`, suffix or fourth part); its build
+    (`CFBundleVersion`) above every earlier release's (the update refuses a build that is not
+    above the running copy's); with exactly one asset named `muxFinder.zip`, the stapled zip
+    `scripts/release.sh` writes (`build/muxFinder.zip`) uploaded as is (GitHub provides its
+    `sha256` digest, which the download must match; 1 byte to 50 MiB), holding one
+    `muxFinder.app` (`cc.carpio.muxfinder`) signed by the same Developer ID team as the copies
+    it updates and notarized. A newer release without such an asset is offered as Download
+    (its release page) only; a draft, a prerelease or a tag in another form is offered
+    nothing, and a release published only to the private download site (above) is not seen
+    at all. No script creates the GitHub release: it is published by hand after
+    `scripts/release.sh`, and only when the user asks (never in an unattended run).
   - **History:** 0.1.0 (1), 2026-11-04; 0.2.0 (2), 2026-11-06 (New session's keyboard host
-    picker, its own window and the folder drop, Phases I-8 and I-9).
+    picker, its own window and the folder drop, Phases I-8 and I-9); 0.3.0 (3), 2026-11-06
+    (folder search over Spotlight and Detach other clients, Phases I-10 and I-11; built from
+    the `release/0.3.0` branch at I-11b, so none of I-12's work is in it). `main`'s
+    `scripts/build-app.sh` still says 0.2.0 (2), so the next release from `main` needs a build
+    above 3 (the version from the rule above, against the last published release).
 
 - **D36 — Folder search over Spotlight** (decided by the orchestrator for Phase I-10,
   2026-11-06, from `autoclaude/processed/100-folder-search-spotlight.md`; the core in Phase
@@ -5477,10 +5497,17 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       items, after Not now, installing, relaunching, failed with Update again, failed with
       Download (no pipeline, scheduler or request; their buttons run nothing).
       `docs/screenshots/popover-states-{light,dark}.png` regenerated.
-  - **Not yet:** the real update end to end and the real buttons and lines (the user's,
-    `docs/MANUAL-CHECKLIST.md` item 32); README, ARCHITECTURE and the release contract are
-    I-13c3's. The real notice, dot and Settings line after a real check are the user's
-    (`docs/MANUAL-CHECKLIST.md` item 31).
+  - **Not yet:** only the user's real runs: the real `update check` and `update verify
+    --latest` (`docs/MANUAL-CHECKLIST.md` item 30); the real notice, dot and Settings line
+    after a real check (item 31); the real buttons and lines (item 32); and the real update
+    end to end on a Developer ID build, from an older release copy in `/Applications` opened
+    with `open` to a newer release that meets D35's release contract (the download, the
+    checks, the ask, the swap, the quit, the relaunch through `/usr/bin/open` with only `PATH`
+    in its environment, no Automation prompt again for a same-team update, sessions still
+    attached, the old copy removed by a later launch's cleanup), with a failure case (item
+    33). The documents are done (I-13c3: README *Updates*, `docs/ARCHITECTURE.md` *Updates
+    (D39)*, `docs/TESTING.md`'s summary rows, checklist item 33, the release contract in D35
+    and on `CLAUDE.md`'s release line).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -9453,6 +9480,58 @@ The orchestrator's calls for I-13c2b, made before its worker (2026-11-07):
   during a real download, a failure line with its release page link, the ask with an unsaved
   New session draft and with unsaved Settings edits, Not now then Install and relaunch).
   The real update end to end, README, ARCHITECTURE and the release contract are I-13c3's.
+
+The orchestrator's calls for I-13c3, made before its worker (2026-11-07):
+
+- **Documents only.** No change under `Sources/`, `Tests/`, `scripts/` or `Resources/`, no
+  new test, no rebuilt screenshot. Facts come from D39, D35 and the code (read, never run
+  for real beyond `swift build`, `swift test`, lint and `--help`); where a document and the
+  code disagree, the code wins and the document is corrected.
+- **README.** A short "Updates" section in the user's words: what the check sends (one
+  anonymous `GET` of `api.github.com/repos/ccarpiog/muxFinder/releases/latest` about once a
+  day and on "Check for updates…", no account, token, identifier or analytics; the `ETag`
+  kept so an unchanged answer costs nothing), when it never runs (any mode flag, preview,
+  self-test or report run; the toggle off), how to turn it off (Settings › General
+  "Updates"), what the notice and the dot are, what **Update** does (download, size and
+  SHA-256, signature, notarization and team checks, the ask over unsaved work, quit, swap,
+  relaunch; attached tmux sessions untouched) and when **Download** shows instead (the
+  eligibility reasons in plain words: not a Developer ID build, translocated, read-only or
+  unwritable folder, a release without an installable asset). No path of the user's.
+- **ARCHITECTURE.** The update feature's place in the overview: check core (version,
+  parser, transport, state, scheduler), pipeline (download, verification, eligibility,
+  staging, swap, relauncher, cleanup), flow and views (`UpdateFlow`, `UpdateModel`,
+  `UpdateNoticeContent`), the one gate `AppLaunchOptions.createsUpdateMachinery`, and which
+  module owns each; names as the code spells them.
+- **TESTING.** The summary rows (the matrix at the top and the "Unit tests" row's counts)
+  brought up to date with the I-13 phases: what is tested hermetically (transports only
+  through a `URLProtocol` stub, stub bundles in private folders) and what is owed (checklist
+  30–33). Counts from this phase's own `swift test` run.
+- **MANUAL-CHECKLIST.** A new item 33, the real update end to end on a Developer ID build:
+  publish a newer release meeting the release contract (below), launch the older copy from
+  `/Applications` with `open` (only `PATH`, no Automation prompt again for a same-team
+  update), see the notice and the dot, Update, watch the progress, the ask with unsaved work,
+  the quit, the swap and the relaunch into the new version, sessions still attached, no
+  leftover under the update folder at the next launch; plus a failure case (a release whose
+  asset digest does not match, or a Developer ID build of another team, offered Download or
+  failing with its release page). Expected results, never the user's paths.
+- **The release contract** (`CLAUDE.md`'s release line and a new D35 bullet; one statement,
+  D39 the reference). For the in-app update to install a release it must be a published
+  GitHub release on `ccarpiog/muxFinder` (not a draft or prerelease), tagged exactly
+  `v<x.y.z>` equal to the bundle's `CFBundleShortVersionString`, its build
+  (`CFBundleVersion`) above every earlier release's (D35), with exactly one asset named
+  `muxFinder.zip` — the stapled zip `scripts/release.sh` writes, uploaded as is (GitHub
+  provides its `sha256` digest; at most 50 MiB), signed by the same Developer ID team and
+  notarized. A release without it is offered as Download (its page) only. Name who creates
+  the GitHub release as the code and scripts show it (no script creates one today: say so,
+  never invent a command), and keep the private download site's address out (this
+  repository is public).
+- **D35 history.** Add 0.3.0 (3) from the `v0.3.0` tag (branch `release/0.3.0`, not `main`)
+  with its date from `git log -1 --format=%cs v0.3.0`, and state that the next release from
+  `main` needs a build above 3.
+- **D39's "Not yet".** Rewritten to what is still owed after I-13: only the user's real runs
+  (checklist 30–33); the documents done.
+- **`CLAUDE.md`.** Only the sentences the update feature makes wrong or incomplete, as
+  present state (the release line above; nothing else unless a fact is wrong).
 
 ## Deferred (explicitly out of scope for v1)
 

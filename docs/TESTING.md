@@ -44,9 +44,9 @@ Other deliverables of the brief:
 | Reproducible build, runnable `.app` | Tested for real | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12a* below). | `rm -rf build && scripts/build-app.sh`, then `codesign --verify --deep --strict build/muxFinder.app`, 2026-10-23: exit 0 both (*Phase 12b* below). |
 | Signing status | Tested for real | Everyday builds (`scripts/build-app.sh`): hardened runtime, "Apple Development" certificate, not notarized (*Phase 8* onwards). Release builds (`scripts/release.sh`, D28), 2026-10-23: "Developer ID Application" certificate with a secure timestamp, notarized (Apple: Accepted, no issues), stapled, `spctl` "accepted, source=Notarized Developer ID" (*D28* below). | The same clean build, 2026-10-23: signed by the "Apple Development" identity, not notarized. |
 | Install and removal instructions, scripts | Tested hermetically | `scripts/dev/test-install-scripts.sh` (both scripts on private folders, stubs for running copies), 2026-10-23: exit 0, 35 of 35 PASS, twice, after the review fixes; each new regression fails with its fix reverted (*Phase 12a*). A real install into `/Applications` and a real uninstall are the user's (checklist 1 and 13). | `scripts/dev/test-install-scripts.sh`, 2026-10-23: exit 0, 35 of 35 PASS. |
-| Unit tests | Tested hermetically | `swift test` (*Phase I-8* for the latest counts). | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
+| Unit tests | Tested hermetically | `swift test`, 2026-11-07 (*Phase I-13c3* below, the latest counts): 1366 tests in 152 suites (core) and 604 in 61 suites (UI); no network (the update's transports only through a `URLProtocol` stub), the update's swap, relauncher and cleanup only on stub bundles in private folders. | `swift test`, 2026-10-23: exit 0, 680 tests in 67 suites (core) and 159 in 13 suites (UI). `swift build -Xswiftc -warnings-as-errors` and `swift format lint -r Sources Tests`: exit 0 each. |
 
-Added after the brief (the user's reports of 2026-10-24, 2026-11-04, 2026-11-05 and 2026-11-06, PLAN.md Phases 13, 14 and I-1 to I-12; for other terminal apps also `docs/REQUIREMENTS.md`, *Addendum, 2026-11-06*):
+Added after the brief (the user's reports of 2026-10-24, 2026-11-04, 2026-11-05 and 2026-11-06, PLAN.md Phases 13, 14 and I-1 to I-13; for other terminal apps also `docs/REQUIREMENTS.md`, *Addendum, 2026-11-06*; for the update check and one-click update `autoclaude/processed/120-update-check-github.md`):
 
 | Requirement | Status | Evidence |
 |---|---|---|
@@ -71,6 +71,9 @@ passed"; `PopoverControllerTests` (toggle, move, every close, both orders of the
 | Ghostty 1.3 or later as the chosen terminal, plain tmux (PLAN.md Phase I-12, D38; `docs/TERMINALS.md`): as the Terminal row, with the built-in script's `new window with configuration` (the helper path, mode word and launch id as the command's words, "wait after command" off), "Show window" by the window id it returned, Ghostty before 1.3 never listed and, as the stored choice, unavailable with its reason; "Ghostty's AppleScript is turned off" when its open answers -1708 or -10004 (a guess); the persistent work command after `command = ` in its config. | Tested hermetically; the plain attach for real without a terminal app (the same `plain-proof` runs); the gate's refusal tested for real. Ghostty's windows (its script compiled and called, its ids, `e2e-plain --terminal ghostty` locally and on Saturno, the app's rows, the real error number with `macos-applescript = false`, "Set up SSH in Ghostty…", the pasted command): owed to a person (checklist 26–28), since Ghostty never ran during the work. | Phases I-12a to I-12d2 (*below*): `TerminalLaunchCommandTests` (the `words` form and its 23 refused characters), `TerminalDefinitionTests` (the built-in loads cleanly), `PlainTerminalWindowsTests` (its open with the token as the last word, focus by window id, over a fake runner), `TerminalPickerTests` (Ghostty 1.2 too old, upgraded on "Check again"), `TerminalErrorMappingTests` and `TerminalReviewFixTests` (the AppleScript-off line only from muxFinder's own script). Real: `e2e-plain --terminal ghostty --local`: exit 2, nothing created, written or sent; `terminals list`: Ghostty 1.3.1 installed, not running (`targetNotRunning`); `pgrep -x ghostty` empty before and after every phase. |
 | The update check, the core (PLAN.md Phase I-13a, D39; the download and install are I-13b's, the popover notice, the icon's dot and Settings are I-13c's): one anonymous `GET` of `releases/latest` with `Accept`, a constant `Accept-Language`, `User-Agent: muxFinder/<version>` and `If-None-Match` only; tags exactly `v<major>.<minor>.<patch>` compared numerically; the one `muxFinder.zip` at its exact URL with a `sha256:` digest and a size from 1 byte to 50 MiB, else the release page only; a body over 1 MiB, a redirect off `api.github.com`, drafts and prereleases offer nothing; 304, rate limits and failures; `update-state.json`; `checkForUpdatesAutomatically` on by default; the first check 5 s after start, then 24 h after a success, an hour after a failure, never before a rate limit ends, none with the toggle off, a manual check always. | Tested hermetically (the transport through a `URLProtocol` stub only). The real request to GitHub: owed to the user (checklist 30), since no run sends one (*Unattended-run rules* 3). | Phase I-13a, 2026-11-07 (*Phase I-13a* below): `UpdateVersionTests`, `UpdateReleaseParserTests`, `UpdateTransportTests`, `UpdateCheckTests`, `UpdateStateStoreTests`, `UpdateCheckPreferenceTests`, `UpdateSchedulerTests`, `UpdateProbeTests`; `update --help` and `update check --help` exit 0, nothing contacted. |
 | The update's download and verification, the core (PLAN.md Phase I-13b1, D39; the running app's eligibility, the swap and the relaunch are I-13b2's, the UI I-13c's): only the release's exact asset URL, into a given private staging folder, redirects followed only to `https` on GitHub's three download hosts (at most 5), the exact declared size, SHA-256 while streaming, progress, Cancel deleting the partial file, 30 s and 20 min timeouts; the zip's directory and local headers checked before unpacking (declared sizes, entry count, compression ratio, consistency, names inside `muxFinder.app`), `ditto -x -k` into a fresh folder under a watchdog that stops it past the byte or entry budget; exactly one `muxFinder.app` with no link leading out of it, walked within bounds; the Developer ID signature of the given team and its notarization through Security.framework; the versions after the signature, read from the checked bundle, which must still be the one at its path; every failure deleting what was written, success keeping only the bundle with its identity. | The download tested hermetically (the transport through a `URLProtocol` stub only); the other steps on synthetic zips and ad hoc signed stubs. Tested for real on a local copy of 0.2.0's stapled release zip (zip mode, no server contacted): verified, and a changed byte and another Team ID refused. The real download from GitHub (`update verify --latest`): owed to the user (checklist 30), since no run sends a request (*Unattended-run rules* 3). | Phase I-13b1, 2026-11-07 (*Phase I-13b1* below): `UpdateDownloadTests`, `UpdateArchiveTests`, `UpdateExtractionTests`, `UpdateCodeCheckTests`, `UpdateBundleVersionsTests`, `UpdateVerifierTests`, `UpdateVerifyProbeTests`; `update verify --zip` on a copy of `build/muxFinder.zip`: every step passed, exit 0; one byte changed: `digestMismatch`, exit 1; another Team ID: `otherTeam`, exit 1; after the review fixes, a fresh copy: every step passed, exit 0. |
+| The update's eligibility and install, the core (PLAN.md Phase I-13b2, D39): a copy updates itself only when it is signed with a Developer ID with a Team ID, not translocated, in a usable app folder of the user's that it can change, on the update folder's volume, with a readable build (else the reason, in the decision's order); the update folder and its locked run folders made only when an update starts; right before the swap both identities and the code check again, then one `RENAME_SWAP` exchange, a rollback attempt bound to both identities (a reverse exchange that changes nothing leaves the new bundle installed, `failed`), the `recovery-required` marker when something else changed the app; the relauncher (a static script that waits for the pid, then runs the opener once, or nothing after 60 s); the leftover cleanup at launch deleting only run folders nothing locks, marks or runs from; old helpers unaffected; `--report-update-eligibility`. | Tested hermetically on stub bundles in private folders (the real exchange, the real relauncher with a stand-in opener, the cleanup with real child processes and over an injected process table); the signature reader on a copy of 0.2.0's release, the `RENAME_SWAP` proof and the flag tested for real. The swap of an installed copy and the relaunch through `/usr/bin/open`: owed to the user (checklist 33). | Phase I-13b2, 2026-11-07 (*Phase I-13b2* below): `UpdateEligibilityTests`, `UpdateStagingRootTests`, `UpdateSwapTests`, `UpdateRelauncherTests`, `UpdatePipelineTests`, `UpdateProcessScanTests`, `UpdateOldHelperCompatibilityTests`, `UpdateEligibilityFlagTests`; `renamex_np` exchanged two folders in different parents; `--report-update-eligibility` on the Apple Development bundle: exit 0, not eligible (`notDeveloperID`), nothing created. |
+| The update notice in the app (PLAN.md Phase I-13c1, D39): the update machinery only in normal mode (`AppLaunchOptions.createsUpdateMachinery`; every preview, `--report-*` flag, self-test and `--remove-persistent-profiles` creates none); the popover's "muxFinder <version> is available" with What's new, for a strictly newer release only; the menu bar icon's dot and label until the popover shows the notice, back for a newer release; Settings › General's toggle, "Check for updates…" and status line. | Tested hermetically (a scripted transport, in-memory state and preferences, a manual clock) and in the preview renders (both appearances); the app shell and placement checks for real on private homes (no update state created). The real notice, dot and Settings line after a real check: owed to the user (checklist 31), since no run launches the app in normal mode (*Unattended-run rules* 3). | Phase I-13c1, 2026-11-07 (*Phase I-13c1* below): `UpdateModelTests` (the mode gate over 29 argument lists, the schedule, the toggle, the notice, the dot, the seen version, the status lines), `UpdateNoticeSeenTests`; `docs/screenshots/popover-states-*.png` and `settings-states-*.png` regenerated. |
+| The one-click update in the popover (PLAN.md Phases I-13c2a and I-13c2b, D39): Update when the copy is eligible and the release has an asset, else Download with "Can't update in place: <reason>"; "Downloading… 40%" with a bar and Cancel, "Checking the download…"; the ask before quitting with unsaved New session text or Settings edits ("Attached tmux sessions are not affected.", Quit and install, Not now, then Install and relaunch); "Installing…", "Relaunching…" and the quit once the relaunch is scheduled; "Couldn't update: <reason>" with the Release page link; editing refused during the install and a quit never cutting a swap in half; VoiceOver labels, and announcements only while the notice shows; the leftover cleanup at a normal launch. | Tested hermetically over a fake pipeline that records its calls (the pure mapping over every state and offer) and in the preview renders (both appearances). The real buttons and lines, and the real update end to end on a Developer ID build (the download, the checks, the ask, the swap, the quit, the relaunch through `open` with no Automation prompt again, sessions still attached, the old copy cleaned up): owed to the user (checklist 32 and 33), since no run downloads a release, swaps an installed app or runs `/usr/bin/open`. | Phases I-13c2a and I-13c2b, 2026-11-07 (*Phase I-13c2a* and *Phase I-13c2b* below): `UpdateFlowTests`, the mode test `onlyTheNormalLaunchCreatesUpdateMachinery`, `UpdateNoticeContentTests`, `UpdateNoticeViewTests`, `UpdateViewsReviewFixTests`; `docs/screenshots/popover-states-*.png` with the 13 update states. |
 
 ## Unit tests (`swift test`)
 
@@ -1496,6 +1499,22 @@ Hermetic (PLAN.md D11): no ssh, no iTerm2, never the user's tmux server.
   the pipeline's verdicts and cleanup, and the bundle's identity binding
   (`UpdateVerifierTests`); the probe's `update verify`
   arguments and JSON over fakes (`UpdateVerifyProbeTests`). See *Phase I-13b1* below.
+- **Update eligibility and install** (PLAN.md D39, Phase I-13b2; no request, no installed or
+  `build/` app swapped, never `/usr/bin/open`): the decision over facts and the reader on stubs
+  and this process (`UpdateEligibilityTests`); the update folder, its run folders and the
+  leftover cleanup with real child processes (`UpdateStagingRootTests`) and over an injected
+  process table (`UpdateProcessScanTests`); the swap, its checks and every rollback on stub
+  bundles in private folders (`UpdateSwapTests`); the relauncher with a stand-in opener
+  (`UpdateRelauncherTests`); the pipeline end to end on a stub installed app
+  (`UpdatePipelineTests`); old helpers' files (`UpdateOldHelperCompatibilityTests`); the flag
+  (`UpdateEligibilityFlagTests`, UI). See *Phase I-13b2* below.
+- **Update in the app** (PLAN.md D39, Phases I-13c1 to I-13c2b; UI suites, never a normal
+  launch): the mode gate, the schedule in the app, the toggle, the notice, the dot and the
+  status lines over a scripted transport and a manual clock (`UpdateModelTests`); the seen
+  version (`UpdateNoticeSeenTests`, core); the flow over a recording fake pipeline
+  (`UpdateFlowTests`); the notice's pure mapping over every state and offer
+  (`UpdateNoticeContentTests`), its buttons, VoiceOver and fit (`UpdateNoticeViewTests`,
+  `UpdateViewsReviewFixTests`). See *Phases I-13c1* to *I-13c2b* below.
 - **Install and uninstall scripts** (not `swift test`; `scripts/dev/test-install-scripts.sh`,
   PLAN.md D27): see *Phase 12a* below.
 
@@ -4174,3 +4193,53 @@ release), opened through the injected opener. `UpdateFlow` and the pure mapping 
 Download on an Apple Development build, Update with a real download and Cancel during it, a
 failure line with its Release page link, the ask with an unsaved New session draft and with
 unsaved Settings edits, Not now then Install and relaunch, and VoiceOver's announcements.
+
+### Phase I-13c3 — the update feature, the docs (2026-11-07)
+
+Documents only (PLAN.md Phase I-13, its I-13c3 calls): README's *Updates*, ARCHITECTURE's
+*Updates (D39)* with the `Update/` row and the decision index, the matrix rows above for I-13b2
+to I-13c2b and the "Unit tests" row, `docs/MANUAL-CHECKLIST.md` item 33 (the real update end
+to end), the release contract on `CLAUDE.md`'s release line and in D35, D35's history with
+0.3.0 (3), and D39's "Not yet". Every fact was taken from D39, D35, the code in
+`Sources/MuxFinderCore/Update/` and the update's model, flow and views, `scripts/release.sh`,
+`scripts/build-app.sh`, the probe's `--help` and read-only git (the `v0.3.0` tag). No file
+under `Sources/`, `Tests/`, `scripts/` or `Resources/` changed, so no gallery, bundle,
+self-test or real run was due. **No request was sent to any server**, the app was never
+launched, and nothing was published, installed or opened.
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build` | exit 0 |
+| Unit tests | `env -u TMUX_TMPDIR swift test`, three full runs | the third: exit 0, 1366 core tests in 152 suites and 604 UI tests in 61 suites, all passed (unchanged since I-13c2b's review fixes). The first failed only the known flaky `answersAndEndsAtEndOfInput` under load, the second only `aHeldLockMakesAChangeWaitThenGiveUp` (`busy` under load); each passed alone (`swift test --filter <name>`) |
+| Probe help | `swift run muxfinder-probe update --help` | usage only, exit 0, nothing contacted |
+| `v0.3.0` | `git log -1 --format=%cs v0.3.0`; `git branch -a --contains v0.3.0` | 2026-11-06; only `release/0.3.0` (and its remote), not `main`, whose `scripts/build-app.sh` still says 0.2.0 (2) |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+
+Three documents disagreed with the code and were corrected, the code winning: checklist item 31
+offered "the 0.1.0 build" as the older copy, and item 32 any older release copy, but releases up
+to 0.3.0 have no update check (both now ask for a copy with the update feature); and README's
+*Scope and limitations* said no download was published, while GitHub releases carrying
+`muxFinder.zip` are what the update reads (the specification's findings list `v0.1.0` and
+`v0.2.0` on GitHub). The calls' "an unchanged answer costs nothing" became, in the README, "an
+unchanged release comes back as a short 'not modified' with no body": the `ETag` round trip is
+the code's, while whether GitHub counts an anonymous 304 against its limit is GitHub's. The
+checklist's failure cases are a release without its asset (Download), a same-size asset with
+one byte changed after the last check (`UpdateFlow.update()` hands `prepare` the release the
+last check stored, so the download is held to that digest: "the download doesn't match the
+release's checksum"), and, for a second team's Developer ID, "the app is signed by another
+developer".
+
+#### Review fixes (2026-11-07)
+
+The review (Codex, ship with fixes) found two should-fix gaps, fixed in the documents. **The
+recovery promise:** the README said a failure after the swap puts the old copy back; in the
+code `UpdateBundleSwap.rollBack()` is an attempt that can end `failed` (the reverse exchange
+changed nothing: the new bundle stays installed while the old app runs on, "…, and the change
+couldn't be undone") or `recoveryRequired` (nothing renamed, the run folder marked and never
+cleaned up), and once the app has quit nothing watches the relauncher (a timeout or a failed
+`open` is reported to no one). README, ARCHITECTURE, the I-13b2 row and checklist 33 now say
+so, with the order the pipeline uses: the swap ("Installing…"), the relauncher started
+("Relaunching…"), then the quit. **The checksum failure:** the first version of item 33 said a
+digest mismatch could not be staged; it can, as step 5 now does (replace the asset after the
+last check, press Update with no check in between). `swift format lint -r Sources Tests`: exit
+0, no output. **Owed:** `docs/MANUAL-CHECKLIST.md` items 30–33, the user's.

@@ -69,12 +69,12 @@ file.
 | I-13c1 | Update UI, the notice: one pure mode gate (`createsUpdateMachinery`, normal launch only), scheduler wired (start, wake, toggle, manual check, stop), popover notice with "What's new", runtime dot in the template icon and its label, `markNoticeSeen` (publish after save), Settings › General "Updates" (toggle, button, status line), galleries and screenshots (D39 extended; I-13c split into c1/c2/c3) | high | opus (impl + review-fix worker); split, calls and verification by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13c1.md` | `docs/progress-archive/i-13c1.md` |
 | I-13c2a | Update UI, the update flow: `UpdateFlow` behind a pipeline seam (offer with eligibility per notice version, Update or Download, prepare with percent and Cancel, failure phrases, the ask before quitting over unsaved work, Not now / Install and relaunch, install, quit after `relaunchScheduled`, edits locked while installing, a quit never mid-swap), cleanup at launch in normal mode only; no visible change but the lock (D39 extended; I-13c2 split into c2a/c2b) | high | opus (impl + review-fix worker); split and calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13c2a.md` | `docs/progress-archive/i-13c2a.md` |
 | I-13c2b | Update UI, the update views: pure `UpdateNoticeContent` mapping, the notice per flow state (Update / Download with the reason, progress and Cancel, checking, the ask, Install and relaunch, installing, relaunching, failure with Release page), VoiceOver with announcements only while the notice shows, 13 gallery states, screenshots, checklist 32 (D39 extended) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-13c2b.md` | `docs/progress-archive/i-13c2b.md` |
+| I-13c3 | Update, the documents: README "Updates", ARCHITECTURE "Updates (D39)", TESTING rows and counts, checklist 33 (real update end to end, checksum mismatch, rollback as an attempt), the release contract on `CLAUDE.md` and in D35 (0.3.0 (3) in its history), D39's "Not yet" now only the user's runs; documents only | routine | opus (docs worker, resumed for the review fixes) | Codex, ship-with-fixes, `docs/reviews/phase-I-13c3.md` | `docs/progress-archive/i-13c3.md` |
 
 ### Queued
 
-| Phase | Title | Specification | Position |
-|---|---|---|---|
-| I-13c3 | Update UI, the documents (routine): README, ARCHITECTURE, TESTING summary, MANUAL-CHECKLIST real update end to end, release contract on `CLAUDE.md`'s release line and in D35, D39's last "Not yet" | `PLAN.md` *Phase I-13* "I-13c split"; D39; `autoclaude/processed/120-update-check-github.md` | next, last |
+None: I-13c3 was the plan's last queued phase. What remains is the user's
+(`docs/MANUAL-CHECKLIST.md`).
 
 **Inbox**: every triage through 2026-11-06 (items 40 to 120, item 99 deferred and then resolved
 by the user) is logged verbatim in `docs/progress-archive/inbox-log.md`. The standing note on
@@ -112,10 +112,11 @@ into I-13c1/I-13c2/I-13c3** (`PLAN.md` *Phase I-13* "I-13c split"); **I-13c1** (
 complete 2026-11-07 (`docs/progress-archive/i-13c1.md`). **I-13c2 is split into
 I-13c2a/I-13c2b** (`PLAN.md` "I-13c2 split"); **I-13c2a** (the update flow, model and wiring)
 complete 2026-11-07 (`docs/progress-archive/i-13c2a.md`); **I-13c2b** (the update views)
-complete 2026-11-07 (`docs/progress-archive/i-13c2b.md`), so **I-13c2 is complete**. **Next:
-I-13c3** (the documents; *Next action* 0), the last queued phase; it is not yet selected (no
-calls or criteria written). Also remaining:
-the manual checklist (the user's). Phase
+complete 2026-11-07 (`docs/progress-archive/i-13c2b.md`), so **I-13c2 is complete**.
+**I-13c3** (the documents, the last queued phase) complete 2026-11-07
+(`docs/progress-archive/i-13c3.md`; calls in `PLAN.md` *Phase I-13* "The orchestrator's calls
+for I-13c3"), so **I-13c and Phase I-13 are complete, and the plan has no queued phase**.
+Remaining: the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
 spike" and "Phase 13c real runs". Earlier splits: 6 into 6a/6b, 7 into 7a/7b, 9 into 9a/9b, 10
 into 10a/10b, 11 into 11a/11b/11c, 12 into 12a/12b, 13 into 13a/13b/13c, I-1 into I-1a/I-1b,
@@ -152,6 +153,22 @@ I-11a/I-11b, I-12 into I-12a–e.
   offer, views only through it, VoiceOver, 13 gallery states with both screenshots, D39 /
   TESTING / checklist 32, build, lint, 604 UI + 1366 core tests, bundle and `codesign`, report
   flags on private homes) — verbatim with evidence in `docs/progress-archive/i-13c2b.md`.
+- **Phase I-13c3: all criteria (a)–(f) met, 2026-11-07** (evidence in
+  `docs/progress-archive/i-13c3.md`). The criteria as written at selection: (a) `README.md` has an updates section
+  saying what the check sends (one anonymous `GET` to `api.github.com`, about daily and on
+  "Check for updates…"), when it never runs, how to turn it off, what Update does and when
+  Download shows instead; (b) `docs/ARCHITECTURE.md` places the check core, pipeline, flow,
+  views and the `createsUpdateMachinery` gate, names as the code spells them; (c)
+  `docs/TESTING.md`'s summary rows and "Unit tests" counts current (counts from this phase's
+  `swift test`); (d) `docs/MANUAL-CHECKLIST.md` item 33, the real update end to end on a
+  Developer ID build with `open` and no Automation prompt again, plus a failure case; (e) the
+  release contract stated on `CLAUDE.md`'s release line and in a D35 bullet, D35's history
+  with 0.3.0 (3) and the next build above 3, D39's "Not yet" rewritten to the user's real
+  runs only; (f) no file under `Sources/`, `Tests/`, `scripts/` or `Resources/` changed;
+  `swift build`, `swift format lint -r Sources Tests` and `env -u TMUX_TMPDIR swift test` exit
+  0; every fact checked against the code. **Deliverables:** `README.md`,
+  `docs/ARCHITECTURE.md`, `docs/TESTING.md`, `docs/MANUAL-CHECKLIST.md`, `CLAUDE.md`,
+  `PLAN.md` (D35, D39, *Phase I-13*).
 
 ## Decisions
 
@@ -187,6 +204,10 @@ I-11a/I-11b, I-12 into I-12a–e.
   (the calls read literally never showed "failed with Download"; recorded in D39, Codex found
   it sound); the worker's wording; announcements only while the notice shows (review fix) —
   `docs/progress-archive/i-13c2b.md`.
+- Phase I-13c3: the calls (`PLAN.md` *Phase I-13*); the worker corrected docs against the code
+  (checklist 31/32's older copy must have the update feature; the 304 "costs nothing" claim
+  softened; a failed reverse exchange is `rollBack()` `.failed`, not `recoveryRequired`) —
+  `docs/progress-archive/i-13c3.md`.
 
 ## Open risks / deviations
 
@@ -238,6 +259,11 @@ I-11a/I-11b, I-12 into I-12a–e.
   VoiceOver unheard. `answersAndEndsAtEndOfInput` (core, untouched) failed twice under load in
   full runs this phase, passed alone and in the next full run; the hidden-announcement tests
   wait 200 ms — `docs/progress-archive/i-13c2b.md`.
+- I-13c3 (**for the user**): checklist 33, the real update end to end (with the checksum
+  mismatch and rollback cases); the GitHub release is published by hand (no script creates
+  it) and the next release from `main` needs a build above 3 (D35). A new load flake,
+  `aHeldLockMakesAChangeWaitThenGiveUp`, failed once in a full run and passed alone —
+  `docs/progress-archive/i-13c3.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -289,26 +315,20 @@ I-11a/I-11b, I-12 into I-12a–e.
   `ship-with-fixes`, 0 blockers, 2 should-fix (announcements while the notice is hidden; What's
   new dead after a deferral once the offer is gone), both fixed by the review-fix worker with
   regressions failing on the old code — `docs/progress-archive/i-13c2b.md`.
+- Phase I-13c3: Codex (`autoclaude-review.sh`, 15 min) wrote `docs/reviews/phase-I-13c3.md`,
+  `ship-with-fixes`, 0 blockers, 2 should-fix (README's recovery promise too strong; checklist
+  33 called a checksum mismatch unstageable), both fixed by the resumed docs worker, lint
+  re-run exit 0 — `docs/progress-archive/i-13c3.md`.
 
 ## Next action
 
-0. **Phase I-13c3 (queued, routine): the update feature's documents** — the last queued
-   phase. Poll the inbox first, then select it: write the orchestrator's calls for I-13c3
-   under `PLAN.md` *Phase I-13* (after "The orchestrator's calls for I-13c2b", just before
-   "## Deferred"), its acceptance criteria and deliverables in this checkpoint, mark its row
-   `in_progress`, then spawn one docs worker. Scope (`PLAN.md` *Phase I-13* "I-13c split"):
-   README (what the check sends — one anonymous `GET` to `api.github.com` — how to turn it
-   off, what Update does and when it offers Download instead), `docs/ARCHITECTURE.md` (the
-   update check, pipeline and flow), `docs/TESTING.md`'s summary rows, `docs/MANUAL-CHECKLIST.md`
-   the real update end to end on a Developer ID build (and `open` with only `PATH`, no
-   Automation prompt again), the release contract on `CLAUDE.md`'s release line and in D35
-   (what a release must publish for the update to be installable: the zip asset and its
-   digest, the version and build rule), and D39's last "Not yet" line (PLAN.md ~5480). Read
-   D39 (`rg -n "^- \*\*D39" PLAN.md`) and the code for facts; documents only, no code change,
-   no real run beyond reading. Release numbering for the docs: `v0.3.0` (build 3) came from
-   `release/0.3.0`, so the next release from `main` needs a build above 3 (D35). After it
-   closes, the plan has no queued phase: confirm with `autoclaude-inbox.sh count` and the
-   plan, then `DONE`.
+0. **The plan is finished.** I-13c3, the last queued phase, closed 2026-11-07 with its
+   review (`docs/progress-archive/i-13c3.md`); no phase is queued or awaiting a review. A
+   fresh iteration (or the driver's `confirm-done` pass) re-checks the last three closed
+   phases (I-13c2a, I-13c2b, I-13c3) against the tree and tests (`swift build`, `swift
+   format lint -r Sources Tests`, `env -u TMUX_TMPDIR swift test`, `git status --short`) and
+   polls the inbox (`~/.claude/scripts/autoclaude-inbox.sh count`); a new inbox item becomes
+   the next phase.
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -350,10 +370,19 @@ I-11a/I-11b, I-12 into I-12a–e.
   `Views/UpdateViews.swift`, `UpdateFixtures.flowStates` / `UpdateFlowFixture`; tests
   `Tests/MuxFinderUITests/UpdateNoticeContentTests.swift`, `UpdateNoticeViewTests.swift`,
   `UpdateViewsReviewFixTests.swift`; checklist item 32.
+- The documents (I-13c3): README "Updates", `docs/ARCHITECTURE.md` "Updates (D39)",
+  `docs/TESTING.md` *Phase I-13c3*, `docs/MANUAL-CHECKLIST.md` item 33, the release
+  contract on `CLAUDE.md`'s release line and in D35.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/` (inbox log: `inbox-log.md`).
 
 ## Verification (latest; earlier phases' are in their archives)
 
+- Phase I-13c3 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0 (again after the review fixes); `env -u TMUX_TMPDIR swift
+  test`: 604 UI tests in 61 suites + 1366 core tests in 152 suites passed (the run before it:
+  one failure in "Folder search transport", the known load flake, which passed alone, 8/8);
+  `git diff --stat -- Sources Tests scripts Resources` empty (documents only) —
+  `docs/progress-archive/i-13c3.md`.
 - Phase I-13c2b (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
   lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test`: 604 UI tests in 61 suites +
   1366 core tests in 152 suites passed (the run before it: the flake `answersAndEndsAtEndOfInput`
@@ -383,4 +412,9 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phase I-13c2b: committed as "Phase I-13c2b: the update views" by the 07:37 iteration of a
   new run (deadline 13:36); the preflight file listed `PROGRESS.md` and `PROGRESS.json` as
   dirty at launch — the 07:06 iteration's own record-only note, not the user's, folded in as
-  planned. SHA and push result in the run's status line and the next checkpoint.
+  planned: `0d6339e`, then "Checkpoint: close I-13c2's summary row" `231882c`, both
+  pushed to `origin/main` (checked 2026-11-07 08:12).
+- Phase I-13c3: committed as "Phase I-13c3: the update documents" by the 08:11
+  iteration (deadline 14:11; the preflight file's `PROGRESS.md` and `PROGRESS.json` were
+  already committed in `231882c`, the tree clean at its start). SHA and push result in
+  the run's status line.

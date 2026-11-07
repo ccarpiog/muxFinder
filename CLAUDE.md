@@ -48,6 +48,14 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   staples, requires `spctl` "source=Notarized Developer ID" and writes `build/muxFinder.zip`.
   A Developer ID build makes macOS ask for the Automation permission again once. Version
   numbers follow PLAN.md D35 (build +1 every release; minor up for features, patch for fixes).
+  The in-app update (PLAN.md D39) installs a release only under D35's release contract: a
+  published GitHub release on `ccarpiog/muxFinder` (not a draft or prerelease; the one
+  GitHub shows as Latest), tagged exactly `v<CFBundleShortVersionString>`, its
+  `CFBundleVersion` above every earlier release's, with exactly one asset named
+  `muxFinder.zip`: that `build/muxFinder.zip` uploaded as is (GitHub gives its `sha256`
+  digest; at most 50 MiB), signed by the same Developer ID team and notarized. Without it,
+  copies are offered the release page only. No script creates the GitHub release; it is
+  published by hand, only when the user asks.
 - Publish to NonameDownloads, the private download site (only when the user asks): follow
   `~/Developer/Utils/NonameDownloads/docs/NONAMEDOWNLOADS.md`, with the app declared in
   `nonamedownloads.json`. Hand `nd publish` the `build/muxFinder.zip` that `scripts/release.sh`

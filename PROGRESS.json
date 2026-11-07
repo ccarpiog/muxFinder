@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T08:11:33Z",
+  "updated": "2026-11-07T08:43:45Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -900,12 +900,12 @@
     {
       "id": "I-13",
       "title": "Update check against GitHub releases",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
-      "summary": "Tells the user about a newer GitHub release and updates the app in one click after verifying it; split into I-13a, I-13b, I-13c.",
+      "summary": "Tells the user about a newer GitHub release and updates the app in one click after verifying it; split into I-13a, I-13b, I-13c, all done.",
       "added": "2026-11-06T13:03:57Z",
       "started": "2026-11-07T01:40:03Z",
-      "status_since": "2026-11-07T01:40:03Z"
+      "status_since": "2026-11-07T08:43:45Z"
     },
     {
       "id": "I-13a",
@@ -958,13 +958,13 @@
     {
       "id": "I-13c",
       "title": "Update check: the UI, wiring and docs",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
       "parent": "I-13",
-      "summary": "Update notice, icon dot, Settings controls, one-click update and docs; split into I-13c1 (the notice), I-13c2 (the one-click update) and I-13c3 (the documents).",
+      "summary": "Update notice, icon dot, Settings controls, one-click update and docs; split into I-13c1, I-13c2 and I-13c3, all done.",
       "added": "2026-11-07T01:39:59Z",
       "started": "2026-11-07T05:35:18Z",
-      "status_since": "2026-11-07T05:35:18Z"
+      "status_since": "2026-11-07T08:43:45Z"
     },
     {
       "id": "I-13c1",
@@ -1019,12 +1019,15 @@
     {
       "id": "I-13c3",
       "title": "Update UI: the documents",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
-      "summary": "README, ARCHITECTURE, TESTING and the manual checklist for the update feature, and the release contract in CLAUDE.md and D35.",
+      "summary": "Documents the update check and one-click update: README, architecture, testing, checklist 33 and the release contract.",
       "parent": "I-13c",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-13c3.md",
+      "narrative": "docs/progress-archive/i-13c3.md",
       "added": "2026-11-07T05:35:18Z",
-      "status_since": "2026-11-07T05:35:18Z"
+      "started": "2026-11-07T08:13:28Z",
+      "status_since": "2026-11-07T08:43:45Z"
     }
   ]
 }

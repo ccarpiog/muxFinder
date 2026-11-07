@@ -1,7 +1,7 @@
 # Architecture
 
 A short tour of how muxFinder is built. The full design, with the reasons and the verified
-facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D38); this page
+facts behind each choice, is in `PLAN.md` (*Architecture*, *Decisions* D1–D39); this page
 links there rather than repeating it.
 
 One SwiftPM package (Swift 6 language mode, macOS 14, arm64), no Xcode project and no
@@ -14,7 +14,7 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | `MuxFinderCore` (library) | All logic, no SwiftUI, fully unit-testable. |
 | ├ `Process/` | `ProcessRunner` over `posix_spawn` (argv only, own process group, hard timeouts, bounded output); `StreamingProcess`, a long-lived child with its standard input kept open and its output handed over as it arrives (D36). |
 | ├ `Shell/` | POSIX single-quoting for the one remote command string, input validation. |
-| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), the session switcher shortcut, the folder search scope and the terminal choice (`GlobalShortcut`, `PreferencesStore` on `preferences.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
+| ├ `Config/` | Host list (`HostConfig`, `HostList`, `HostStore` on `hosts.json`), New session's directories (`DirectoryLists`, `DirectoryStore` on `directories.json`), the session switcher shortcut, the folder search scope, the terminal choice and the update check toggle (`GlobalShortcut`, `PreferencesStore` on `preferences.json`), ssh config suggestions, private file storage (0700/0600, no ACLs, atomic renames). |
 | ├ `Tmux/` | tmux locator, the static discovery script and its parser (each client's terminal and creation time in a framed `tty` record, D38), session identity, error classification, session creation commands. |
 | ├ `FolderSearch/` | Folder search over Spotlight (D36): the static script, `FolderSearchText` (escaping and limits), `FolderSearchOutputParser`, the local and SSH transport and its fake, and the `FolderSearchChannel` actor. |
 | ├ `Refresh/` | `RefreshCoordinator` actor (concurrency limit, cadence, backoff, stale results dropped), `HostSnapshot`, sleep/wake and network events. |
@@ -24,15 +24,19 @@ third-party dependency. The `.app` bundle is assembled by `scripts/build-app.sh`
 | ├ `Terminals/` | The terminal backends (D38, below): the seam `TerminalBackend`, `ITerm2TerminalBackend`, `PlainTerminalBackend` and its tmux commands, the window layer `PlainTerminalWindows` with its AppleScript runner and spawner, terminal definitions and their loader, the terminal choice, the Automation permission read, local client attribution over the process table. |
 | ├ `E2EPlain/` | The `e2e-plain` real run's arguments, gate, steps and cleanup (`E2EPlainRun`), behind seams so they are tested hermetically. |
 | ├ `Profiles/` | Persistent profile generator, installer and remover, the hash snapshot of iTerm2's other profiles, the `e2e-profile` run. |
+| ├ `Update/` | The update check and the one-click update (D39, below): versions and the compiled-in source, the parser of GitHub's `releases/latest`, the check's and the download's `URLSession` transports, `update-state.json`, the `UpdateScheduler` actor; the install pipeline (`UpdatePipeline`: eligibility, the update folder, download, verification, swap, relauncher, leftover cleanup); the probe's `update check` and `update verify`. The app's only network code. |
 | ├ `Diagnostics/` | Operation log (ring buffer plus `os.Logger`); outcomes and timings, never terminal content. |
 | └ `Concurrency/` | Small helpers for awaited, cancellable tasks. |
-| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the New session window (`NewSessionWindow`, `NewSessionWindowController`, the folder drop's `FolderDrop` and `FolderDropView`), the Settings and onboarding windows, the terminal picker (`TerminalPickerModel`), the one source of per-terminal strings (`TerminalWording`), the persistent work commands (`PersistentWorkContent`), the attach state machine, preview fixtures, the self-test driver. |
+| `MuxFinderUI` (library) | `AppModel` and the popover's content and views, the menu bar item and popover panel (`MenuBarPopover`, `PopoverController`), the session switcher shortcut (`GlobalShortcutModel`, the Carbon `HotkeyRegistrar`, `GlobalShortcutLabel`, the recorder) and the session switcher panel (`SessionSwitcher`, `SwitcherController`, `SwitcherContent`, `SwitcherView`), the New session window (`NewSessionWindow`, `NewSessionWindowController`, the folder drop's `FolderDrop` and `FolderDropView`), the Settings and onboarding windows, the terminal picker (`TerminalPickerModel`), the one source of per-terminal strings (`TerminalWording`), the persistent work commands (`PersistentWorkContent`), the update's model, flow and notice (`UpdateModel`, `UpdateFlow`, `UpdateNoticeContent`, `UpdateNoticeView`, Settings' `UpdateSettingsSection`, the menu bar icon's dot), the attach state machine, preview fixtures, the self-test driver. |
 | `MuxFinderApp` (executable) | Entry point, the menu bar app's shell (a plain `NSApplication` with muxFinder's own main menu, `MainMenu`; no SwiftUI `App` or scene, D33) and app delegates only; reads the command-line modes. Bundled as `Contents/MacOS/muxFinder`. |
 | `muxfinder-launch` (executable) | The helper a terminal runs: in an iTerm2 launch tab `attach <id>`, in another terminal's window `attach-plain <id>`, in either `ssh-setup <id>`, and for persistent work `profile <host id>` (iTerm2) or `profile-plain <host id>`. Bundled next to the app. |
-| `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, folder search, iTerm2 queries, the terminal apps, definitions and local clients, single attaches (in any terminal) and detaches, the plain attach proof, the `e2e-*` real runs, host list and profile checks. Not bundled. |
+| `muxfinder-probe` (executable) | Developer CLI that drives the core without the GUI: discovery, folder search, iTerm2 queries, the terminal apps, definitions and local clients, single attaches (in any terminal) and detaches, the plain attach proof, the `e2e-*` real runs, host list and profile checks, the update check and the update's verification. Not bundled. |
 
 Tests: `Tests/MuxFinderCoreTests` and `Tests/MuxFinderUITests` (Swift Testing), hermetic: fakes
-for processes, clocks and iTerm2, no ssh, tmux only on private sockets (PLAN.md D11).
+for processes, clocks and iTerm2, no ssh, tmux only on private sockets (PLAN.md D11), no
+network (the update's `URLSession` transports only through a `URLProtocol` stub, the only
+protocol class on their sessions; the swap and the relauncher only on stub bundles in private
+folders).
 
 ## Data flow: discovery to popover
 
@@ -586,6 +590,14 @@ use a fake.
   closing a window), and closed only by `e2e-plain`'s cleanup, by recorded id, once their
   helper ended. With another terminal chosen, nothing contacts iTerm2 but the user's own
   "Detach (opened in iTerm2)".
+- The update (D39) is the only network code: anonymous `https` requests to `api.github.com`
+  and, after a click on Update, the asset's download from GitHub's download hosts, each with a
+  fixed allowlist for redirects, bounded sizes and nothing identifying. Nothing downloaded runs
+  or is installed before its SHA-256, shape, signature (identifier, Developer ID, the running
+  copy's team), notarization and versions pass; every step is bound to the device and inode it
+  checked, `ditto` and the relauncher get argv arrays (the relauncher's script a constant), and
+  the swap is one atomic exchange; a rollback is an attempt bound to both identities, which
+  renames nothing it cannot account for.
 
 ## Persistent profiles (D26)
 
@@ -601,17 +613,109 @@ opted-in host the command `exec '<helper>' 'profile-plain' '<host id>'` (D3's ex
 paste into that terminal's own settings, and `profile-plain` is `profile` without `-CC`;
 Install is refused then, Remove stays the user's.
 
+## Updates (D39)
+
+The app tells the user about a newer GitHub release and, from a Developer ID copy, installs it
+in one click. It is hand-written (no Sparkle, no dependency) over GitHub's API and the stapled
+`muxFinder.zip` that `scripts/release.sh` writes; what a release must be is D35's release
+contract.
+
+- **The one gate:** `AppLaunchOptions.createsUpdateMachinery` (a pure function of the options:
+  normal mode only, `--appearance` alone included) is the only input to
+  `AppEnvironment.production(checksForUpdates:)`, which alone builds an `UpdateEnvironment`
+  (`UpdateEnvironment.production(preferences:)`: the scheduler over
+  `URLSessionUpdateTransport` and `UpdateStateStore`, `PreferencesStore` for the toggle,
+  `NSWorkspace` for the opener and the wake notifications, and the flow's
+  `UpdateFlowEnvironment.production(shortVersion:)`). Building it sends, reads and writes
+  nothing. Every preview, `--report-*` flag, self-test and `--remove-persistent-profiles` gets
+  none, so its `UpdateModel` and `UpdateFlow` are inert (no request, state file, update folder
+  or cleanup); a test enumerates every mode.
+- **The check** (core, `Update/`): `UpdateSource` compiles in `ccarpiog/muxFinder`;
+  `UpdateCheckTransport.latestRelease(etag:)` asks `releases/latest`
+  (`URLSessionUpdateTransport`: one ephemeral session per request, only `Accept`, a constant
+  `Accept-Language`, `User-Agent: muxFinder/<version>` and `If-None-Match`, redirects only
+  within `api.github.com`, at most 1 MiB read, rate limits as `UpdateRateLimit`);
+  `UpdateReleaseParser` reads the answer into an `UpdateRelease` (an `UpdateVersion` tag,
+  exactly `v<major>.<minor>.<patch>`, its page, and the one `muxFinder.zip` asset with its
+  digest and size, else the asset's problem) and
+  `UpdateOffer` (`upToDate`, `newer` only for a strictly greater version, `nothingOffered`);
+  `UpdateCheck.apply` keeps the last 200 answer's release with its `ETag` (the 304 rule);
+  `UpdateStateStore` keeps `update-state.json` (a cache: a file it cannot use reads as never
+  checked). The `UpdateScheduler` actor, over an injected clock, runs the first automatic check
+  5 s after `start(automaticChecks:)`, then 24 h after a success, not within 1 h of an attempt
+  nor during a rate limit, none with the toggle off, and `checkNow()` always; it publishes
+  `UpdateCheckStatus` through `updates()` and records the version whose notice was seen
+  (`markNoticeSeen(_:)`).
+- **The pipeline** (core): `UpdatePipeline` in two calls, so the app can ask before quitting
+  between them. `prepare(_:transport:onState:)` reads eligibility again (`UpdateEligibility`
+  over `UpdateEligibilityReader`'s facts: the running copy's Developer ID signature and Team ID,
+  not translocated, an app folder of the user's that is writable and on the update folder's
+  volume), makes a run folder in the update folder (`UpdateStagingRoot`, `.standard` being
+  `~/Library/Application Support/muxFinder/update`; `UpdateRunFolder` under `update.lock`),
+  then runs `UpdateVerifier`: `UpdateDownloader` over `URLSessionUpdateDownloadTransport` (the
+  exact asset URL, redirects only to GitHub's three download hosts, the declared size, SHA-256
+  while streaming, Cancel), `UpdateArchiveCheck` before `ditto -x -k` (`UpdateExtractor`,
+  watched by `UpdateExpansionWatch`), `UpdateBundleShape` (one `muxFinder.app`, no link out),
+  `SecurityUpdateCodeChecker` (`UpdateCodeRequirement`: the identifier, Developer ID, the
+  running copy's team, `notarized`) and `UpdateBundleVersions` (the tag's version, a newer
+  build), its result bound to the checked bundle's identity (`UpdateVerifiedBundle`).
+  `install(_:onState:)` runs `UpdateBundleSwap` (both identities and the code check again,
+  then one `renamex_np` with `RENAME_SWAP` through `RenameSwapExchanger`, so the installed path
+  is never empty), then starts `DetachedUpdateRelauncher` (a static `/bin/sh` script, its
+  values as arguments, that waits for this process to end, at most 60 s, then runs
+  `/usr/bin/open` on the installed path once); only then does the flow quit the app. A failed
+  or unconfirmed exchange, or a relauncher that cannot start, leads to `rollBack()`, an
+  attempt bound to both identities (`UpdateRollback`): `notNeeded` or `rolledBack` (the old
+  bundle installed, the run folder removed), `failed` (the reverse exchange changed nothing:
+  the new bundle stays installed while the old app keeps running, its run folder left to the
+  cleanup; "…, and the change couldn't be undone"), or `recoveryRequired` (something else is
+  in one of the places: nothing renamed, the run folder marked `recovery-required` and never
+  cleaned up; "something else changed muxFinder during the update"). Once the app has quit,
+  nothing observes the relauncher: a timeout (exit 75) or a failed `open` is reported to no
+  one. At launch,
+  `UpdateStagingRoot.cleanLeftovers(processes:)` (`UpdateLeftoverCleanup`) deletes the run
+  folders that nothing locks, marks or runs from (`SystemUpdateProcessListing`), so an old
+  `muxfinder-launch` still running in a buried tab keeps the old bundle until a later launch.
+- **The flow** (UI, `UpdateFlow`, over the `UpdateFlowPipeline` seam: `SystemUpdateFlowPipeline`
+  in the app, each call off the main actor; a recording fake in tests): the offer
+  (`UpdateFlowOffer`: `reading`, `update`, or `download(reason:)` with the ineligibility's
+  phrase or "the release has no installable download"), prepare with Cancel, then
+  `UpdateFlowState`'s `downloading`, `checking`, `prepared`, `asking` (`UpdateUnsavedWork`
+  from `AppModel`: New session text, unsaved Settings edits), `deferred` (Not now),
+  `installing`, `relaunchScheduled` and `failed` (`UpdateFlowFailure`, "Couldn't update:
+  <reason>"); after `relaunchScheduled` it calls `NSApp.terminate(nil)`, so
+  `AppModel.shutdown()` runs. A quit never cuts a swap in half, editing is refused during the
+  install (`UpdateFlow.locksEditing`), and the leftover cleanup starts with the model.
+- **The model and the views** (UI): `UpdateModel`, owned by `AppModel` (started by
+  `AppModel.start()`, stopped by `shutdown()`), reads the toggle, starts the scheduler,
+  follows `updates()` and the Mac's wakes, and holds the flow. `UpdateNotice` turns the status
+  into the notice (a strictly newer release only), the dot and Settings' status lines;
+  `UpdateNoticeContent.make(release:offer:state:canUpdate:preparedRelease:)` is the one pure
+  mapping to the notice's lines, bar and buttons (`UpdateNoticeButton` with an
+  `UpdateNoticeAction`, run by `UpdateModel.perform(_:)`), drawn by `UpdateNoticeView` in the
+  popover (never the switcher). `UpdateSettingsSection` is Settings › General's "Updates";
+  `MenuBarIcon.image(_:withDot:)` draws the dot into the template image, which `MenuBarPopover`
+  follows with the button's accessibility label. The galleries use `UpdateFixture` and
+  `UpdateFlowFixture` (`UpdateFixtures`), with no scheduler or pipeline.
+
+`--report-update-eligibility` prints the running copy's eligibility facts, read-only;
+`muxfinder-probe update check` and `update verify` drive the check and the verification
+without the app (`UpdateProbe`, `UpdateVerifyProbe`).
+
 ## Packaging (D7, D27)
 
 `scripts/build-app.sh` builds release arm64, assembles the bundle (both executables in
 `Contents/MacOS/`, the built-in terminal definitions in `Contents/Resources/Terminals/`), and
 signs it with hardened runtime: the first "Apple Development" identity,
-or ad hoc; never notarized. `scripts/install.sh` and `scripts/uninstall.sh` copy, replace and
-remove it; they stop only the copy's own `muxFinder` process (SIGTERM, to the process whose
-executable, as the kernel reports it, has that file's inode; never a process that only maps
-it), delete only the folder they inspected (renamed aside, device and inode compared, else put
-back), and the uninstall removes the profile file through the app binary's
-`--remove-persistent-profiles`, so the ownership rule is the Swift one.
+or ad hoc (with `--release`, the first "Developer ID Application" identity and a secure
+timestamp); it never notarizes. `scripts/release.sh` (D28) notarizes and staples that
+Developer ID build and writes `build/muxFinder.zip`, the asset a GitHub release carries for
+the in-app update (D35's release contract). `scripts/install.sh` and `scripts/uninstall.sh`
+copy, replace and remove it; they stop only the copy's own `muxFinder` process (SIGTERM, to
+the process whose executable, as the kernel reports it, has that file's inode; never a
+process that only maps it), delete only the folder they inspected (renamed aside, device and
+inode compared, else put back), and the uninstall removes the profile file through the app
+binary's `--remove-persistent-profiles`, so the ownership rule is the Swift one.
 
 ## Decision index
 
@@ -643,3 +747,4 @@ All in `PLAN.md` *Decisions*:
 | | | D36 | Folder search over Spotlight |
 | | | D37 | Detach other clients |
 | | | D38 | Other terminal apps (plain mode) |
+| | | D39 | Update check and one-click update |

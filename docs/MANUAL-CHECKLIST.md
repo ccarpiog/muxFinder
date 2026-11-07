@@ -922,9 +922,10 @@ from GitHub.
 Owed by Phase I-13c1 (PLAN.md D39 *The notice (I-13c1)*): no unattended run launches the app
 in normal mode, since that sends the update check 5 s later (*Unattended-run rules* 3), so the
 notice, the dot and the Settings line were proven only over fakes and galleries. This item
-needs the network and an installed copy whose version is older than the latest published
-release (for example the 0.1.0 build, or a local build with `CFBundleShortVersionString` set
-lower); it sends anonymous requests to `api.github.com`.
+needs the network and an installed copy that has the update check (releases up to 0.3.0 have
+none) and whose version is older than the latest published release (for example a local build
+of the current tree with `CFBundleShortVersionString` set lower); it sends anonymous requests
+to `api.github.com`.
 
 - **Do:**
   1. Quit muxFinder, open the older copy normally (Finder or the login item), wait about
@@ -961,8 +962,9 @@ Owed by Phase I-13c2b (PLAN.md D39 *The update views (I-13c2b)*): no unattended 
 the app in normal mode, downloads a release or swaps an app, so the notice's buttons and lines
 were proven only over a fake pipeline and the popover gallery. This item needs the network
 (it sends anonymous requests to `api.github.com` and downloads the release's `muxFinder.zip`,
-about 6 MB, from GitHub) and two older copies: an Apple Development build (`scripts/build-app.sh`
-with `CFBundleShortVersionString` set lower than the latest published release) and a release
+about 6 MB, from GitHub) and two older copies that have the update feature (releases up to
+0.3.0 have none): an Apple Development build (`scripts/build-app.sh` with
+`CFBundleShortVersionString` set lower than the latest published release) and a release
 (Developer ID) copy older than the latest published release, installed in `/Applications`.
 Steps 6 and 7 install the newer release for real.
 
@@ -998,13 +1000,116 @@ Steps 6 and 7 install the newer release for real.
      again, now "Quitting to install loses unsaved changes in Settings.".
   6. With nothing unsaved, no ask: "Installing…", then "Relaunching…" (no **What's new**);
      muxFinder quits and the new version opens by itself; tmux sessions attached in iTerm2
-     stay attached. (The full end-to-end check of the real update is I-13c3's.)
+     stay attached. (The full end-to-end check of the real update is item 33.)
   7. VoiceOver says "Couldn't update: …" when the failure appears, and "muxFinder <latest> is
      ready to install. Quitting to install loses …" when the ask appears; each button is read
      with its action and the version ("Update to muxFinder <latest>", "Cancel the update to
      muxFinder <latest>"), the bar with its percent.
 - **Undo:** remove the Apple Development build; the release copy in `/Applications` is now the
   latest release (reinstall an older one only to repeat the item).
+
+## 33. The real update end to end (a Developer ID copy to the next release)
+
+Owed by Phases I-13b2 to I-13c3 (PLAN.md D39; the release contract in D35): no unattended run
+publishes a release, launches the app in normal mode, downloads from GitHub, swaps an
+installed app or runs `/usr/bin/open`, so the swap, the relaunch and the leftover cleanup ran
+only on stub bundles in private folders, with a stand-in for `open`. This item needs the
+network, publishes a GitHub release by hand (public: every copy that checks sees it), and
+replaces `/Applications/muxFinder.app`. It needs two notarized Developer ID builds of your
+team that both have the update feature (releases up to 0.3.0 have none), so its first real run
+is from the first release with the feature to the next one:
+
+- the **older** one installed in `/Applications`, allowed to control iTerm2 once (item 2);
+- the **newer** one: `scripts/build-app.sh`'s `CFBundleShortVersionString` and
+  `CFBundleVersion` raised as D35 says (the build above every earlier release's, so above 3
+  for the first release from `main`), then `scripts/release.sh`, which leaves
+  `build/muxFinder.zip`.
+
+- **Do:**
+  1. Publish the newer release on GitHub by hand (no script does it), as D35's release
+     contract says: tag `v<new version>`, not a draft or prerelease, but with no asset yet.
+  2. Quit muxFinder, then from a terminal `open /Applications/muxFinder.app`; wait about
+     10 s (if it checked within the last day, no check is due: click Settings › General ›
+     **Check for updates…**). Look at the menu bar icon, open the popover, click
+     **Download**.
+  3. Optionally, the other-team failure, if you have a Developer ID identity of another team:
+     attach to the release, as `muxFinder.zip`, a build of the same version and build signed
+     by that identity (for example `scripts/build-app.sh --release` with
+     `MUXFINDER_SIGN_IDENTITY` naming it, zipped with `ditto -c -k --keepParent` as
+     `scripts/release.sh` does). Click Settings › General › **Check for updates…**, then
+     **Update** in the popover and wait; click **Release page**; then
+     `ls ~/Library/Application\ Support/muxFinder/update/`. Delete that asset from the release.
+  4. Attach the newer release's `build/muxFinder.zip`, as is, to the release. Click **Check
+     for updates…** and open the popover again. From here until step 5 ends, let no other
+     check run: do not click **Check for updates…** again, do not quit muxFinder, do not let
+     the Mac sleep.
+  5. The checksum failure: Update downloads against the digest the last check stored, so a
+     changed asset with no check in between is caught. Make a copy of the same size with one
+     byte changed: `B=$(mktemp -d /private/tmp/mfx.XXXXXX)`, `cp build/muxFinder.zip
+     "$B/muxFinder.zip"`, `printf '\x00' | dd of="$B/muxFinder.zip" bs=1 seek=3000000
+     conv=notrunc`, then `cmp build/muxFinder.zip "$B/muxFinder.zip"`, which must report a
+     difference (if it prints nothing, run the `dd` again with `'\x01'`). On GitHub, delete
+     the release's `muxFinder.zip` and upload `$B/muxFinder.zip` in its place (the same
+     name). Click **Update** in the popover and wait; click **Release page**; then
+     `ls ~/Library/Application\ Support/muxFinder/update/`. Restore the release: delete that
+     asset, upload the original `build/muxFinder.zip` again, and `rm -r "$B"`.
+  6. Open a session in iTerm2 from the popover and leave it attached. Open New session, type a
+     name and leave the window open. Click **Update** in the popover and watch the notice.
+  7. At the ask, click **Quit and install**.
+  8. Once muxFinder is back, open the popover (and the session's row), then Settings ›
+     General. Run `plutil -extract CFBundleShortVersionString raw -o -
+     /Applications/muxFinder.app/Contents/Info.plist` and the same for `CFBundleVersion`,
+     `codesign --verify --deep --strict /Applications/muxFinder.app`, and
+     `ls ~/Library/Application\ Support/muxFinder/update/`.
+  9. Detach that session (Detach from this Mac) and wait until its launch tab has gone. Quit
+     muxFinder, `open /Applications/muxFinder.app` again, and list the `update` folder again.
+- **Expect:**
+  2. The icon shows the dot; the popover shows "muxFinder <new version> is available" with
+     **What's new**, "Can't update in place: the release has no installable download" and
+     **Download** (no **Update**), which opens the release page in the browser. Nothing is
+     downloaded.
+  3. **Update** (no reason line); after "Downloading… N%" and "Checking the download…", in
+     red "Couldn't update: the app is signed by another developer" with **Update** and the
+     **Release page** link, which opens the release page. muxFinder keeps running the older
+     version; the `update` folder holds no `run-…` folder (at most `update.lock`).
+  4. **Update**, with no reason line.
+  5. "Downloading… N%" (and, as the last byte arrives, briefly "Checking the download…"),
+     then in red "Couldn't update: the download doesn't match the release's checksum" with
+     **Update** and the **Release page** link, which opens the release page. Nothing is
+     installed and muxFinder keeps running the older version; the run folder holding the
+     download was removed, so the `update` folder holds no `run-…` folder (at most
+     `update.lock`). A check in between would have stored the new asset's digest (GitHub
+     computes it from the uploaded file), so the download would pass the checksum and fail
+     later instead; a copy of another size fails on its size first ("Couldn't update: the
+     download's size isn't the size the release lists").
+  6. "Downloading… N%" with a filling bar and **Cancel**, then "Checking the download…",
+     then "Quitting to install loses the New session draft." and "Attached tmux sessions are
+     not affected.", with **Quit and install** and **Not now**.
+  7. "Installing…" (the swap: the new version is put in place while muxFinder still runs),
+     then "Relaunching…" (the relauncher has started); muxFinder quits (the New session
+     window goes) and, within a few seconds (at most a minute: the relauncher waits for the
+     old process to end, then runs `/usr/bin/open` with only `PATH` in its environment), the
+     new version opens by itself from `/Applications`, with no dot and no onboarding. macOS
+     does not ask whether "muxFinder" may control "iTerm2" when the popover checks iTerm2 or
+     you open a session: the new copy has the same team and identifier as the old one. If
+     the new version has not opened after a minute, nothing reports it (the old copy has
+     quit and nothing watches the relauncher): record that as a failure of this item and open
+     `/Applications/muxFinder.app` by hand; the new version is already installed.
+  8. The popover shows no update notice, and the session from step 6 is still attached ("Open
+     in iTerm2 here", its iTerm2 windows and tabs as they were). Settings › General reads
+     "You're up to date (<new version> (<new build>))". `plutil` prints the new version and
+     build; `codesign` exits 0. The `update` folder holds `update.lock` and one `run-…` folder
+     (the old copy, kept while a helper of the old copy still runs from it: step 6's launch
+     tab, and any persistent work tab opened before the update); with none, only
+     `update.lock`.
+  9. After the relaunch the `update` folder holds only `update.lock`: the launch's cleanup
+     removed the old copy once nothing ran from it (a persistent work tab opened before the
+     update and still attached keeps it until a later launch). Hosts, settings and an installed
+     persistent profile file are as before (the profile's helper path is the same installed
+     path).
+- **Undo:** the installed copy is now the newer release; keep it. To repeat the item,
+  reinstall an older release copy. Remove by hand any test asset or release you do not want to
+  keep on GitHub.
 
 ## Results
 
@@ -1042,3 +1147,4 @@ Steps 6 and 7 install the newer release for real.
 | 30 | | | |
 | 31 | | | |
 | 32 | | | |
+| 33 | | | |
