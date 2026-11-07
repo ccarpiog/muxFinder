@@ -9343,6 +9343,55 @@ The orchestrator's calls for I-13c2a, made before its worker (2026-11-07):
   promise changes (cleanup at launch is the normal launch's only). Views, galleries,
   screenshots and the checklist item wait for I-13c2b; README and ARCHITECTURE for I-13c3.
 
+The orchestrator's calls for I-13c2b, made before its worker (2026-11-07):
+
+- **Where.** The notice in `Sources/MuxFinderUI/Views/UpdateViews.swift`, synthetic states in
+  `Sources/MuxFinderUI/Preview/UpdateFixtures.swift` and the `popover` gallery; tests in
+  `Tests/MuxFinderUITests/`. `UpdateFlow`'s behaviour is I-13c2a's and does not change; view
+  seams only (for example a way to show a fixture state without a pipeline). No dependency.
+- **One pure mapping.** The notice renders a value built by one pure, tested function of the
+  shown release, `UpdateFlow.offer` and `UpdateFlow.state` (the worker's naming, for example
+  `UpdateNoticeContent`): the lines, which buttons show and which are enabled. The views and
+  the galleries both go through it, and a test covers every state and offer.
+- **The notice per state** (popover only; the switcher shows no notice, as in I-13c1). The
+  line "muxFinder <version> is available" and **What's new** stay wherever the notice shows,
+  except while installing or relaunching. Offer `reading`: no Update or Download. Idle with
+  `update`: **Update** (calls `update()`). Idle with `download(reason:)`: **Download** (calls
+  `download()`, which opens the release page) and the reason on a secondary line (sentence
+  case, the worker's wording around the flow's phrase). `downloading`: "Downloading… 40%"
+  (`UpdateFlowText.downloading`, no percent without a total) with a determinate bar when the
+  total is known, and **Cancel** (`cancel()`). `checking`: "Checking the download…" with
+  **Cancel**. `prepared` (transient): its line, no button. `asking(items)`: a line naming what
+  is unsaved from `items`, then "Attached tmux sessions are not affected.", with **Quit and
+  install** (`quitAndInstall()`) and **Not now** (`notNow()`). `deferred`: "muxFinder <version>
+  is ready to install" with **Install and relaunch** (`installAndRelaunch()`). `installing`:
+  "Installing…", no button. `relaunchScheduled`: "Relaunching…", no button. `failed`: the
+  failure's `phrase` ("Couldn't update: <reason>"), a **Release page** link (the release's
+  `html_url` through the injected opener) and Update again (or Download, when the offer
+  turned into one), only while `canUpdate`. No path, URL or header in any line.
+- **Fit.** The notice stays compact inside the popover's height limit (D30,
+  `PopoverHeightLimit`); long reasons and unsaved-work lists wrap, never truncate the buttons.
+- **VoiceOver.** Every line read as text; each button labelled with its action and the
+  version where one applies; the download's percent as the bar's value; a failure and the
+  ask announced when they appear.
+- **Galleries and screenshots.** `popover` gallery states from synthetic `UpdateFixture`
+  values (no pipeline, no scheduler): reading, Update, Download with a reason, downloading
+  with 40% and with no total, checking, the ask with one item and with two, deferred,
+  installing, relaunching, failed with Update again and failed with Download.
+  `docs/screenshots/popover-states-{light,dark}.png` regenerated with `--preview-snapshot`.
+- **What may run for real in I-13c2b.** As I-13c2a's: `swift build`, `swift test`, lint,
+  `scripts/build-app.sh` with `codesign --verify`, the preview galleries, and
+  `--report-menu-bar-item` / `--report-popover-placement` with `CFFIXED_USER_HOME=$(mktemp
+  -d)` (each private home still without `update-state.json` or an `update` folder). Never a
+  normal launch, `open`, a real swap, `scripts/release.sh`, `install.sh` or a request to any
+  server.
+- **Docs in this phase.** D39 extended ("The update views (I-13c2b)") and its "Not yet" line
+  edited; `docs/TESTING.md` a Phase I-13c2b section; `docs/MANUAL-CHECKLIST.md` a new item 32
+  for the real buttons and lines (Download on an Apple Development build, Update, Cancel
+  during a real download, a failure line with its release page link, the ask with an unsaved
+  New session draft and with unsaved Settings edits, Not now then Install and relaunch).
+  The real update end to end, README, ARCHITECTURE and the release contract are I-13c3's.
+
 ## Deferred (explicitly out of scope for v1)
 
 Named tmux sockets, session deletion, cloud sync, terminal previews, AI features, process

@@ -83,7 +83,8 @@ sends a request to any server; the real GETs are the user's). 2026-11-07 01:37 (
 I-13a's iteration): `list` empty. 2026-11-07 02:27 (start of I-13b1's iteration): `list`
 empty. 2026-11-07 03:45 (start of I-13b2's iteration): `list` empty. 2026-11-07 05:33 (start
 of I-13c1's iteration): `list` empty. 2026-11-07 06:17 (start of I-13c2a's iteration): `list`
-empty. 2026-11-07 06:56 (the run's last iteration, no phase): `list` empty.
+empty. 2026-11-07 06:56 (record only, no phase): `list` empty. 2026-11-07 06:59 (I-13c2b's
+calls only): `list` empty.
 
 ## Current phase
 
@@ -109,10 +110,13 @@ into I-13c1/I-13c2/I-13c3** (`PLAN.md` *Phase I-13* "I-13c split"); **I-13c1** (
 complete 2026-11-07 (`docs/progress-archive/i-13c1.md`). **I-13c2 is split into
 I-13c2a/I-13c2b** (`PLAN.md` "I-13c2 split"); **I-13c2a** (the update flow, model and wiring)
 complete 2026-11-07 (`docs/progress-archive/i-13c2a.md`). **Next: I-13c2b** (the update
-views; *Next action* 0), then I-13c3 (the documents), the last queued phase. I-13c2b has not
-been started: no worker, no `PLAN.md` calls and no in-progress row (the 2026-11-07 06:56
-iteration began 26 min before the run's 24 h cap, too short for a phase; it only moved the
-I-13 head lines to `docs/progress-archive/head-i-13a-i-13c2a.md`).
+views; *Next action* 0), then I-13c3 (the documents), the last queued phase. **I-13c2b is
+selected and its calls are written** (`PLAN.md` *Phase I-13* "The orchestrator's calls for
+I-13c2b", 2026-11-07 07:01), but **no worker has run and no code changed**: the 2026-11-07
+06:59 iteration began 24 min before the run's 24 h cap, too short for a worker, verification
+and review, so it stopped after the calls. Its row is `in_progress` ("calls written, no
+worker yet"). The 06:56 iteration before it moved the I-13 head lines to
+`docs/progress-archive/head-i-13a-i-13c2a.md`.
 Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
@@ -302,11 +306,13 @@ I-11a/I-11b, I-12 into I-12a–e.
 
 ## Next action
 
-0. **Phase I-13c2b (queued, routine): the update views.** Poll the inbox first. Read
-   `PLAN.md` *Phase I-13* ("The run rule", "I-13c2 split", the calls for I-13c1 and I-13c2a),
-   D39's "The notice (I-13c1)", "The update flow (I-13c2a)" and "Not yet" parts, and the
-   specification `autoclaude/processed/120-update-check-github.md` (*UI*). Write "The
-   orchestrator's calls for I-13c2b" in `PLAN.md` before the worker: render
+0. **Phase I-13c2b (in progress, routine; calls written, no worker yet): the update views.**
+   Poll the inbox first. The calls are already in `PLAN.md` *Phase I-13* ("The orchestrator's
+   calls for I-13c2b"): re-read them with D39's "The notice (I-13c1)", "The update flow
+   (I-13c2a)" and "Not yet" parts and the specification
+   `autoclaude/processed/120-update-check-github.md` (*UI*), adjust them only if the code
+   shows one is wrong (recording why), then write the acceptance criteria and spawn the
+   worker. In short, render
    `UpdateModel.flow` (`Sources/MuxFinderUI/Model/UpdateFlow.swift`) in the popover notice
    (`Views/UpdateViews.swift`): **Update** or **Download** with the reason's phrase,
    "Downloading… 40%" (no percent without a total) with **Cancel**, "Checking the
@@ -387,3 +393,7 @@ I-11a/I-11b, I-12 into I-12a–e.
   deadline is the run's 24 h cap, so no later iteration of this run would pick up an
   uncommitted checkpoint, and a new run would count it among the user's dirty paths. SHA and
   push result in the run's status line.
+- 2026-11-07 06:59 iteration (I-13c2b's calls only, no code): the tree was clean at start
+  (empty preflight file). It commits `PLAN.md`'s calls with this checkpoint and
+  `PROGRESS.json` as "Plan: …", for the same reason as above (the run's 24 h cap is this
+  iteration's deadline). SHA and push result in the run's status line.

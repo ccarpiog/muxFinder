@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T06:59:08Z",
+  "updated": "2026-11-07T07:01:20Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -1006,12 +1006,13 @@
     {
       "id": "I-13c2b",
       "title": "Update UI, the update views",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "routine",
       "parent": "I-13c2",
-      "summary": "Shows the update flow in the popover notice: buttons, progress, failure line, the ask, VoiceOver, galleries and screenshots.",
+      "summary": "Calls for the update views are written in the plan; no worker has run and no code has changed yet.",
       "added": "2026-11-07T06:19:09Z",
-      "status_since": "2026-11-07T06:19:09Z"
+      "started": "2026-11-07T07:01:20Z",
+      "status_since": "2026-11-07T07:01:20Z"
     },
     {
       "id": "I-13c3",
