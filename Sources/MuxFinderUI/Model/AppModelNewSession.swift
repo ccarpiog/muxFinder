@@ -26,6 +26,25 @@ extension AppModel {
   /// Whether the New session window shows (PLAN.md D34).
   public var isNewSessionShown: Bool { newSessionWindow.isShown }
 
+  /// What quitting would lose, for the update flow's ask (PLAN.md D39 *The update flow
+  /// (I-13c2a)*): a New session window whose draft has text (name or directory), and Settings'
+  /// unsaved edits (the host editor's draft, `SettingsModel.isDirty`, or the directory list's,
+  /// `isDirectoryListDirty`). Attached tmux sessions are never part of it.
+  func unsavedWorkForUpdate() -> UpdateUnsavedWork {
+    let hasText: (String) -> Bool = { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    let draft =
+      isNewSessionShown && (hasText(newSessionDraft.name) || hasText(newSessionDraft.directory))
+    return UpdateUnsavedWork(
+      newSessionDraft: draft,
+      settingsEdits: settings.isDirty || settings.isDirectoryListDirty)
+  }
+
+  /// Whether an update is being installed (PLAN.md D39 *The update flow (I-13c2a)*): from the
+  /// final unsaved-work decision through the install and the quit, the New session draft's
+  /// fields and Settings' host editor and directory list refuse changes, and no New session
+  /// window opens; `false` again when the install fails.
+  public var isInstallingUpdate: Bool { update.flow.locksEditing }
+
   /// "New session" in the popover (⌘N, the footer's button): opens the New session window
   /// placed from the popover's frame, or brings it forward (`openNewSession(from:source:
   /// prefill:)`), and closes the popover. Does nothing for a fixture or after `shutdown()`.
@@ -47,7 +66,7 @@ extension AppModel {
   func openNewSession(
     from origin: NewSessionOrigin, source: NewSessionWindowSource?, prefill: String?
   ) {
-    guard environment != nil, lifecycle != .stopped else { return }
+    guard environment != nil, lifecycle != .stopped, !isInstallingUpdate else { return }
     if !isNewSessionShown {
       if creation == nil {
         let hosts = newSessionHosts

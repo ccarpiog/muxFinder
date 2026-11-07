@@ -67,12 +67,13 @@ file.
 | I-13b1 | Install pipeline, download and verification: download with redirect allowlist, exact size and streaming SHA-256, zip pre-check before `ditto` and a watchdog during it, shape walk, Security.framework check (Developer ID, Team ID, `notarized` proven on the stapled 0.2.0 bundle), versions through the checked bundle, result bound to its device and inode, probe `update verify` real in zip mode (D39 extended; I-13b split into b1/b2) | high | opus (impl + review-fix worker); split, calls and one real zip-mode run by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13b1.md` | `docs/progress-archive/i-13b1.md` |
 | I-13b2 | Install pipeline, eligibility and install: eligibility from the running app's own signature (typed reasons), staging root `…/muxFinder/update/` with locked run folders, `RENAME_SWAP` bound by device and inode with re-check and both-identity rollback (`recoveryRequired`), detached relauncher (constant script), lock-first cleanup over a complete process scan, old helpers compatible, prepare/install/discard pipeline, `--report-update-eligibility` (D39 extended) | high | opus (impl + review-fix worker); calls and old-source copies by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13b2.md` | `docs/progress-archive/i-13b2.md` |
 | I-13c1 | Update UI, the notice: one pure mode gate (`createsUpdateMachinery`, normal launch only), scheduler wired (start, wake, toggle, manual check, stop), popover notice with "What's new", runtime dot in the template icon and its label, `markNoticeSeen` (publish after save), Settings › General "Updates" (toggle, button, status line), galleries and screenshots (D39 extended; I-13c split into c1/c2/c3) | high | opus (impl + review-fix worker); split, calls and verification by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13c1.md` | `docs/progress-archive/i-13c1.md` |
+| I-13c2a | Update UI, the update flow: `UpdateFlow` behind a pipeline seam (offer with eligibility per notice version, Update or Download, prepare with percent and Cancel, failure phrases, the ask before quitting over unsaved work, Not now / Install and relaunch, install, quit after `relaunchScheduled`, edits locked while installing, a quit never mid-swap), cleanup at launch in normal mode only; no visible change but the lock (D39 extended; I-13c2 split into c2a/c2b) | high | opus (impl + review-fix worker); split and calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13c2a.md` | `docs/progress-archive/i-13c2a.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-13c2 | Update UI, the one-click update (high): Update or Download with the eligibility reason, prepare with progress and Cancel, failure line, the ask before quitting, install, quit after `relaunchScheduled`, leftover cleanup at launch (normal mode only), galleries | `PLAN.md` *Phase I-13* "I-13c split"; `autoclaude/processed/120-update-check-github.md` | next |
+| I-13c2b | Update UI, the update views (routine): the notice's Update / Download with the reason, "Downloading… 40%" with Cancel, "Checking the download…", "Installing…", "Couldn't update: <reason>" with the release page, the ask (attached tmux sessions not affected), Install and relaunch, VoiceOver, popover gallery states for every flow state, screenshots, checklist item | `PLAN.md` *Phase I-13* "I-13c2 split"; D39 "The update flow (I-13c2a)"; `autoclaude/processed/120-update-check-github.md` (*UI*) | next |
 | I-13c3 | Update UI, the documents (routine): README, ARCHITECTURE, TESTING summary, MANUAL-CHECKLIST real update end to end, release contract on `CLAUDE.md`'s release line and in D35, D39's last "Not yet" | same | last |
 
 **Inbox**: every triage through 2026-11-06 (items 40 to 120, item 99 deferred and then resolved
@@ -81,7 +82,8 @@ GitHub requests was settled at I-13's selection (`PLAN.md` *Phase I-13* "The run
 sends a request to any server; the real GETs are the user's). 2026-11-07 01:37 (start of
 I-13a's iteration): `list` empty. 2026-11-07 02:27 (start of I-13b1's iteration): `list`
 empty. 2026-11-07 03:45 (start of I-13b2's iteration): `list` empty. 2026-11-07 05:33 (start
-of I-13c1's iteration): `list` empty.
+of I-13c1's iteration): `list` empty. 2026-11-07 06:17 (start of I-13c2a's iteration): `list`
+empty.
 
 ## Current phase
 
@@ -104,8 +106,10 @@ core) complete 2026-11-07 (`docs/progress-archive/i-13a.md`). **I-13b is split i
 I-13b1/I-13b2**; **I-13b1** (download and verification) and **I-13b2** (eligibility and
 install) complete 2026-11-07 (`docs/progress-archive/{i-13b1,i-13b2}.md`). **I-13c is split
 into I-13c1/I-13c2/I-13c3** (`PLAN.md` *Phase I-13* "I-13c split"); **I-13c1** (the notice)
-complete 2026-11-07 (`docs/progress-archive/i-13c1.md`). **Next: I-13c2** (the one-click
-update; *Next action* 0), then I-13c3 (the documents), the last queued phase.
+complete 2026-11-07 (`docs/progress-archive/i-13c1.md`). **I-13c2 is split into
+I-13c2a/I-13c2b** (`PLAN.md` "I-13c2 split"); **I-13c2a** (the update flow, model and wiring)
+complete 2026-11-07 (`docs/progress-archive/i-13c2a.md`). **Next: I-13c2b** (the update
+views; *Next action* 0), then I-13c3 (the documents), the last queued phase.
 Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
@@ -161,6 +165,10 @@ I-11a/I-11b, I-12 into I-12a–e.
   screenshots, D39 / `CLAUDE.md` / TESTING / checklist 31; 567 UI + 1365 core tests; no
   normal launch, no request, no update state in any private home or the real support folder
   — `docs/progress-archive/i-13c1.md`.
+- Phase I-13c2a: all 5 criteria met, 2026-11-07 — the flow's states and transitions tested
+  over a fake pipeline (`UpdateFlowTests`), cleanup and pipeline in normal mode only (the
+  mode test), no visible change but the edit lock, 587 UI + 1366 core tests, no `update`
+  folder in the real support folder — `docs/progress-archive/i-13c2a.md`.
 
 ## Decisions
 
@@ -213,6 +221,16 @@ I-11a/I-11b, I-12 into I-12a–e.
   the seen version through a scheduler method; no Update button before c2). Workers' calls
   (Settings section hidden without machinery, seen only from the main view, serialized state
   saves, ordered toggle saves) in D39 and `docs/progress-archive/i-13c1.md`.
+- Phase I-13c2 (at selection, 2026-11-07): split into I-13c2a (the flow, model and wiring,
+  high) and I-13c2b (the views, routine), with "The orchestrator's calls for I-13c2a" in
+  `PLAN.md` *Phase I-13* (eligibility per notice version off the main actor; Download for
+  every not-eligible reason and no asset; the ask over injected unsaved work with Not now
+  keeping the prepared update; quit through an injected terminator only after
+  `relaunchScheduled`; cleanup at launch only through `createsUpdateMachinery`, never
+  creating the root). Review-fix calls: a quit before the swap aborts at a pre-swap
+  checkpoint, after it waits for the swap and any rollback; edits locked at the model layer
+  from the final unsaved-work decision through termination (the one view change in c2a).
+  Workers' calls in D39 and `docs/progress-archive/i-13c2a.md`.
 
 ## Open risks / deviations
 
@@ -273,6 +291,11 @@ I-11a/I-11b, I-12 into I-12a–e.
   tests only. The notice's gallery state scrolls the host list (440 pt limit). The
   implementation worker ran one read-only `git status`, against its brief —
   `docs/progress-archive/i-13c1.md`.
+- I-13c2a: the regressions for review findings 2 (edits during install) and 4 (notice during
+  prepare) pass but were not run against the old code; a quit during the install's pre-swap
+  code check waits for that local check with no deadline; Settings' Save is refused too while
+  an update installs; no real update ran (I-13c3's checklist) —
+  `docs/progress-archive/i-13c2a.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -346,28 +369,36 @@ I-11a/I-11b, I-12 into I-12a–e.
   start wins and toggle saves run in order; serialized state saves, publish after success),
   each regression failing with its fix reverted, re-verified by the orchestrator —
   `docs/reviews/phase-I-13c1.md`, summary in `docs/progress-archive/i-13c1.md`.
+- Phase I-13c2a: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 2
+  blockers + 2 should-fix (a quit timeout abandoned the installer; edits during install were
+  discarded; a cleared notice could not restore the same version's action; notice changes
+  during prepare were dropped); all four fixed by a review-fix worker (pre-swap cancellation
+  and a quit that waits for the swap; the edit lock; eligibility cached per version; the
+  latest notice kept and `preparedRelease`), regressions for 1 and 3 failing with their fix
+  reverted, 2 and 4 unconfirmed; re-verified by the orchestrator —
+  `docs/reviews/phase-I-13c2a.md`, summary in `docs/progress-archive/i-13c2a.md`.
 
 ## Next action
 
-0. **Phase I-13c2 (queued, high): the one-click update.** Poll the inbox first. Read
-   `PLAN.md` *Phase I-13* ("The run rule", "I-13c split", the calls for I-13b2 and I-13c1),
-   D39's "Eligibility and install (I-13b2)", "The notice (I-13c1)" and "Not yet" parts, and
-   the specification `autoclaude/processed/120-update-check-github.md` (*Update*, *UI*).
-   Write "The orchestrator's calls for I-13c2" in `PLAN.md` before the worker: the notice
-   gains **Update** when the offer has an installable asset and eligibility (I-13b2's
-   `UpdateEligibility`, read when the notice shows) says eligible, else **Download** (opens the
-   release page through the injected opener) with the reason's short phrase; Update runs
-   `UpdatePipeline` prepare ("Downloading… 40%" with Cancel, "Checking the download…"), then
-   the ask before quitting when a New session window has text or Settings has unsaved edits
-   (the notice may say attached tmux sessions are not affected), then install
-   ("Installing…"), then quit normally after `relaunchScheduled` (the relauncher's opener
-   `/usr/bin/open` and the installed path only in the real app); a failure shows "Couldn't
-   update: <reason>" with the release page; leftover cleanup at launch in normal mode only
-   (through I-13c1's gate, `createsUpdateMachinery`); new popover gallery states for every
-   update state; screenshots regenerated. Real runs allowed as in I-13c1's calls; never
+0. **Phase I-13c2b (queued, routine): the update views.** Poll the inbox first. Read
+   `PLAN.md` *Phase I-13* ("The run rule", "I-13c2 split", the calls for I-13c1 and I-13c2a),
+   D39's "The notice (I-13c1)", "The update flow (I-13c2a)" and "Not yet" parts, and the
+   specification `autoclaude/processed/120-update-check-github.md` (*UI*). Write "The
+   orchestrator's calls for I-13c2b" in `PLAN.md` before the worker: render
+   `UpdateModel.flow` (`Sources/MuxFinderUI/Model/UpdateFlow.swift`) in the popover notice
+   (`Views/UpdateViews.swift`): **Update** or **Download** with the reason's phrase,
+   "Downloading… 40%" (no percent without a total) with **Cancel**, "Checking the
+   download…", "Installing…", "Couldn't update: <reason>" with the release page link and
+   Update again, the ask naming what is unsaved with "Attached tmux sessions are not
+   affected", **Quit and install** / **Not now**, then **Install and relaunch**; VoiceOver
+   labels for every line and button; synthetic `UpdateFixture` states for each in the
+   `popover` gallery (no pipeline); `docs/screenshots/popover-states-{light,dark}.png`
+   regenerated with `--preview-snapshot`; `docs/MANUAL-CHECKLIST.md` gains the real Update,
+   Download, Cancel, failure line and the ask; D39 and TESTING a Phase I-13c2b part. Real
+   runs as in I-13c1's calls (galleries, the report flags on private homes); never
    `/usr/bin/open`, a real swap, `scripts/release.sh`, `install.sh`, a normal launch or a
-   request to any server; the pipeline only over fakes, stub bundles and private folders.
-   Then **I-13c3** (routine, the documents; `PLAN.md` "I-13c split"). Release numbering:
+   request to any server. Then **I-13c3** (routine, the documents; `PLAN.md` "I-13c split"),
+   which also owes the real update end to end in the checklist. Release numbering:
    `v0.3.0` (build 3) came from `release/0.3.0`, so the next release from `main` needs a
    build above 3 (D35).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
@@ -411,18 +442,22 @@ I-11a/I-11b, I-12 into I-12a–e.
   the gate `AppLaunchOptions.createsUpdateMachinery` and `AppEnvironment.update`, the dot in
   `Views/MenuBarIcon.swift`, `UpdateScheduler.markNoticeSeen(_:)`; tests
   `Tests/MuxFinderUITests/UpdateModelTests.swift`, `Tests/MuxFinderCoreTests/UpdateNoticeSeenTests.swift`.
+- The update flow (I-13c2a, D39): `Sources/MuxFinderUI/Model/UpdateFlow.swift` (`UpdateFlow`,
+  `UpdateFlowPipeline`; `UpdateModel.flow`), the unsaved-work source and edit lock in
+  `AppModel.swift`, `AppModelNewSession.swift`, `SettingsModel.swift`,
+  `SettingsModelDirectories.swift`, the quit wait in `Sources/MuxFinderApp/AppDelegate.swift`,
+  pre-swap cancellation in `Sources/MuxFinderCore/Update/UpdateSwap.swift`; tests
+  `Tests/MuxFinderUITests/UpdateFlowTests.swift`, `UpdateSwapTests`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/` (inbox log: `inbox-log.md`).
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-13c1 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test` exit 0: 567 UI tests in 57
-  suites + 1365 core tests in 152 suites passed; `scripts/build-app.sh` exit 0 and
-  `codesign --verify --deep --strict build/muxFinder.app` exit 0;
-  `--report-popover-placement` on a private `CFFIXED_USER_HOME` exit 0 (after-fix check
-  passed), the home left empty and removed; no `update-state.json` or `update` folder in the
-  real support folder — `docs/progress-archive/i-13c1.md`.
-- Phases 1–I-13b2: each phase's final-tree verification is in
+- Phase I-13c2a (final tree, orchestrator, 2026-11-07): `swift build` exit 0 (no warnings);
+  `swift format lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test`: 587 UI tests
+  in 58 suites + 1366 core tests in 152 suites passed; `scripts/build-app.sh` exit 0 and
+  `codesign --verify --deep --strict build/muxFinder.app` exit 0; the real support folder
+  unchanged, no `update` folder — `docs/progress-archive/i-13c2a.md`.
+- Phases 1–I-13c1: each phase's final-tree verification is in
   `docs/progress-archive/<phase>.md`.
 
 ## Git state
@@ -432,6 +467,7 @@ I-11a/I-11b, I-12 into I-12a–e.
   carry no AI attribution trailer (the user's global rule).
 - Phase I-13a: `9d2f1f2`; Phase I-13b1: `177aea5`; Phase I-13b2: `53702db`; all pushed to
   `origin/main`.
-- Phase I-13c1: the commit carrying this checkpoint ("Phase I-13c1: update UI, the notice"),
-  pushed (SHA and push result in the run's status line and the next checkpoint). The tree was
-  clean when this iteration started (empty preflight file).
+- Phase I-13c1: `cd45b50`, pushed to `origin/main`.
+- Phase I-13c2a: the commit carrying this checkpoint ("Phase I-13c2a: update UI, the update
+  flow"), pushed (SHA and push result in the run's status line and the next checkpoint). The
+  tree was clean when this iteration started (empty preflight file).

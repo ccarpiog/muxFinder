@@ -146,6 +146,8 @@ struct NewSessionPanelView: View {
       }
       .padding(.top, 2)
     } // End of VStack holding the form
+    // No edits while an update installs (PLAN.md D39); the model refuses them too.
+    .disabled(model.isInstallingUpdate)
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)
     .task {

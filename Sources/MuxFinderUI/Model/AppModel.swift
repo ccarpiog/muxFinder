@@ -249,12 +249,23 @@ public final class AppModel {
   /// creates from what the field holds; a user edit (not a pick, a host change or a reset) also
   /// opens or closes the list as its filter matches (`directoryFieldChanged(from:)`, PLAN.md
   /// D31). A host change ends the folder search on the old host (`newSessionHostChanged()`).
+  /// While an update installs (`isInstallingUpdate`, PLAN.md D39) a change of the host, name
+  /// or directory is refused: the draft keeps its value.
   public var newSessionDraft = NewSessionDraft() {
     didSet {
+      guard !isRefusingDraftEdit else { return }
+      if isInstallingUpdate, newSessionDraft.editedFields(differFrom: oldValue) {
+        isRefusingDraftEdit = true
+        newSessionDraft = oldValue
+        isRefusingDraftEdit = false
+        return
+      }
       directoryFieldChanged(from: oldValue.directory)
       if oldValue.hostID != newSessionDraft.hostID { newSessionHostChanged() }
     }
   }
+  /// Whether `newSessionDraft`'s observer is putting refused fields back (no other reaction).
+  @ObservationIgnored private var isRefusingDraftEdit = false
   /// Increases whenever the New session window's Name field should take the keyboard focus
   /// (each fresh opening, PLAN.md D34).
   public internal(set) var newSessionFocusRequests = 0
@@ -532,6 +543,7 @@ public final class AppModel {
     (actionEvents, actionSink) = AsyncStream.makeStream(of: ActionEvent.self)
     settings.globalShortcut = shortcut
     settings.update = update
+    update.flow.unsavedWork = { [weak self] in self?.unsavedWorkForUpdate() ?? .none }
     shortcut.onPress = { [weak self] in self?.globalShortcutPressed() }
     settings.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
     settings.onDirectoriesSaved = { [weak self] lists in

@@ -83,13 +83,23 @@ struct UpdateModelTests {
 
   // MARK: - The mode gate
 
-  /// Only the normal launch (alone or with `--appearance`) creates the update machinery; every
-  /// preview, gallery, key view loop, report, self-test, removal and unusable argument list
-  /// creates none.
+  /// Only the normal launch (alone or with `--appearance`) creates the update machinery (the
+  /// check, and the update flow's pipeline and leftover cleanup, PLAN.md D39 *The update flow
+  /// (I-13c2a)*); every preview, gallery, key view loop, report, self-test, removal and
+  /// unusable argument list creates none. `createsUpdateMachinery` is the only input of
+  /// `AppEnvironment.production(checksForUpdates:)`, so each mode's environment is built from
+  /// it (building sends, reads, creates and writes nothing).
   @Test func onlyTheNormalLaunchCreatesUpdateMachinery() {
+    /// Whether the environment `options` gets has the update flow (its pipeline and cleanup).
+    func hasFlow(_ options: AppLaunchOptions) -> Bool {
+      let environment = AppEnvironment.production(
+        rewritesProfilesAtLaunch: false, checksForUpdates: options.createsUpdateMachinery)
+      return environment.update?.flow != nil
+    }
     let normal: [[String]] = [[], ["--appearance", "dark"], ["-psn_0_1"]]
     for arguments in normal {
       #expect(AppLaunchOptions(arguments: arguments).createsUpdateMachinery, "\(arguments)")
+      #expect(hasFlow(AppLaunchOptions(arguments: arguments)), "\(arguments)")
     }
     var others: [[String]] = [
       ["--preview-fixtures"], ["--preview-fixtures", "--preview-snapshot", "/tmp/x.png"],
@@ -110,6 +120,7 @@ struct UpdateModelTests {
       let options = AppLaunchOptions(arguments: arguments)
       #expect(!options.createsUpdateMachinery, "\(arguments)")
       #expect(!AppLaunchOptions.createsUpdateMachinery(options), "\(arguments)")
+      #expect(!hasFlow(options), "\(arguments)")
     }
   } // End of func onlyTheNormalLaunchCreatesUpdateMachinery()
 

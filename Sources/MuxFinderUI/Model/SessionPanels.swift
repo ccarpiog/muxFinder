@@ -156,6 +156,12 @@ public struct NewSessionDraft: Sendable, Hashable {
   /// Whether "Create" was pressed once, so an empty name is reported too.
   public var showsIssues = false
 
+  /// Whether the host, the name or the directory differs from `other`'s (the fields an edit
+  /// changes).
+  func editedFields(differFrom other: NewSessionDraft) -> Bool {
+    hostID != other.hostID || name != other.name || directory != other.directory
+  }
+
   /// A draft for `hostID`, empty otherwise.
   public init(hostID: UUID? = nil, name: String = "", directory: String = "") {
     self.hostID = hostID

@@ -24,8 +24,10 @@ import MuxFinderCore
 ///   back does, and "Save" keeps the change through its merge.
 /// - **Logs** carry kinds and counts only, never a directory.
 extension SettingsModel {
-  /// Whether the tab offers edits: the lists loaded from a usable file (or none yet).
+  /// Whether the tab offers edits: the lists loaded from a usable file (or none yet), and no
+  /// update being installed (PLAN.md D39 *The update flow (I-13c2a)*).
   public var areDirectoriesEditable: Bool {
+    if update.flow.locksEditing { return false }
     if case .usable = directoryStatus { return true }
     return false
   }

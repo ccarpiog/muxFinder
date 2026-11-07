@@ -533,8 +533,10 @@ instance and these tmux servers.
   or paths.
 - No request to GitHub's API or download hosts, or to any other server, in a test or a run
   (*Unattended-run rules* 3): the update check's and download's real runs are the user's
-  (a normal launch of the app, with no mode flag, sends the check 5 s later, so it is the
-  user's too; only `AppLaunchOptions.createsUpdateMachinery` creates the check), and
+  (a normal launch of the app, with no mode flag, sends the check 5 s later and runs the
+  update folder's leftover cleanup, so it is the user's too; only
+  `AppLaunchOptions.createsUpdateMachinery` creates the check and the update flow's
+  pipeline and cleanup), and
   `swift test` reaches `URLSessionUpdateTransport` and `URLSessionUpdateDownloadTransport`
   only through a `URLProtocol` stub that is the only protocol class on their sessions. The
   operating system's own signature and notarization assessment of a local file (`codesign

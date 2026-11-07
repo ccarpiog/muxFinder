@@ -27,6 +27,9 @@ public struct UpdateEnvironment: Sendable {
   public var wakeNotifications: NotificationCenter?
   /// The wall clock the status line's relative time is measured against.
   public var now: @Sendable () -> Date
+  /// The one-click update flow's pipeline, cleanup and terminator (PLAN.md D39 *The update
+  /// flow (I-13c2a)*); `nil` runs no flow and no leftover cleanup.
+  public var flow: UpdateFlowEnvironment?
 
   /// Creates an environment from its parts.
   public init(
@@ -34,7 +37,8 @@ public struct UpdateEnvironment: Sendable {
     runningVersion: String?, runningBuild: String?,
     openURL: @escaping @MainActor @Sendable (URL) -> Void,
     wakeNotifications: NotificationCenter? = nil,
-    now: @escaping @Sendable () -> Date = { Date() }
+    now: @escaping @Sendable () -> Date = { Date() },
+    flow: UpdateFlowEnvironment? = nil
   ) {
     self.scheduler = scheduler
     self.preferences = preferences
@@ -43,13 +47,16 @@ public struct UpdateEnvironment: Sendable {
     self.openURL = openURL
     self.wakeNotifications = wakeNotifications
     self.now = now
+    self.flow = flow
   } // End of init(scheduler:preferences:runningVersion:runningBuild:openURL:…)
 
   /// The real app's: `URLSessionUpdateTransport`, `UpdateStateStore` on
   /// `~/Library/Application Support/muxFinder/update-state.json`, the system clock, the
   /// version and build from `bundle`, `NSWorkspace` for "What's new" and its wake
-  /// notifications. Building it sends, reads and writes nothing: the scheduler runs only once
-  /// `UpdateModel.start()` starts it.
+  /// notifications, and the update flow's `UpdateFlowEnvironment.production(shortVersion:)`
+  /// (the pipeline over the real update folder, `/usr/bin/open` for the relauncher,
+  /// `NSApp.terminate`). Building it sends, reads, creates and writes nothing: the scheduler
+  /// and the leftover cleanup run only once `UpdateModel.start()` starts them.
   @MainActor
   public static func production(
     preferences: any UpdateCheckSettingStoring, bundle: Bundle = .main
@@ -63,7 +70,8 @@ public struct UpdateEnvironment: Sendable {
     return UpdateEnvironment(
       scheduler: scheduler, preferences: preferences, runningVersion: version,
       runningBuild: build, openURL: { SettingsEnvironment.openWithWorkspace($0) },
-      wakeNotifications: NSWorkspace.shared.notificationCenter)
+      wakeNotifications: NSWorkspace.shared.notificationCenter,
+      flow: .production(shortVersion: version))
   } // End of static func production(preferences:bundle:)
 }
 
@@ -119,6 +127,9 @@ public final class UpdateModel {
   public let runningBuild: String?
   /// Whether there is update machinery or a fixture: Settings shows its section only then.
   public let isAvailable: Bool
+  /// The one-click update flow (PLAN.md D39 *The update flow (I-13c2a)*): live over
+  /// `UpdateEnvironment.flow`, inert otherwise.
+  public let flow: UpdateFlow
 
   /// The environment, for a live model.
   @ObservationIgnored private let environment: UpdateEnvironment?
@@ -165,6 +176,9 @@ public final class UpdateModel {
     runningBuild = environment.runningBuild
     now = environment.now()
     isAvailable = true
+    flow =
+      environment.flow.map { UpdateFlow(environment: $0, openURL: environment.openURL) }
+      ?? .inert()
   }
 
   /// A model showing `fixture`; it never runs anything.
@@ -177,6 +191,7 @@ public final class UpdateModel {
     runningBuild = fixture.runningBuild
     now = fixture.now
     isAvailable = true
+    flow = .inert()
     lifecycle = .stopped
   } // End of init(fixture:)
 
@@ -187,6 +202,7 @@ public final class UpdateModel {
     runningBuild = nil
     now = Date(timeIntervalSince1970: 0)
     isAvailable = false
+    flow = .inert()
     lifecycle = .stopped
   }
 
@@ -229,13 +245,15 @@ public final class UpdateModel {
 
   // MARK: - Lifecycle
 
-  /// Starts a live model once: reads the toggle, observes the scheduler's statuses and the
-  /// Mac's wake, and starts the scheduler with the toggle's value (its first automatic check
-  /// at least 5 s later). A toggle change made while the setting is read wins over the value
-  /// read. Never blocks the caller.
+  /// Starts a live model once: starts the update flow's leftover cleanup (off the main actor),
+  /// reads the toggle, observes the scheduler's statuses and the Mac's wake, and starts the
+  /// scheduler with the toggle's value (its first automatic check at least 5 s later). A
+  /// toggle change made while the setting is read wins over the value read. Never blocks the
+  /// caller.
   public func start() {
     guard lifecycle == .idle, let environment else { return }
     lifecycle = .running
+    flow.startCleanup()
     let scheduler = environment.scheduler
     wakeObserver = environment.wakeNotifications?.addObserver(
       forName: NSWorkspace.didWakeNotification, object: nil, queue: nil
@@ -258,13 +276,16 @@ public final class UpdateModel {
     }
   } // End of func start()
 
-  /// Stops the scheduler (its timer, its check in flight and its stream), the wake observer and
-  /// the work in progress, and returns once they ended. Later calls do nothing.
+  /// Stops the update flow (`UpdateFlow.stop()`: a prepare cancelled, an install step allowed
+  /// to end, a prepared update discarded, each bounded), the scheduler (its timer, its check
+  /// in flight and its stream), the wake observer and the work in progress, and returns once
+  /// they ended. Later calls do nothing.
   public func stop() async {
     guard lifecycle != .stopped else { return }
     lifecycle = .stopped
     if let wakeObserver { environment?.wakeNotifications?.removeObserver(wakeObserver) }
     wakeObserver = nil
+    await flow.stop()
     await startTask?.value
     await environment?.scheduler.stop()
     await updatesTask?.value
@@ -301,8 +322,10 @@ public final class UpdateModel {
   }
 
   /// Records the notice's version as seen through the scheduler, once, while the popover shows
-  /// it and the dot is on.
+  /// it and the dot is on; tells the update flow the notice shows (its eligibility read once
+  /// per version), or that there is none.
   private func markSeenIfShown() {
+    if lifecycle == .running, isPopoverVisible || notice == nil { flow.noticeShown(notice) }
     guard isPopoverVisible, lifecycle == .running, let environment, showsDot,
       let version = notice?.version, markingSeen != version
     else { return }

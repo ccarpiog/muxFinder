@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T06:16:42Z",
+  "updated": "2026-11-07T06:56:01Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -982,12 +982,36 @@
     {
       "id": "I-13c2",
       "title": "Update UI: the one-click update",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
-      "summary": "Update or Download in the notice, download progress and Cancel, the ask before quitting, install, relaunch and leftover cleanup at launch.",
+      "summary": "Update or Download, progress and Cancel, the ask before quitting, install, relaunch and cleanup at launch; split into I-13c2a (the flow) and I-13c2b (the views).",
       "parent": "I-13c",
       "added": "2026-11-07T05:35:18Z",
-      "status_since": "2026-11-07T05:35:18Z"
+      "started": "2026-11-07T06:19:09Z",
+      "status_since": "2026-11-07T06:19:09Z"
+    },
+    {
+      "id": "I-13c2a",
+      "title": "Update UI, the update flow: model and wiring",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-13c2",
+      "summary": "Drives the one-click update in the model: Update or Download, prepare with Cancel, the ask before quitting, install, quit and cleanup at launch.",
+      "review": "Codex, ship-with-fixes, docs/reviews/phase-I-13c2a.md",
+      "narrative": "docs/progress-archive/i-13c2a.md",
+      "added": "2026-11-07T06:19:09Z",
+      "started": "2026-11-07T06:19:09Z",
+      "status_since": "2026-11-07T06:56:01Z"
+    },
+    {
+      "id": "I-13c2b",
+      "title": "Update UI, the update views",
+      "status": "queued",
+      "risk": "routine",
+      "parent": "I-13c2",
+      "summary": "Shows the update flow in the popover notice: buttons, progress, failure line, the ask, VoiceOver, galleries and screenshots.",
+      "added": "2026-11-07T06:19:09Z",
+      "status_since": "2026-11-07T06:19:09Z"
     },
     {
       "id": "I-13c3",

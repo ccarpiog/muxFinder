@@ -44,6 +44,8 @@ public enum UpdateInstallFailure: Error, Sendable, Hashable {
   case swapUnconfirmed
   /// The relauncher could not be started (this errno); the swap was undone.
   case relaunchNotStarted(errno: Int32)
+  /// The install was cancelled (a quit) before the exchange: nothing was changed.
+  case cancelled
 
   /// A stable, machine-readable name.
   public var code: String {
@@ -56,6 +58,7 @@ public enum UpdateInstallFailure: Error, Sendable, Hashable {
     case .swapFailed(let code): return "swapFailed.\(code)"
     case .swapUnconfirmed: return "swapUnconfirmed"
     case .relaunchNotStarted(let code): return "relaunchNotStarted.\(code)"
+    case .cancelled: return "cancelled"
     }
   } // End of var code
 
@@ -69,6 +72,7 @@ public enum UpdateInstallFailure: Error, Sendable, Hashable {
     case .notarization(let problem): return problem.reason
     case .swapFailed, .swapUnconfirmed: return "the app couldn't be replaced"
     case .relaunchNotStarted: return "the new version couldn't be started"
+    case .cancelled: return "the update was cancelled"
     }
   } // End of var reason
 }
@@ -174,9 +178,12 @@ public struct UpdateBundleSwap: Sendable {
     self.exchanger = exchanger
   }
 
-  /// Checks again, then swaps (see the type).
+  /// Checks again, then swaps (see the type). A cancelled task (a quit) stops at the last
+  /// point before the exchange, `cancelled` with nothing changed; once the exchange is
+  /// started, cancellation is ignored: the exchange, its checks and any rollback run to the end.
   public func run() async -> UpdateSwapOutcome {
     await checkpoint?(.beforeChecks)
+    if Task.isCancelled { return .failed(.cancelled, rollback: .notNeeded) }
     if let failure = identityFailure() { return .failed(failure, rollback: .notNeeded) }
     switch await codeChecker.check(bundleAt: bundle.path, team: install.team) {
     case .passed: break
@@ -187,6 +194,7 @@ public struct UpdateBundleSwap: Sendable {
     }
     await checkpoint?(.afterCodeCheck)
     if let failure = identityFailure() { return .failed(failure, rollback: .notNeeded) }
+    if Task.isCancelled { return .failed(.cancelled, rollback: .notNeeded) }
     let status = exchanger.exchange(bundle.path, install.bundlePath)
     await checkpoint?(.afterExchange)
     if status == 0, placesState() == .swapped { return .swapped }

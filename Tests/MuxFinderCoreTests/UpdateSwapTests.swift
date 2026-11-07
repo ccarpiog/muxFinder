@@ -165,6 +165,31 @@ struct UpdateSwapTests {
     #expect(await linked.swap().run() == .failed(.installedChanged, rollback: .notNeeded))
   } // End of func checksBeforeTheExchange()
 
+  /// A quit's cancel before the exchange (here during the code check) stops at the last point
+  /// before it: `cancelled`, nothing exchanged, both places as they were.
+  @Test func aCancelBeforeTheExchangeChangesNothing() async throws {
+    let fixture = try Self.makeFixture()
+    defer { fixture.cleanUp() }
+    let exchanger = ScriptedExchanger([.real])
+    var swap = fixture.swap(exchanger: exchanger)
+    let (reached, reachedSink) = AsyncStream.makeStream(of: Void.self)
+    let (release, releaseSink) = AsyncStream.makeStream(of: Void.self)
+    swap.checkpoint = { point in
+      guard point == .afterCodeCheck else { return }
+      reachedSink.yield()
+      for await _ in release { break }
+    }
+    let running = swap
+    let task = Task { await running.run() }
+    for await _ in reached { break }
+    task.cancel()
+    releaseSink.yield()
+    #expect(await task.value == .failed(.cancelled, rollback: .notNeeded))
+    #expect(exchanger.calls.isEmpty)
+    #expect(fixture.installedIdentity() == fixture.oldIdentity)
+    #expect(fixture.stagedIdentity() == fixture.newIdentity)
+  } // End of func aCancelBeforeTheExchangeChangesNothing()
+
   /// A failed exchange changes nothing; one that reports success without exchanging is
   /// unconfirmed with nothing to undo.
   @Test func failedExchanges() async throws {

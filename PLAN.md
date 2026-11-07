@@ -5348,12 +5348,77 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       gains not checked yet, checking (the button disabled), up to date, a newer release, no
       connection, no answer, rate limited and automatic checks off (`UpdateFixtures`, no
       scheduler).
-  - **Not yet:** nothing in the app creates the pipeline or runs the leftover cleanup
-    (I-13c2, normal mode only; `--report-update-eligibility` only reads); the Update button,
-    the download, the ask before quitting, the quit after `relaunchScheduled` and the real
-    update (the user's) are I-13c2's; README, ARCHITECTURE and the release contract are
-    I-13c3's. The real notice, dot and Settings line after a real check are the user's
-    (`docs/MANUAL-CHECKLIST.md` item 31).
+  - **The update flow (I-13c2a)** (*Phase I-13* "The orchestrator's calls for I-13c2a"; code
+    in `Sources/MuxFinderUI/Model/UpdateFlow.swift` (`UpdateFlow`, `UpdateFlowState`,
+    `UpdateFlowOffer`, `UpdateFlowFailure`, `UpdateFlowText`, `UpdateUnsavedWork`,
+    `UpdateFlowPipeline`, `SystemUpdateFlowPipeline`, `UpdateFlowEnvironment`),
+    `UpdateModel.flow`, `UpdateEnvironment.flow`, `AppModel.unsavedWorkForUpdate()`; tests
+    `UpdateFlowTests` and the mode test in `UpdateModelTests`; `docs/TESTING.md` *Phase
+    I-13c2a*). No visible change: the notice shows no Update, Download or progress until
+    I-13c2b, which renders `UpdateModel.flow`.
+    - **The seam:** `UpdateFlowPipeline` (eligibility, prepare, install, discard, leftover
+      cleanup), every call off the main actor. The app's `SystemUpdateFlowPipeline` is
+      I-13b2's `UpdatePipeline` as built (`UpdateStagingRoot.standard`,
+      `SystemUpdateEligibility`, a `DetachedUpdateRelauncher` with `/usr/bin/open`, to which
+      the pipeline hands the absolute installed path) over `URLSessionUpdateDownloadTransport`;
+      `UpdateFlowEnvironment.production` adds `NSApp.terminate(nil)` as the terminator, so
+      `AppModel.shutdown()` runs. Only `UpdateEnvironment.production` builds it (normal mode
+      only); building it creates, reads and sends nothing. Tests pass a fake that records.
+    - **The offer** (`UpdateFlow.offer`): while the popover shows the notice, eligibility is
+      read once per notice version, off the main actor (`.reading` meanwhile, nothing
+      offered); `.update` when eligible and the release has an asset, else `.download(reason:)`
+      with the ineligibility's phrase, or "the release has no installable download" (no read)
+      for a release without an asset. Download opens the release page through the injected
+      opener. Update is pressable (`canUpdate`) only from idle or a failure.
+    - **Prepare** (`update()`): one at a time; the pipeline's states arrive in order through a
+      stream: `downloading(bytes:total:)` (`percent` when the total is known;
+      `UpdateFlowText.downloading` gives "Downloading… 40%" or "Downloading…"), `checking`
+      ("Checking the download…"; a late downloading never follows it), then `prepared`.
+      **Cancel** during either cancels the task: the pipeline removes the run folder and the
+      flow is back at idle (a prepared result that races the cancel is discarded). A failure
+      is `failed(UpdateFlowFailure)`: `reason` the typed failure's phrase, `phrase` "Couldn't
+      update: <reason>", `code` for diagnostics; Update is offered again, except that an
+      eligibility refusal at prepare turns the offer into Download with its reason.
+    - **The ask before quitting:** after prepare the flow calls `unsavedWork` (set by
+      `AppModel`: a shown New session window whose draft name or directory has text, and
+      Settings' `isDirty` or `isDirectoryListDirty`). None: straight on to install. Some:
+      `asking(UpdateUnsavedWork)` (its `items` name what is unsaved) with
+      `quitAndInstall()` and `notNow()`; Not now is `deferred` (the prepared update kept),
+      offered as `installAndRelaunch()`, which asks again.
+    - **Install and quit:** `installing`, then `relaunchScheduled`; only then the terminator,
+      in a task of its own (so the quit never waits for the install's task). A failure is the
+      failed state and the app keeps running: rolled back (or nothing to undo) gives the
+      install failure's own phrase; `recoveryRequired` gives `UpdateRollback.reason`
+      ("something else changed muxFinder during the update"); a rollback that failed gives
+      "<reason>, and the change couldn't be undone". No path in any phrase.
+    - **A quit** (`UpdateModel.stop()` from `AppModel.shutdown()` calls `UpdateFlow.stop()`
+      first): an install under way is cancelled and awaited with no deadline: before the swap
+      the pipeline stops at its last point before the exchange (`UpdateInstallFailure.cancelled`,
+      nothing changed); once the swap began, the swap, its checks and any rollback end first
+      (the termination deadline waits for `UpdateFlow.installEnded()` too), so the app never
+      exits in between, and no second terminator is called. From the final unsaved-work
+      decision through the install and the quit, `UpdateFlow.locksEditing`
+      (`AppModel.isInstallingUpdate`) makes the New session draft, Settings' host editor and
+      directory list refuse changes and no New session window open (the New session form is
+      also disabled); a failed install restores editing. The notice's eligibility is cached
+      per version apart from the shown release (the same version again restores its offer);
+      a notice during a prepare, the ask or an install is kept and shown after a cancel or a
+      failure, and `preparedRelease` is what Install and relaunch installs; a prepare under way is cancelled and
+      awaited at most `quitBound` (2 s); a prepared update never installed is discarded
+      (bounded the same; otherwise the next launch's cleanup takes it); the launch's cleanup
+      is awaited the same.
+    - **Leftover cleanup at launch:** `UpdateModel.start()` (normal mode only) starts it once
+      off the main actor, never blocking the launch: I-13b2's `cleanLeftovers()` over the real
+      update folder, which creates nothing when the folder is absent (`skipped: .missing`);
+      its report is kept in `UpdateFlow.cleanupReport` for diagnostics only (no alert). Every
+      other mode has an inert `UpdateFlow` (no pipeline, no cleanup); the mode test builds
+      each mode's `AppEnvironment.production(checksForUpdates:)` and checks it.
+  - **Not yet:** the flow's views (the Update and Download buttons, the progress and checking
+    lines, Cancel, "Couldn't update: …" with the release page link, the ask with its line
+    that attached tmux sessions are not affected, VoiceOver), galleries, screenshots and the
+    checklist item are I-13c2b's; the real update (the user's); README, ARCHITECTURE and the
+    release contract are I-13c3's. The real notice, dot and Settings line after a real check
+    are the user's (`docs/MANUAL-CHECKLIST.md` item 31).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -9216,6 +9281,67 @@ The orchestrator's calls for I-13c1, made before its worker (2026-11-07):
   no request; `docs/TESTING.md` a Phase I-13c1 section; `docs/MANUAL-CHECKLIST.md` item 30
   (or a new item) gains the real notice, dot, its clearing, the Settings line after a real
   check and the toggle off. README, ARCHITECTURE and the release contract wait for I-13c3.
+
+**I-13c2 split (at its selection, 2026-11-07).** The flow (eligibility, prepare, cancel,
+failure, the ask, install, quit, cleanup at launch) and its views do not fit one worker
+coherently, so two phases, each its own commit and review: **I-13c2a — the update flow
+(high)**: the model and the wiring, fully tested over fakes, with no visible change (the
+notice shows no button until c2b); **I-13c2b — the update views (routine)**: the notice's
+buttons and lines, the ask, VoiceOver, galleries, screenshots and the checklist item.
+
+The orchestrator's calls for I-13c2a, made before its worker (2026-11-07):
+
+- **Where.** `Sources/MuxFinderUI/Model/` (the flow beside `UpdateModel`, the worker's
+  naming), the composition in `Sources/MuxFinderApp/` and `AppEnvironment`; core additions in
+  `Sources/MuxFinderCore/Update/` only where the flow needs a seam. Tests in
+  `Tests/MuxFinderUITests/` (and `Tests/MuxFinderCoreTests/Update*Tests.swift` for core
+  additions). No dependency. `UpdatePipeline`'s two calls (prepare, install) and discard are
+  used as I-13b2 built them; every external effect injected.
+- **The offer.** While the notice shows, the flow reads `UpdateEligibility` once per notice
+  version off the main actor (never blocking the popover; re-read at every Update, since
+  prepare checks again). **Update** is offered when the offer has an installable asset and
+  eligibility says eligible; otherwise **Download**, which opens the release page
+  (`html_url`) through the injected opener, with the reason's short phrase (I-13b2's typed
+  reasons; "no installable asset" a phrase of its own). An eligibility read that fails is a
+  Download with a reason, never an Update.
+- **Prepare.** Update runs the pipeline's prepare once at a time (Update unavailable while
+  one runs): states downloading with bytes and total (a percent for c2b's "Downloading…
+  40%"; total unknown shown without a percent), checking ("Checking the download…"),
+  prepared; **Cancel** during either ends it as cancelled (the run folder removed by the
+  pipeline), back to the offer. A failure is a state carrying the typed reason's phrase for
+  "Couldn't update: <reason>" (c2b adds the release page link), and Update is offered again.
+- **The ask before quitting.** After prepare, the flow asks an injected unsaved-work source:
+  a New session window whose draft has text (name or directory), and Settings with unsaved
+  edits (the existing dirty state). None: straight on to install. Some: a state naming what
+  is unsaved (for c2b's line, which says attached tmux sessions are not affected), with
+  **Quit and install** (install now) and **Not now** (the prepared update kept while the app
+  runs, offered as **Install and relaunch**, which asks again if unsaved work remains). A
+  prepared update never installed is discarded at quit (bounded) and otherwise left to the
+  next launch's cleanup.
+- **Install and quit.** Install: states installing, then relaunch scheduled; after
+  `relaunchScheduled` the app quits normally through an injected terminator
+  (`NSApp.terminate` in the app, so `AppModel.shutdown()` runs, well inside the relauncher's
+  wait). The real app passes `/usr/bin/open` and the absolute installed path to the
+  relauncher; tests a recording stand-in, never `/usr/bin/open`. An install failure is the
+  failure state with its phrase (rolled back or `recoveryRequired`, each its own phrase) and
+  the app keeps running. A quit while preparing cancels it; a quit while installing lets the
+  install step end first (bounded, the worker's number), so a swap is never cut in half.
+- **Leftover cleanup at launch.** Only when `createsUpdateMachinery` is true (normal launch),
+  off the main actor after launch, never blocking it: I-13b2's cleanup over the real staging
+  root, never creating the root when absent; its counts kept for diagnostics only (no alert).
+  Every other mode creates no pipeline and runs no cleanup; the mode test enumerates it.
+- **What may run for real in I-13c2a.** `swift build`, `swift test`, lint,
+  `scripts/build-app.sh` with `codesign --verify`, `--report-update-eligibility`,
+  `--report-menu-bar-item` and `--report-popover-placement` with `CFFIXED_USER_HOME=$(mktemp
+  -d)` (each private home still without `update-state.json` or an `update` folder), with
+  `~/Library/Application Support/muxFinder/` listed before and after (no `update` folder
+  created). Never a normal launch, `open`, a real swap, `scripts/release.sh`, `install.sh`,
+  a request to any server; the pipeline only over fakes, stub bundles and private
+  `mktemp -d /private/tmp/mfx.XXXXXX` folders, removed afterwards.
+- **Docs in this phase.** D39 extended ("The update flow (I-13c2a)") and its "Not yet" line
+  edited; `docs/TESTING.md` a Phase I-13c2a section; `CLAUDE.md` only where a mode line's
+  promise changes (cleanup at launch is the normal launch's only). Views, galleries,
+  screenshots and the checklist item wait for I-13c2b; README and ARCHITECTURE for I-13c3.
 
 ## Deferred (explicitly out of scope for v1)
 

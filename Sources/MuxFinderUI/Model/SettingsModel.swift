@@ -505,8 +505,10 @@ public final class SettingsModel {
 
   /// Whether the list may be changed and saved: a saved list or the examples, unless a save
   /// found the file changed; an unusable or changed file only once the user chose to replace
-  /// it; never an unreadable folder.
+  /// it; never an unreadable folder, nor while an update is being installed (PLAN.md D39 *The
+  /// update flow (I-13c2a)*).
   public var isEditable: Bool {
+    if update.flow.locksEditing { return false }
     switch hostListStatus {
     case .saved, .notSavedYet: return changedFile == nil || hasReplaceConsent
     case .invalid: return hasReplaceConsent

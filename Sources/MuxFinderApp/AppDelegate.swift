@@ -119,7 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     false
   }
 
-  /// Quits only once the model has shut down (or `shutdownDeadline` passed).
+  /// Quits only once the model has shut down (or `shutdownDeadline` passed and no update
+  /// install is under way).
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     guard !isTerminating else { return .terminateLater }
     isTerminating = true
@@ -129,6 +130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     Task {
       try? await Task.sleep(for: Self.shutdownDeadline)
+      // Never exits while an update's install is under way: the flow's quit stops it before
+      // the swap or lets the swap, its checks and any rollback end (PLAN.md D39).
+      await model.update.flow.installEnded()
       replyToTerminate()
     }
     return .terminateLater
