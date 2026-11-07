@@ -51,6 +51,14 @@ import Foundation
 ///   expected, 1 a check failed, 3 SIGTERM or SIGINT arrived during the checks). No window,
 ///   menu bar item, engine, host list, iTerm2 or `preferences.json`; no event is posted.
 ///   Combined with another mode it is a usage error.
+/// - `--report-update-eligibility` (PLAN.md D39, Phase I-13b2): a read-only diagnostic of
+///   whether this copy could update itself in place. The app prints `muxFinder update
+///   eligibility: …` lines (`UpdateEligibilityReport`: eligible or the reason, Developer ID,
+///   whether a Team ID is present but never its value, translocation, a read-only volume,
+///   write access, the update folder, the same volume, the running version and build) and
+///   exits 0, before any window, menu bar item, host list or iTerm2 contact; it creates and
+///   writes nothing (no update folder, `preferences.json`, `hosts.json` or state file).
+///   Combined with another mode it is a usage error.
 /// - `--selftest attach-local|new-session-local` (or `--selftest=…`), optionally with
 ///   `--selftest-keep`: a hidden self-test that drives the real `AppModel` path against iTerm2
 ///   and This Mac's tmux and exits with its status (`SelfTestDriver`). An unknown name, a
@@ -123,6 +131,8 @@ public struct AppLaunchOptions: Sendable, Hashable {
   /// Whether to run the hotkey registration diagnostic and exit
   /// (`--report-hotkey-registration`).
   public var reportsHotkeyRegistration = false
+  /// Whether to print the update eligibility report and exit (`--report-update-eligibility`).
+  public var reportsUpdateEligibility = false
   /// The self-test to run, if any.
   public var selfTest: SelfTestRequest?
   /// Whether to remove muxFinder's dynamic profile file and exit
@@ -156,6 +166,8 @@ public struct AppLaunchOptions: Sendable, Hashable {
         reportsLoginItemStatus = true
       } else if argument == "--report-hotkey-registration" {
         reportsHotkeyRegistration = true
+      } else if argument == "--report-update-eligibility" {
+        reportsUpdateEligibility = true
       } else if argument == "--selftest-keep" {
         keepsSelfTest = true
       } else if argument == "--remove-persistent-profiles" {
@@ -180,6 +192,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
     checkProfileRemoval()
     checkPopoverPlacement()
     checkHotkeyRegistration()
+    checkUpdateEligibility()
   } // End of init(arguments:)
 
   /// The options that take a value as the next argument.
@@ -210,6 +223,9 @@ public struct AppLaunchOptions: Sendable, Hashable {
   /// The usage line of the hotkey registration diagnostic.
   public static let hotkeyRegistrationUsage = "usage: muxFinder --report-hotkey-registration"
 
+  /// The usage line of the update eligibility diagnostic.
+  public static let updateEligibilityUsage = "usage: muxFinder --report-update-eligibility"
+
   /// The usage line of the key view loop diagnostic.
   public static let keyViewLoopUsage =
     "usage: muxFinder --preview-fixtures --preview-key-view-loop popover|switcher "
@@ -218,7 +234,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
   /// Every usage line, printed after a usage error.
   public static let usage =
     selfTestUsage + "\n" + profileRemovalUsage + "\n" + popoverPlacementUsage + "\n"
-    + hotkeyRegistrationUsage + "\n" + keyViewLoopUsage
+    + hotkeyRegistrationUsage + "\n" + updateEligibilityUsage + "\n" + keyViewLoopUsage
 
   /// Applies `--selftest-keep` and refuses self-test arguments that cannot run: keep without a
   /// self-test, or a self-test with another mode.
@@ -289,11 +305,22 @@ public struct AppLaunchOptions: Sendable, Hashable {
     }
   }
 
+  /// Refuses `--report-update-eligibility` with any other mode (the checks above do not know
+  /// it, so this one refuses every combination itself).
+  private mutating func checkUpdateEligibility() {
+    guard usageError == nil, reportsUpdateEligibility else { return }
+    if previewFixtures || reportsMenuBarItem || reportsLoginItemStatus || reportsPopoverPlacement
+      || reportsHotkeyRegistration || selfTest != nil || removesPersistentProfiles
+    {
+      usageError = "--report-update-eligibility cannot be combined with another mode."
+    }
+  }
+
   /// Whether this launch may bring an installed, out-of-date persistent profile file up to date
   /// (PLAN.md D26): only the menu bar app in normal mode, never with `--preview-fixtures`,
   /// `--selftest`, `--report-login-item-status`, `--report-menu-bar-item`,
   /// `--report-popover-placement`, `--report-hotkey-registration`,
-  /// `--remove-persistent-profiles` or unusable arguments. `--appearance` alone keeps normal
+  /// `--report-update-eligibility`, `--remove-persistent-profiles` or unusable arguments. `--appearance` alone keeps normal
   /// mode.
   public var rewritesProfilesAtLaunch: Bool {
     isNormalMode
@@ -310,7 +337,7 @@ public struct AppLaunchOptions: Sendable, Hashable {
   var isNormalMode: Bool {
     !previewFixtures && !reportsMenuBarItem && !reportsLoginItemStatus && selfTest == nil
       && !removesPersistentProfiles && !reportsPopoverPlacement && !reportsHotkeyRegistration
-      && usageError == nil
+      && !reportsUpdateEligibility && usageError == nil
   }
 
   /// The options of this process.

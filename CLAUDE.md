@@ -119,6 +119,20 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   prints one `muxFinder hotkey registration: …` line per check and exits 0 (all as
   expected), 1 (a check not as expected) or 3 (a signal arrived); 2 when combined with
   another mode. It proves registration, never a press (checklist 18).
+- Update eligibility check (read-only, PLAN.md D39; creates and writes nothing: no update
+  folder, `preferences.json`, `hosts.json` or state file; opens no window or menu bar item,
+  sends nothing, never contacts iTerm2; never through `open`/LaunchServices):
+  `build/muxFinder.app/Contents/MacOS/muxFinder --report-update-eligibility` prints
+  `muxFinder update eligibility: …` lines (eligible or the reason, Developer ID, a Team ID
+  present or not but never its value, translocated, the app folder, read-only volume,
+  writable, the update folder, same volume, running version and build) and exits 0; 2 when
+  combined with another mode. Everyday builds (Apple Development) report not eligible with
+  the Developer ID reason. The install pipeline behind it (`UpdatePipeline`: the update
+  folder, swap, relauncher and leftover cleanup) runs in checks only on stub bundles in
+  private folders under `/private/tmp` or `/private/var/folders`, its update folder injected
+  (never the real `~/Library/Application Support/muxFinder/update/`), the relauncher's opener
+  a harmless stand-in (never `/usr/bin/open`), never swapping `/Applications`,
+  `~/Applications` or `build/` apps.
 - App shell check (normal mode, except that it never rewrites the persistent profile file
   as a normal launch may, PLAN.md D26, and never reads `preferences.json`, registers the
   session switcher shortcut or builds the switcher panel, D32; contacts no iTerm2 while no host is enabled and the

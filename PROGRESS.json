@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T03:45:09Z",
+  "updated": "2026-11-07T05:32:33Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -947,12 +947,13 @@
     {
       "id": "I-13b2",
       "title": "Install pipeline: eligibility and install",
-      "status": "queued",
+      "status": "done",
       "risk": "high",
       "parent": "I-13b",
-      "summary": "Checks the running copy can update, swaps the bundle in place with rollback, relaunches and cleans up leftovers safely.",
+      "summary": "Eligibility, staging root, bound swap with rollback, relauncher, cleanup and the pipeline for the app's self-update.",
       "added": "2026-11-07T02:29:41Z",
-      "status_since": "2026-11-07T02:29:41Z"
+      "started": "2026-11-07T03:49:33Z",
+      "status_since": "2026-11-07T05:32:33Z"
     },
     {
       "id": "I-13c",

@@ -7,7 +7,9 @@ import MuxFinderUI
 /// exit 2; `--remove-persistent-profiles` removes muxFinder's dynamic profile file (only when
 /// it is muxFinder's generated file) and exits; `--report-login-item-status` prints the login
 /// item status and exits; `--report-hotkey-registration` checks Carbon's hotkey registration
-/// with fixed test combinations and exits (PLAN.md D32); `--preview-fixtures` runs the fixture
+/// with fixed test combinations and exits (PLAN.md D32); `--report-update-eligibility` prints
+/// whether this copy could update itself in place and exits (PLAN.md D39); `--preview-fixtures`
+/// runs the fixture
 /// window on a plain `NSApplication`
 /// (no `MenuBarPopover`, so no menu bar item is ever created and nothing is recorded for one);
 /// `--selftest` runs a self-test on a plain `NSApplication` too; every other launch runs the
@@ -31,6 +33,8 @@ enum MuxFinderMain {
       reportLoginItemStatus()
     } else if options.reportsHotkeyRegistration {
       HotkeyRegistrationReport.run()
+    } else if options.reportsUpdateEligibility {
+      reportUpdateEligibility()
     } else if options.previewFixtures {
       PreviewAppDelegate.run(options: options)
     } else {
@@ -49,6 +53,20 @@ enum MuxFinderMain {
       Data(
         ("muxFinder login item status: \(status.code) (running from an app bundle: "
           + "\(isBundle ? "yes" : "no"))\n").utf8))
+    exit(0)
+  }
+
+  /// `--report-update-eligibility` (PLAN.md D39, Phase I-13b2): reads this copy's own
+  /// signature, its bundle folder and the update folder read-only
+  /// (`UpdateEligibilityReader.current(root:)`), prints `UpdateEligibilityReport`'s lines and
+  /// exits 0. It creates and writes nothing (no update folder, `preferences.json`,
+  /// `hosts.json` or state file), opens no window or menu bar item, sends nothing and never
+  /// contacts iTerm2.
+  @MainActor
+  static func reportUpdateEligibility() -> Never {
+    let facts = UpdateEligibilityReader.current(root: .standard)
+    let text = UpdateEligibilityReport.lines(facts).joined(separator: "\n") + "\n"
+    FileHandle.standardOutput.write(Data(text.utf8))
     exit(0)
   }
 

@@ -4766,10 +4766,17 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   `UpdateDownloadTests`, `UpdateArchiveTests`, `UpdateExtractionTests`, `UpdateCodeCheckTests`,
   `UpdateBundleVersionsTests`, `UpdateVerifierTests`, `UpdateVerifyProbeTests` and
   `UpdateVerifyTestSupport.swift`,
-  `docs/TESTING.md` *Phase I-13b1*). muxFinder tells the user when GitHub has a newer release;
+  `docs/TESTING.md` *Phase I-13b1*; eligibility and install, core, in Phase I-13b2:
+  `UpdateEligibility.swift`, `UpdateEligibilityReader.swift`, `UpdateStagingRoot.swift`,
+  `UpdateSwap.swift`, `UpdateRelauncher.swift`, `UpdatePipeline.swift`, the app's
+  `--report-update-eligibility` (`AppLaunchOptions`, `MuxFinderMenuBarApp.swift`), tests
+  `UpdateEligibilityTests`, `UpdateStagingRootTests`, `UpdateSwapTests`,
+  `UpdateRelauncherTests`, `UpdatePipelineTests`, `UpdateOldHelperCompatibilityTests`,
+  `UpdateInstallTestSupport.swift` and the UI suite `UpdateEligibilityFlagTests`,
+  `docs/TESTING.md` *Phase I-13b2*). muxFinder tells the user when GitHub has a newer release;
   from I-13b an Update button downloads, verifies and installs it, and I-13c adds the UI. This
-  entry is the check and, below it, the download and verification; I-13b2 and I-13c extend
-  it.
+  entry is the check and, below it, the download and verification, then eligibility and the
+  install; I-13c extends it.
   - **Why no Sparkle:** the user chose a hand-written updater with no dependency (decision 2
     of the specification). It uses GitHub's API and the stapled `muxFinder.zip` that
     `scripts/release.sh` already writes, so no appcast, no signing key of its own and no
@@ -5055,10 +5062,229 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       left). After the review fixes (the archive check, the watchdog and the identity binding)
       a fresh copy passed every check again (exit 0). The latest mode was never run: its real
       run is the user's (`docs/MANUAL-CHECKLIST.md` item 30).
-  - **Not yet:** nothing in the app creates the scheduler or the verifier (I-13c wires them
-    in normal mode only: no diagnostic mode contacts the network or writes the state file);
-    the running app's eligibility, the staging root on the installed bundle's volume, the
-    swap, the relauncher and leftover cleanup are I-13b2's.
+  - **Eligibility and install (I-13b2)**, from a running copy to a swapped bundle and a
+    scheduled relaunch (*Phase I-13* "The orchestrator's calls for I-13b2"; no UI and nothing
+    wired into the app, I-13c):
+    - **Eligibility** (`UpdateEligibility.decide`, a pure function over
+      `UpdateEligibilityFacts`, which `UpdateEligibilityReader` gathers read-only; it creates
+      and writes nothing). The signature (`UpdateSigningReader`): the app's own through
+      `SecCodeCopySelf` and `SecCodeCheckValidityWithErrors` (default flags), or a bundle's on
+      disk through `SecStaticCodeCreateWithPath` and I-13b1's validity flags (tests and the
+      real check on a release copy), against `UpdateCodeRequirement.developerIDClause`, never
+      the revocation or network flags; a passed check is Developer ID, a failed requirement or
+      no signature is not (development, ad hoc and unsigned alike), any other status is
+      unreadable; the Team ID comes from `SecCodeCopySigningInformation`
+      (`kSecCodeInfoTeamIdentifier`) and is kept only as an `UpdateTeamID`. The bundle
+      (`UpdateInstalledBundleReader`): `Bundle.main.bundleURL`, every component walked with
+      `lstat` (no symbolic link, each a folder), opened with `O_NOFOLLOW`; its identity, owner
+      and volume (`fstatfs`, `MNT_RDONLY`) read through that descriptor, and
+      `Contents/Info.plist` through it (`CFBundleIdentifier` `cc.carpio.muxfinder`, the
+      versions); the running executable (`proc_pidpath`) must have the device and inode of
+      `Contents/MacOS/<CFBundleExecutable>`, opened without following a link (worker's call:
+      an identity, not a path prefix); write access to the bundle and its parent by
+      `faccessat(…, W_OK, AT_EACCESS)`; a bundle whose device is not its parent's (a mount
+      point) is refused; translocation is a path component `AppTranslocation` of the bundle
+      or the executable (never `SecTranslocateIsTranslocatedURL` or `dlsym`). The reasons, in
+      the decision's order (`UpdateIneligibility`: a `code` and a lowercase phrase I-13c shows
+      next to "Download", with no path, host or Team ID): `signatureUnreadable` ("this copy's
+      signature can't be read"; also a Developer ID signature with no usable Team ID),
+      `notDeveloperID` ("this copy isn't signed with a Developer ID"), `translocated` ("macOS
+      runs this copy from a temporary location"), `bundleUnusable` with its problem
+      (`notAPlainAbsolutePath`, `missing`, `symbolicLinkOnPath`, `notAFolder`,
+      `infoUnreadable`, `identifierMismatch`, `executableOutside`, `mountPoint`, `unreadable`;
+      "this copy isn't in a usable app folder"), `readOnlyVolume` ("this copy is on a
+      read-only disk"), `notOwnedByUser`, `notWritable` ("you can't change the folder this copy
+      is in"), `runningBuildUnknown` (`CFBundleVersion` parsed as I-13b1's running build),
+      `stagingRootUnusable` with the folder's problem, and `differentVolume` (the update
+      folder's device, or the device of the nearest existing folder above it, is not the
+      bundle's). An eligible copy records `UpdateEligibleInstall`: the team, the bundle's path
+      and identity, the running build and version.
+    - **The update folder** (`UpdateStagingRoot`; `.standard` is
+      `~/Library/Application Support/muxFinder/update`, tests inject private folders):
+      `inspect()` only looks (`lstat` along the path, then I-13b1's `UpdateStagingFolder`
+      checks: the user's, no group or other permission, no extended ACL, no link on the path)
+      and answers `usable(device:)`, `missing(device:)` or `unusable(problem)`. `prepare()`,
+      only when an update starts, creates the support folder (0700) if it is missing (one
+      level; anything deeper missing is refused) and the update folder (0700, its ACL
+      removed), and refuses an existing one that fails the checks, changing nothing.
+      `makeRunFolder(onDevice:)` refuses an update folder on another device than the bundle
+      (`differentVolume`), then, holding the update folder's `update.lock` (`flock`, at most
+      10 s), creates `run-` plus 16 hex digits with `mkdirat` (0700, its ACL removed) and takes
+      its `run.lock` (`UpdateRunFolder`, held until `release()`, `remove()` or the object's
+      end): I-13b1's staging folder. So a cleanup, which takes the same `update.lock`, never
+      sees a run folder half made.
+    - **The swap** (`UpdateBundleSwap`, D27's binding): right before it the installed path
+      (walked with `lstat`, a real folder) must hold the identity eligibility recorded
+      (`installedChanged`) and the verified bundle's place (read through the run folder
+      without following a link) `UpdateVerifiedBundle.identity` (`downloadChanged`); the code
+      check runs again on it (`UpdateCodeChecking`, the same team, notarized: I-13b1's
+      requirement for I-13b2; its failure is the update's reason), and both identities are
+      compared again after it. Then one exchange through the injected `UpdateBundleExchanging`:
+      `RenameSwapExchanger`, `renamex_np(new, installed, RENAME_SWAP)`, so the installed path
+      is never empty (no gap between two renames in which iTerm2 could start a helper that is
+      not there). Afterwards the installed path must hold the new identity and the run folder
+      the old; otherwise (a failed exchange: `swapFailed(errno)`; a difference:
+      `swapUnconfirmed`) the old bundle is put back (`rollBack()`, also after a relauncher that
+      cannot start), bound to both identities (`lstat`, real folders): nothing to do while the
+      installed path holds the old bundle and the run folder the new one (`notNeeded`); the
+      exchange is reversed only while the installed path holds exactly the new bundle and the
+      run folder exactly the old one, and both places are read again after it: the old bundle
+      installed and the new one in the run folder is `rolledBack`, the swap's state unchanged
+      (the reverse failed) `failed(runFolder:)`. Any other state, before or after the reverse
+      (another installer or the user replaced the installed path, or something else is in the
+      run folder), renames nothing more and is `recoveryRequired(runFolder:)`: whatever is at
+      the installed path stays there, and the rollback writes the marker `recovery-required`
+      (`UpdateStagingRoot.recoveryMarkerName`: an empty file created exclusively, never through
+      a link; one already there counts; one that cannot be written changes nothing else) into
+      the run folder, which no cleanup deletes. So a replacement the update did not install is
+      never moved into the run folder, nor deleted with it. The run folder is named for
+      diagnostics only; `UpdateRollback.reason` is "something else changed muxFinder during the
+      update" for `recoveryRequired` (`nil` for the others) and `code` a stable name.
+      **The proof** (2026-11-07, on this Mac's APFS data volume, in a `mktemp -d
+      /private/tmp/mfx.XXXXXX` folder, removed afterwards): `renamex_np` with `RENAME_SWAP` on
+      two folders in different parents (`Applications/muxFinder.app` and
+      `support/update/run1/extracted/muxFinder.app`) returned 0 and each path then held the
+      other folder (inodes exchanged, the device unchanged, each folder's contents moved with
+      it); `UpdateSwapTests.renameSwapExchangesFoldersInDifferentParents` repeats it in every
+      `swift test`. So no fallback with two `RENAME_EXCL` renames was built: a volume without
+      `RENAME_SWAP` (`ENOTSUP`) fails the exchange with nothing changed, and eligibility
+      already refuses an app on another volume than the support folder. After the swap the
+      still running old app's `Bundle.main` names the installed path, so anything it loads
+      lazily from its bundle comes from the new one; I-13c quits right after the pipeline
+      returns.
+    - **The relauncher** (`UpdateRelauncher`, `DetachedUpdateRelauncher`), started only after a
+      successful swap: `/bin/sh -c <script> muxfinder-relaunch <pid> <opener> <bundle path>
+      <wait seconds>`; the script is a compiled-in constant (D3) and every value an argument.
+      Worker's call: the wait is a fourth argument (default 60 s, 1 to 600 accepted; the app's
+      quit deadline is 15 s, D22), so tests prove the timeout in a second. The script refuses
+      a pid that is not a positive number, a wait that is not a number and an opener or bundle
+      path not starting with `/` (exit 64); polls `kill -0 <pid>` every 0.25 s; when the wait
+      runs out it opens nothing and exits 75; otherwise it `exec`s `<opener> <bundle path>`
+      once. Spawned by `posix_spawn` with `POSIX_SPAWN_SETSID`, `POSIX_SPAWN_CLOEXEC_DEFAULT`
+      (standard input, output and error `/dev/null`, no other descriptor, so not the run
+      folder's lock), an empty signal mask and default dispositions, environment only
+      `PATH=/usr/bin:/bin`, never waited for. The app passes `UpdateRelauncher.systemOpener`
+      (`/usr/bin/open`) and the absolute installed path; `DetachedUpdateRelauncher` has no
+      default opener, so no test can reach `open`. A pid reused before a poll keeps it waiting
+      until the timeout (nothing opened). Whether `open` with only `PATH` in its environment
+      starts the new copy is the user's real check (I-13c's checklist item).
+    - **Leftover cleanup** (`UpdateStagingRoot.cleanLeftovers(processes:)`,
+      `UpdateLeftoverCleanup`; I-13c calls it at launch): nothing when the update folder is
+      missing (none created) or fails its checks, or while another process holds
+      `update.lock` past the wait. Under that lock, each entry named like a run folder that is
+      a real folder of the user's (by `lstat`, then opened `O_NOFOLLOW` and compared) is judged
+      in order, each step only after the one before: its `run.lock` is taken without waiting
+      (held: a live update, kept; a lock its holder has just released can still look held for
+      a moment, since a child that holder is spawning keeps a copy of every open file,
+      close-on-exec ones included, until its new image starts: the run folder is then kept
+      until a later launch) and held through the deletion; an entry `recovery-required`
+      in it (any kind) keeps it for good; only then the processes are scanned, once per run
+      folder whose lock was taken: an incomplete scan keeps it, and so does any running
+      process's executable inside it, compared with the folder's own path as the kernel gives
+      it (`F_GETPATH`, the form `proc_pidpath` uses); otherwise it is deleted, while its name
+      still names the folder opened (device and inode), with I-13b1's removal (never following
+      a link, never leaving the update folder, the user's read-only folders made 0700 first).
+      So the process evidence is never older than the lock: an update that swaps the old
+      bundle in and releases its lock while a cleanup runs leaves that run folder locked or in
+      use, never deleted on a scan taken before. The scan (`SystemUpdateProcessListing`,
+      answering `UpdateProcessScan` `complete(paths)` or `incomplete(problem)`; its kernel
+      calls behind an injected table): every pid by `proc_listpids`, sized by the kernel's
+      estimate plus 64 and read again with twice the room while a list fills its whole buffer
+      (at most 4 attempts, then `listTruncated`; a failed or empty list `listFailed(errno)`),
+      then each pid's executable by `proc_pidpath`. A pid whose path cannot be read is passed
+      over only when it cannot be running from any folder: `kill(pid, 0)` answers `ESRCH` or
+      `sysctl` (`KERN_PROC_PID`) no longer lists it (it ended), it is a zombie (`p_stat`
+      `SZOMB`: no address space or executable, though `kill(pid, 0)` answers 0 for it) or
+      exiting (`P_WEXIT`: it runs no more code, its executable released, `proc_pidpath`
+      `ESRCH`), or it runs and `proc_pidpath` answered `ENOENT` (the kernel cannot resolve its
+      executable's path: the file was deleted, so it lies in no folder; a renamed folder is
+      followed, not `ENOENT`). Any other such pid that still exists (`kill` 0 or `EPERM`) is
+      `pathUnreadable(errno)`. Worker's call: those three kinds are passed over because each is
+      common on this Mac (an unreaped zombie and a process whose executable was replaced, both
+      for days; exiting processes whenever anything spawns), and counted as unresolved they
+      would stop every cleanup. Anything else in
+      the update folder (the lock file, other names, a link named like a run folder) is left.
+      `UpdateCleanupReport` counts removed, kept in use, kept locked, kept for recovery, kept
+      unverified (with the last scan problem), failed and ignored. So a buried tab's old
+      `muxfinder-launch` keeps the old bundle until a later launch.
+    - **Old helpers** (from the code of the `v0.2.0` and `v0.3.0` tags, read-only copies; their
+      `muxfinder-launch`, `Launch` and `Profiles` sources are identical): a running helper
+      reads **nothing** from its own bundle after it starts in any mode (`attach`,
+      `ssh-setup`, `profile`; `attach-plain` and `profile-plain` exist only in the current
+      helper): no `Bundle.main` resource or `Info.plist` (the only `Bundle.main` use,
+      `LaunchHelperPath.locate()`'s default, is the app's and the probe's, never the
+      helper's), no sibling binary, no path computed from its location; it is one static
+      executable with no library in the bundle, and what it spawns is a fixed system path
+      (`/bin/sh` with the static guard, `/usr/bin/ssh`, the login shell) or the tmux path its
+      check printed. It reads `hosts.json` (`profile`, once, at its start) and writes only in
+      the launch folder. So it keeps working with its bundle renamed into a run folder, and
+      even with that folder deleted (the executable stays mapped). D14 files: a request a 0.2.0
+      or 0.3.0 app wrote (no `terminal`, no `keepsMinimumLifetime`, `formatVersion` 1) decodes
+      in the current helper as an iTerm2 attach (a missing `terminal` reads as `iterm2`); a
+      result an old helper writes has exactly the current fields (`LaunchResult` and
+      `LaunchFailure` unchanged), though the relaunched app never asks for an old launch's
+      result (launches live in the coordinator's memory) and the sweep removes it after the
+      120 s TTL as before; a request of the current app never reaches an old helper (iTerm2
+      runs the installed path, which names the new helper after the swap, and an old helper
+      would refuse the `attach-plain` word before reading a request). D26: the profile's
+      command names the installed path's helper (`profile <host id>`, still parsed), the
+      launch-time rewrite finds the same bytes, and `isGenerated` never looks at the command.
+      No incompatibility was found, so nothing was changed;
+      `UpdateOldHelperCompatibilityTests` pins both directions. Two consequences for I-13c:
+      only ever relaunch the installed path (a copy started from a run folder in normal mode
+      would rewrite the profiles to its own helper path when D2's rule lets it), and an old
+      helper's buried tab is outside the new coordinator's D29 watch (the helper's own
+      `Disinter` still restores it when its tmux ends, as after any quit).
+    - **The pipeline** (`UpdatePipeline`, for I-13c, in two calls so the app can ask before
+      quitting between them; every effect injected: eligibility (`UpdateEligibilityChecking`,
+      `SystemUpdateEligibility` in the app), the update folder, the process runner, the code
+      checker, the exchanger and the relauncher with the pid it waits for).
+      `prepare(_:transport:onState:)`: eligibility again (`notEligible`), the update folder and
+      a run folder (`stagingRoot`), then I-13b1's `UpdateVerifier` with the running team and
+      build; states `downloading(bytes:total:)` (from 0) and `checking` once the declared size
+      has arrived; the outcome `prepared(UpdatePreparedUpdate)`, `failed(reason)`
+      (`verification` with I-13b1's failure) or `cancelled` (task cancellation), the run
+      folder removed on failure or cancel. `install(_:onState:)`: states `installing`, then
+      `relaunching`; the swap (its failures, with the rollback), then the relauncher;
+      `relaunchScheduled(relauncher:)` with the run folder released (it holds the old bundle
+      for the cleanup), or `failed(_:rollback:)`: a relauncher that cannot start undoes the
+      swap (`relaunchNotStarted`); after a failure the run folder is removed only after
+      `notNeeded` or `rolledBack` (nothing exchanged, or the old bundle read back at the
+      installed path and the new one in the run folder), and kept (released) after `failed`
+      (the swap's state, for a later cleanup) or `recoveryRequired` (marked, never cleaned up).
+      `discard(_:)` removes a
+      prepared update's run folder. A prepared update is used once (`alreadyUsed`). The
+      pipeline never terminates the app. `UpdatePipelineFailure.reason` is the phrase after
+      "Couldn't update:".
+    - **The flag** `--report-update-eligibility` (`AppLaunchOptions`, `MuxFinderMenuBarApp`):
+      reads the facts as above with the standard update folder, prints `muxFinder update
+      eligibility: …` lines (`UpdateEligibilityReport`: eligible or `not eligible (<code>:
+      <reason>)`, Developer ID, Team ID present or absent (never its value), translocated, app
+      folder, read-only volume, writable, update folder, same volume, running version and
+      build) and exits 0; combined with another mode, usage (2). It creates and writes nothing,
+      opens no window or menu bar item, contacts nothing; it is no normal mode (no profile
+      rewrite, no shortcut).
+    - **Runs** (2026-11-07): swaps, rollbacks, the cleanup (a real child running from a run
+      folder: `/bin/sleep` copied and signed ad hoc, since a copy of a platform binary run from
+      elsewhere is killed with SIGKILL on this Mac) and the relauncher (the stand-in opener, a
+      static script appending its argument to a file beside it, waiting for a `sleep` child)
+      ran only in private folders under `/private/tmp`. The signature reader on a copy of
+      `build/muxFinder.zip` (0.2.0, Developer ID, stapled) unpacked with `ditto` in a `mktemp -d
+      /private/tmp/mfx.XXXXXX` folder (`MUXFINDER_TEST_RELEASE_BUNDLE`,
+      `UpdateEligibilityTests.readsAReleaseCopy`): Developer ID, and the Team ID equal to the one
+      `codesign -dv` reports for the copy (compared in the test, never printed); the folder was
+      removed. `--report-update-eligibility` on the rebuilt `build/muxFinder.app` (Apple
+      Development), run directly: exit 0, "not eligible (notDeveloperID: …)", Developer ID no,
+      Team ID present, translocated no, app folder usable, read-only volume no, writable yes,
+      update folder not created yet, same volume yes, running version 0.2.0 build 2;
+      `~/Library/Application Support/muxFinder/` listed the same before and after (no
+      `update`); `build/muxFinder.zip` still there; combined with `--report-login-item-status`
+      exit 2.
+  - **Not yet:** nothing in the app creates the scheduler or the pipeline, or runs the
+    leftover cleanup (I-13c wires them in normal mode only: no diagnostic mode contacts the
+    network, writes the state file or creates the update folder; `--report-update-eligibility`
+    only reads); the UI, the ask before quitting, the quit after `relaunchScheduled` and the
+    real update (the user's) are I-13c's.
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -8730,6 +8956,109 @@ The orchestrator's calls for I-13b1, made before its worker:
   `CLAUDE.md`'s update probe line covers `update verify` (zip mode real, latest mode the
   user's); `docs/TESTING.md` a Phase I-13b1 section with the real zip-mode results (verdicts
   only); `docs/MANUAL-CHECKLIST.md` item 30 gains the real `update verify --latest` run.
+
+The orchestrator's calls for I-13b2, made before its worker (2026-11-07):
+
+- **Where.** `Sources/MuxFinderCore/Update/` (new files of the worker's naming); the app's
+  read-only flag where the app's other `--report-*` flags are parsed; tests
+  `Tests/MuxFinderCoreTests/Update*Tests.swift` (UI tests only for the flag's parsing). Apple
+  frameworks and libc only; no dependency. No UI and no wiring into the normal app (I-13c).
+- **Eligibility, read-only.** From the running app's own signature: `SecCodeCopySelf`, a
+  validity check against `anchor apple generic and certificate
+  1[field.1.2.840.113635.100.6.2.6] exists and certificate
+  leaf[field.1.2.840.113635.100.6.1.13] exists` (never the revocation or network flags), and
+  the Team ID from `SecCodeCopySigningInformation` (`kSecCodeInfoTeamIdentifier`), accepted
+  only as an `UpdateTeamID`; the same reader works on a `SecStaticCode` made from a path
+  (tests and the real 0.2.0 check below). The installed bundle is `Bundle.main.bundleURL`
+  with no symbolic link on its path, the running executable inside it, its
+  `CFBundleIdentifier` `cc.carpio.muxfinder`, its `CFBundleVersion` parsed as b1's running
+  build, its identity (device and inode) recorded for the swap. Not eligible, each a typed
+  reason with a short lowercase phrase I-13c shows next to "Download" (no path, host or Team
+  ID): not signed with a Developer ID (development, ad hoc or unsigned: one reason), the
+  signature unreadable, App Translocation (a path component `AppTranslocation`; the SDK has
+  no public header for `SecTranslocateIsTranslocatedURL`, so never that or `dlsym`), a
+  read-only volume (`statfs` `MNT_RDONLY`: a disk image), the bundle or its parent not
+  writable by the user or the bundle not the user's, the running build unparseable, the
+  staging root not usable or on another volume (below). Eligibility creates and writes
+  nothing: a pure decision over gathered facts plus one real fact reader.
+- **The staging root.** `~/Library/Application Support/muxFinder/update/`, since the app owns
+  only that support folder and `DynamicProfiles/muxFinder.json` (never a folder beside the
+  installed bundle). Created 0700 like the other stores when an update starts (never by
+  eligibility), refused when a symbolic link, not a folder, another user's, not private or
+  with an ACL; each update gets one fresh, uniquely named 0700 run folder in it, which is b1's
+  given staging folder. The root's device must equal the installed bundle's (on this Mac
+  `/Applications`, `~/Applications`, the home folder and `/private/tmp` share one device,
+  read with `stat` 2026-11-07); otherwise not eligible (`differentVolume`: "Download" only).
+  Tests inject the root's location (private folders under `/private/tmp` or
+  `/private/var/folders`).
+- **The swap, bound by device and inode (D27's rules).** Right before it: the folder at the
+  installed path (`lstat`, a real folder) has the identity eligibility recorded
+  (`installedChanged` otherwise); the verified bundle's folder has
+  `UpdateVerifiedBundle.identity` and passes the code check again (`UpdateCodeChecking`, the
+  same team, notarized; D39's requirement for I-13b2), else the update is refused with the
+  check's reason. Then the exchange: `renamex_np(new, installed, RENAME_SWAP)` if the worker
+  proves it on a private APFS folder (folders in different parents, both identities checked
+  after it), else two renames with `RENAME_EXCL` (installed → the run folder, new →
+  installed). After it the installed path must hold the new identity and the run folder the
+  old; any failure or difference puts the old bundle back (the reverse step, itself checked)
+  and reports a failure saying whether the rollback succeeded (the run folder holding the old
+  bundle named in the report for diagnostics, never in the user's phrase). Every rename goes
+  through an injected seam so tests can fail or race each step. Real swaps only of stub
+  bundles on private folders under `/private/tmp` or `/private/var/folders`.
+- **The relauncher.** Started only after a successful swap: `/bin/sh -c '<static script>'
+  muxfinder-relaunch <pid> <opener> <bundle path>` (a compiled-in constant script, D3),
+  spawned detached (`posix_spawn` with `POSIX_SPAWN_SETSID`, standard streams `/dev/null`, no
+  other inherited descriptor, never waited for), environment only `PATH=/usr/bin:/bin`. The
+  script waits for the pid to end (`kill -0` polling, bounded; worker's number, about 60 s;
+  on timeout it opens nothing and exits nonzero), then runs `<opener> <bundle path>` once.
+  The app passes `/usr/bin/open` and the absolute installed path (a leading `/`, never read
+  as an option). Tests assert the argv and prove the wait with a harmless stand-in opener (a
+  marker written in a private folder; the waited pid a `sleep` child of the test): nothing
+  before the pid ends, the marker after; the timeout opens nothing. Never `/usr/bin/open` in
+  a test or run. The pipeline never terminates the app: I-13c quits after it returns.
+- **Leftover cleanup** (a core function I-13c calls at launch): each run folder in the root is
+  deleted only when no process runs from inside it (every pid's `proc_pidpath` compared, so a
+  buried tab's old `muxfinder-launch` keeps the old bundle until a later launch) and no live
+  update holds it (a lock in the run folder held while an update runs, or the worker's
+  equivalent); never following a link or leaving the root, refusing a root that fails the
+  root's checks, reporting counts (removed, kept in use, failed). Tested with a real child
+  process running from a private run folder.
+- **Old helpers** (from the code, never git): what a running `muxfinder-launch` reads from its
+  own bundle after it starts (beyond its mapped executable: `Bundle.main` resources,
+  `Info.plist`, sibling binaries, paths computed from its location), per mode; and whether the
+  launch-directory files a 0.2.0 or 0.3.0 helper writes and the requests it takes decode in
+  the current code and the other way round (D14). The orchestrator put read-only copies of
+  `Sources/muxfinder-launch`, `Sources/MuxFinderCore/Launch` and `Sources/MuxFinderCore/Profiles`
+  at the `v0.2.0` and `v0.3.0` tags (`git archive`) in a private folder for the worker.
+  Findings recorded in D39; a small incompatibility is fixed here, a larger one recorded for
+  I-13c.
+- **The pipeline type** for I-13c, in two calls so I-13c can ask before quitting between
+  them: prepare (eligibility again, the staging root and a run folder, b1's verifier with
+  progress, cancellable; states downloading with bytes and total, checking; a prepared update,
+  or failed with a reason, or cancelled, the run folder removed on failure or cancel) and
+  install (the re-check, the swap, the relauncher; states installing, relaunching; relaunch
+  scheduled, or failed with a reason and the old bundle back). A prepared update can be
+  discarded (its run folder removed). Every external effect injected; one end-to-end test on
+  private folders with stub bundles, a fake code checker and the stand-in opener.
+- **The read-only flag** `--report-update-eligibility` on the app binary: prints `muxFinder
+  update eligibility: …` lines (eligible or the reason, Developer ID or not, a Team ID present
+  or not but never its value, translocated, read-only volume, writable, same volume, running
+  version and build) and exits 0 when reported, 2 combined with another mode; contacts
+  nothing, writes nothing (no staging root, `preferences.json`, `hosts.json` or state file),
+  opens no window or menu bar item, never contacts iTerm2.
+- **What may run for real in I-13b2.** `swift build`, `swift test`, lint;
+  `scripts/build-app.sh` (it removes only `build/muxFinder.app`; `build/muxFinder.zip` stays)
+  and the flag on `build/muxFinder.app` (Apple Development: not eligible, the Developer ID
+  reason), with `~/Library/Application Support/muxFinder/` listed before and after (no
+  `update` folder created); the signature reader on a private unpacked copy of
+  `build/muxFinder.zip` (0.2.0, Developer ID; the Team ID equal to `codesign -dv`'s, compared,
+  never printed), for example through an environment-gated test; the `RENAME_SWAP` proof,
+  swaps, rollbacks, cleanup and relauncher only on private `mktemp -d /private/tmp/mfx.XXXXXX`
+  folders, removed afterwards. Never `scripts/release.sh`, `install.sh`, a swap of an
+  installed or `build/` app, `open`, a request to any server, or signing other than ad hoc.
+- **Docs in this phase.** D39 extended ("Eligibility and install (I-13b2)"); `CLAUDE.md` the
+  flag's command line; `docs/TESTING.md` a Phase I-13b2 section with the real results
+  (verdicts only). README and ARCHITECTURE wait for I-13c.
 
 ## Deferred (explicitly out of scope for v1)
 

@@ -65,20 +65,20 @@ file.
 | I-12e | Other terminals, the docs: `docs/TERMINALS.md` ("Adding a terminal" with a worked `exec` example that loads, later candidates, the Ghostty control-mode note), `docs/REQUIREMENTS.md` addendum, README, ARCHITECTURE, TESTING, MANUAL-CHECKLIST (item 29), `CLAUDE.md` corrected against the code; documents only | routine | opus (docs worker); review fix and two README corrections inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12e.md` | `docs/progress-archive/i-12e.md` |
 | I-13a | Update check, the check core: `UpdateVersion`, the bounded `releases/latest` parser, the transport and its `URLSession` implementation (hermetic, `URLProtocol` stub only), the 304 rule, `update-state.json`, the `checkForUpdatesAutomatically` toggle, the scheduler over an injected clock, probe `update check` (real run the user's); rule 3 now forbids any request to a server in a run (D39; I-13 split into a/b/c) | high | opus (impl + review-fix worker); split, calls and one TESTING count fix by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13a.md` | `docs/progress-archive/i-13a.md` |
 | I-13b1 | Install pipeline, download and verification: download with redirect allowlist, exact size and streaming SHA-256, zip pre-check before `ditto` and a watchdog during it, shape walk, Security.framework check (Developer ID, Team ID, `notarized` proven on the stapled 0.2.0 bundle), versions through the checked bundle, result bound to its device and inode, probe `update verify` real in zip mode (D39 extended; I-13b split into b1/b2) | high | opus (impl + review-fix worker); split, calls and one real zip-mode run by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13b1.md` | `docs/progress-archive/i-13b1.md` |
+| I-13b2 | Install pipeline, eligibility and install: eligibility from the running app's own signature (typed reasons), staging root `…/muxFinder/update/` with locked run folders, `RENAME_SWAP` bound by device and inode with re-check and both-identity rollback (`recoveryRequired`), detached relauncher (constant script), lock-first cleanup over a complete process scan, old helpers compatible, prepare/install/discard pipeline, `--report-update-eligibility` (D39 extended) | high | opus (impl + review-fix worker); calls and old-source copies by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13b2.md` | `docs/progress-archive/i-13b2.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-13b2 | Install pipeline, eligibility and install (high): the running app's Developer ID and Team ID, App Translocation, writable parent, staging root on the bundle's volume, identity compare and code check again right before the swap (D39), D27-style swap with rollback, relauncher, leftover cleanup, old helpers and D14 compatibility, the pipeline type for I-13c (`PLAN.md` *Phase I-13*) | `autoclaude/processed/120-update-check-github.md` | next |
-| I-13c | Update check, the UI, wiring and docs (high): popover notice and update states, icon dot, Settings › General, ask before quitting, normal-mode-only wiring, galleries, docs, release contract (may split again) | same | after I-13b2 (last) |
+| I-13c | Update check, the UI, wiring and docs (high): popover notice and update states, icon dot, Settings › General, ask before quitting, normal-mode-only wiring, cleanup at launch, galleries, docs, release contract (may split again) | `autoclaude/processed/120-update-check-github.md` | next (last) |
 
 **Inbox**: every triage through 2026-11-06 (items 40 to 120, item 99 deferred and then resolved
 by the user) is logged verbatim in `docs/progress-archive/inbox-log.md`. The standing note on
 GitHub requests was settled at I-13's selection (`PLAN.md` *Phase I-13* "The run rule": no run
 sends a request to any server; the real GETs are the user's). 2026-11-07 01:37 (start of
 I-13a's iteration): `list` empty. 2026-11-07 02:27 (start of I-13b1's iteration): `list`
-empty.
+empty. 2026-11-07 03:45 (start of I-13b2's iteration): `list` empty.
 
 ## Current phase
 
@@ -98,9 +98,9 @@ and **I-12d2** (popover, switcher, session states) complete 2026-11-07
 (`docs/progress-archive/i-12e.md`), so **Phase I-12 is complete**. **Phase I-13** (update
 check) is split into **I-13a/I-13b/I-13c** in `PLAN.md` *Phase I-13*; **I-13a** (the check
 core) complete 2026-11-07 (`docs/progress-archive/i-13a.md`). **I-13b is split into
-I-13b1/I-13b2**; **I-13b1** (download and verification) complete 2026-11-07
-(`docs/progress-archive/i-13b1.md`). **Next: I-13b2** (eligibility and install; *Next action*
-0), then I-13c, the last queued phase.
+I-13b1/I-13b2**; **I-13b1** (download and verification) and **I-13b2** (eligibility and
+install) complete 2026-11-07 (`docs/progress-archive/{i-13b1,i-13b2}.md`). **Next: I-13c**
+(the UI, wiring and docs; *Next action* 0), the last queued phase.
 Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
@@ -156,6 +156,12 @@ I-11a/I-11b, I-12 into I-12a–e.
   in zip mode on private copies of `build/muxFinder.zip` (untouched → every check passed, exit
   0; one byte changed → digest, exit 1; another Team ID → `otherTeam`, exit 1), latest mode
   never run, no request to any server — `docs/progress-archive/i-13b1.md`.
+- Phase I-13b2: all 10 criteria met, 2026-11-07 — eligibility, staging root, swap, relauncher,
+  cleanup and pipeline in `Sources/MuxFinderCore/Update/`, 41 new core and 1 UI test;
+  `RENAME_SWAP` proven; the signature reader real on an unpacked 0.2.0 copy (Developer ID,
+  Team ID matches); `--report-update-eligibility` on `build/` → not eligible
+  (`notDeveloperID`), exit 0, nothing written; old helpers compatible; no request to any
+  server, no `open`, no real swap — `docs/progress-archive/i-13b2.md`.
 
 ## Decisions
 
@@ -197,6 +203,11 @@ I-11a/I-11b, I-12 into I-12a–e.
   with the Team ID validated first, the worker to prove `notarized`, ad hoc signing only).
   The workers' calls (bounds, `Accept-Encoding: identity`, local-header rule, identity
   binding) are in D39 and `docs/progress-archive/i-13b1.md`.
+- Phase I-13b2 (at selection, 2026-11-07): "The orchestrator's calls for I-13b2" in `PLAN.md`
+  *Phase I-13* (staging root in the support folder, never beside the bundle; `differentVolume`
+  not eligible; translocation by path component, no `dlsym`; constant relauncher script; old
+  sources by `git archive` for the worker). Workers' calls (no two-rename fallback, the wait
+  as an argument, recovery marker, scan exceptions) in D39 and `docs/progress-archive/i-13b2.md`.
 
 ## Open risks / deviations
 
@@ -244,6 +255,13 @@ I-11a/I-11b, I-12 into I-12a–e.
   still change inside the private staging folder after the check until I-13b2's re-check
   before the swap (D39). Workers: 13 test folders left once in `/private/tmp` (removed), one
   read-only `git diff --stat` against the brief — `docs/progress-archive/i-13b1.md`.
+- I-13b2 (**for the user**, I-13c's checklist): the real update end to end on a Developer ID
+  build, and whether `/usr/bin/open` with only `PATH` opens the new copy. An unwritable
+  recovery marker lets a later cleanup delete that run folder. Flaky runs seen: one full
+  `swift test` hang (killed), `panelRootIsNoTallerThanItsLimit` and `answersAndEndsAtEndOfInput`
+  once each, both passing alone. **Release numbering**: `v0.3.0` (build 3) was released from
+  branch `release/0.3.0` (`1c037ea`), not `main` (still 0.2.0 build 2), so the next release
+  from `main` needs a build above 3 (D35) — `docs/progress-archive/i-13b2.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -316,41 +334,32 @@ I-11a/I-11b, I-12 into I-12a–e.
   pre-check and `ditto` watchdog), each regression failing with its fix reverted, re-verified
   by the orchestrator with a real zip-mode run — `docs/reviews/phase-I-13b1.md`, summary in
   `docs/progress-archive/i-13b1.md`.
+- Phase I-13b2: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 2
+  blockers + 1 should-fix (rollback could move a replacement it did not install; cleanup's
+  process snapshot taken before the run lock; scan failures authorizing deletion); all fixed
+  by a review-fix worker, each regression failing with its fix reverted, re-verified by the
+  orchestrator — `docs/reviews/phase-I-13b2.md`, summary in `docs/progress-archive/i-13b2.md`.
 
 ## Next action
 
-0. **Phase I-13b2 (queued, high): eligibility and install.** Poll the inbox first. Read
-   `PLAN.md` *Phase I-13* ("The run rule", "I-13b split", the calls for I-13a and I-13b1 for
-   the conventions they set) and D39 (its I-13b1 part ends with the requirement for I-13b2),
-   and the specification `autoclaude/processed/120-update-check-github.md` (*Update (only
-   after the click)*, *Testing and safety*, *Acceptance*). At selection write "The
-   orchestrator's calls for I-13b2" in `PLAN.md` *Phase I-13*: eligibility from the running
-   app's own signature (`SecCodeCopySelf`: Apple anchor with the Developer ID markers, its
-   Team ID passed to b1's check), not App Translocation, the installed bundle's parent and
-   the bundle folder writable by the user, every check a typed reason I-13c can show next to
-   "Download"; the staging root on the installed bundle's volume (device compared; private,
-   0700; a fixed, findable place so leftovers can be cleaned; the caller's choice injected in
-   tests); right before the swap, the bundle's device and inode compared with b1's result and
-   the code check run again (D39); the D27-style swap (`renamex_np` `RENAME_SWAP` if it
-   proves supported on a private APFS folder, else two renames with `RENAME_EXCL`), each step
-   bound by device and inode, any failure putting the old bundle back and reported; the
-   relauncher (a static script plus argv, detached, a bounded wait for this pid, then
-   `/usr/bin/open` of the bundle; injected in tests, argv asserted, the script's waiting
-   proven with a harmless stand-in for the opener; never `open` in a run); leftover cleanup
-   at launch (a core function; I-13c wires it) deleting an old bundle only when no process
-   runs from it (`proc_pidpath` under it, so a buried tab's old `muxfinder-launch` keeps it);
-   what a running `muxfinder-launch` reads from its bundle after it starts and whether a
-   0.2.0 helper's launch-directory files decode in the new app (from D14 and the code, no git
-   commands); the pipeline type tying b1's steps to the swap with the states I-13c shows
-   (downloading with progress, checking, installing, relaunching, failed with a reason,
-   cancelled); optionally a read-only `--report-update-eligibility` flag (prints the running
-   bundle's eligibility, contacts nothing, writes nothing) to check the real `build/` app
-   (Apple Development: not eligible). Swaps and relaunch scripts run only on private folders
-   physically under `/private/tmp` or `/private/var/folders`. Then mark I-13b2 `in_progress`
-   with the helper's `status` and spawn its worker. Never run `scripts/release.sh`,
-   `install.sh`, a real swap of an installed or `build/` app, `open`, or any request to a
-   server; sign only ad hoc; the release, notarization and publish rules in `CLAUDE.md` stay
-   the user's.
+0. **Phase I-13c (queued, high, the last): the UI, wiring and docs.** Poll the inbox first.
+   Read `PLAN.md` *Phase I-13* (the I-13c bullet, "The run rule", the calls for I-13a, I-13b1
+   and I-13b2), D39 whole (its "Not yet" line lists what is unwired), and the specification
+   `autoclaude/processed/120-update-check-github.md` (*UI*, *Release flow and docs*,
+   *Acceptance*). Split it at selection if one worker cannot finish it coherently (for
+   example I-13c1: the app's wiring in normal mode only, the scheduler and its toggle, the
+   popover notice, the icon dot, Settings › General's toggle, "Check for updates…" and status
+   line, galleries; I-13c2: the update flow (Update → `UpdatePipeline` prepare with progress
+   and Cancel, the ask before quitting with unsaved New session text or Settings edits,
+   install, quit; "Download" with the eligibility reason otherwise), leftover cleanup at
+   launch, README, ARCHITECTURE, TESTING, MANUAL-CHECKLIST, the release contract on
+   `CLAUDE.md`'s release line and in D35), recording the split and "The orchestrator's calls
+   for I-13c" in `PLAN.md` before the first worker. Binding: no diagnostic mode contacts the
+   network or writes the state file (`--report-update-eligibility` stays read-only); relaunch
+   only the installed path; never `/usr/bin/open`, `scripts/release.sh`, `install.sh`, a real
+   swap, or a request to any server in a run; the checklist gains the real update end to end
+   on a Developer ID build and `open` with only `PATH`. Release numbering: `v0.3.0` (build 3)
+   came from `release/0.3.0`, so the next release from `main` needs a build above 3 (D35).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -382,18 +391,23 @@ I-11a/I-11b, I-12 into I-12a–e.
   `Sources/MuxFinderCore/Update/{UpdateStaging,UpdateDownload,UpdateArchive,UpdateExtraction,UpdateCodeCheck,UpdateBundleVersions,UpdateVerification,UpdateVerifyProbe}.swift`;
   tests `Tests/MuxFinderCoreTests/Update{Download,Archive,Extraction,CodeCheck,BundleVersions,Verifier,VerifyProbe}Tests.swift`
   and `UpdateVerifyTestSupport.swift`.
+- Eligibility and install (I-13b2, D39):
+  `Sources/MuxFinderCore/Update/{UpdateEligibility,UpdateEligibilityReader,UpdateStagingRoot,UpdateProcessScan,UpdateSwap,UpdateRelauncher,UpdatePipeline}.swift`,
+  the flag in `Sources/MuxFinderUI/Model/AppLaunchOptions.swift` and
+  `Sources/MuxFinderApp/MuxFinderMenuBarApp.swift`; tests listed in
+  `docs/progress-archive/i-13b2.md`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/` (inbox log: `inbox-log.md`).
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-13b1 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test`: 1319 core tests in 144
-  suites + 548 UI tests in 55 suites passed; `.build/debug/muxfinder-probe update verify`
-  zip mode on a private copy of `build/muxFinder.zip` (`--expect-version 0.2.0`, digest by
-  `shasum -a 256`, Team ID by `codesign -dv`): overall `verified`, all 7 steps `passed`, exit
-  0; no `/private/tmp/mfx.*` left; no `update-state.json` in the real support folder —
-  `docs/progress-archive/i-13b1.md`.
-- Phases 1–I-13a: each phase's final-tree verification is in
+- Phase I-13b2 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test`: 1360 core tests in 151
+  suites + 549 UI tests in 56 suites passed (an earlier full run: 1 load-sensitive failure,
+  `answersAndEndsAtEndOfInput`, which passed alone); before the review fixes
+  `--report-update-eligibility` on the rebuilt `build/muxFinder.app` exit 0 (not eligible,
+  `notDeveloperID`) and `codesign --verify --deep --strict` exit 0; no `/private/tmp/mfx.*`
+  left; no `update` folder in the real support folder — `docs/progress-archive/i-13b2.md`.
+- Phases 1–I-13b1: each phase's final-tree verification is in
   `docs/progress-archive/<phase>.md`.
 
 ## Git state
@@ -401,8 +415,7 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phases 1 to I-12e: every commit, all pushed to `origin/main`, moved verbatim to
   `docs/progress-archive/git-state-1-i-12e.md` (the last, I-12e `3d47e6e`). Commit messages
   carry no AI attribution trailer (the user's global rule).
-- Phase I-13a: `9d2f1f2` ("Phase I-13a: update check, the check core"), pushed to
-  `origin/main`.
-- Phase I-13b1: the commit carrying this checkpoint ("Phase I-13b1: install pipeline, download
-  and verification"), pushed (SHA and push result in the run's status line and the next
-  checkpoint). The tree was clean when this iteration started (empty preflight file).
+- Phase I-13a: `9d2f1f2`; Phase I-13b1: `177aea5`; both pushed to `origin/main`.
+- Phase I-13b2: the commit carrying this checkpoint ("Phase I-13b2: install pipeline,
+  eligibility and install"), pushed (SHA and push result in the run's status line and the
+  next checkpoint). The tree was clean when this iteration started (empty preflight file).
