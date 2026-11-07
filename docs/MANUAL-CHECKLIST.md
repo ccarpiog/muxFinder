@@ -955,6 +955,57 @@ lower); it sends anonymous requests to `api.github.com`.
      alert.
 - **Undo:** turn the toggle back on; quit the older copy and reinstall the current one.
 
+## 32. The update buttons and lines in the popover (Download, Update, Cancel, the ask)
+
+Owed by Phase I-13c2b (PLAN.md D39 *The update views (I-13c2b)*): no unattended run launches
+the app in normal mode, downloads a release or swaps an app, so the notice's buttons and lines
+were proven only over a fake pipeline and the popover gallery. This item needs the network
+(it sends anonymous requests to `api.github.com` and downloads the release's `muxFinder.zip`,
+about 6 MB, from GitHub) and two older copies: an Apple Development build (`scripts/build-app.sh`
+with `CFBundleShortVersionString` set lower than the latest published release) and a release
+(Developer ID) copy older than the latest published release, installed in `/Applications`.
+Steps 6 and 7 install the newer release for real.
+
+- **Do:**
+  1. Open the Apple Development build normally and wait about 10 s; open the popover; click
+     **Download**. Quit it.
+  2. Open the older release copy from `/Applications`, open the popover, click **Update**;
+     while "Downloading…" shows, click **Cancel**; then
+     `ls ~/Library/Application\ Support/muxFinder/update/`.
+  3. Turn Wi-Fi off, click **Update**, wait for the failure; click **Release page**. Turn
+     Wi-Fi back on.
+  4. Open New session, type a name and leave the window open; click **Update** and wait.
+  5. Click **Not now**. Close the New session window (clearing its name), then in Settings ›
+     Hosts change a host's name without saving; click **Install and relaunch**.
+  6. Click **Not now**, discard the Settings edit, then click **Install and relaunch** again.
+  7. Optionally, with VoiceOver on, repeat step 3 and step 4's ask.
+- **Expect:**
+  1. Under "muxFinder <latest> is available" and **What's new**: "Can't update in place: this
+     copy isn't signed with a Developer ID" and **Download**, which opens
+     `https://github.com/ccarpiog/muxFinder/releases/tag/<latest tag>` in the browser. No
+     **Update**; nothing is downloaded.
+  2. **Update** (no reason line). Then "Downloading… N%" with a filling bar and **Cancel**
+     (briefly "Checking the download…" with **Cancel** once it is downloaded); after Cancel
+     the notice offers **Update** again and the `update` folder holds no `run-…` folder (at
+     most `update.lock`). The app keeps running.
+  3. "Couldn't update: no connection" (or "Couldn't update: the download took too long") in
+     red, with **Update** and a **Release page** link that opens the release page. No path,
+     address or header in the line.
+  4. After the download and its check: "Quitting to install loses the New session draft."
+     and "Attached tmux sessions are not affected.", with **Quit and install** and **Not
+     now**. muxFinder does not quit by itself.
+  5. "muxFinder <latest> is ready to install" with **Install and relaunch**; pressing it asks
+     again, now "Quitting to install loses unsaved changes in Settings.".
+  6. With nothing unsaved, no ask: "Installing…", then "Relaunching…" (no **What's new**);
+     muxFinder quits and the new version opens by itself; tmux sessions attached in iTerm2
+     stay attached. (The full end-to-end check of the real update is I-13c3's.)
+  7. VoiceOver says "Couldn't update: …" when the failure appears, and "muxFinder <latest> is
+     ready to install. Quitting to install loses …" when the ask appears; each button is read
+     with its action and the version ("Update to muxFinder <latest>", "Cancel the update to
+     muxFinder <latest>"), the bar with its percent.
+- **Undo:** remove the Apple Development build; the release copy in `/Applications` is now the
+  latest release (reinstall an older one only to repeat the item).
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -990,3 +1041,4 @@ lower); it sends anonymous requests to `api.github.com`.
 | 29 | | | |
 | 30 | | | |
 | 31 | | | |
+| 32 | | | |

@@ -4121,3 +4121,56 @@ folder).
 download, the checks, the ask, the swap, the quit and the relaunch) is the user's, with I-13c2b's
 views and checklist item; the real cleanup at a normal launch is the user's too (a normal launch
 sends the check).
+
+### Phase I-13c2b — the update views (2026-11-07)
+
+The popover's update notice rendering the update flow: Update and Download, the download's
+line, bar and Cancel, checking, the ask with Quit and install and Not now, Install and
+relaunch, installing and relaunching, and "Couldn't update: …" with the Release page link,
+VoiceOver, the popover gallery's states and screenshots (PLAN.md D39 *The update views
+(I-13c2b)*, Phase I-13 *The orchestrator's calls for I-13c2b*). `UpdateFlow` is unchanged.
+**No request was sent to any server, the app was never launched in normal mode nor through
+`open`, `/usr/bin/open` was never run, and no installed or `build/` app was swapped**: the
+buttons ran only over the fake pipeline and a recording opener, the galleries over synthetic
+fixtures. `~/Library/Application Support/muxFinder/` listed the same before and after (no
+`update` folder or `update-state.json`).
+
+| Check | Command | Observed result |
+|---|---|---|
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` (with `TMUX_TMPDIR` unset) | exit 0: UI 601 tests in 60 suites (14 new in 2 suites; before 587 in 58); core 1366 tests in 152 suites, untouched. No existing expectation changed |
+| `UpdateNoticeContentTests` (5, UI) | `swift test --filter UpdateNoticeContentTests` | The pure mapping over 11 states (idle, downloading with and without a total, checking, prepared, the ask with one and two items, deferred, installing, relaunching, failed) × 4 offers (none, reading, Update, Download) × `canUpdate` true and false: the buttons exactly as the calls say (Update or Download only from idle or a failure; none while reading or with no offer), Update enabled exactly while `canUpdate`, every other button enabled; the title and What's new everywhere but installing and relaunching. The lines: "Can't update in place: <reason>", "Downloading… 40%" with the bar at 0.4 and "40%", "Downloading…" with the activity indicator and no bar, "Checking the download…", "Download checked", the ask's line for one, two and the Settings item with "Attached tmux sessions are not affected.", "muxFinder 0.3.0 is ready to install" (the prepared release's version when it differs), "Installing…", "Relaunching…", the failure's phrase. A failure: Update and Release page while `canUpdate`, Release page alone otherwise; Download and Release page when the offer turned into one, its reason line only when the failure's phrase does not say it; Release page alone while reading. VoiceOver: each label names its action and version (the prepared release's for Cancel), every button has a hint, the bar's value; the failure and the ask announced, no other state. No text holds `/`, `://`, `github.com` or a header name, over every state and offer and ten typed failure phrases (a rollback naming its run folder included) |
+| `UpdateNoticeViewTests` (9, UI) | `swift test --filter UpdateNoticeViewTests` | Over the fake pipeline, an in-memory state with a kept 0.3.0 (asset included), automatic checks off and a recording opener, announcer and terminator, through `UpdateModel.perform(_:)`: Update, then downloading 40 % (Cancel, the bar's "40%"), Cancel back to idle with Update (the prepare cancelled once); What's new opens exactly the release page; a failure shows its phrase with Update and Release page, VoiceOver hears it once, Release page opens the page, Update again runs a second prepare and the second failure is heard again; not eligible shows Download with its reason, which opens the page, and Update prepares nothing; the ask (both items) is heard, Not now shows Install and relaunch with "muxFinder 0.3.0 is ready to install", Install and relaunch asks again (heard again), Quit and install installs once, the notice reads "Relaunching…" with no What's new or button, the terminator runs once. Every gallery fixture and the inert model run and open nothing whatever is pressed; `AppModel` hands its announcer to the update model. The gallery: 13 flow states with unique ids after I-13c1's notice, each with the calls' buttons, all enabled. Fit, measured in hosting views never put in a window: each state's notice no wider than the popover (360 pt) and at most 130 pt tall; a long failure and the two-item ask wrap (taller, no wider); under the panel's limit (natural − 60 pt) each state's popover lays itself out exactly at the limit |
+| App bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0 (Apple Development); exit 0 |
+| Galleries | `build/muxFinder.app/Contents/MacOS/muxFinder --preview-fixtures --appearance light\|dark --preview-snapshot docs/screenshots/popover-states-<appearance>.png` | both written, 2336 × 3085 (was 2336 × 2318): the 13 update states after "Update available: the notice", looked at in both appearances: every line and button whole, the failures and the two-item ask wrapped |
+| App shell | `CFFIXED_USER_HOME=$(mktemp -d /private/tmp/mfx.XXXXXX) build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &`, after 4 s `pgrep -P <pid>` and `kill -TERM <pid>` | as before: 5 status-item windows, onboarding the only visible other window; no child; exit 0; the private home still empty (no `update-state.json` or `update` folder); removed |
+| Popover placement | `CFFIXED_USER_HOME=$(mktemp -d /private/tmp/mfx.XXXXXX) build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement &`, `pgrep -P <pid>` | as before: no child, "after-fix check: passed", exit 0; the private home still empty; removed |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+
+#### Review fixes (2026-11-07)
+
+The adversarial review (`docs/reviews/phase-I-13c2b.md`) found two should-fix gaps, fixed in
+`UpdateModel` as PLAN.md D39 *The update views (I-13c2b)* records. **Announcements only while
+the notice shows:** a failure or the ask that appeared while the popover was closed (or the
+switcher open in its place, or a confirmation over its main layout) was announced at once,
+for a notice nobody could see; now it is kept as the pending announcement (the latest only)
+and said once when the main layout shows the notice, or dropped if the flow's state no longer
+says it by then. **The displayed release:** after Not now, a check that no longer offered a
+newer release left the notice showing (through `UpdateFlow.preparedRelease`) with a What's
+new that opened nothing, since `openWhatsNew()` read only the notice; now the notice, What's
+new and Release page share `UpdateModel.displayedRelease` (the notice, else the prepared
+release), opened through the injected opener. `UpdateFlow` and the pure mapping are unchanged.
+
+| Check | Command | Observed result |
+|---|---|---|
+| `UpdateViewsReviewFixTests` (3, UI; new) | `swift test --filter UpdateViewsReviewFixTests` | Over `UpdateNoticeViewTests`' harness (fake pipeline, recording opener and announcer). An update started, the notice hidden before its prepare ended: its failure is not said while hidden, is said once when the notice shows, and not again after hiding and showing it. The ask appearing while hidden: not said; after Not now (the state moved on) showing the notice says nothing; Install and relaunch while still hidden asks again, said once when the notice shows, never again. Not now, then a manual check answering 0.2.0 (no newer release): the notice still reads "muxFinder 0.3.0 is available" with "What's new in muxFinder 0.3.0" and Install and relaunch; What's new and Release page each open the 0.3.0 page through the opener |
+| Regressions fail on the old code | each fix reverted by an edit, the suite run, the fix restored | the old announce at once in `flowStateChanged()`: `aFailureWhileHiddenIsAnnouncedOnceTheNoticeShows` (1 issue: said while hidden) and `anAskWhileHiddenIsDroppedOrSaidOnce` (5 issues: both asks said while hidden, twice in all) fail; `openWhatsNew()` reading only the notice: `whatsNewOpensThePreparedReleaseAfterTheOfferIsGone` fails (2 issues: nothing opened); each passes with its fix |
+| Build | `swift build` | exit 0, no warnings |
+| Unit tests | `swift test` (with `TMUX_TMPDIR` unset) | UI 604 tests in 61 suites, all passed (3 new in 1 suite; before 601 in 60); core 1366 tests in 152 suites, untouched: the known flaky `answersAndEndsAtEndOfInput` failed under load in the full run and passed in `swift test --filter FolderSearchTransportTests` alone (8 tests). No existing expectation changed; `UpdateNoticeViewTests`' harness gained an `answer` parameter (what a manual check gets; default the old answer) |
+| App bundle | `scripts/build-app.sh`; `codesign --verify --deep --strict build/muxFinder.app` | exit 0 (Apple Development); exit 0. No gallery changed (a fixture's displayed release is its notice), so the screenshots stand |
+| Format lint | `swift format lint -r Sources Tests` | exit 0, no output |
+
+**Owed** (`docs/MANUAL-CHECKLIST.md` item 32): the real buttons and lines on real copies:
+Download on an Apple Development build, Update with a real download and Cancel during it, a
+failure line with its Release page link, the ask with an unsaved New session draft and with
+unsaved Settings edits, Not now then Install and relaunch, and VoiceOver's announcements.

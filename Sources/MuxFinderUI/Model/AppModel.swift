@@ -489,7 +489,8 @@ public final class AppModel {
   /// This Mac's home folder for the directory list's `~` rule (PLAN.md D31): the environment's
   /// (`AppEnvironment.homeDirectory`) or the fixture's; `nil` matches entries only as stored.
   let thisMacHome: String?
-  /// Speaks a VoiceOver announcement (the directory list's match count, PLAN.md D31):
+  /// Speaks a VoiceOver announcement (the directory list's match count, PLAN.md D31; the
+  /// update notice's failure and ask, D39, through `UpdateModel.announce`):
   /// `AppEnvironment.announce`, `nil` (nothing said) for a fixture; tests record through it.
   @ObservationIgnored var announce: (@MainActor @Sendable (String) -> Void)?
   /// Whether the model itself is filling the Directory field (a pick), so the change is not
@@ -544,6 +545,7 @@ public final class AppModel {
     settings.globalShortcut = shortcut
     settings.update = update
     update.flow.unsavedWork = { [weak self] in self?.unsavedWorkForUpdate() ?? .none }
+    update.announce = { [weak self] text in self?.announce?(text) }
     shortcut.onPress = { [weak self] in self?.globalShortcutPressed() }
     settings.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
     settings.onDirectoriesSaved = { [weak self] lists in

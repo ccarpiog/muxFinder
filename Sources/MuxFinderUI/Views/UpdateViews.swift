@@ -2,31 +2,53 @@ import AppKit
 import MuxFinderCore
 import SwiftUI
 
-/// The popover's update notice (PLAN.md D39 *The notice (I-13c1)*): "muxFinder <version> is
-/// available" with **What's new**, which opens the release page; shown while the offer is newer
-/// than the running version. No Update or Download button yet (I-13c2).
+/// The popover's update notice (PLAN.md D39 *The notice (I-13c1)*, *The update views
+/// (I-13c2b)*), rendered only from an `UpdateNoticeContent`: the title ("muxFinder <version> is
+/// available", or "Installing…" / "Relaunching…") with **What's new**, then the flow's lines
+/// (wrapping, never cutting a button), the download's bar and the flow's buttons. Each button
+/// hands its action to `perform` (`UpdateModel.perform(_:)`). VoiceOver reads every line as
+/// text, each button by its label and hint, and the bar's percent as its value.
 struct UpdateNoticeView: View {
-  /// The release offered.
-  let release: UpdateRelease
-  /// The model that opens the release page.
-  let update: UpdateModel
+  /// What the notice shows.
+  let content: UpdateNoticeContent
+  /// Called with a pressed button's action.
+  let perform: @MainActor (UpdateNoticeAction) -> Void
 
-  /// One line on a faint blue band.
+  /// The title row and, below it, the lines, the bar and the buttons, on a faint blue band.
   var body: some View {
-    let text = UpdateNotice.available(release.version)
-    HStack(spacing: 8) {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
       Image(systemName: "arrow.down.circle.fill")
         .foregroundStyle(Color.accentColor)
         .accessibilityHidden(true)
-      Text(text)
-        .font(.callout)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel(text)
-      Spacer(minLength: 6)
-      Button("What's new") { update.openWhatsNew() }
-        .controlSize(.small)
-        .accessibilityLabel("What's new in muxFinder " + release.version.description)
-        .accessibilityHint("Opens the release page in your browser")
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(content.title)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+          if content.showsActivity, content.lines.isEmpty { activity }
+          Spacer(minLength: 6)
+          if let whatsNew = content.whatsNew { button(whatsNew) }
+        }
+        ForEach(content.lines.indices, id: \.self) { index in
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            line(content.lines[index])
+            if index == 0, content.showsActivity { activity }
+          }
+        }
+        if let progress = content.progress {
+          ProgressView(value: progress.fraction)
+            .progressViewStyle(.linear)
+            .controlSize(.small)
+            .accessibilityLabel(UpdateNoticeProgress.accessibilityLabel)
+            .accessibilityValue(progress.accessibilityValue)
+        }
+        if !content.buttons.isEmpty {
+          HStack(spacing: 10) {
+            ForEach(content.buttons) { button($0) }
+            Spacer(minLength: 0)
+          }
+        }
+      } // End of VStack holding the title row, the lines, the bar and the buttons
     } // End of HStack holding the notice
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
@@ -34,6 +56,58 @@ struct UpdateNoticeView: View {
     .background(Color.accentColor.opacity(0.08))
     .accessibilityElement(children: .contain)
   } // End of var body
+
+  /// The small activity indicator (VoiceOver hears the line beside it instead).
+  private var activity: some View {
+    ProgressView()
+      .controlSize(.mini)
+      .accessibilityHidden(true)
+  }
+
+  /// One line: a status in the title's size, a note in secondary caption, a failure in red
+  /// with its symbol; each wraps.
+  @ViewBuilder
+  private func line(_ line: UpdateNoticeLine) -> some View {
+    switch line.style {
+    case .status:
+      Text(line.text)
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+    case .note:
+      Text(line.text)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    case .problem:
+      Label {
+        Text(line.text)
+          .fixedSize(horizontal: false, vertical: true)
+      } icon: {
+        Image(systemName: "exclamationmark.circle.fill")
+          .accessibilityHidden(true)
+      }
+      .font(.callout)
+      .foregroundStyle(.red)
+      .accessibilityElement(children: .combine)
+    }
+  } // End of func line(_:)
+
+  /// One button at its full width (never truncated): prominent for the state's main action,
+  /// a link for Release page, small either way, disabled when it cannot be pressed.
+  @ViewBuilder
+  private func button(_ button: UpdateNoticeButton) -> some View {
+    let base = Button(button.title) { perform(button.action) }
+      .controlSize(.small)
+      .fixedSize()
+      .disabled(!button.isEnabled)
+      .accessibilityLabel(button.accessibilityLabel)
+      .accessibilityHint(button.accessibilityHint ?? "")
+    switch button.style {
+    case .primary: base.buttonStyle(.borderedProminent)
+    case .secondary: base
+    case .link: base.buttonStyle(.link)
+    }
+  } // End of func button(_:)
 }
 
 /// Settings › General's "Updates" section (PLAN.md D39 *The notice (I-13c1)*): the toggle

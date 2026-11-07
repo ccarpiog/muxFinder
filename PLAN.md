@@ -5413,12 +5413,74 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       its report is kept in `UpdateFlow.cleanupReport` for diagnostics only (no alert). Every
       other mode has an inert `UpdateFlow` (no pipeline, no cleanup); the mode test builds
       each mode's `AppEnvironment.production(checksForUpdates:)` and checks it.
-  - **Not yet:** the flow's views (the Update and Download buttons, the progress and checking
-    lines, Cancel, "Couldn't update: …" with the release page link, the ask with its line
-    that attached tmux sessions are not affected, VoiceOver), galleries, screenshots and the
-    checklist item are I-13c2b's; the real update (the user's); README, ARCHITECTURE and the
-    release contract are I-13c3's. The real notice, dot and Settings line after a real check
-    are the user's (`docs/MANUAL-CHECKLIST.md` item 31).
+  - **The update views (I-13c2b)** (*Phase I-13* "The orchestrator's calls for I-13c2b"; code
+    in `Sources/MuxFinderUI/Model/UpdateNoticeContent.swift` (`UpdateNoticeContent`,
+    `UpdateNoticeAction`, `UpdateNoticeButton`, `UpdateNoticeLine`, `UpdateNoticeProgress`),
+    `UpdateModel.displayedRelease`, `noticeContent`, `perform(_:)`, `openReleasePage()` and
+    `announce`, `UpdateFlowFixture` (`UpdateFixture.flow`), `Views/UpdateViews.swift`
+    (`UpdateNoticeView`), `Preview/UpdateFixtures.swift` (`flowStates`); tests
+    `UpdateNoticeContentTests`, `UpdateNoticeViewTests` and `UpdateViewsReviewFixTests`;
+    `docs/TESTING.md` *Phase I-13c2b*). `UpdateFlow` is unchanged.
+    - **One pure mapping:** `UpdateNoticeContent.make(release:offer:state:canUpdate:
+      preparedRelease:)` builds the notice from the shown release
+      (`UpdateModel.displayedRelease`: the notice, else `UpdateFlow.preparedRelease`, so the
+      notice stays while an update runs, and after Not now when a later check no longer
+      offers a newer release), the flow's offer (`nil`: none handed to the flow, every mode
+      without machinery), state and `canUpdate`: the title, What's new, the lines, the
+      download's bar, a small activity indicator, the buttons (which show, which are enabled)
+      and the announcement.
+      `UpdateModel.noticeContent` is the only caller for the popover; a fixture passes its
+      `UpdateFlowFixture` (offer and state, `canUpdate` as a live flow would compute it)
+      instead of the inert flow's. The popover shows the notice only through it; the
+      switcher shows none.
+    - **Per state:** the title "muxFinder <version> is available" with **What's new** stays,
+      except while installing or relaunching. Idle: nothing while the offer is `reading` (or
+      unknown); **Update** (enabled while `canUpdate`) for `update`; **Download** for
+      `download(reason:)` with "Can't update in place: <reason>" below. Downloading:
+      `UpdateFlowText.downloading` ("Downloading… 40%") with a determinate bar when the total
+      is known (else the activity indicator, no percent), **Cancel**. Checking: "Checking the
+      download…" with **Cancel**. Prepared (transient): "Download checked". The ask: "Quitting
+      to install loses <items>." (`UpdateUnsavedWork.items`, joined with "and"), "Attached tmux
+      sessions are not affected.", **Quit and install** and **Not now**. Deferred: "muxFinder
+      <prepared version> is ready to install" with **Install and relaunch**. Installing:
+      "Installing…"; relaunching: "Relaunching…"; no button. Failed: the failure's phrase
+      ("Couldn't update: <reason>", red), the Download reason only when it differs from the
+      failure's, **Update** only while `canUpdate`, or **Download** when the offer became one,
+      then a **Release page** link. *Adjusted from the calls:* `canUpdate` gates Update only.
+      It is false whenever the offer is Download, so "Download … only while `canUpdate`" read
+      literally could never show the gallery's "failed with Download"; Download shows whenever
+      the offer is one. No line, label, hint, value or announcement holds a path, URL or
+      header (the phrases are I-13b2's and I-13c2a's).
+    - **The buttons:** each carries an `UpdateNoticeAction`; `UpdateModel.perform(_:)` calls
+      `update()`, `download()`, `cancel()`, `quitAndInstall()`, `notNow()`,
+      `installAndRelaunch()`, `openWhatsNew()` or `openReleasePage()` (both open the shown
+      release's page, `displayedRelease`'s, through the injected opener). Buttons are small
+      and `fixedSize` (never truncated); the state's main action is prominent, Release page
+      is a link; lines wrap.
+    - **VoiceOver:** the lines are text; each button's label names its action and the version
+      ("Update to muxFinder 0.3.0", "Cancel the update to muxFinder 0.3.0", "Quit and install
+      muxFinder 0.3.0", "Not now: install muxFinder 0.3.0 later", "Install muxFinder 0.3.0 and
+      relaunch", "Download muxFinder 0.3.0", "Release page of muxFinder 0.3.0"; the prepared
+      release's version for Cancel, the ask and Install and relaunch), each with a hint; the
+      bar is "Download progress" with the percent ("40%") as its value. A live
+      `UpdateModel` follows `UpdateFlow.state` (observation, re-armed per change, ended by
+      `stop()`) and announces a failure's phrase, and the ask ("muxFinder <version> is ready to
+      install." and its two lines), once when each appears, through `announce`, which
+      `AppModel` sets to its own (`AppEnvironment.announce`; nothing said for a fixture).
+      Only while the notice shows (the popover's main layout visible with the notice in it;
+      the switcher shows none): one that appears while it is hidden is kept, the latest only,
+      and said once when the main layout shows it, or dropped if the state moved on (no
+      longer that failure or ask) before then.
+    - **Galleries and screenshots:** the popover gallery adds 13 `UpdateFixtures.flowStates`
+      after I-13c1's notice, each over Saturno and its two sessions: reading, Update, Download
+      with a reason, downloading 40 % and with no total, checking, the ask with one and two
+      items, after Not now, installing, relaunching, failed with Update again, failed with
+      Download (no pipeline, scheduler or request; their buttons run nothing).
+      `docs/screenshots/popover-states-{light,dark}.png` regenerated.
+  - **Not yet:** the real update end to end and the real buttons and lines (the user's,
+    `docs/MANUAL-CHECKLIST.md` item 32); README, ARCHITECTURE and the release contract are
+    I-13c3's. The real notice, dot and Settings line after a real check are the user's
+    (`docs/MANUAL-CHECKLIST.md` item 31).
 
 ## Verified facts (planning session, 2026-10-21)
 

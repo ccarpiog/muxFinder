@@ -52,8 +52,8 @@ public struct PopoverView: View {
           BannersView(banners: content.banners, model: model)
           Divider()
         }
-        if let release = model.update.notice {
-          UpdateNoticeView(release: release, update: model.update)
+        if let notice = model.update.noticeContent {
+          UpdateNoticeView(content: notice) { model.update.perform($0) }
           Divider()
         }
         if !content.notices.isEmpty {

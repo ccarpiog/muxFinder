@@ -90,11 +90,15 @@ public struct UpdateFixture: Sendable, Hashable {
   public var runningBuild: String? = "2"
   /// The status line's clock.
   public var now: Date
+  /// The update flow's offer and state the notice shows (PLAN.md D39 *The update views
+  /// (I-13c2b)*); `nil` shows the inert flow's (no offer, idle).
+  public var flow: UpdateFlowFixture?
 
   /// A fixture from its parts.
   public init(
     status: UpdateCheckStatus?, automaticChecks: Bool = true, isCheckRequested: Bool = false,
-    runningVersion: String? = "0.2.0", runningBuild: String? = "2", now: Date
+    runningVersion: String? = "0.2.0", runningBuild: String? = "2", now: Date,
+    flow: UpdateFlowFixture? = nil
   ) {
     self.status = status
     self.automaticChecks = automaticChecks
@@ -102,6 +106,32 @@ public struct UpdateFixture: Sendable, Hashable {
     self.runningVersion = runningVersion
     self.runningBuild = runningBuild
     self.now = now
+    self.flow = flow
+  } // End of init(status:automaticChecks:isCheckRequested:runningVersion:runningBuild:now:flow:)
+}
+
+/// A fixed update flow for the popover gallery and tests (PLAN.md D39 *The update views
+/// (I-13c2b)*): the offer and state the notice renders, with no pipeline behind them (the
+/// fixture's `UpdateFlow` stays inert, so its buttons run nothing).
+public struct UpdateFlowFixture: Sendable, Hashable {
+  /// The offer (`UpdateFlow.offer`).
+  public var offer: UpdateFlowOffer?
+  /// The state (`UpdateFlow.state`).
+  public var state: UpdateFlowState
+
+  /// A fixture from its parts.
+  public init(offer: UpdateFlowOffer?, state: UpdateFlowState = .idle) {
+    self.offer = offer
+    self.state = state
+  }
+
+  /// What a live flow's `canUpdate` would be: Update offered, from idle or a failure.
+  public var canUpdate: Bool {
+    guard offer == .update else { return false }
+    switch state {
+    case .idle, .failed: return true
+    default: return false
+    }
   }
 }
 
@@ -130,9 +160,24 @@ public final class UpdateModel {
   /// The one-click update flow (PLAN.md D39 *The update flow (I-13c2a)*): live over
   /// `UpdateEnvironment.flow`, inert otherwise.
   public let flow: UpdateFlow
+  /// The flow's offer and state a fixture shows instead of the inert flow's (PLAN.md D39 *The
+  /// update views (I-13c2b)*); `nil` for a live or inert model.
+  public let flowFixture: UpdateFlowFixture?
+  /// Speaks a VoiceOver announcement (a failure or the ask appearing, PLAN.md D39 *The update
+  /// views (I-13c2b)*), only while the notice shows (`pendingAnnouncement` otherwise):
+  /// `AppModel` passes its own (`AppEnvironment.announce`); `nil` says nothing; tests record
+  /// through it.
+  @ObservationIgnored public var announce: (@MainActor @Sendable (String) -> Void)?
 
   /// The environment, for a live model.
   @ObservationIgnored private let environment: UpdateEnvironment?
+  /// What the flow's state last had to say (`nil` after a state with nothing to say), so each
+  /// appearance of a failure or the ask is announced once.
+  @ObservationIgnored private var lastAnnouncement: String?
+  /// The latest failure or ask that appeared while the notice was hidden (the popover closed,
+  /// the switcher open in its place, or a confirmation over its main layout), said once when
+  /// the notice shows; dropped if the flow's state no longer says it by then.
+  @ObservationIgnored private(set) var pendingAnnouncement: String?
   /// Whether the popover panel shows (the notice counts as seen while it does).
   @ObservationIgnored private var isPopoverVisible = false
   /// The version whose seen mark is being written, so it is written once.
@@ -179,6 +224,8 @@ public final class UpdateModel {
     flow =
       environment.flow.map { UpdateFlow(environment: $0, openURL: environment.openURL) }
       ?? .inert()
+    flowFixture = nil
+    if flow.isAvailable { watchFlow() }
   }
 
   /// A model showing `fixture`; it never runs anything.
@@ -192,6 +239,7 @@ public final class UpdateModel {
     now = fixture.now
     isAvailable = true
     flow = .inert()
+    flowFixture = fixture.flow
     lifecycle = .stopped
   } // End of init(fixture:)
 
@@ -203,6 +251,7 @@ public final class UpdateModel {
     now = Date(timeIntervalSince1970: 0)
     isAvailable = false
     flow = .inert()
+    flowFixture = nil
     lifecycle = .stopped
   }
 
@@ -216,6 +265,31 @@ public final class UpdateModel {
   public var notice: UpdateRelease? {
     UpdateNotice.release(offer: status?.offer, runningVersion: runningVersion)
   }
+
+  /// The release the popover's notice shows (PLAN.md D39 *The update views (I-13c2b)*): the
+  /// notice, else the release the flow is working on (`UpdateFlow.preparedRelease`), so the
+  /// notice stays while an update runs, and after Not now when a later check no longer offers
+  /// a newer release; `nil` when there is neither. The notice's title, What's new and Release
+  /// page all name it.
+  public var displayedRelease: UpdateRelease? { notice ?? flow.preparedRelease }
+
+  /// The popover's update notice (PLAN.md D39 *The update views (I-13c2b)*), through
+  /// `UpdateNoticeContent.make`: the shown release (`displayedRelease`) with the flow's offer,
+  /// state and `canUpdate` (a fixture's instead, when it has one); `nil` when there is nothing
+  /// to show.
+  public var noticeContent: UpdateNoticeContent? {
+    if let fixture = flowFixture {
+      guard let release = displayedRelease else { return nil }
+      return UpdateNoticeContent.make(
+        release: release, offer: fixture.offer, state: fixture.state,
+        canUpdate: fixture.canUpdate)
+    }
+    let state = flow.state
+    guard let release = displayedRelease else { return nil }
+    return UpdateNoticeContent.make(
+      release: release, offer: flow.offer, state: state, canUpdate: flow.canUpdate,
+      preparedRelease: flow.preparedRelease)
+  } // End of var noticeContent
 
   /// Whether the menu bar icon shows the dot: a notice whose version is greater than the seen
   /// one (or none is recorded).
@@ -299,11 +373,13 @@ public final class UpdateModel {
     return loaded.preferences.checkForUpdatesAutomatically
   }
 
-  /// Takes a status the scheduler published.
+  /// Takes a status the scheduler published (the notice may appear with it, and a pending
+  /// announcement with the notice).
   private func apply(_ status: UpdateCheckStatus) {
     self.status = status
     if let environment { now = environment.now() }
     markSeenIfShown()
+    deliverPendingAnnouncement()
   }
 
   // MARK: - Intents
@@ -315,11 +391,16 @@ public final class UpdateModel {
 
   /// The popover panel's main layout (where the notice is) showed or hid
   /// (`AppModel.updateNoticeVisibility()`); while it shows with the notice in it, the notice's
-  /// version is recorded as seen.
+  /// version is recorded as seen, and a failure or ask that appeared while it was hidden is
+  /// announced (`deliverPendingAnnouncement()`).
   public func popoverVisibilityChanged(_ isVisible: Bool) {
     isPopoverVisible = isVisible
     markSeenIfShown()
+    deliverPendingAnnouncement()
   }
+
+  /// Whether the notice shows: the popover's main layout is visible with the notice in it.
+  private var isNoticeVisible: Bool { isPopoverVisible && displayedRelease != nil }
 
   /// Records the notice's version as seen through the scheduler, once, while the popover shows
   /// it and the dot is on; tells the update flow the notice shows (its eligibility read once
@@ -337,10 +418,85 @@ public final class UpdateModel {
     }
   } // End of func markSeenIfShown()
 
-  /// "What's new": opens the notice's release page.
+  /// "What's new": opens the shown release's page (`displayedRelease`) through the injected
+  /// opener.
   public func openWhatsNew() {
-    guard let environment, let page = notice?.pageURL else { return }
+    openDisplayedReleasePage()
+  }
+
+  /// "Release page" (after a failure): opens the shown release's page (`displayedRelease`)
+  /// through the injected opener.
+  public func openReleasePage() {
+    openDisplayedReleasePage()
+  }
+
+  /// Opens `displayedRelease`'s page through the environment's opener (a fixture's and the
+  /// inert model open nothing).
+  private func openDisplayedReleasePage() {
+    guard let environment, let page = displayedRelease?.pageURL else { return }
     environment.openURL(page)
+  }
+
+  /// A notice button was pressed: calls its method (PLAN.md D39 *The update views
+  /// (I-13c2b)*). The flow's methods do nothing in a state they do not belong to, and a
+  /// fixture's or the inert model's run nothing.
+  public func perform(_ action: UpdateNoticeAction) {
+    switch action {
+    case .whatsNew: openWhatsNew()
+    case .update: flow.update()
+    case .download: flow.download()
+    case .cancel: flow.cancel()
+    case .quitAndInstall: flow.quitAndInstall()
+    case .notNow: flow.notNow()
+    case .installAndRelaunch: flow.installAndRelaunch()
+    case .releasePage: openReleasePage()
+    }
+  } // End of func perform(_:)
+
+  /// Follows the live flow's state: each change re-arms the observation and announces a
+  /// failure or the ask once when it appears, or once the notice shows it
+  /// (`flowStateChanged()`).
+  private func watchFlow() {
+    withObservationTracking {
+      _ = flow.state
+    } onChange: { [weak self] in
+      Task { @MainActor in self?.flowStateChanged() }
+    }
+  }
+
+  /// The flow's state changed: unless the model stopped (a quit), watches on and, once per
+  /// appearance of a failure or the ask, makes what it says the pending announcement (the
+  /// latest only: a state with nothing to say clears it), which is said at once while the
+  /// notice shows, else when it shows.
+  private func flowStateChanged() {
+    guard lifecycle != .stopped else { return }
+    watchFlow()
+    let text = currentAnnouncement
+    guard text != lastAnnouncement else { return }
+    lastAnnouncement = text
+    pendingAnnouncement = text
+    deliverPendingAnnouncement()
+  }
+
+  /// What the flow's state says now (`UpdateNoticeContent.announcement(state:version:)`, with
+  /// the prepared release's version, else the notice's), or `nil`.
+  private var currentAnnouncement: String? {
+    let version = (flow.preparedRelease ?? notice)?.version
+    return UpdateNoticeContent.announcement(state: flow.state, version: version)
+  }
+
+  /// Tells VoiceOver the pending announcement once, while the notice shows; drops it when the
+  /// flow's state no longer says it (the state moved on while the notice was hidden) or the
+  /// model stopped.
+  private func deliverPendingAnnouncement() {
+    guard let text = pendingAnnouncement else { return }
+    guard lifecycle != .stopped, text == currentAnnouncement else {
+      pendingAnnouncement = nil
+      return
+    }
+    guard isNoticeVisible else { return }
+    pendingAnnouncement = nil
+    announce?(text)
   }
 
   /// "Check for updates…": one manual check (with automatic checks on or off; a rate limit
