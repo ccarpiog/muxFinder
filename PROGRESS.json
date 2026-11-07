@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T01:36:39Z",
+  "updated": "2026-11-07T02:25:58Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -900,11 +900,45 @@
     {
       "id": "I-13",
       "title": "Update check against GitHub releases",
+      "status": "in_progress",
+      "risk": "high",
+      "summary": "Tells the user about a newer GitHub release and updates the app in one click after verifying it; split into I-13a, I-13b, I-13c.",
+      "added": "2026-11-06T13:03:57Z",
+      "started": "2026-11-07T01:40:03Z",
+      "status_since": "2026-11-07T01:40:03Z"
+    },
+    {
+      "id": "I-13a",
+      "title": "Update check: the check core",
+      "status": "done",
+      "risk": "high",
+      "parent": "I-13",
+      "summary": "Parses GitHub releases/latest, compares versions, keeps the check state and schedules daily checks, all tested offline; no download or UI.",
+      "review": "docs/reviews/phase-I-13a.md",
+      "narrative": "docs/progress-archive/i-13a.md",
+      "added": "2026-11-07T01:39:59Z",
+      "started": "2026-11-07T01:39:59Z",
+      "status_since": "2026-11-07T02:25:58Z"
+    },
+    {
+      "id": "I-13b",
+      "title": "Update check: the install pipeline",
       "status": "queued",
       "risk": "high",
-      "summary": "Tells the user about a newer GitHub release and updates the app in one click after verifying it; to be split a core / b UI.",
-      "added": "2026-11-06T13:03:57Z",
-      "status_since": "2026-11-06T13:03:57Z"
+      "parent": "I-13",
+      "summary": "Downloads, verifies the digest, signature and notarization, swaps the bundle with rollback and relaunches; no UI.",
+      "added": "2026-11-07T01:39:59Z",
+      "status_since": "2026-11-07T01:39:59Z"
+    },
+    {
+      "id": "I-13c",
+      "title": "Update check: the UI, wiring and docs",
+      "status": "queued",
+      "risk": "high",
+      "parent": "I-13",
+      "summary": "Shows the update notice, icon dot and Settings controls, wires the check into the app and documents it.",
+      "added": "2026-11-07T01:39:59Z",
+      "status_since": "2026-11-07T01:39:59Z"
     }
   ]
 }

@@ -210,9 +210,10 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   fixtures or logs). Test a save only through `HostStore` on a private folder, never on
   `~/Library/Application Support/muxFinder/hosts.json`, a directory-list change only
   through `DirectoryStore` (or `InMemoryDirectoryStore`) on a private folder, never on the
-  real `directories.json` there (PLAN.md D31), and a shortcut or folder search scope change
-  only through `PreferencesStore` (or `InMemoryPreferencesStore`) on a private folder, never
-  on the real `preferences.json` and never through `UserDefaults` (PLAN.md D32, D36).
+  real `directories.json` there (PLAN.md D31), and a shortcut, folder search scope or update
+  check toggle change only through `PreferencesStore` (or `InMemoryPreferencesStore`) on a
+  private folder, never on the real `preferences.json` and never through `UserDefaults`
+  (PLAN.md D32, D36, D39).
 - Persistent profile checks (read-only, print JSON; write no file, never contact iTerm2):
   `swift run muxfinder-probe profiles show [--config <path>] [--helper <path>]` prints the
   `DynamicProfiles/muxFinder.json` document the app would install for the host list (loaded
@@ -234,6 +235,22 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   session with its `startDirectory`, so the same counts-only rule as `discover`). Without
   `--attachments` it never contacts iTerm2; `--attachments` asks every tmux connection, so
   the same caution as `iterm2 attachments`.
+- Update check (PLAN.md D39; it contacts `api.github.com`, so its real run is the user's,
+  never an unattended run's: *Unattended-run rules* 3, `docs/MANUAL-CHECKLIST.md` item 30;
+  `--help` contacts nothing): `swift run muxfinder-probe update check [--running-version
+  <x.y.z>] [--state <dir>]` sends one anonymous `GET
+  /repos/ccarpiog/muxFinder/releases/latest` (unless a rate limit kept in the state holds it)
+  and prints JSON: the outcome, the latest tag, newer than the running version (default
+  `0.0.0`), the release page, the asset's and digest's presence and the size; exit 0
+  answered, 1 failed or rate limited, 64 usage. Without `--state` it reads and writes
+  nothing; `--state` reads and writes `update-state.json` only in that folder (an existing
+  private folder of yours: no permission for group or others, no ACL, no symbolic link on its
+  path, such as one from `mktemp -d /private/tmp/mfx.XXXXXX`; any other is a usage error, exit
+  64 before anything is sent, and its permissions are never changed). Its arguments and
+  output are tested over an injected transport (`UpdateProbeTests`); test the state only
+  through `UpdateStateStore` (or
+  `InMemoryUpdateStateStore`) on a private folder, never on the real
+  `~/Library/Application Support/muxFinder/update-state.json`.
 - iTerm2 API check (read-only, prints JSON, never launches iTerm2): `swift run muxfinder-probe
   iterm2 status`, or `list-sessions`, `list-connections`, `list-profiles`, `attachments`
   (sends every tmux connection the read-only identity `display-message`; in unattended runs
@@ -481,6 +498,12 @@ instance and these tmux servers.
   file writes. Read-only Spotlight folder queries (`mdfind`, `mdutil -s`, readability tests)
   on Saturno and this Mac are allowed too; record only counts and timings, never folder names
   or paths.
+- No request to GitHub's API or download hosts, or to any other server, in a test or a run
+  (*Unattended-run rules* 3): the update check's and download's real runs are the user's, and
+  `swift test` reaches `URLSessionUpdateTransport` only through a `URLProtocol` stub that is
+  the only protocol class on its sessions. The operating system's own signature and
+  notarization assessment of a local file (`codesign --verify`, `spctl`) is not such a
+  request.
 - Never write iTerm2 preferences, other iTerm2 profiles, `~/.ssh/*` or shell startup files. The
   app owns only `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json` and
   `~/Library/Application Support/muxFinder/`.

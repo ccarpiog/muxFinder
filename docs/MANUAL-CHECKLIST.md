@@ -868,6 +868,40 @@ in the results.
 - **Undo:** item 13 (`scripts/uninstall.sh`); end the test session with
   `/opt/homebrew/bin/tmux kill-session -t '=muxfinder-test-ui'`.
 
+## 30. The update check against GitHub (`update check`)
+
+Owed by Phase I-13a (PLAN.md D39): no unattended run sends a request to GitHub or any other
+server (*Unattended-run rules* 3), so the check was tested only through a `URLProtocol` stub
+and fakes. This item needs the network and sends anonymous requests to `api.github.com`, each
+counting against GitHub's limit for requests without a token (60 an hour per address).
+
+- **Do:** from the repository, `swift build`, then:
+  1. `swift run muxfinder-probe update check --running-version 0.1.0`
+  2. `swift run muxfinder-probe update check --running-version 0.2.0` (or whatever version
+     is the latest published release when you run it)
+  3. `S=$(mktemp -d /private/tmp/mfx.XXXXXX)`, then `swift run muxfinder-probe update check
+     --state "$S"` twice, then `ls -l "$S"` and `cat "$S/update-state.json"`.
+  4. Optionally, with Wi-Fi off: `swift run muxfinder-probe update check`.
+- **Expect:**
+  1. Exit 0, JSON with `outcome` `newer`, `sent` true, `latestTag` the latest published tag
+     (`v0.2.0` when this was written), `newer` true, `releasePage`
+     `https://github.com/ccarpiog/muxFinder/releases/tag/<that tag>`, `assetPresent` and
+     `digestPresent` true, `size` the zip's size in bytes (about 6 MB, as on the release
+     page), `etagKept` true.
+  2. Exit 0, `outcome` `upToDate`, `newer` false, the same `latestTag`.
+  3. Both runs exit 0 with `outcome` `newer` (the running version defaults to 0.0.0); the
+     first's `state` has `found` `missing`, the second's `saved` (the second sent the kept
+     `ETag`, so GitHub may answer 304 and the release then comes from the file). The folder
+     holds only `update-state.json`, mode `-rw-------`, with `schemaVersion` 1,
+     `lastAttempt`, `lastSuccessfulCheck`, `etag`, and `release` with `tag`, `page` and
+     `asset` (`url` `https://github.com/ccarpiog/muxFinder/releases/download/<tag>/muxFinder.zip`,
+     `sha256` the digest the release page shows, `size`).
+  4. Exit 1, `outcome` `failed.offline` (or `failed.timedOut` after at most 15 s).
+  If GitHub's limit is used up, a run prints `outcome` `rateLimited` with
+  `rateLimitedUntil` and exits 1; with `--state`, the next run before that time prints the
+  same with `sent` false. Nothing is downloaded or installed in any run.
+- **Undo:** `rm -r "$S"`.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -901,3 +935,4 @@ in the results.
 | 27 | | | |
 | 28 | | | |
 | 29 | | | |
+| 30 | | | |

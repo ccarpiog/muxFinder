@@ -63,18 +63,20 @@ file.
 | I-12d1 | Other terminals, Settings, onboarding and SSH setup: the Terminal picker (permission states read without a prompt, off the main actor; unavailable choice kept; problems; "Check again" re-resolves), `TerminalWording`, SSH setup in a plain terminal (`PlainSSHSetupLauncher`), per-host persistent work command with Copy, onboarding without iTerm2, galleries (D38 extended; I-12d split into d1/d2) | routine | opus (impl + review-fix worker); split and calls by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12d1.md` | `docs/progress-archive/i-12d1.md` |
 | I-12d2 | Other terminals, the popover, the switcher and the session states: every action, state and failure line through `TerminalWording` (iTerm2 unchanged), each plain error mapped exhaustively, "earlier launch pending" naming its holder, local attachments in another app, detach-others "Stopped after detaching N" / "Some may have been detached", "Detach (opened in <terminal>)" through that terminal's cached backend, galleries per terminal (D38 extended) | routine | opus (impl + review-fix worker) | Codex, ship-with-fixes, `docs/reviews/phase-I-12d2.md` | `docs/progress-archive/i-12d2.md` |
 | I-12e | Other terminals, the docs: `docs/TERMINALS.md` ("Adding a terminal" with a worked `exec` example that loads, later candidates, the Ghostty control-mode note), `docs/REQUIREMENTS.md` addendum, README, ARCHITECTURE, TESTING, MANUAL-CHECKLIST (item 29), `CLAUDE.md` corrected against the code; documents only | routine | opus (docs worker); review fix and two README corrections inline by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-12e.md` | `docs/progress-archive/i-12e.md` |
+| I-13a | Update check, the check core: `UpdateVersion`, the bounded `releases/latest` parser, the transport and its `URLSession` implementation (hermetic, `URLProtocol` stub only), the 304 rule, `update-state.json`, the `checkForUpdatesAutomatically` toggle, the scheduler over an injected clock, probe `update check` (real run the user's); rule 3 now forbids any request to a server in a run (D39; I-13 split into a/b/c) | high | opus (impl + review-fix worker); split, calls and one TESTING count fix by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13a.md` | `docs/progress-archive/i-13a.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-13 | Update check (high, a group): GitHub `releases/latest` check at launch and daily (toggle on by default), popover notice and icon dot, one-click Update (download, SHA-256, `ditto`, Developer ID + notarization check, D27-style swap, relaunch), hand-written, no Sparkle; split a (core) / b (UI) in `PLAN.md` before its first worker | `autoclaude/processed/120-update-check-github.md` | next (last) |
+| I-13b | Update check, the install pipeline core (high): eligibility, staging, download with SHA-256, `ditto`, signature/Team ID/notarization check, versions, D27-style swap with rollback, relauncher, leftover cleanup, old helpers, probe `update verify` (`PLAN.md` *Phase I-13*) | `autoclaude/processed/120-update-check-github.md` | next |
+| I-13c | Update check, the UI, wiring and docs (high): popover notice and update states, icon dot, Settings › General, ask before quitting, normal-mode-only wiring, galleries, docs, release contract (may split again) | same | after I-13b (last) |
 
 **Inbox**: every triage through 2026-11-06 (items 40 to 120, item 99 deferred and then resolved
-by the user) is logged verbatim in `docs/progress-archive/inbox-log.md`. Standing note: at
-I-13's selection settle first whether *Unattended-run rules* 3 ("no other host") lets a run
-make the item's read-only GitHub GETs (`update check`, `update verify`); if not, those real
-runs are owed to the user. 2026-11-07 01:08 (start of I-12e's iteration): `list` empty.
+by the user) is logged verbatim in `docs/progress-archive/inbox-log.md`. The standing note on
+GitHub requests was settled at I-13's selection (`PLAN.md` *Phase I-13* "The run rule": no run
+sends a request to any server; the real GETs are the user's). 2026-11-07 01:37 (start of
+I-13a's iteration): `list` empty.
 
 ## Current phase
 
@@ -91,8 +93,10 @@ complete 2026-11-06 (`docs/progress-archive/{i-12c1,i-12c2,i-12c3a,i-12c3b}.md`)
 split into I-12d1/I-12d2**; **I-12d1** (Settings, onboarding, SSH setup) complete 2026-11-06
 and **I-12d2** (popover, switcher, session states) complete 2026-11-07
 (`docs/progress-archive/{i-12d1,i-12d2}.md`). **I-12e** (the docs) complete 2026-11-07
-(`docs/progress-archive/i-12e.md`), so **Phase I-12 is complete**. **Next: I-13** (update
-check, a group to split a/b; *Next action* 0), the last queued phase.
+(`docs/progress-archive/i-12e.md`), so **Phase I-12 is complete**. **Phase I-13** (update
+check) is split into **I-13a/I-13b/I-13c** in `PLAN.md` *Phase I-13*; **I-13a** (the check
+core) complete 2026-11-07 (`docs/progress-archive/i-13a.md`). **Next: I-13b** (the install
+pipeline core; *Next action* 0), then I-13c, the last queued phase.
 Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
@@ -135,12 +139,13 @@ I-11a/I-11b, I-12 into I-12a–e.
   `docs/progress-archive/head-i-12a-i-12d1.md` and each phase's archive.
 - Phase I-12d2: all criteria met, 2026-11-07 — verbatim in
   `docs/progress-archive/head-i-12d2.md` and `i-12d2.md`.
-- Phase I-12e: all criteria met, 2026-11-07 — documents only (`git diff --stat -- Sources
-  Tests Resources scripts` empty); `docs/REQUIREMENTS.md` 23 lines added, 0 removed;
-  `docs/TERMINALS.md` covers every item of its call, the Ghostty sentence verbatim; its worked
-  `exec` example loads through `terminals list --user-directory <private 0700 folder>` (source
-  `user`, no problems); `pgrep -x Terminal` / `ghostty` none before and after; `swift build`
-  and lint exit 0 — `docs/progress-archive/i-12e.md`.
+- Phase I-12e: all criteria met, 2026-11-07 — verbatim in
+  `docs/progress-archive/head-i-12e.md` and `i-12e.md`.
+- Phase I-13a: all 6 criteria met, 2026-11-07 — the check core in
+  `Sources/MuxFinderCore/Update/`, 80 new hermetic core tests (the transport only through a
+  `URLProtocol` stub), probe `update check` (`--help` exit 0, never run for real), D39,
+  `CLAUDE.md`, TESTING, checklist 30; no request to any server and no `update-state.json` in
+  the real support folder — `docs/progress-archive/i-13a.md`.
 
 ## Decisions
 
@@ -168,10 +173,14 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phases I-12c3a to I-12d1 (the I-12d split among them): their decision lines moved verbatim
   to `docs/progress-archive/head-i-12a-i-12d1.md`.
 - Phase I-12d2: verbatim in `docs/progress-archive/head-i-12d2.md` (D38 "The UI (I-12d2)").
-- Phase I-12e: "Calls for I-12e" written in `PLAN.md` at selection (documents only, every fact
-  from D38, the code or `--help`, one read-only probe run for the example); D38 gains "The docs
-  (I-12e)"; the worked example is a fictional `exec` terminal (no real candidate installed) —
-  `docs/progress-archive/i-12e.md`.
+- Phase I-12e: verbatim in `docs/progress-archive/head-i-12e.md`.
+- Phase I-13 (at selection, 2026-11-07): split into I-13a (check core), I-13b (install
+  pipeline core), I-13c (UI, wiring, docs), recorded in `PLAN.md` *Phase I-13* with "The run
+  rule" and "The orchestrator's calls for I-13a"; *Unattended-run rules* 3 tightened (no run
+  sends a request to GitHub or any server; the OS's signature assessment of a local file is
+  not such a request), since the user never edited the rule for GitHub; `update verify` may
+  run for real only on a local copy of `build/muxFinder.zip` (I-13b). New decision **D39**.
+  The workers' calls are in `docs/progress-archive/i-13a.md`.
 
 ## Open risks / deviations
 
@@ -207,10 +216,12 @@ I-11a/I-11b, I-12 into I-12a–e.
 - I-12d2 (**for the user**): real Open, Show window, Detach, Move here, Detach other clients
   and the permission / AppleScript-off lines in Terminal and Ghostty, checklist 28; Ghostty's
   AppleScript-off error numbers unverified — verbatim in `docs/progress-archive/head-i-12d2.md`.
-- I-12e: `terminals list --help` exits 64 after printing the usage (`terminals --help` 0; both
-  contact nothing; code out of scope); `docs/TESTING.md`'s "Unit tests" row still points to
-  Phase I-8's counts; onboarding on a Mac without iTerm2 is checklist 29 —
-  `docs/progress-archive/i-12e.md`.
+- I-12e: verbatim in `docs/progress-archive/head-i-12e.md` (`terminals list --help` exits 64;
+  TESTING's "Unit tests" row's old counts; checklist 29).
+- I-13a (**for the user**): the real `update check` request to GitHub, checklist 30. The probe
+  accepts a 0500 `--state` folder and then fails to save (exit 1, mode unchanged). Nothing in
+  the app creates the scheduler or reads the toggle yet (I-13c) —
+  `docs/progress-archive/i-13a.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -270,28 +281,40 @@ I-11a/I-11b, I-12 into I-12a–e.
   verbatim in `docs/progress-archive/head-i-12a-i-12d1.md`.
 - Phase I-12d2: Codex → `ship-with-fixes`, 3 should-fix, all fixed — verbatim in
   `docs/progress-archive/head-i-12d2.md`, report `docs/reviews/phase-I-12d2.md`.
-- Phase I-12e: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
-  blockers + 1 should-fix (`docs/TERMINALS.md` said Open still opens in the chosen terminal for
-  a session with a local client in another app; with a plain choice the backend brings that
-  app forward and opens nothing); fixed inline by the orchestrator against
-  `PlainTerminalBackend.swift` — `docs/reviews/phase-I-12e.md`.
+- Phase I-12e: Codex → `ship-with-fixes`, 1 should-fix, fixed — verbatim in
+  `docs/progress-archive/head-i-12e.md`, report `docs/reviews/phase-I-12e.md`.
+- Phase I-13a: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
+  blockers + 2 should-fix (the scheduler could arm an automatic check before the persisted
+  state loaded; the probe's `--state` chmodded a non-private folder); both fixed by a
+  review-fix worker, each regression failing on the old code, re-verified by the orchestrator
+  — `docs/reviews/phase-I-13a.md`, summary in `docs/progress-archive/i-13a.md`.
 
 ## Next action
 
-0. **Phase I-13 (queued, high, a group): Update check.** Poll the inbox first. The
-   specification is `autoclaude/processed/120-update-check-github.md`; the plan has no
-   *Phase I-13* section yet. At selection, in this order: (1) settle the *Inbox* note's
-   question — whether *Unattended-run rules* 3 ("No other host") lets a run make the item's
-   read-only GitHub GETs (`update check`, `update verify`); read the specification for what the
-   user said; if it does not clearly authorize them, the real GETs are owed to the user and the
-   phases stay hermetic (never relax a rule on your own reading); (2) write *Phase I-13* in
-   `PLAN.md` with the split I-13a (core: the check, download, SHA-256, signature and
-   notarization check, the swap, all hermetic over fakes) and I-13b (UI: toggle, popover
-   notice, icon dot, Update), a new decision number after D38, and "Calls for I-13a"; (3) add
-   the rows with the helper's `write` (a proposal under `$TMPDIR`: every phase, I-13 split into
-   I-13a / I-13b with `parent`), mark I-13a `in_progress`, then spawn its worker. Never run
-   `scripts/release.sh`, `install.sh` or a real update swap; the release, notarization and
-   publish rules in `CLAUDE.md` stay the user's.
+0. **Phase I-13b (queued, high): the install pipeline core.** Poll the inbox first. Read
+   `PLAN.md` *Phase I-13* (the split, "The run rule", I-13a's calls for the conventions it set)
+   and D39, and the specification `autoclaude/processed/120-update-check-github.md` (*Update
+   (only after the click)*, *Testing and safety*, *Acceptance*). At selection write "The
+   orchestrator's calls for I-13b" in `PLAN.md` *Phase I-13* (eligibility: Developer ID from
+   the running app's own signature, App Translocation, writable parent; staging on the
+   installed bundle's volume; download through an injected transport with progress, Cancel,
+   50 MiB bound and SHA-256, redirects only to `https` GitHub download hosts; `/usr/bin/ditto
+   -x -k` as argv; exactly one top-level real `muxFinder.app`, no link leading out; the
+   Security.framework check against identifier `cc.carpio.muxfinder`, Apple anchor,
+   Developer ID leaf and the running app's Team ID, with the worker proving whether the
+   requirement's `notarized` clause works on a stapled bundle, else `spctl` as argv; versions
+   (short = tag, build greater); the D27-style swap with device/inode binding and rollback,
+   only on private folders under `/private/tmp` or `/private/var/folders`; the relauncher
+   injected in tests, a static script plus argv for real, never `open` in a run; leftover
+   cleanup only when no process runs from the old bundle; what a running `muxfinder-launch`
+   reads from its bundle and D14 compatibility; probe `update verify --into <private dir>`
+   with a local `--zip <file> --sha256 <hex>` mode run for real on a copy of
+   `build/muxFinder.zip` (0.2.0's stapled zip; digest by `shasum -a 256`) plus a one-byte
+   tampered copy failing the digest, the latest-release mode built but its real run the
+   user's). Then mark I-13b `in_progress` with the helper's `status` and spawn its worker.
+   Never run `scripts/release.sh`, `install.sh`, a real swap of an installed or `build/` app,
+   or any request to a server; the release, notarization and publish rules in `CLAUDE.md`
+   stay the user's.
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -312,98 +335,30 @@ I-11a/I-11b, I-12 into I-12a–e.
   `docs/TESTING.md`; overview: `docs/ARCHITECTURE.md`.
 - Phases 1 to I-9b: their key paths moved verbatim to
   `docs/progress-archive/key-paths-1-i-9b.md`.
-- Folder search core (I-10a, D36): `Sources/MuxFinderCore/FolderSearch/` (`FolderSearchText`
-  escaping, `FolderSearchScript` the static script, `FolderSearchOutput` the parser,
-  `FolderSearchTransport`, `FolderSearchChannel`, `FakeFolderSearchTransport`),
-  `Sources/MuxFinderCore/Process/StreamingProcess.swift`, the scope in
-  `Config/PreferencesStore.swift`, probe `Sources/muxfinder-probe/FoldersCommand.swift`; tests
-  `Tests/MuxFinderCoreTests/FolderSearch*Tests.swift` and `FolderSearchTestSupport.swift`.
-- Folder search UI (I-10b): `Sources/MuxFinderUI/Model/{FolderSearchSection,AppModelFolderSearch,SettingsModelFolderSearch}.swift`,
-  `Views/DirectoryPickerViews.swift`, `Views/Settings/DirectoriesSettingsView.swift`,
-  `Preview/FolderSearchFixtures.swift`; tests
-  `Tests/MuxFinderUITests/{FolderSearchSectionTests,FolderSearchModelTests,SettingsFolderSearchTests,FolderSearchUITestSupport}.swift`.
-- Detach other clients (I-11a, D37): `Sources/MuxFinderCore/Attach/{AttachCoordinatorDetachOthers,DetachOtherClientsModels}.swift`,
-  `ITerm2/ITerm2APIClient.swift` (`commandOutput(of:)`), probe
-  `Sources/muxfinder-probe/E2EDetachOthers{Command,Run}.swift`; tests
-  `Tests/MuxFinderCoreTests/DetachOtherClientsTests.swift`.
-- Detach other clients UI (I-11b): `Sources/MuxFinderUI/Model/{AppModelSessions,SessionPanels,SessionProblem,SwitcherContent}.swift`,
-  `Views/{SessionPanelViews,SessionRowView,SwitcherView}.swift`, `Preview/AttachFixtures.swift`;
-  tests `Tests/MuxFinderUITests/DetachOtherClientsUITests.swift`.
-- Other terminals (I-12a, D38): `Sources/MuxFinderCore/Launch/{PlainLaunch,PlainBoundCommands}.swift`,
-  `Sources/MuxFinderCore/Terminals/{AutomationPermission,TerminalCommandText}.swift`, probe
-  `Sources/muxfinder-probe/{TerminalsCommand,PlainProofCommand,PlainProofRun,PlainProofTerminal}.swift`;
-  tests `Tests/MuxFinderCoreTests/{PlainLaunch,PlainBoundCommands,TerminalCommandText,AutomationPermission}Tests.swift`.
-- Terminal definitions (I-12b1): `Sources/MuxFinderCore/Terminals/{TerminalDefinition,TerminalDefinitionParser,TerminalDefinitionProblem,TerminalDefinitionLoader,TerminalLaunchCommand,AppleScriptRunner,TerminalScriptCalls,TerminalAppFacts,JSONDuplicateNameScanner}.swift`,
-  built-ins `Resources/Terminals/`; tests
-  `Tests/MuxFinderCoreTests/{TerminalDefinition,TerminalDefinitionLoader,TerminalLaunchCommand,AppleScriptRunner}Tests.swift`.
-- Helper plain mode (I-12b2): `Sources/MuxFinderCore/Launch/{LaunchHelperPlain,PlainLaunchReport,LaunchModels,LaunchStore,TerminalChildRunner}.swift`;
-  tests `Tests/MuxFinderCoreTests/{LaunchHelperPlain,PlainLaunchReport,LaunchHelperProfilePlain,LaunchHelperPlainBinary}Tests.swift`.
-- Terminal seam (I-12b3): `Sources/MuxFinderCore/Terminals/{TerminalBackend,ITerm2TerminalBackend,PlainTerminalWindows,PlainTerminalWindowError,PlainTerminalSeams,PlainTerminalFakes}.swift`;
-  tests `Tests/MuxFinderCoreTests/{ITerm2TerminalBackend,PlainTerminalWindows,PlainTerminalSeams}Tests.swift`.
-- Plain backend (I-12c1): `Sources/MuxFinderCore/Terminals/{PlainTerminalBackend,PlainTerminalBackendDetach,PlainTerminalBackendModels,PlainTmuxCommands,PlainTerminalBackendFakes}.swift`,
-  `Sources/MuxFinderCore/Attach/AttachSharedSteps.swift`; tests
-  `Tests/MuxFinderCoreTests/PlainTerminalBackend{,Detach,EndToEnd}Tests.swift`,
-  `PlainTerminalBackendTestSupport.swift`.
-- Open on this Mac (I-12c2): `Sources/MuxFinderCore/Terminals/{ProcessTable,ProcessTableFakes,LocalClientAttribution}.swift`,
-  discovery's `tty` record in `Tmux/{ProbeScript,ProbeReport}.swift`, `Refresh/RefreshCoordinator.swift`
-  (`localClients:`), probe `Sources/muxfinder-probe/LocalClientsCommand.swift`; tests
-  `Tests/MuxFinderCoreTests/{ProbeClientFields,LocalClientAttribution,LocalClientsReal,RefreshLocalAttachments,PlainTerminalBackendOpenHere}Tests.swift`.
-- Onto the seam (I-12c3a): `Sources/MuxFinderCore/Terminals/{TerminalChoice,AttachCommandOptions}.swift`,
-  `Config/PreferencesStore.swift` (`terminal`), `Sources/MuxFinderUI/Model/{TerminalEnvironment,AppModelTerminal,AppEnvironment,AppModelSessions}.swift`,
-  `SelfTest/SelfTestDriver.swift`, probe `Sources/muxfinder-probe/AttachCommand.swift`; tests
-  `Tests/MuxFinderCoreTests/{TerminalChoice,TerminalSeamCore}Tests.swift`,
-  `Tests/MuxFinderUITests/TerminalSeamTests.swift`.
-- The plain runs (I-12c3b): `Sources/MuxFinderCore/E2EPlain/{E2EPlainOptions,E2EPlainSeams,E2EPlainRun,E2EPlainRunCleanup}.swift`,
-  probe `Sources/muxfinder-probe/E2EPlainCommand.swift`; tests
-  `Tests/MuxFinderCoreTests/{E2EPlainRun,E2EPlainSteps}Tests.swift`.
-- Settings, onboarding and SSH setup (I-12d1): `Sources/MuxFinderCore/Terminals/PlainSSHSetupLauncher.swift`,
-  `Sources/MuxFinderUI/Model/{TerminalWording,TerminalPicker,PersistentWorkContent}.swift`,
-  `Views/Settings/TerminalPickerView.swift`, `Preview/TerminalPickerFixtures.swift`; tests
-  `Tests/MuxFinderCoreTests/PlainSSHSetupLauncherTests.swift`,
-  `Tests/MuxFinderUITests/TerminalPickerTests.swift`.
-- The popover, the switcher and the session states (I-12d2):
-  `Sources/MuxFinderUI/Model/{TerminalWordingSessions,TerminalWordingFailures,SessionProblemTerminal,AppModelTerminalSessions}.swift`,
-  `Preview/{TerminalSessionFixtures,TerminalAttachFixtures}.swift`; tests
-  `Tests/MuxFinderUITests/{TerminalSessionWordingTests,TerminalSessionModelTests,TerminalReviewFixTests}.swift`,
-  `Tests/MuxFinderCoreTests/TerminalPublicInitTests.swift`.
-- Other terminals, user-facing reference (I-12e): `docs/TERMINALS.md`.
+- Phases I-10a to I-12e: their key paths moved verbatim to
+  `docs/progress-archive/key-paths-i-10a-i-12e.md` (folder search, detach other clients, other
+  terminals).
+- Update check core (I-13a, D39): `Sources/MuxFinderCore/Update/{UpdateVersion,UpdateRelease,UpdateTransport,UpdateCheck,UpdateState,UpdateStateStore,UpdateScheduler,UpdateProbe}.swift`,
+  `Config/PreferencesStore.swift` (`checkForUpdatesAutomatically`), probe
+  `Sources/muxfinder-probe/UpdateCommand.swift`; tests
+  `Tests/MuxFinderCoreTests/Update*Tests.swift` and `UpdateTestSupport.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/` (inbox log: `inbox-log.md`).
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-12e (final tree, orchestrator, 2026-11-07): `git diff --stat -- Sources Tests
-  Resources scripts` empty; `swift build` exit 0; `swift format lint -r Sources Tests` exit 0;
-  no test suite run (no code, test or resource changed; the last full run, I-12d2's: 1183 core
-  + 548 UI pass) — `docs/progress-archive/i-12e.md`.
-- Phases 1–I-12d2: each phase's final-tree verification is in
+- Phase I-13a (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `swift test` with `TMUX_TMPDIR` unset: 1263 core tests in 137
+  suites + 548 UI tests in 55 suites passed; `swift run muxfinder-probe update check --help`
+  exit 0 (nothing contacted); the real support folder has no `update-state.json` —
+  `docs/progress-archive/i-13a.md`.
+- Phases 1–I-12e: each phase's final-tree verification is in
   `docs/progress-archive/<phase>.md`.
 
 ## Git state
 
-- All phases through 10b are committed and pushed to `origin/main`: 1 `bb086c9`, 2 `c1ee43d`,
-  3a `745e36e`, 3b `0d3b65f`, 4a `1f5a3be`, 4b `f888a2c`, 4c `e631641`, 5a `5b47e14`, 5b
-  `6b1aedc` + `dca1228`, 6a `0210999` + `e0fcbdd`, 7a `228f8da`, 7b `d512f47`, 6b `ce26808`
-  (closure `cb855c0`, summary `880470f`), 8 `dc1935d`, 9a `ac1b9ee`, 9b `94cc960`, 10a
-  `d6fe103`, 10b `ec402ce` (pushed; `origin/main` at `ec402ce` before Phase 11a). From 3b on,
-  commit messages carry no AI attribution trailer (user's global rule).
-- Later phases, all pushed: 11a `289b7f4`, 11b `a5ca9e0`, 11c `930994e`, 12a `520b7e3`, 12b
-  `6f56399` (then `92e354a`, icons and notarized release flow), Phase 13 planning `d03e146`
-  (the user's edits, verbatim), 13a `0284b84`, 13b `c3e2948`, 13c `d5955ff` (summary
-  `a9532fa`), 14 `6750a1b`, I-1a `72e635a`, I-1b `adf79ec`, I-2a `3feab0e`, I-2b `e36e471`,
-  I-3a `29bb362`. Inbox triage commits: I-1/I-2 `bd9aed6`, I-3 `2fdfc87`.
-- Phase I-3b: `d5fa941`, pushed. Inbox triage (I-4): `3804a78`.
-- Phase I-4: `d428822`, pushed. Inbox triage (I-5, I-6): `d1f445a`; phase summary `3b2603d`.
-- Phase I-5: `8f08b99`, pushed. Phase I-6: `26cef52`, pushed. Inbox triage (I-7): `79bea34`,
-  pushed. Phase I-7: `84a0adf`, pushed. Inbox triage (I-8): `f9e2b04`. Phase I-8: `b8ffe91`,
-  pushed. Inbox triage (I-9 queued, item 99 deferred): `8588893`; phase summaries `223ab3a`,
-  `99c224f`, pushed. Phase I-9a: `da48655`, pushed. Phase I-9b: `c32558c`, pushed.
-- The user's release commit `f1b11ac` ("Release 0.2.0 (build 2)", 2026-11-06) committed their
-  `CLAUDE.md` and `nonamedownloads.json`; the tree was clean when this run started (empty
-  preflight file). Inbox triage (I-10): `faa47a6`.
-- All pushed: I-10a `267dc0b` (inbox triage I-11, I-12 `f03de09`), I-10b `6f4aec2`, I-11a
-  `53f2d95` (inbox triage I-13 `5dfb622`), I-11b `148da51`, I-12a `59e2306`, I-12b1 `e60149d`,
-  I-12b2 `d008435`, I-12b3 `06f7d6e`, I-12c1 `73718f1`, I-12c2 `e2c0ea8`, I-12c3a `eb4c352`,
-  I-12c3b `c6bb07b`, I-12d1 `f711bc5`, I-12d2 `227fdb5`.
-- Phase I-12e: the commit carrying this checkpoint ("Phase I-12e: other terminals, the docs"),
-  pushed (SHA and push result in the run's status line and the next checkpoint). The tree was
-  clean when this iteration started (empty preflight file).
+- Phases 1 to I-12e: every commit, all pushed to `origin/main`, moved verbatim to
+  `docs/progress-archive/git-state-1-i-12e.md` (the last, I-12e `3d47e6e`). Commit messages
+  carry no AI attribution trailer (the user's global rule).
+- Phase I-13a: the commit carrying this checkpoint ("Phase I-13a: update check, the check
+  core"), pushed (SHA and push result in the run's status line and the next checkpoint). The
+  tree was clean when this iteration started (empty preflight file).

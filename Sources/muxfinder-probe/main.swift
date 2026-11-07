@@ -27,6 +27,7 @@ let usage = """
   \(TerminalsCommand.usage)
   \(PlainProofCommand.usage)
   \(LocalClientsCommand.usage)
+  \(UpdateCommand.usage)
   """
 
 /// Writes `message` and a newline to standard error.
@@ -77,6 +78,8 @@ case "plain-proof":
   exit(await PlainProofCommand.run(Array(arguments.dropFirst())))
 case "local-clients":
   exit(await LocalClientsCommand.run(Array(arguments.dropFirst())))
+case "update":
+  exit(await UpdateCommand.run(Array(arguments.dropFirst())))
 default:
   printError(usage)
   exit(EX_USAGE)

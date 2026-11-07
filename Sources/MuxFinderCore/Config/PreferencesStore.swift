@@ -61,7 +61,8 @@ public enum PreferencesFileProblem: Error, Sendable, Hashable, CustomStringConve
 }
 
 /// muxFinder's preferences (PLAN.md D32): the session switcher shortcut, the folder search
-/// scope (D36) and the terminal sessions open in (D38).
+/// scope (D36), the terminal sessions open in (D38) and whether updates are checked
+/// automatically (D39).
 public struct Preferences: Sendable, Hashable {
   /// The session switcher's shortcut; `nil` when the hotkey is off.
   public var globalShortcut: GlobalShortcut?
@@ -72,15 +73,19 @@ public struct Preferences: Sendable, Hashable {
   /// (`TerminalChoice`) and never written. A stored value that is not a string reads as the
   /// empty id, which names no terminal (`unknownID`), so it is never replaced by the default.
   public var terminal: String?
+  /// Whether muxFinder checks GitHub for a newer release on its own (PLAN.md D39, Phase
+  /// I-13a): `true` unless the file holds `false`, so the default is on and never written.
+  public var checkForUpdatesAutomatically: Bool
 
   /// Preferences from their parts.
   public init(
     globalShortcut: GlobalShortcut? = nil, folderSearchScope: FolderSearchScope = .standard,
-    terminal: String? = nil
+    terminal: String? = nil, checkForUpdatesAutomatically: Bool = true
   ) {
     self.globalShortcut = globalShortcut
     self.folderSearchScope = folderSearchScope
     self.terminal = terminal
+    self.checkForUpdatesAutomatically = checkForUpdatesAutomatically
   }
 }
 
@@ -274,6 +279,17 @@ public protocol TerminalSettingStoring: PreferencesStoring {
   func setTerminal(_ id: String?) async throws(PreferencesStoreError) -> PreferencesChangeResult
 }
 
+/// Where the automatic update check's toggle lives (PLAN.md D32, D39, Phase I-13a):
+/// `preferences.json`'s `checkForUpdatesAutomatically` key, under the same rules as every other
+/// preference. `PreferencesStore` in the app, `InMemoryPreferencesStore` in tests.
+public protocol UpdateCheckSettingStoring: PreferencesStoring {
+  /// Records whether updates are checked automatically and keeps the result, with the same
+  /// refusal rule; `true` with no value in the file writes nothing (the default).
+  func setCheckForUpdatesAutomatically(
+    _ on: Bool
+  ) async throws(PreferencesStoreError) -> PreferencesChangeResult
+}
+
 /// Persists muxFinder's preferences as `preferences.json` in muxFinder's folder (PLAN.md D8,
 /// D32), apart from `hosts.json` and `directories.json`, and never in the app's defaults
 /// domain: muxFinder owns only its support folder (and `DynamicProfiles/muxFinder.json`), tests
@@ -281,8 +297,9 @@ public protocol TerminalSettingStoring: PreferencesStoring {
 /// `~/Library/Preferences`.
 ///
 /// The file is a JSON object, schema 1:
-/// `{"folderSearchScope": "disk", "globalShortcut": {"keyCode": 49, "modifiers": ["control",
-/// "option"]}, "schemaVersion": 1, "terminal": "ghostty"}`, written pretty-printed with sorted
+/// `{"checkForUpdatesAutomatically": false, "folderSearchScope": "disk", "globalShortcut":
+/// {"keyCode": 49, "modifiers": ["control", "option"]}, "schemaVersion": 1, "terminal":
+/// "ghostty"}`, written pretty-printed with sorted
 /// keys and a final newline, at most `maximumFileSize`. Modifier names are `control`,
 /// `option`, `shift` and `command`. Other keys are ignored when read and kept as they are when
 /// the file is written. A missing or `null` `globalShortcut` means the hotkey is off; one that
@@ -295,7 +312,9 @@ public protocol TerminalSettingStoring: PreferencesStoring {
 /// `terminal` (PLAN.md D38, Phase I-12c3a) is the terminal sessions open in, `iterm2` or a
 /// terminal definition's id, kept as stored; a missing or `null` value means the default,
 /// resolved and never written (`TerminalChoice`), and a value that is not a string reads as the
-/// empty id, which names no terminal.
+/// empty id, which names no terminal. `checkForUpdatesAutomatically` (PLAN.md D39, Phase I-13a)
+/// is a JSON boolean; a missing or `null` value, or one that is not a boolean, reads as `true`
+/// (the default, never written) and stays in the file as it is until the toggle is saved.
 ///
 /// It is loaded and written as D19 and D31 treat `hosts.json` and `directories.json`:
 /// - **Loading never writes anything**, not even the folder. No file gives empty preferences
@@ -304,10 +323,12 @@ public protocol TerminalSettingStoring: PreferencesStoring {
 ///   `invalid` with the problem, and stays exactly as it is.
 /// - **A change** (`setGlobalShortcut(_:)`, only when the user records or clears a shortcut;
 ///   `setFolderSearchScope(_:)`, only when the user picks a scope; `setTerminal(_:)`, only
-///   when the terminal setting is changed) first reads the file as a
+///   when the terminal setting is changed; `setCheckForUpdatesAutomatically(_:)`, only when
+///   the toggle is changed) first reads the file as a
 ///   load does, without the lock: a file that cannot be used refuses it, and a change that
 ///   changes nothing (the same shortcut, a clear with none, the scope the file holds, or `home`
-///   with no value, the terminal the file holds, or a removal with none) ends there, both
+///   with no value, the terminal the file holds, or a removal with none, the toggle's boolean
+///   the file holds, or `true` with no value) ends there, both
 ///   writing nothing. A change sets only its own key (and
 ///   `schemaVersion`). Any other change takes an exclusive `flock` on `preferences.lock` in
 ///   the store's folder (waited for at most `lockWait`), reads the file again holding it, and
@@ -317,7 +338,7 @@ public protocol TerminalSettingStoring: PreferencesStoring {
 ///   exactly the bytes this store last read as fully usable or wrote; anything else is kept as
 ///   `preferences.backup-<UTC yyyyMMddTHHmmssZ>[-n].json`.
 /// - The store is an actor, so its own changes never interleave.
-public actor PreferencesStore: TerminalSettingStoring {
+public actor PreferencesStore: TerminalSettingStoring, UpdateCheckSettingStoring {
   /// The preferences file's name in muxFinder's folder.
   public static let fileName = "preferences.json"
   /// The schema version this muxFinder reads and writes.
@@ -334,6 +355,8 @@ public actor PreferencesStore: TerminalSettingStoring {
   static let folderSearchScopeKey = "folderSearchScope"
   /// The file's key for the terminal (PLAN.md D38, Phase I-12c3a).
   static let terminalKey = "terminal"
+  /// The file's key for the automatic update check (PLAN.md D39, Phase I-13a).
+  static let checkForUpdatesKey = "checkForUpdatesAutomatically"
   /// How long a change waits for the lock unless told otherwise.
   static let defaultLockWait: Duration = .seconds(2)
   /// How many backup names with the same timestamp a write tries.
@@ -470,6 +493,8 @@ public actor PreferencesStore: TerminalSettingStoring {
     case folderSearchScope(FolderSearchScope)
     /// Record a terminal, or remove it (`nil`).
     case terminal(String?)
+    /// Record whether updates are checked automatically.
+    case checkForUpdatesAutomatically(Bool)
   }
 
   /// Records `shortcut` as the session switcher's shortcut, or clears it (`nil`), keeping every
@@ -497,6 +522,16 @@ public actor PreferencesStore: TerminalSettingStoring {
   /// `nil`. The id is stored as given; the caller resolves it (`TerminalChoice`).
   public func setTerminal(_ id: String?) throws(PreferencesStoreError) -> PreferencesChangeResult {
     try apply(.terminal(id))
+  }
+
+  /// Records whether updates are checked automatically (PLAN.md D39, Phase I-13a), keeping
+  /// every other key of the file, under the same rules as `setGlobalShortcut(_:)`: nothing is
+  /// written when the file holds that boolean already, or holds no value and `on` is `true`. A
+  /// value that is not a boolean is replaced by the one chosen, as an unknown scope is.
+  public func setCheckForUpdatesAutomatically(
+    _ on: Bool
+  ) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    try apply(.checkForUpdatesAutomatically(on))
   }
 
   /// Makes `change`: a first look without the lock, then the lock, a second look and the write.
@@ -562,6 +597,14 @@ public actor PreferencesStore: TerminalSettingStoring {
         return .unchanged(PreferencesChangeResult(preferences: preferences, wrote: false))
       }
       fields[Self.terminalKey] = id
+    case .checkForUpdatesAutomatically(let on):
+      preferences.checkForUpdatesAutomatically = on
+      let stored = fields[Self.checkForUpdatesKey]
+      let absent = stored == nil || stored is NSNull
+      if JSONValue.boolean(stored) == on || (absent && on) {
+        return .unchanged(PreferencesChangeResult(preferences: preferences, wrote: false))
+      }
+      fields[Self.checkForUpdatesKey] = on
     }
     fields["schemaVersion"] = Self.schemaVersion
     return .write(try Self.encode(fields), preferences)
@@ -741,7 +784,9 @@ public actor PreferencesStore: TerminalSettingStoring {
     return .preferences(
       Preferences(
         globalShortcut: shortcut, folderSearchScope: scope ?? .standard,
-        terminal: terminal(from: fields[terminalKey])),
+        terminal: terminal(from: fields[terminalKey]),
+        // A value that is not a JSON boolean reads as the default and is kept as it is.
+        checkForUpdatesAutomatically: JSONValue.boolean(fields[checkForUpdatesKey]) ?? true),
       fields: fields, dropped: dropped)
   } // End of static func decode(_:)
 
@@ -837,7 +882,7 @@ public actor PreferencesStore: TerminalSettingStoring {
 
 /// Preferences kept in memory only (PLAN.md D32): the tests' and previews' store. It never
 /// reads or writes a file, so `preferences.json` is never touched.
-public actor InMemoryPreferencesStore: TerminalSettingStoring {
+public actor InMemoryPreferencesStore: TerminalSettingStoring, UpdateCheckSettingStoring {
   /// The preferences.
   public private(set) var preferences: Preferences
   /// How many changes were kept (tests count the writes a real store would have made).
@@ -887,6 +932,18 @@ public actor InMemoryPreferencesStore: TerminalSettingStoring {
     if let failure { throw failure }
     let changed = preferences.terminal != id
     preferences.terminal = id
+    if changed { changeCount += 1 }
+    return PreferencesChangeResult(preferences: preferences, wrote: false)
+  }
+
+  /// Keeps whether updates are checked automatically in memory; fails with `failure` when one
+  /// is set.
+  public func setCheckForUpdatesAutomatically(
+    _ on: Bool
+  ) throws(PreferencesStoreError) -> PreferencesChangeResult {
+    if let failure { throw failure }
+    let changed = preferences.checkForUpdatesAutomatically != on
+    preferences.checkForUpdatesAutomatically = on
     if changed { changeCount += 1 }
     return PreferencesChangeResult(preferences: preferences, wrote: false)
   }

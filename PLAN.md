@@ -33,6 +33,8 @@ Sources/
                               AttachmentIndex (iTerm2 tmux connections -> session keys),
                               LaunchTab (the shared launch tab), SSHSetupLauncher (D24)
     Refresh/                  RefreshCoordinator actor, backoff, live/stale snapshots
+    Update/                   update check (D39): versions and tags, the releases/latest
+                              parser, the transport, update-state.json, the scheduler
     Profiles/                 Persistent Work dynamic-profile generator/installer, the hash
                               snapshot of iTerm2's other profiles, the e2e-profile run (D26)
     Diagnostics/              operation log (ring buffer + os.Logger), no terminal content
@@ -166,9 +168,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
   notarization for a build that did not go through it. Target arm64 only, since all three
   Macs are Apple Silicon (M4, M4, M5).
 - **D8 — Storage.** Configuration lives in `~/Library/Application Support/muxFinder/`
-  (`hosts.json`, `directories.json`, `preferences.json`, `launch/`, diagnostics), with
-  directories 0700 and files 0600, and no extended ACL (D14 for `launch/`, D19 for the folder
-  itself and `hosts.json`, D31 for `directories.json`, D32 for `preferences.json`; muxFinder
+  (`hosts.json`, `directories.json`, `preferences.json`, `update-state.json`, `launch/`,
+  diagnostics), with directories 0700 and files 0600, and no extended ACL (D14 for `launch/`,
+  D19 for the folder itself and `hosts.json`, D31 for `directories.json`, D32 for
+  `preferences.json`, D39 for `update-state.json`, a cache; muxFinder
   keeps no setting in its defaults domain). The app owns
   exactly one iTerm2 file, `~/Library/Application Support/iTerm2/DynamicProfiles/muxFinder.json`,
   written and removed only by `PersistentProfileInstaller`, which never touches another entry of
@@ -2786,6 +2789,12 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     names no terminal, so the choice is unavailable rather than replaced by the default;
     setting the value the file holds, or removing an absent one, writes nothing. The app reads
     it at launch and writes it only through `AppModel.setTerminal(_:)`, in normal mode only.
+    **`checkForUpdatesAutomatically`** (Phase I-13a, D39;
+    `UpdateCheckSettingStoring.setCheckForUpdatesAutomatically(_:)`,
+    `Preferences.checkForUpdatesAutomatically`): a JSON boolean; a missing or `null` value, or
+    one that is not a boolean, reads as `true` (the default, never written) and is kept as it
+    is until the toggle is saved; `true` with no value, or the value the file holds, writes
+    nothing. Nothing in the app reads or writes it yet (I-13c).
     Schema 1 did not change: an older muxFinder ignores these keys and keeps them. Loading
     never writes; a
     missing file or a missing or `null` shortcut is "off";
@@ -4741,6 +4750,133 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     addendum; README, `docs/ARCHITECTURE.md` (*Terminal backends (D38)*), `docs/TESTING.md`,
     `docs/MANUAL-CHECKLIST.md` (item 29) and `CLAUDE.md` point to it. No code changed.
 
+- **D39 — Update check (and, from I-13b, one-click update)** (decided by the orchestrator for
+  Phase I-13, 2026-11-07, from `autoclaude/processed/120-update-check-github.md`, the user's
+  four decisions in it and *Phase I-13*'s calls; the check, core, in Phase I-13a: code in
+  `Sources/MuxFinderCore/Update/` (`UpdateVersion.swift` with `UpdateSource`,
+  `UpdateRelease.swift` (`UpdateReleaseParser`, `UpdateOffer`), `UpdateTransport.swift`
+  (`UpdateCheckTransport`, `URLSessionUpdateTransport`, `UpdateRateLimit`),
+  `UpdateCheck.swift`, `UpdateState.swift`, `UpdateStateStore.swift`, `UpdateScheduler.swift`,
+  `UpdateProbe.swift`), `Config/PreferencesStore.swift` (D32) and
+  `Sources/muxfinder-probe/UpdateCommand.swift`; tests `Tests/MuxFinderCoreTests/Update*Tests.swift`
+  and `UpdateTestSupport.swift`, `docs/TESTING.md` *Phase I-13a*). muxFinder tells the user
+  when GitHub has a newer release; from I-13b an Update button downloads, verifies and installs
+  it, and I-13c adds the UI. This entry is the check; I-13b and I-13c extend it.
+  - **Why no Sparkle:** the user chose a hand-written updater with no dependency (decision 2
+    of the specification). It uses GitHub's API and the stapled `muxFinder.zip` that
+    `scripts/release.sh` already writes, so no appcast, no signing key of its own and no
+    third-party framework in the hardened-runtime bundle.
+  - **Source, compiled in** (`UpdateSource`): owner `ccarpiog`, repository `muxFinder`, never
+    read from a file or the environment. One request: `GET
+    https://api.github.com/repos/ccarpiog/muxFinder/releases/latest` (GitHub leaves out drafts
+    and prereleases).
+  - **Versions and tags** (`UpdateVersion`): three non-negative integers, each 1 to 9 ASCII
+    digits with no sign, space or leading zero (`0` itself is fine), compared numerically. A
+    tag is exactly `v<major>.<minor>.<patch>` (never `V`, a bare version, four parts or a
+    suffix); the running version is `CFBundleShortVersionString` parsed the same way without
+    the `v`, and an unparseable one offers nothing (`runningVersionUnknown`).
+  - **The answer** (`UpdateReleaseParser`): at most 1 MiB is read (`tooLarge`). It must be a
+    JSON object with `tag_name` and `html_url` strings and, when present, boolean `draft` and
+    `prerelease` (another type is `malformed`); `true` offers nothing. `html_url` must be
+    `https` on `github.com` with no user, password, port, query, fragment or percent escape,
+    its path under `/ccarpiog/muxFinder/releases/` with no `.` or `..` segment
+    (`releasePageNotOurs` otherwise). Not JSON, not an object or a field of the wrong type
+    make the check a failure (`isUnreadableAnswer`); a draft, a prerelease, an unrecognized
+    tag or a foreign page are a successful check that offers nothing.
+  - **The asset contract:** the installable asset is the one entry of `assets` named exactly
+    `muxFinder.zip` (none: `missing`; two or more: `duplicate`, none trusted) whose
+    `browser_download_url` is exactly
+    `https://github.com/ccarpiog/muxFinder/releases/download/<tag>/muxFinder.zip`
+    (`foreignURL`), whose `digest` is `sha256:` plus 64 hex characters, normalized to
+    lowercase (`digestMissing`, `digestMalformed`), whose `size` is a JSON integer from 1 byte
+    to 50 MiB (`sizeOutOfRange`) and whose `state`, when present, is `uploaded`
+    (`notUploaded`). A newer release without such an asset is offered with its release page
+    only (no Update).
+  - **What is offered** (`UpdateOffer`): `upToDate(latest:)` when the latest is equal or
+    older, `newer(release)` only when strictly greater (its `asset` present or not),
+    `nothingOffered(reason)` otherwise; never "newer" for an equal, older or malformed tag.
+  - **The transport** (`UpdateCheckTransport.latestRelease(etag:)`, never throwing): a body
+    with its `ETag` (an `ETag` is kept only when it is 1 to 256 printable ASCII characters),
+    `notModified` (304), `rateLimited(until:)` (a 403 or 429 with `x-ratelimit-remaining: 0`
+    and `x-ratelimit-reset`, or with `retry-after` in seconds; both: the later; never earlier
+    than now), another `httpStatus`, `tooLarge`, and failures `offline` (no connection, host
+    not found or not reachable), `timedOut` and `other`. `URLSessionUpdateTransport` makes one
+    session per request from an ephemeral configuration with no cookie, cache or credential
+    storage, cookies neither sent nor accepted, a 15 s request and a 30 s resource timeout,
+    TLS 1.2 at least, and invalidates it afterwards. The request carries only `Accept:
+    application/vnd.github+json`, `User-Agent: muxFinder/<short version>` (`unknown` when the
+    version is not one of ours), `Accept-Language: en` (a constant, worker's call: otherwise
+    the system's URL loading adds one from the user's language preferences) and
+    `If-None-Match` with the kept `ETag`: no token, nothing else identifying. Only `https` is sent, and a redirect is followed only to `https` on
+    `api.github.com` (`RedirectGuard`; a refused redirect's status is the answer). The body is
+    streamed and the request cancelled past 1 MiB (a larger `Content-Length` stops it before
+    reading).
+  - **The 304 rule** (`UpdateCheck.apply`): the state keeps the last 200 answer's parsed
+    release (tag, page, asset facts or the asset problem; never "newer") with its `ETag`, and
+    "newer" is worked out against the running version at every use, so an updated app stops
+    offering the release it now runs. A 304 with a kept release is a success with it; a 304
+    with none drops the `ETag` and is a failure, so the next check fetches the body. A 200
+    that offers nothing keeps no release and no `ETag`; one that cannot be read drops the
+    `ETag` and keeps the release kept before. A success records the time and clears the rate
+    limit; a rate limit is recorded at most 24 h ahead.
+  - **The state file** (`UpdateStateStore`): `update-state.json` in
+    `~/Library/Application Support/muxFinder/`, schema 1 (`UpdateStateCoding`): last
+    successful check, last attempt and the rate limit's date (ISO 8601 UTC with
+    milliseconds), the `ETag`, the kept release, and the version whose notice was seen (for
+    I-13c's dot; nothing writes it yet). A cache, not the user's data: loading never writes;
+    no file, or a file that cannot be used (a symbolic link, not a regular file, another
+    user's, readable by others, an ACL, over 64 KiB, not JSON, another schema, or any value
+    failing the rules its answer had to pass) reads as never checked. A save creates the
+    folder (0700) as the other stores do (the probe's `--state` store, policy
+    `existingPrivate`, instead refuses a folder that is missing or not already private and
+    never creates or changes one), refuses a symbolic link or non-regular file at the
+    name (nothing written through or over it), and otherwise writes a private temporary file
+    (0600, no ACL, flushed) renamed over the name: an invalid file is replaced with no backup
+    and no lock (the last rename wins). `InMemoryUpdateStateStore` for tests and the probe
+    without `--state`.
+  - **The toggle** (D32): `preferences.json`'s `checkForUpdatesAutomatically` through
+    `PreferencesStore` (`UpdateCheckSettingStoring.setCheckForUpdatesAutomatically(_:)`), a
+    JSON boolean; absent, `null` or not a boolean reads as `true` (on by default, the default
+    never written), like the folder search scope's rules for its key. Never `UserDefaults`.
+  - **The schedule** (`UpdateScheduler`, an actor over an injected transport, state store and
+    `UpdateClock`): nothing runs or is read until `start(automaticChecks:)`. An automatic
+    check is armed or runs only while started with automatic checks on and once the state has
+    loaded (a wake or toggle that arrives while the load is pending, however late it ends, is
+    worked out when it ends), when never checked or 24 h after the last successful check (a
+    last check in the future, after the clock went back, counts as due), never sooner than
+    1 h after the last attempt, not before the rate limit's date (a date more than 24 h ahead
+    is ignored as a clock gone back), and the first never sooner than 5 s after `start` (a
+    launch gate kept at most 5 s ahead if the clock goes back). Between events it sleeps until
+    the next due time; `woke()` (the Mac woke or the clock changed) and
+    `setAutomaticChecks(_:)` work it out again. At most one request is in flight.
+    `checkNow()` (manual) waits for the state's load, then runs with automatic checks on or
+    off, joins a check in flight, and during a rate limit (a persisted one included) answers
+    `rateLimited(until:)` without sending. The attempt is saved before sending and the result
+    after; a save that fails leaves the state in memory.
+    Background failures are silent; the published `UpdateCheckStatus` (idle or checking, the
+    last outcome with its time and whether it was manual, the offer, the last success) is for
+    I-13c's Settings line and popover notice (`updates()` streams it). `stop()` ends it.
+  - **Probe:** `muxfinder-probe update check [--running-version <x.y.z>] [--state <dir>]`
+    (`UpdateProbe`): one GET through `URLSessionUpdateTransport` (unless a rate limit kept
+    in the state holds it) and JSON with the outcome, whether it sent, the latest tag, newer
+    than the running version (default `0.0.0`, also the `User-Agent`'s), the page, the
+    asset's and digest's presence, the size, the rate limit's date, whether an `ETag` is kept
+    and, with `--state`, the state file's facts; exit 0 answered, 1 failed, rate limited or
+    not saved, 64 usage. `--state` must be an existing private folder of the user's (no
+    permission for group or others, no ACL), absolute, with no symbolic link on its path (so
+    `/private/tmp/…`, not `/tmp/…`); any other is a usage error before anything is sent, and
+    the probe never creates it or changes its permissions; without it nothing is read or
+    written. `--help` contacts nothing.
+  - **The run rule** (*Phase I-13*, *Unattended-run rules* 3): no run sends a request to
+    GitHub or any other server. The transport is covered only through a `URLProtocol` stub
+    that is the sole protocol class on its sessions (`UpdateStubProtocol`, claiming every
+    request), the scheduler and the probe only over fakes, and every body is synthetic JSON
+    written by hand. The real `update check` run is the user's (`docs/MANUAL-CHECKLIST.md`
+    item 30).
+  - **Not yet:** nothing in the app creates the scheduler (I-13c wires it in normal mode
+    only: no diagnostic mode contacts the network or writes the state file); the download,
+    verification and install are I-13b's.
+
 ## Verified facts (planning session, 2026-10-21)
 
 - This Mac is **Neptuno** (`neptuno-m4`), macOS 27.2 arm64, Xcode 27.1, Swift 6.4, tmux 3.8
@@ -5513,7 +5649,11 @@ work. The autoclaude session itself runs inside an iTerm2 tab.
    writes on remote hosts. Also authorized (by the user, 2026-11-06, for remote folder
    search): read-only Spotlight queries for folders on Saturno and on this Mac (`mdfind`,
    `mdutil -s`, and readability tests such as `[ -r ~/Documents ]`). Record only counts and
-   timings, never a folder name or path, in logs, fixtures, docs or commits.
+   timings, never a folder name or path, in logs, fixtures, docs or commits. "No other host"
+   includes network services (since Phase I-13): a run sends no request to GitHub's API or
+   download hosts, or to any other server, so the update check's and download's real runs are
+   the user's. (The operating system's own signature and notarization assessment of a local
+   file, as `codesign --verify` and `spctl` do, is not a request of the run's.)
 4. **Never write** iTerm2 preferences (`com.googlecode.iterm2`), profiles other than
    `DynamicProfiles/muxFinder.json`, `~/.ssh/*`, or shell startup files.
 5. Do not launch `muxFinder.app` through LaunchServices (`open`) in a way that triggers the
@@ -8198,6 +8338,114 @@ muxFinder's own folders), nothing of the private download site.
   differ, nothing relaxed.
 - **`PLAN.md`:** D38 gains a short "The docs (I-12e)" paragraph naming `docs/TERMINALS.md` as
   the user-facing reference; nothing else of D38 rewritten.
+
+### Phase I-13 — Update check and one-click update (high)
+
+From the inbox (2026-11-06). The specification, with the user's request verbatim, the user's
+four decisions (notify, then one-click Update; hand-written, no Sparkle; check at launch and
+daily, toggle on by default; popover notice plus an icon dot, no macOS notification), the
+read-only findings, what to build, testing and safety, and the acceptance, is
+`autoclaude/processed/120-update-check-github.md`. Recorded as **D39**. The app's first
+network code, and the app replacing its own bundle. Split before the first worker into three
+(the specification suggested two; the install pipeline alone is a phase):
+
+- **I-13a — the check, core (high).** Tag and version parsing, the bounded parser of
+  `releases/latest`, the transport (a protocol and its `URLSession` implementation), the
+  state file, the `preferences.json` toggle, the scheduler over an injected clock, probe
+  `update check`, D39's check part. No download, no UI.
+- **I-13b — the install pipeline, core (high).** Eligibility (the running app's Developer ID
+  signature, App Translocation, a writable parent folder), staging on the installed bundle's
+  volume, the download (progress, Cancel, size bound, SHA-256), extraction with `ditto`, the
+  bundle's shape, the signature, Team ID and notarization check, the versions, the swap with
+  D27's binding and rollback, the relauncher, leftover cleanup at launch, what old helpers
+  still read from their bundle, probe `update verify`, D39's install part. No UI.
+- **I-13c — the UI, wiring and docs (high).** The popover notice and its update states, the
+  menu bar icon's dot and label, Settings › General's toggle, button and status line, the ask
+  before quitting with unsaved edits, the app's wiring (normal mode only: no diagnostic mode
+  contacts the network or writes the state file), galleries and screenshots, README,
+  ARCHITECTURE, TESTING, MANUAL-CHECKLIST, the release contract on `CLAUDE.md`'s release line
+  and in D35, D39's UI part. May split again at its selection.
+
+**The run rule (settled at I-13's selection, 2026-11-07).** *Unattended-run rules* 3 says "no
+other host", and the specification's request for real GitHub runs (`update check`, `update
+verify` on the published `v0.2.0`) came from the queuing session, not from an edit of that
+rule by the user (as the Spotlight authorization was). So no run of I-13 sends a request to
+GitHub or any other server; rule 3 now says so. The transport and downloader are built and
+tested hermetically (an injected transport or a `URLProtocol` stub; never a real
+`URLSession` request in `swift test`); the real `update check` and `update verify` (latest)
+runs are the user's, on `docs/MANUAL-CHECKLIST.md`. What can run for real without the
+network: `update verify` on a local copy of a release zip (I-13b, with `build/muxFinder.zip`,
+0.2.0's stapled zip from `scripts/release.sh`, copied into a private folder; its digest taken
+locally), whose Security.framework and notarization checks are the operating system's
+assessment of a local file.
+
+The orchestrator's calls for I-13a, made before its worker:
+
+- **Where.** `Sources/MuxFinderCore/Update/`; tests `Tests/MuxFinderCoreTests/Update*Tests.swift`.
+  The owner and repository (`ccarpiog`, `muxFinder`) are compiled-in constants, never read from
+  a file or the environment.
+- **Versions.** `UpdateVersion` is three non-negative integers (each at most 9 digits, no sign,
+  no leading `+`, no spaces), compared numerically. A tag is accepted only as exactly
+  `v<major>.<minor>.<patch>`; the running version is `CFBundleShortVersionString` parsed the
+  same way without the `v` (an unparseable running version offers nothing). Leading zeros are
+  refused (`v0.02.0` is not a tag of ours).
+- **The parser.** The body is read up to 1 MiB (more is a failure, `tooLarge`). It must be a
+  JSON object with `tag_name` (string) and `html_url` (an `https` URL on `github.com` whose
+  path starts with `/ccarpiog/muxFinder/releases/`); `draft` or `prerelease` `true` offers
+  nothing. The installable asset is the one entry of `assets` named exactly `muxFinder.zip`
+  (two such entries: none installable) with `browser_download_url` exactly
+  `https://github.com/ccarpiog/muxFinder/releases/download/<tag>/muxFinder.zip`, `digest`
+  `sha256:` plus 64 hex characters (normalized to lowercase), `size` an integer from 1 to
+  50 MiB, and `state` `uploaded` when present. A newer release without such an asset is
+  offered with its release page only (no Update). The result is a typed value (up to date
+  with the latest version; newer, with or without an installable asset; nothing offered, with
+  the reason) and never "newer" for an equal, older or malformed tag.
+- **The transport.** A protocol, `func latestRelease(etag: String?) async ->
+  UpdateCheckResponse`, with the cases the scheduler needs: a body with its `ETag`, not
+  modified (304), rate limited until a date (403 or 429 with `x-ratelimit-remaining: 0` and
+  `x-ratelimit-reset`, or `retry-after`), another HTTP status, too large, and failures
+  (offline, timeout, other). The `URLSession` implementation: an ephemeral configuration with
+  no cookies, cache or credential storage, a 15 s request timeout and a 30 s resource
+  timeout, headers `Accept: application/vnd.github+json`, `User-Agent: muxFinder/<short
+  version>` and `If-None-Match` with the last `ETag` when there is one, no token and nothing
+  else identifying, `https` only, and no redirect followed away from `api.github.com`. It is
+  compiled and covered with a `URLProtocol` stub (never a real request).
+- **304.** The state keeps the last 200 answer's parsed release (its tag, page and asset
+  facts, never "newer"), and "newer" is computed against the running version at every use,
+  so an updated app stops offering the release it now runs. A 304 with no kept release drops
+  the `ETag` and counts as a failure, so the next check fetches the body.
+- **The state file.** `update-state.json` in `~/Library/Application Support/muxFinder/`,
+  schema 1: last successful check, last attempt, `ETag`, the kept release, the version whose
+  notice was seen (for I-13c's dot), and the rate limit's not-before date. Written like the
+  other stores (atomic, the existing refusal of a symbolic link or a non-regular file, never
+  written through either); missing, unreadable or invalid reads as "never checked", and an
+  invalid file is replaced at the next write (it is a cache, not the user's data). Tests only
+  on private folders.
+- **The toggle.** `checkForUpdatesAutomatically` in `preferences.json` through
+  `PreferencesStore`, `true` when absent, following the store's existing rules for keys (as
+  `terminal` and the folder search scope were added); never `UserDefaults`.
+- **The scheduler.** One type over an injected clock and transport, started explicitly (never
+  by construction). Events: started (the first automatic check 5 s later, never blocking),
+  woke, toggle changed, manual check. An automatic check runs only with the toggle on, when
+  never checked or 24 h have passed since the last successful check (a last check in the
+  future, after the clock went back, counts as due), no sooner than 1 h after the last
+  attempt, and not before the rate limit's date. Between events it waits for the next due
+  time. At most one request in flight; a manual check joins one in flight, runs even with the
+  toggle off, and during a rate limit answers "rate limited until …" without sending.
+  Background failures are silent (the outcome is published for Settings' status line); a
+  manual check's failure is its result. Published state: idle, checking, and the last
+  outcome with its time.
+- **Probe.** `muxfinder-probe update check [--running-version <x.y.z>] [--state <dir>]`
+  makes one GET through the `URLSession` transport and prints JSON (latest tag, newer than
+  the running version, default `0.0.0`, the asset's presence, digest presence, size, the
+  outcome); without `--state` it writes nothing, with it only that private folder (no
+  symbolic link on its path). `--help` contacts nothing. Its real run is the user's (the run
+  rule above); its argument handling and output are tested over an injected transport.
+- **Docs in this phase.** D39 (the check part: source, tag format, asset contract, transport,
+  state, toggle, schedule, why no Sparkle, the run rule); `CLAUDE.md`: the `update check`
+  probe line (real runs the user's) and a safety-rules line mirroring rule 3's network
+  sentence; `docs/TESTING.md` a Phase I-13a section; `docs/MANUAL-CHECKLIST.md` an item for
+  the real `update check` run. README and ARCHITECTURE wait for I-13c.
 
 ## Deferred (explicitly out of scope for v1)
 
