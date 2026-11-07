@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T08:43:45Z",
+  "updated": "2026-11-07T08:46:10Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -999,6 +999,7 @@
       "summary": "Drives the one-click update in the model: Update or Download, prepare with Cancel, the ask before quitting, install, quit and cleanup at launch.",
       "review": "Codex, ship-with-fixes, docs/reviews/phase-I-13c2a.md",
       "narrative": "docs/progress-archive/i-13c2a.md",
+      "commit": "3011bd6",
       "added": "2026-11-07T06:19:09Z",
       "started": "2026-11-07T06:19:09Z",
       "status_since": "2026-11-07T06:56:01Z"
@@ -1012,6 +1013,7 @@
       "summary": "The popover notice shows the update flow: Update or Download, progress and Cancel, the ask before quitting, install, failures, VoiceOver, gallery states.",
       "review": "Codex, ship-with-fixes, docs/reviews/phase-I-13c2b.md",
       "narrative": "docs/progress-archive/i-13c2b.md",
+      "commit": "0d6339e",
       "added": "2026-11-07T06:19:09Z",
       "started": "2026-11-07T07:01:20Z",
       "status_since": "2026-11-07T08:11:09Z"
@@ -1025,6 +1027,7 @@
       "parent": "I-13c",
       "review": "Codex, ship-with-fixes, docs/reviews/phase-I-13c3.md",
       "narrative": "docs/progress-archive/i-13c3.md",
+      "commit": "902e3a3",
       "added": "2026-11-07T05:35:18Z",
       "started": "2026-11-07T08:13:28Z",
       "status_since": "2026-11-07T08:43:45Z"

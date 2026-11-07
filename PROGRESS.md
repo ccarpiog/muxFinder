@@ -87,6 +87,7 @@ empty. 2026-11-07 06:56 (record only, no phase): `list` empty. 2026-11-07 06:59 
 calls only): `list` empty. 2026-11-07 07:03 (I-13c2b's acceptance criteria only): `list`
 empty. 2026-11-07 07:04 (record only, no phase): `list` empty. 2026-11-07 07:06 (record
 only, no phase): `list` empty. 2026-11-07 07:37 (start of I-13c2b's iteration): `list` empty.
+2026-11-07 08:44 (`confirm-done` pass): `count` 0.
 
 ## Current phase
 
@@ -377,6 +378,17 @@ I-11a/I-11b, I-12 into I-12a–e.
 
 ## Verification (latest; earlier phases' are in their archives)
 
+- `confirm-done` pass (orchestrator, 2026-11-07 08:44, tree at `902e3a3`, clean): `swift
+  build` exit 0; `swift format lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test`
+  exit 0 twice (604 UI tests in 61 suites + 1366 core tests in 152 suites, as I-13c2b and
+  I-13c3 recorded; no flake); `codesign --verify --deep --strict build/muxFinder.app` exit 0,
+  the bundle's binary newer than the newest file under `Sources/` and `Resources/`; the real
+  support folder holds no `update` folder or `update-state.json`; `git show --stat 902e3a3`
+  touches no file under `Sources/`, `Tests/`, `scripts/` or `Resources/` (I-13c3 (f)); README
+  "Updates", ARCHITECTURE "Updates (D39)", TESTING's counts row, checklist items 32 and 33,
+  `CLAUDE.md`'s release contract and D35's 0.3.0 (3) history present; I-13c2a/I-13c2b's
+  sources, tests, reviews and archives present; `autoclaude-inbox.sh count` 0. Verdict: done.
+
 - Phase I-13c3 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
   lint -r Sources Tests` exit 0 (again after the review fixes); `env -u TMUX_TMPDIR swift
   test`: 604 UI tests in 61 suites + 1366 core tests in 152 suites passed (the run before it:
@@ -416,5 +428,8 @@ I-11a/I-11b, I-12 into I-12a–e.
   pushed to `origin/main` (checked 2026-11-07 08:12).
 - Phase I-13c3: committed as "Phase I-13c3: the update documents" by the 08:11
   iteration (deadline 14:11; the preflight file's `PROGRESS.md` and `PROGRESS.json` were
-  already committed in `231882c`, the tree clean at its start). SHA and push result in
-  the run's status line.
+  already committed in `231882c`, the tree clean at its start): `902e3a3`, pushed to
+  `origin/main` (`main...origin/main`, checked 2026-11-07 08:45).
+- 2026-11-07 08:44 `confirm-done` pass (no phase): its record committed as "Checkpoint:
+  confirm the finished plan" and pushed; the preflight file's `PROGRESS.md` and
+  `PROGRESS.json` were already committed, the tree clean at its start.
