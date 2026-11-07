@@ -97,6 +97,13 @@ public struct AppEnvironment: Sendable {
   /// `--report-*` flag, the tests of other parts), so those never run Spotlight or read
   /// `preferences.json` for it, and the directory list shows no folders section.
   public var folderSearch: FolderSearchEnvironment?
+  /// The update check (PLAN.md D39 *The notice (I-13c1)*): the scheduler over the real
+  /// transport and state store, the toggle's preferences file and "What's new"'s opener. Only
+  /// the menu bar app in normal mode has it (`AppLaunchOptions.createsUpdateMachinery`); `nil`
+  /// everywhere else (the self-tests, the preview modes, every `--report-*` flag, the tests of
+  /// other parts), so those create no transport, scheduler or state store and show no notice,
+  /// dot or Settings section.
+  public var update: UpdateEnvironment?
 
   /// Creates an environment from its parts.
   public init(
@@ -122,7 +129,8 @@ public struct AppEnvironment: Sendable {
     globalShortcut: GlobalShortcutEnvironment? = nil,
     homeDirectory: String? = nil,
     announce: (@MainActor @Sendable (String) -> Void)? = nil,
-    folderSearch: FolderSearchEnvironment? = nil
+    folderSearch: FolderSearchEnvironment? = nil,
+    update: UpdateEnvironment? = nil
   ) {
     self.loadHosts = loadHosts
     self.makeEngine = makeEngine
@@ -144,6 +152,7 @@ public struct AppEnvironment: Sendable {
     self.homeDirectory = homeDirectory
     self.announce = announce
     self.folderSearch = folderSearch
+    self.update = update
   } // End of init(loadHosts:makeEngine:makeSystemEvents:now:terminate:openURL:…)
 
   /// The real app: `hosts.json` through one `HostStore` (loading never writes; Settings saves
@@ -184,6 +193,10 @@ public struct AppEnvironment: Sendable {
   /// session's folder search (PLAN.md D36: `ProcessFolderSearchTransport`, its scope read for
   /// each query) and Settings › Directories' scope setting (written only when the user picks a
   /// scope); otherwise nothing reads that file, registers a hotkey or runs Spotlight.
+  /// `checksForUpdates` (PLAN.md D39 *The notice (I-13c1)*) is the caller's as well: only
+  /// normal mode passes `true` (`AppLaunchOptions.createsUpdateMachinery`), which adds the
+  /// update check (`UpdateEnvironment.production(preferences:)` over the same store); otherwise
+  /// no transport, scheduler or state store is created.
   ///
   /// The client connects on its first request only. The engine sends requests only for an
   /// attachment check, which runs only while the popover is visible and is cancelled when it
@@ -199,7 +212,8 @@ public struct AppEnvironment: Sendable {
   /// rewrite, and only the chosen terminal's backend is built.
   @MainActor
   public static func production(
-    rewritesProfilesAtLaunch: Bool, usesGlobalShortcut: Bool = false
+    rewritesProfilesAtLaunch: Bool, usesGlobalShortcut: Bool = false,
+    checksForUpdates: Bool = false
   ) -> AppEnvironment {
     let diagnostics = DiagnosticsLog()
     let iTerm2 = ITerm2APIClient(diagnostics: diagnostics)
@@ -291,8 +305,9 @@ public struct AppEnvironment: Sendable {
       folderSearch: usesGlobalShortcut
         ? FolderSearchEnvironment(
           transport: ProcessFolderSearchTransport(), preferences: preferences)
-        : nil)
-  } // End of static func production(rewritesProfilesAtLaunch:usesGlobalShortcut:)
+        : nil,
+      update: checksForUpdates ? .production(preferences: preferences) : nil)
+  } // End of static func production(rewritesProfilesAtLaunch:usesGlobalShortcut:…)
 
   /// Asks VoiceOver to say `text` (`NSAccessibility` `announcementRequested`, medium priority,
   /// so it follows the echo of the key just typed), from the key window (the popover's or the

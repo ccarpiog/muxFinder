@@ -13,7 +13,9 @@ import SwiftUI
 ///   (`SessionSwitcher`, shown only by its shortcut) and loads and registers the session
 ///   switcher shortcut (PLAN.md D32); never with `--report-menu-bar-item`. It also connects the
 ///   New session window (`NewSessionWindow`, PLAN.md D34), which is made only when New session
-///   first opens. Nothing contacts iTerm2.
+///   first opens. Nothing contacts iTerm2. Only in normal mode the model also starts the update
+///   check (PLAN.md D39 *The notice (I-13c1)*: its first automatic check 5 s later; never with
+///   a `--report-*` flag).
 /// - **Popover placement diagnostic** (`--report-popover-placement`, PLAN.md Phase I-1): the
 ///   same menu bar item and panel over an inert model that is never started (no host list,
 ///   engine, onboarding or iTerm2; `AppEnvironment.placementDiagnostic()`);
@@ -58,7 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ? .placementDiagnostic()
         : .production(
           rewritesProfilesAtLaunch: options.rewritesProfilesAtLaunch,
-          usesGlobalShortcut: options.registersGlobalShortcut))
+          usesGlobalShortcut: options.registersGlobalShortcut,
+          checksForUpdates: options.createsUpdateMachinery))
     super.init()
   }
 

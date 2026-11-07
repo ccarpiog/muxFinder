@@ -62,16 +62,20 @@ public struct UpdateCheckStatus: Sendable, Hashable {
   public var offer: UpdateOffer?
   /// When a check last succeeded, from the state file or this run.
   public var lastSuccessfulCheck: Date?
+  /// The version whose notice the user has seen (`UpdateState.noticeSeenVersion`, for the menu
+  /// bar icon's dot, Phase I-13c1); `nil` when none is recorded.
+  public var noticeSeenVersion: UpdateVersion?
 
   /// Creates a status.
   public init(
     activity: Activity = .idle, lastCheck: UpdateCheckRecord? = nil, offer: UpdateOffer? = nil,
-    lastSuccessfulCheck: Date? = nil
+    lastSuccessfulCheck: Date? = nil, noticeSeenVersion: UpdateVersion? = nil
   ) {
     self.activity = activity
     self.lastCheck = lastCheck
     self.offer = offer
     self.lastSuccessfulCheck = lastSuccessfulCheck
+    self.noticeSeenVersion = noticeSeenVersion
   }
 }
 
@@ -92,6 +96,9 @@ public struct UpdateCheckStatus: Sendable, Hashable {
 ///   loaded one included) answers `rateLimited` without sending.
 /// - At most one request is in flight. The attempt is saved before the request is sent and the
 ///   result after it; a state that cannot be saved is still used in memory.
+/// - Saves of the state run one at a time, in the order they were asked for, each writing the
+///   state as it is when its turn comes, so a check's save and a seen mark's
+///   (`markNoticeSeen(_:)`) never lose each other's fields.
 /// - Background failures are silent: their outcome is only published, for Settings' status
 ///   line; a manual check's outcome is its result.
 public actor UpdateScheduler {
@@ -173,6 +180,10 @@ public actor UpdateScheduler {
   private var subscribers: [Int: AsyncStream<UpdateCheckStatus>.Continuation] = [:]
   /// The last subscriber number handed out.
   private var lastSubscriberID = 0
+  /// Whether a save of the state holds the turn (saves run one at a time).
+  private var isSaving = false
+  /// Saves waiting for their turn, in the order they asked.
+  private var saveWaiters: [CheckedContinuation<Void, Never>] = []
 
   /// Requests sent (diagnostics and tests).
   private(set) var requestsSent = 0
@@ -180,6 +191,8 @@ public actor UpdateScheduler {
   private(set) var failedSaves = 0
   /// Manual checks that joined a check in flight (diagnostics and tests).
   private(set) var joinedChecks = 0
+  /// Saves of the state waiting for another one to end (diagnostics and tests).
+  var savesWaiting: Int { saveWaiters.count }
 
   /// A scheduler that sends through `transport`, keeps its state in `stateStore` and runs on
   /// `clock`, for an app running `runningVersion`. Nothing runs until `start`.
@@ -212,7 +225,8 @@ public actor UpdateScheduler {
       activity: inFlight == nil ? .idle : .checking(manual: inFlightIsManual),
       lastCheck: lastCheck,
       offer: UpdateCheck.offer(state, runningVersion: runningVersion),
-      lastSuccessfulCheck: state.lastSuccessfulCheck)
+      lastSuccessfulCheck: state.lastSuccessfulCheck,
+      noticeSeenVersion: state.noticeSeenVersion)
   }
 
   /// A stream of statuses: the current one at once, then one after every change, until
@@ -284,6 +298,37 @@ public actor UpdateScheduler {
     }
     return await beginCheck(manual: true).value
   } // End of func checkNow()
+
+  /// The popover showed the notice of `version` (PLAN.md D39 *The notice (I-13c1)*): waits for
+  /// the state's load and its turn among the saves, then, when `version` is greater than the
+  /// recorded one, saves the state with it as `noticeSeenVersion` (the store's rules: atomic,
+  /// private) and, only once that save succeeded, records it in the state `status` reads and
+  /// publishes the change. Returns whether it was recorded: a version not greater than the
+  /// recorded one writes nothing; a save that fails changes and publishes nothing (so the dot
+  /// stays) and is counted. Nothing after `stop()`.
+  @discardableResult
+  public func markNoticeSeen(_ version: UpdateVersion) async -> Bool {
+    guard lifecycle != .stopped else { return false }
+    await loadState()
+    if let seen = state.noticeSeenVersion, version <= seen { return false }
+    await beginSaveTurn()
+    defer { endSaveTurn() }
+    // Worked out again with the turn: an earlier save may have recorded it, or `stop()` come.
+    guard lifecycle != .stopped else { return false }
+    if let seen = state.noticeSeenVersion, version <= seen { return false }
+    var marked = state
+    marked.noticeSeenVersion = version
+    do {
+      try await stateStore.save(marked)
+    } catch {
+      failedSaves += 1
+      return false
+    }
+    // The check's own changes made meanwhile wait for this turn, so they are saved with it.
+    state.noticeSeenVersion = version
+    publish()
+    return true
+  } // End of func markNoticeSeen(_:)
 
   /// Stops the scheduler: cancels the timer and the check in flight, ends every `updates()`
   /// stream. Nothing runs afterwards.
@@ -430,12 +475,34 @@ public actor UpdateScheduler {
     return outcome
   } // End of func runCheck(manual:)
 
-  /// Saves the state; a failure is counted and otherwise ignored (the state stays in memory).
+  /// Saves the state as it is once its turn comes; a failure is counted and otherwise ignored
+  /// (the state stays in memory).
   private func persist() async {
+    await beginSaveTurn()
+    defer { endSaveTurn() }
     do {
       try await stateStore.save(state)
     } catch {
       failedSaves += 1
+    }
+  }
+
+  /// Waits until no other save of the state holds the turn, then holds it until
+  /// `endSaveTurn()`: saves run one at a time, in the order they asked.
+  private func beginSaveTurn() async {
+    guard isSaving else {
+      isSaving = true
+      return
+    }
+    await withCheckedContinuation { saveWaiters.append($0) }
+  }
+
+  /// Hands the turn to the next waiting save (it keeps `isSaving`), or frees it.
+  private func endSaveTurn() {
+    if saveWaiters.isEmpty {
+      isSaving = false
+    } else {
+      saveWaiters.removeFirst().resume()
     }
   }
 

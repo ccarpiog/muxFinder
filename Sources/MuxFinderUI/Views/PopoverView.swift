@@ -34,7 +34,8 @@ public struct PopoverView: View {
   }
 
   /// The popover's layout: the Move here or Detach other clients confirmation while one shows,
-  /// otherwise the search field, banners, notices, hosts and footer. New session has its own
+  /// otherwise the search field, banners, the update notice (PLAN.md D39), notices, hosts and
+  /// footer. New session has its own
   /// window (PLAN.md D34).
   public var body: some View {
     let content = model.content
@@ -49,6 +50,10 @@ public struct PopoverView: View {
         Divider()
         if !content.banners.isEmpty {
           BannersView(banners: content.banners, model: model)
+          Divider()
+        }
+        if let release = model.update.notice {
+          UpdateNoticeView(release: release, update: model.update)
           Divider()
         }
         if !content.notices.isEmpty {

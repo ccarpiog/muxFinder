@@ -84,7 +84,8 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   remove), 1 (left: not muxFinder's), 3 (failed) or 2 (usage). In checks always pass both
   folders, private ones from `mktemp -d`; without them it works on the real folders.
 - Preview fixtures (no menu bar item, switcher panel, engine, host list, directory list,
-  login item, hotkey or iTerm2; one normal
+  login item, hotkey, iTerm2 or update check: no request, transport, scheduler or
+  `update-state.json`, PLAN.md D39; one normal
   window with every popover state, or with `--preview-gallery settings` every Settings window
   state, with `--preview-gallery onboarding` every onboarding window state, with
   `--preview-gallery attach` every session-action state, with `--preview-gallery switcher`
@@ -134,8 +135,9 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   a harmless stand-in (never `/usr/bin/open`), never swapping `/Applications`,
   `~/Applications` or `build/` apps.
 - App shell check (normal mode, except that it never rewrites the persistent profile file
-  as a normal launch may, PLAN.md D26, and never reads `preferences.json`, registers the
-  session switcher shortcut or builds the switcher panel, D32; contacts no iTerm2 while no host is enabled and the
+  as a normal launch may, PLAN.md D26, never reads `preferences.json`, registers the
+  session switcher shortcut or builds the switcher panel, D32, and creates no update check:
+  no request, no `update-state.json` or `update` folder, D39; contacts no iTerm2 while no host is enabled and the
   popover stays closed; never through `open`/LaunchServices):
   `build/muxFinder.app/Contents/MacOS/muxFinder --report-menu-bar-item &` prints, after 2 s,
   the windows of muxFinder's own status item (PLAN.md D30; AppKit's replicas included), then
@@ -145,13 +147,14 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   without a `hosts.json` it also shows the onboarding
   window, which contacts nothing; nothing else may be visible; then `kill -TERM <pid>` must
   exit 0 with no child left
-  and no `hosts.json` or `preferences.json` created. The user's real `hosts.json` exists, so run it only with
+  and no `hosts.json`, `preferences.json`, `update-state.json` or `update` folder created. The user's real `hosts.json` exists, so run it only with
   `CFFIXED_USER_HOME=$(mktemp -d)` in front: the app then reads an empty private home (no
   host turned on, nothing refreshed). See `docs/TESTING.md` (Phases 8, 9b, 14 and I-1b).
 - Popover placement check (read-only; muxFinder's menu bar item and popover panel, PLAN.md
   D30, over a model that is never started:
   no `hosts.json` read or written, no engine, iTerm2, onboarding or profile rewrite, no
-  defaults written, the item's visibility only read; never through `open`/LaunchServices; a
+  update check (no request, `update-state.json` or `update` folder, D39), no defaults
+  written, the item's visibility only read; never through `open`/LaunchServices; a
   few runs per phase at most, PLAN.md Phase I-1): `CFFIXED_USER_HOME=$(mktemp -d)
   build/muxFinder.app/Contents/MacOS/muxFinder --report-popover-placement` prints
   `muxFinder popover placement: …` lines 2 s after launch (the screen lock state, each
@@ -187,7 +190,8 @@ matrix and real-check results: `docs/TESTING.md`; checks owed to the user:
   coordinator's recorded for it (`RecordingITerm2Integration`; a stranded tab is left as it
   is). Both read only `ListSessions`, for their own session id. They drive the real
   `AppModel` over an in-memory This Mac and directory list (no `hosts.json` or
-  `directories.json` read or written; no menu bar item, popover, onboarding or Settings), ask
+  `directories.json` read or written; no menu bar item, popover, onboarding or Settings; no
+  update check, PLAN.md D39), ask
   only their own launch tabs' tmux connections, print
   one PASS/FAIL line per step, bound every wait, clean up (detach through the core, never
   closing a tab, then kill their own session) on any failure or SIGTERM/SIGINT, and exit 0
@@ -528,7 +532,9 @@ instance and these tmux servers.
   on Saturno and this Mac are allowed too; record only counts and timings, never folder names
   or paths.
 - No request to GitHub's API or download hosts, or to any other server, in a test or a run
-  (*Unattended-run rules* 3): the update check's and download's real runs are the user's, and
+  (*Unattended-run rules* 3): the update check's and download's real runs are the user's
+  (a normal launch of the app, with no mode flag, sends the check 5 s later, so it is the
+  user's too; only `AppLaunchOptions.createsUpdateMachinery` creates the check), and
   `swift test` reaches `URLSessionUpdateTransport` and `URLSessionUpdateDownloadTransport`
   only through a `URLProtocol` stub that is the only protocol class on their sessions. The
   operating system's own signature and notarization assessment of a local file (`codesign

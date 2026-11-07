@@ -333,6 +333,22 @@ public struct AppLaunchOptions: Sendable, Hashable {
     isNormalMode
   }
 
+  /// Whether this launch creates the update machinery (PLAN.md D39 *The notice (I-13c1)*):
+  /// the real `URLSessionUpdateTransport`, `UpdateStateStore` on the real support folder and a
+  /// started `UpdateScheduler`. Only the menu bar app in normal mode does; `--preview-fixtures`
+  /// (any gallery, the key view loop), every `--report-*` flag, `--selftest` and
+  /// `--remove-persistent-profiles` create none of them, so they read, write and send nothing
+  /// of the update check. `--appearance` alone keeps normal mode.
+  public var createsUpdateMachinery: Bool {
+    Self.createsUpdateMachinery(self)
+  }
+
+  /// The one rule behind `createsUpdateMachinery`, a pure function of the options: normal mode
+  /// only.
+  public static func createsUpdateMachinery(_ options: AppLaunchOptions) -> Bool {
+    options.isNormalMode
+  }
+
   /// The menu bar app with no diagnostic, preview, self-test or removal and usable arguments.
   var isNormalMode: Bool {
     !previewFixtures && !reportsMenuBarItem && !reportsLoginItemStatus && selfTest == nil

@@ -30,7 +30,7 @@ public struct SettingsGallery: View {
   /// A gallery of every Settings fixture.
   public init() {
     _entries = State(
-      initialValue: SettingsFixtures.all.map {
+      initialValue: (SettingsFixtures.all + UpdateFixtures.settings).map {
         Entry(fixture: $0, model: SettingsModel(fixture: $0))
       })
   }

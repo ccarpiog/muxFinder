@@ -4838,7 +4838,7 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     `~/Library/Application Support/muxFinder/`, schema 1 (`UpdateStateCoding`): last
     successful check, last attempt and the rate limit's date (ISO 8601 UTC with
     milliseconds), the `ETag`, the kept release, and the version whose notice was seen (for
-    I-13c's dot; nothing writes it yet). A cache, not the user's data: loading never writes;
+    the dot; written only by `UpdateScheduler.markNoticeSeen(_:)`, I-13c1). A cache, not the user's data: loading never writes;
     no file, or a file that cannot be used (a symbolic link, not a regular file, another
     user's, readable by others, an ACL, over 64 KiB, not JSON, another schema, or any value
     failing the rules its answer had to pass) reads as never checked. A save creates the
@@ -5280,11 +5280,80 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       `~/Library/Application Support/muxFinder/` listed the same before and after (no
       `update`); `build/muxFinder.zip` still there; combined with `--report-login-item-status`
       exit 2.
-  - **Not yet:** nothing in the app creates the scheduler or the pipeline, or runs the
-    leftover cleanup (I-13c wires them in normal mode only: no diagnostic mode contacts the
-    network, writes the state file or creates the update folder; `--report-update-eligibility`
-    only reads); the UI, the ask before quitting, the quit after `relaunchScheduled` and the
-    real update (the user's) are I-13c's.
+  - **The notice (I-13c1)** (*Phase I-13* "The orchestrator's calls for I-13c1"; code in
+    `Sources/MuxFinderUI/Model/UpdateModel.swift` (`UpdateEnvironment`, `UpdateFixture`,
+    `UpdateModel`, `UpdateNotice`), `Views/UpdateViews.swift`, `Views/MenuBarIcon.swift`,
+    `Preview/UpdateFixtures.swift`, `AppLaunchOptions.createsUpdateMachinery`,
+    `AppEnvironment.production(…checksForUpdates:)`, `UpdateScheduler.markNoticeSeen(_:)`;
+    tests `UpdateModelTests` (UI) and `UpdateNoticeSeenTests` (core); `docs/TESTING.md`
+    *Phase I-13c1*):
+    - **Normal mode only, decided in one place:** `AppLaunchOptions.createsUpdateMachinery`
+      (a pure function of the options: `isNormalMode`, so `--appearance` alone keeps it) is
+      the only input to `AppEnvironment.production(checksForUpdates:)`, which alone builds an
+      `UpdateEnvironment` (`URLSessionUpdateTransport`, `UpdateStateStore` on the real support
+      folder, the scheduler, `PreferencesStore` for the toggle, `NSWorkspace` for the opener
+      and the wake notifications). Building it sends, reads and writes nothing. Every preview
+      (any gallery, the key view loop), every `--report-*` flag (`--report-menu-bar-item` and
+      `--report-popover-placement` included), `--selftest*` and `--remove-persistent-profiles`
+      get none: their `UpdateModel` is inert (no notice, no dot, no Settings section, nothing
+      started). A test enumerates every mode.
+    - **The wiring:** `AppModel.start()` first calls `UpdateModel.start()`, which never waits:
+      a task reads `checkForUpdatesAutomatically` (`true` when absent or unreadable; a toggle
+      change made meanwhile wins over the value read), subscribes to `updates()` on the main
+      actor, then `start(automaticChecks:)` with the toggle as it is then (the first automatic
+      check 5 s later). `NSWorkspace.didWakeNotification` calls `woke()`; the toggle, once that
+      task and the change before it have ended, saves through `PreferencesStore` and then calls
+      `setAutomaticChecks(_:)` with the toggle as it is (a refused save puts the toggle back to the saved value with
+      "Couldn't save the setting: …"); "Check for updates…" calls `checkNow()`; `AppModel.shutdown()` awaits
+      `UpdateModel.stop()` (the observer removed, `stop()`, the stream and the work in
+      progress ended). The running version and build are the bundle's
+      `CFBundleShortVersionString` and `CFBundleVersion`.
+    - **The notice** (`UpdateNotice.release(offer:runningVersion:)`): the status's offer when it
+      is `newer` and strictly greater than the running version (an unparseable running
+      version, an equal, older or unrecognized tag show nothing); the kept release counts, so
+      yesterday's notice shows at launch. The popover shows "muxFinder <version> is available"
+      below the search field and any banners, with **What's new** (VoiceOver: the line, and
+      "What's new in muxFinder <version>" with a hint), which opens the release page through the injected
+      opener. No Update or Download button, no "skip this version".
+    - **The dot and the seen version:** `UpdateCheckStatus` now carries `noticeSeenVersion`.
+      The dot shows while there is a notice whose version is greater than it (or none is
+      recorded); `MenuBarIcon.image(_:withDot:)` draws it at run time into the bundle's
+      template image (a drawing-handler image, so every resolution is drawn: the base, a clear
+      ring cut out of the top-right corner, a filled circle 42 % of the width in it; still a
+      template, the same size; no new PNG). `MenuBarPopover` follows `UpdateModel.showsDot`
+      through observation and sets the button's image and accessibility label ("muxFinder,
+      update available", else "muxFinder"). While the popover panel shows with the notice in
+      it (`AppModel.popoverVisibilityChanged(_:)`, or a notice published while it shows), the
+      notice's version is written once through `UpdateScheduler.markNoticeSeen(_:)` (waits for
+      the state's load and its turn: the scheduler saves the state one at a time, each save
+      writing the state as it is then, so a check's save and the mark's never lose each other's
+      fields; only a version greater than the recorded one; saved through the store, atomic and
+      private; in the status only once saved, so a failed save changes and publishes nothing
+      and the dot stays, with no alert; nothing after `stop()`), whose publication clears the
+      dot; a newer release brings it back.
+    - **Settings › General** ("Updates", between Startup and Session switcher, only with
+      update machinery or a fixture): the toggle "Check for updates automatically", the button
+      "Check for updates…" (disabled with a spinner while a check is asked for or in flight),
+      and the status line (`UpdateNotice.statusLines`): first "Checking for updates…", else
+      this run's last outcome ("You're up to date (<version> (<build>))", "muxFinder <version>
+      is available", "Couldn't check: no connection", "… no answer", "… GitHub answered
+      <status>", "… the answer couldn't be read", "… the answer had no release", "… the check
+      was stopped", "… something went wrong", "Couldn't check: GitHub is limiting requests
+      until <HH:mm>", "No update offered: this build has no version number", "No update
+      offered: the latest release can't be used"), else what the kept release offers; then
+      "Last checked <relative time>" (`RelativeTime`) from the last success, or "Not checked
+      yet". VoiceOver reads the line as one element, "Update status: …".
+    - **Galleries:** the popover gallery gains a row of the menu bar icon without and with the
+      dot on a light and a dark band, and "Update available: the notice"; the settings gallery
+      gains not checked yet, checking (the button disabled), up to date, a newer release, no
+      connection, no answer, rate limited and automatic checks off (`UpdateFixtures`, no
+      scheduler).
+  - **Not yet:** nothing in the app creates the pipeline or runs the leftover cleanup
+    (I-13c2, normal mode only; `--report-update-eligibility` only reads); the Update button,
+    the download, the ask before quitting, the quit after `relaunchScheduled` and the real
+    update (the user's) are I-13c2's; README, ARCHITECTURE and the release contract are
+    I-13c3's. The real notice, dot and Settings line after a real check are the user's
+    (`docs/MANUAL-CHECKLIST.md` item 31).
 
 ## Verified facts (planning session, 2026-10-21)
 
@@ -9059,6 +9128,94 @@ The orchestrator's calls for I-13b2, made before its worker (2026-11-07):
 - **Docs in this phase.** D39 extended ("Eligibility and install (I-13b2)"); `CLAUDE.md` the
   flag's command line; `docs/TESTING.md` a Phase I-13b2 section with the real results
   (verdicts only). README and ARCHITECTURE wait for I-13c.
+
+**I-13c split (at its selection, 2026-11-07).** One worker cannot finish the UI, the update
+flow and the documents coherently, so three phases, each its own commit and review:
+**I-13c1 — the notice (high)**: the app's wiring in normal mode only (the scheduler, its
+events, the state), the popover notice with "What's new", the menu bar icon's dot and label,
+Settings › General's toggle, "Check for updates…" and status line, galleries; no download,
+no Update button. **I-13c2 — the one-click update (high)**: Update or "Download" with the
+eligibility reason in the notice, `UpdatePipeline` prepare with progress and Cancel, the
+failure line, the ask before quitting with unsaved New session text or Settings edits,
+install, quit after `relaunchScheduled`, leftover cleanup at launch (normal mode only),
+galleries. **I-13c3 — the documents (routine)**: README (what the check sends, how to turn
+it off, what Update does), ARCHITECTURE, TESTING's summary rows, MANUAL-CHECKLIST's real
+update end to end on a Developer ID build (and `open` with only `PATH`, no Automation prompt
+again), the release contract on `CLAUDE.md`'s release line and in D35, D39's last "Not yet".
+
+The orchestrator's calls for I-13c1, made before its worker (2026-11-07):
+
+- **Where.** The app side in `Sources/MuxFinderUI/` (new files of the worker's naming, for
+  example an `@MainActor` observable update model the popover, the status item and Settings
+  read); the composition in the app's launch path (`Sources/MuxFinderApp/`,
+  `AppLaunchOptions`); core additions in `Sources/MuxFinderCore/Update/` only where the
+  scheduler needs them (below). Tests in `Tests/MuxFinderUITests/` and, for core additions,
+  `Tests/MuxFinderCoreTests/Update*Tests.swift`. No dependency.
+- **Normal mode only, decided in one place.** One pure, tested function of the launch mode
+  says whether the update machinery exists: only the normal launch gets the real
+  `URLSessionUpdateTransport`, the real `UpdateStateStore` on the real support folder and a
+  started `UpdateScheduler`. Every other mode (`--preview-fixtures` with any gallery or key
+  view loop, every `--report-*` flag including `--report-menu-bar-item` and
+  `--report-popover-placement`, `--selftest*`, `--remove-persistent-profiles`) creates no
+  transport, no scheduler and no state store, so it reads, writes and sends nothing of the
+  update check (*Unattended-run rules* 3). The popover, status item and Settings take the
+  update model as an optional or injected value, so galleries and self-tests use synthetic
+  or absent update state. A test enumerates every mode against the function.
+- **The scheduler in the app.** Started once after launch with the toggle's value
+  (`start(automaticChecks:)`; its first automatic check 5 s later, never blocking the
+  launch); `woke()` on `NSWorkspace.didWakeNotification`; `setAutomaticChecks(_:)` when
+  Settings saves the toggle; `checkNow()` from "Check for updates…" (it runs with the toggle
+  off and during a rate limit answers without sending, as I-13a built it); `stop()` at quit.
+  The app observes `updates()` on the main actor. The running version and build come from
+  `Bundle.main`'s `CFBundleShortVersionString` and `CFBundleVersion`; an unparseable running
+  version offers nothing (I-13a's rule).
+- **The notice.** Shown in the popover while the status's offer is newer than the running
+  version (the kept release counts, so a notice from yesterday's check shows at launch, and an
+  updated app stops showing the release it runs): "muxFinder <version> is available" with
+  **What's new**, which opens the offer's `html_url` (already validated by the parser) in the
+  default browser through an injected opener (`NSWorkspace.shared.open` in the app; tests and
+  galleries record, never open). No Update or Download button yet (I-13c2), no "skip this
+  version". VoiceOver: the line and the button labelled.
+- **The dot and the seen version.** The status item shows the dot while a newer offer's
+  version is greater than `noticeSeenVersion` (or none is recorded). The dot is drawn into the
+  template image at runtime (the existing `Resources/MenuBarIcon*.png` composited with a
+  filled circle in a corner, the result still a template image: one flat colour, legible at
+  16 px, D28; no new committed PNG unless the worker shows the runtime drawing cannot work).
+  With the dot the item's accessibility label is "muxFinder, update available", else
+  "muxFinder". It clears once the popover panel has been shown with the notice in it: the
+  notice's version is written as `noticeSeenVersion` through the scheduler (a new actor method,
+  for example `markNoticeSeen(_:)`, so writes of the state never race; atomic, the store's
+  rules; a version not greater than the recorded one writes nothing), and comes back for a
+  newer version. A failed write leaves the dot (no alert).
+- **Settings › General.** Beside the existing controls: the toggle "Check for updates
+  automatically" (`checkForUpdatesAutomatically` through `PreferencesStore` with the existing
+  save rules, `true` when absent; never `UserDefaults`), the button "Check for updates…"
+  (disabled while a check is in flight; its result shown in the status line, never an alert),
+  and a status line: checking ("Checking for updates…"), up to date ("You're up to date
+  (<version> (<build>))" or the form Settings already uses for the version and build), newer
+  ("muxFinder <version> is available"), a failure ("Couldn't check: no connection",
+  "Couldn't check: no answer", "Couldn't check: GitHub is limiting requests until <time>",
+  and so on: one short phrase per `UpdateCheckOutcome` failure, no URL or header), and "Last
+  checked <relative time>" from the last successful check (the existing relative-time wording
+  of "Last checked 2 min ago"). Never checked: "Not checked yet". VoiceOver labels for the
+  toggle, button and line.
+- **Galleries and screenshots.** New states in the `popover` gallery (the notice; the icon
+  with and without the dot, for example as a row of rendered status images) and the `settings`
+  gallery (every status line, the toggle off, the button disabled while checking), from
+  synthetic data with no scheduler; `docs/screenshots/popover-states-{light,dark}.png` and
+  `settings-states-{light,dark}.png` regenerated with `--preview-snapshot`.
+- **What may run for real in I-13c1.** `swift build`, `swift test`, lint,
+  `scripts/build-app.sh`, the preview galleries (`--preview-snapshot`), `--report-menu-bar-item`
+  and `--report-popover-placement` with `CFFIXED_USER_HOME=$(mktemp -d)` (each private home
+  still without `update-state.json` or an `update` folder afterwards), and
+  `--report-update-eligibility`. Never a normal launch of the app (it would send the check
+  5 s later), never `open`, never a request to any server, never the real
+  `update-state.json` or `preferences.json`.
+- **Docs in this phase.** D39 extended ("The notice (I-13c1)") and its "Not yet" line edited;
+  `CLAUDE.md`: the preview and report mode lines where they now promise no update state and
+  no request; `docs/TESTING.md` a Phase I-13c1 section; `docs/MANUAL-CHECKLIST.md` item 30
+  (or a new item) gains the real notice, dot, its clearing, the Settings line after a real
+  check and the toggle off. README, ARCHITECTURE and the release contract wait for I-13c3.
 
 ## Deferred (explicitly out of scope for v1)
 

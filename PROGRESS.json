@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-07T05:32:33Z",
+  "updated": "2026-11-07T06:16:42Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -923,13 +923,13 @@
     {
       "id": "I-13b",
       "title": "Update check: the install pipeline",
-      "status": "in_progress",
+      "status": "done",
       "risk": "high",
       "parent": "I-13",
-      "summary": "Downloads, verifies and installs a release with rollback and relaunch; split into I-13b1 (download and verification) and I-13b2 (eligibility and install).",
+      "summary": "Downloads, verifies and installs a release with rollback and relaunch; split into I-13b1 (download and verification) and I-13b2 (eligibility and install), both done.",
       "added": "2026-11-07T01:39:59Z",
       "started": "2026-11-07T02:29:41Z",
-      "status_since": "2026-11-07T02:29:41Z"
+      "status_since": "2026-11-07T05:35:18Z"
     },
     {
       "id": "I-13b1",
@@ -958,12 +958,46 @@
     {
       "id": "I-13c",
       "title": "Update check: the UI, wiring and docs",
-      "status": "queued",
+      "status": "in_progress",
       "risk": "high",
       "parent": "I-13",
-      "summary": "Shows the update notice, icon dot and Settings controls, wires the check into the app and documents it.",
+      "summary": "Update notice, icon dot, Settings controls, one-click update and docs; split into I-13c1 (the notice), I-13c2 (the one-click update) and I-13c3 (the documents).",
       "added": "2026-11-07T01:39:59Z",
-      "status_since": "2026-11-07T01:39:59Z"
+      "started": "2026-11-07T05:35:18Z",
+      "status_since": "2026-11-07T05:35:18Z"
+    },
+    {
+      "id": "I-13c1",
+      "title": "Update UI: the notice",
+      "status": "done",
+      "risk": "high",
+      "summary": "Wires the update check into the app in normal mode only and shows the popover notice, the icon dot and the Settings toggle, button and status line.",
+      "parent": "I-13c",
+      "review": "docs/reviews/phase-I-13c1.md",
+      "narrative": "docs/progress-archive/i-13c1.md",
+      "added": "2026-11-07T05:35:18Z",
+      "started": "2026-11-07T05:35:18Z",
+      "status_since": "2026-11-07T06:16:42Z"
+    },
+    {
+      "id": "I-13c2",
+      "title": "Update UI: the one-click update",
+      "status": "queued",
+      "risk": "high",
+      "summary": "Update or Download in the notice, download progress and Cancel, the ask before quitting, install, relaunch and leftover cleanup at launch.",
+      "parent": "I-13c",
+      "added": "2026-11-07T05:35:18Z",
+      "status_since": "2026-11-07T05:35:18Z"
+    },
+    {
+      "id": "I-13c3",
+      "title": "Update UI: the documents",
+      "status": "queued",
+      "risk": "routine",
+      "summary": "README, ARCHITECTURE, TESTING and the manual checklist for the update feature, and the release contract in CLAUDE.md and D35.",
+      "parent": "I-13c",
+      "added": "2026-11-07T05:35:18Z",
+      "status_since": "2026-11-07T05:35:18Z"
     }
   ]
 }

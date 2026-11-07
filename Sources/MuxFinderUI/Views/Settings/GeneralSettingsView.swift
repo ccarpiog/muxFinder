@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The General tab: the terminal sessions open in (PLAN.md D38, Phase I-12d1); launch at login
 /// (`SMAppService.mainApp` through the model's seam), with the status's explanation, its fix-it
-/// and any error; the session switcher shortcut's recorder (PLAN.md D32); and a note on what
-/// quitting does.
+/// and any error; the update check's toggle, button and status line (PLAN.md D39, only with
+/// update machinery or a fixture); the session switcher shortcut's recorder (PLAN.md D32); and
+/// a note on what quitting does.
 struct GeneralSettingsView: View {
   /// The model shown.
   let model: SettingsModel
@@ -33,6 +34,9 @@ struct GeneralSettingsView: View {
             IssueText(text: error)
           }
         } // End of SettingsSection "Startup"
+        if model.update.isAvailable {
+          UpdateSettingsSection(update: model.update)
+        }
         SessionSwitcherSettingsSection(model: model.globalShortcut)
         SettingsSection(title: "About muxFinder") {
           NoteText(

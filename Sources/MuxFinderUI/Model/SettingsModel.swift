@@ -281,6 +281,9 @@ public final class SettingsModel {
   /// The General tab's session switcher shortcut (PLAN.md D32): `AppModel`'s model in the app,
   /// a fixture's in previews, an inert one otherwise.
   public internal(set) var globalShortcut: GlobalShortcutModel
+  /// The General tab's update check section (PLAN.md D39 *The notice (I-13c1)*): `AppModel`'s
+  /// model in the app, a fixture's in previews, an inert one (no section) otherwise.
+  public internal(set) var update = UpdateModel.inert()
 
   /// Called after every successful save with the list now on disk (`AppModel` hands it to the
   /// engine).
@@ -368,6 +371,7 @@ public final class SettingsModel {
       opener: nil, states: fixture.sshSetupStates,
       wordings: fixture.sshSetupStates.mapValues { _ in fixture.terminal.wording })
     globalShortcut = GlobalShortcutModel(fixture: fixture.globalShortcut)
+    if let updateFixture = fixture.update { update = UpdateModel(fixture: updateFixture) }
     terminalPicker = TerminalPickerModel(fixture: fixture.terminal)
     terminalWording = fixture.terminal.wording
     persistentWorkHelper = fixture.persistentWorkHelperPath.map(Self.validatedHelper)

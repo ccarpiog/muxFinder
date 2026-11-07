@@ -7,7 +7,9 @@ import SwiftUI
 /// AppKit wiring; every decision is the controller's (tested over fakes).
 ///
 /// - **Button:** its action (sent on the left or right mouse press) is the controller's
-///   `buttonPressed()`.
+///   `buttonPressed()`. Its image carries the update dot and its accessibility label says
+///   "muxFinder, update available" while `UpdateModel.showsDot` (PLAN.md D39 *The notice
+///   (I-13c1)*; never without update machinery).
 /// - **Session switcher and New session** (PLAN.md D32, D34): the model's `closePopover` is the
 ///   controller's close, so opening the switcher (`switcherOpened`) or the New session window
 ///   (`newSessionOpened`) closes the popover; its `popoverSource` is the controller's
@@ -48,7 +50,8 @@ public final class MenuBarPopover {
   /// Puts muxFinder's item in the menu bar, with its icon from `bundle`, and builds the panel
   /// over `model`; the panel shows when the button is pressed.
   public init(model: AppModel, bundle: Bundle = .main) {
-    let button = StatusItemButton(image: MenuBarIcon.statusItemImage(in: bundle))
+    let baseImage = MenuBarIcon.statusItemImage(in: bundle)
+    let button = StatusItemButton(image: baseImage)
     let host = PopoverPanelHost(model: model)
     let controller = PopoverController(
       panel: host, button: button, system: .appKit,
@@ -72,7 +75,22 @@ public final class MenuBarPopover {
       occlusionChanged: { [weak controller] in controller?.occlusionChanged(isVisible: $0) },
       displaysChanged: { [weak controller] in controller?.close(.displaysChanged) },
       otherAppActivated: { [weak controller] in controller?.close(.appSwitch) })
+    trackUpdateDot(model.update, base: baseImage)
   } // End of init(model:bundle:)
+
+  /// Shows the update dot and its accessibility label while `update` says so, and follows
+  /// every change (PLAN.md D39 *The notice (I-13c1)*).
+  private func trackUpdateDot(_ update: UpdateModel, base: NSImage) {
+    let showsDot = withObservationTracking {
+      update.showsDot
+    } onChange: { [weak self, weak update] in
+      Task { @MainActor in
+        guard let self, let update else { return }
+        self.trackUpdateDot(update, base: base)
+      }
+    }
+    button.setUpdateDot(showsDot, base: base)
+  }
 }
 
 /// What closes or hides a muxFinder panel from outside (the popover's, PLAN.md D30, and the
@@ -197,6 +215,14 @@ final class StatusItemButton: NSObject, PopoverStatusButton {
     button.action = #selector(pressed(_:))
     button.sendAction(on: [.leftMouseDown, .rightMouseDown])
   } // End of init(image:)
+
+  /// Shows `base` with or without the update dot, and the matching accessibility label
+  /// ("muxFinder, update available" or "muxFinder").
+  func setUpdateDot(_ showsDot: Bool, base: NSImage) {
+    guard let button = item.button else { return }
+    button.image = MenuBarIcon.image(base, withDot: showsDot)
+    button.setAccessibilityLabel(UpdateNotice.statusItemLabel(showsDot: showsDot))
+  }
 
   /// The button's action.
   @objc private func pressed(_ sender: Any?) {

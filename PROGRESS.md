@@ -66,19 +66,22 @@ file.
 | I-13a | Update check, the check core: `UpdateVersion`, the bounded `releases/latest` parser, the transport and its `URLSession` implementation (hermetic, `URLProtocol` stub only), the 304 rule, `update-state.json`, the `checkForUpdatesAutomatically` toggle, the scheduler over an injected clock, probe `update check` (real run the user's); rule 3 now forbids any request to a server in a run (D39; I-13 split into a/b/c) | high | opus (impl + review-fix worker); split, calls and one TESTING count fix by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13a.md` | `docs/progress-archive/i-13a.md` |
 | I-13b1 | Install pipeline, download and verification: download with redirect allowlist, exact size and streaming SHA-256, zip pre-check before `ditto` and a watchdog during it, shape walk, Security.framework check (Developer ID, Team ID, `notarized` proven on the stapled 0.2.0 bundle), versions through the checked bundle, result bound to its device and inode, probe `update verify` real in zip mode (D39 extended; I-13b split into b1/b2) | high | opus (impl + review-fix worker); split, calls and one real zip-mode run by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13b1.md` | `docs/progress-archive/i-13b1.md` |
 | I-13b2 | Install pipeline, eligibility and install: eligibility from the running app's own signature (typed reasons), staging root `…/muxFinder/update/` with locked run folders, `RENAME_SWAP` bound by device and inode with re-check and both-identity rollback (`recoveryRequired`), detached relauncher (constant script), lock-first cleanup over a complete process scan, old helpers compatible, prepare/install/discard pipeline, `--report-update-eligibility` (D39 extended) | high | opus (impl + review-fix worker); calls and old-source copies by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13b2.md` | `docs/progress-archive/i-13b2.md` |
+| I-13c1 | Update UI, the notice: one pure mode gate (`createsUpdateMachinery`, normal launch only), scheduler wired (start, wake, toggle, manual check, stop), popover notice with "What's new", runtime dot in the template icon and its label, `markNoticeSeen` (publish after save), Settings › General "Updates" (toggle, button, status line), galleries and screenshots (D39 extended; I-13c split into c1/c2/c3) | high | opus (impl + review-fix worker); split, calls and verification by the orchestrator | Codex, ship-with-fixes, `docs/reviews/phase-I-13c1.md` | `docs/progress-archive/i-13c1.md` |
 
 ### Queued
 
 | Phase | Title | Specification | Position |
 |---|---|---|---|
-| I-13c | Update check, the UI, wiring and docs (high): popover notice and update states, icon dot, Settings › General, ask before quitting, normal-mode-only wiring, cleanup at launch, galleries, docs, release contract (may split again) | `autoclaude/processed/120-update-check-github.md` | next (last) |
+| I-13c2 | Update UI, the one-click update (high): Update or Download with the eligibility reason, prepare with progress and Cancel, failure line, the ask before quitting, install, quit after `relaunchScheduled`, leftover cleanup at launch (normal mode only), galleries | `PLAN.md` *Phase I-13* "I-13c split"; `autoclaude/processed/120-update-check-github.md` | next |
+| I-13c3 | Update UI, the documents (routine): README, ARCHITECTURE, TESTING summary, MANUAL-CHECKLIST real update end to end, release contract on `CLAUDE.md`'s release line and in D35, D39's last "Not yet" | same | last |
 
 **Inbox**: every triage through 2026-11-06 (items 40 to 120, item 99 deferred and then resolved
 by the user) is logged verbatim in `docs/progress-archive/inbox-log.md`. The standing note on
 GitHub requests was settled at I-13's selection (`PLAN.md` *Phase I-13* "The run rule": no run
 sends a request to any server; the real GETs are the user's). 2026-11-07 01:37 (start of
 I-13a's iteration): `list` empty. 2026-11-07 02:27 (start of I-13b1's iteration): `list`
-empty. 2026-11-07 03:45 (start of I-13b2's iteration): `list` empty.
+empty. 2026-11-07 03:45 (start of I-13b2's iteration): `list` empty. 2026-11-07 05:33 (start
+of I-13c1's iteration): `list` empty.
 
 ## Current phase
 
@@ -99,8 +102,10 @@ and **I-12d2** (popover, switcher, session states) complete 2026-11-07
 check) is split into **I-13a/I-13b/I-13c** in `PLAN.md` *Phase I-13*; **I-13a** (the check
 core) complete 2026-11-07 (`docs/progress-archive/i-13a.md`). **I-13b is split into
 I-13b1/I-13b2**; **I-13b1** (download and verification) and **I-13b2** (eligibility and
-install) complete 2026-11-07 (`docs/progress-archive/{i-13b1,i-13b2}.md`). **Next: I-13c**
-(the UI, wiring and docs; *Next action* 0), the last queued phase.
+install) complete 2026-11-07 (`docs/progress-archive/{i-13b1,i-13b2}.md`). **I-13c is split
+into I-13c1/I-13c2/I-13c3** (`PLAN.md` *Phase I-13* "I-13c split"); **I-13c1** (the notice)
+complete 2026-11-07 (`docs/progress-archive/i-13c1.md`). **Next: I-13c2** (the one-click
+update; *Next action* 0), then I-13c3 (the documents), the last queued phase.
 Also remaining:
 the manual checklist (the user's). Phase
 13's settled design is **D29**; real facts in `PLAN.md` *Verified facts* "Phase 13a
@@ -145,23 +150,17 @@ I-11a/I-11b, I-12 into I-12a–e.
   `docs/progress-archive/head-i-12d2.md` and `i-12d2.md`.
 - Phase I-12e: all criteria met, 2026-11-07 — verbatim in
   `docs/progress-archive/head-i-12e.md` and `i-12e.md`.
-- Phase I-13a: all 6 criteria met, 2026-11-07 — the check core in
-  `Sources/MuxFinderCore/Update/`, 80 new hermetic core tests (the transport only through a
-  `URLProtocol` stub), probe `update check` (`--help` exit 0, never run for real), D39,
-  `CLAUDE.md`, TESTING, checklist 30; no request to any server and no `update-state.json` in
-  the real support folder — `docs/progress-archive/i-13a.md`.
-- Phase I-13b1: all 8 criteria met, 2026-11-07 — download and verification in
-  `Sources/MuxFinderCore/Update/`, 56 new hermetic core tests, the `notarized` clause proven
-  on the stapled 0.2.0 bundle (passes) and an ad hoc copy (fails), probe `update verify` real
-  in zip mode on private copies of `build/muxFinder.zip` (untouched → every check passed, exit
-  0; one byte changed → digest, exit 1; another Team ID → `otherTeam`, exit 1), latest mode
-  never run, no request to any server — `docs/progress-archive/i-13b1.md`.
-- Phase I-13b2: all 10 criteria met, 2026-11-07 — eligibility, staging root, swap, relauncher,
-  cleanup and pipeline in `Sources/MuxFinderCore/Update/`, 41 new core and 1 UI test;
-  `RENAME_SWAP` proven; the signature reader real on an unpacked 0.2.0 copy (Developer ID,
-  Team ID matches); `--report-update-eligibility` on `build/` → not eligible
-  (`notDeveloperID`), exit 0, nothing written; old helpers compatible; no request to any
-  server, no `open`, no real swap — `docs/progress-archive/i-13b2.md`.
+- Phases I-13a, I-13b1, I-13b2: all criteria met (6, 8 and 10), 2026-11-07 — the check core,
+  download and verification (`update verify` real in zip mode on private copies of
+  `build/muxFinder.zip`; `notarized` proven), eligibility and install (`RENAME_SWAP` proven,
+  `--report-update-eligibility` not eligible on `build/`); no request to any server, no
+  `open`, no real swap — `docs/progress-archive/{i-13a,i-13b1,i-13b2}.md`.
+- Phase I-13c1: all 8 criteria met, 2026-11-07 — the mode gate (normal launch only, every
+  mode enumerated in a test), the scheduler wired and proven over an injected transport and
+  clock, notice, dot and seen version, Settings › General "Updates", galleries and the four
+  screenshots, D39 / `CLAUDE.md` / TESTING / checklist 31; 567 UI + 1365 core tests; no
+  normal launch, no request, no update state in any private home or the real support folder
+  — `docs/progress-archive/i-13c1.md`.
 
 ## Decisions
 
@@ -208,6 +207,12 @@ I-11a/I-11b, I-12 into I-12a–e.
   not eligible; translocation by path component, no `dlsym`; constant relauncher script; old
   sources by `git archive` for the worker). Workers' calls (no two-rename fallback, the wait
   as an argument, recovery marker, scan exceptions) in D39 and `docs/progress-archive/i-13b2.md`.
+- Phase I-13c (at selection, 2026-11-07): split into I-13c1 (the notice), I-13c2 (the
+  one-click update), I-13c3 (the documents), with "The orchestrator's calls for I-13c1" in
+  `PLAN.md` *Phase I-13* (one pure mode gate, normal launch only; the dot drawn at runtime;
+  the seen version through a scheduler method; no Update button before c2). Workers' calls
+  (Settings section hidden without machinery, seen only from the main view, serialized state
+  saves, ordered toggle saves) in D39 and `docs/progress-archive/i-13c1.md`.
 
 ## Open risks / deviations
 
@@ -262,6 +267,12 @@ I-11a/I-11b, I-12 into I-12a–e.
   once each, both passing alone. **Release numbering**: `v0.3.0` (build 3) was released from
   branch `release/0.3.0` (`1c037ea`), not `main` (still 0.2.0 build 2), so the next release
   from `main` needs a build above 3 (D35) — `docs/progress-archive/i-13b2.md`.
+- I-13c1 (**for the user**, checklist 31): the real notice, the dot and its clearing, the
+  Settings line after a real check, and the toggle off; no run launched the app in normal
+  mode, so the real wiring is proven by the gate, the composition and injected-transport
+  tests only. The notice's gallery state scrolls the host list (440 pt limit). The
+  implementation worker ran one read-only `git status`, against its brief —
+  `docs/progress-archive/i-13c1.md`.
 
 - **Deferred inbox item, resolved by the user**: `autoclaude/processed/99-release-publish-install.md`
   (release 0.2.0 build 2) was deferred because an inbox item cannot relax `CLAUDE.md`'s
@@ -323,43 +334,42 @@ I-11a/I-11b, I-12 into I-12a–e.
   `docs/progress-archive/head-i-12d2.md`, report `docs/reviews/phase-I-12d2.md`.
 - Phase I-12e: Codex → `ship-with-fixes`, 1 should-fix, fixed — verbatim in
   `docs/progress-archive/head-i-12e.md`, report `docs/reviews/phase-I-12e.md`.
-- Phase I-13a: Codex wrote the file (`autoclaude-review.sh`, 15 min) → `ship-with-fixes`, 0
-  blockers + 2 should-fix (the scheduler could arm an automatic check before the persisted
-  state loaded; the probe's `--state` chmodded a non-private folder); both fixed by a
-  review-fix worker, each regression failing on the old code, re-verified by the orchestrator
-  — `docs/reviews/phase-I-13a.md`, summary in `docs/progress-archive/i-13a.md`.
-- Phase I-13b1: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 2
-  blockers + 0 should-fix (the verified result not bound to the checked bundle; expansion
-  limits only after extraction); both fixed by a review-fix worker (identity binding; zip
-  pre-check and `ditto` watchdog), each regression failing with its fix reverted, re-verified
-  by the orchestrator with a real zip-mode run — `docs/reviews/phase-I-13b1.md`, summary in
-  `docs/progress-archive/i-13b1.md`.
-- Phase I-13b2: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 2
-  blockers + 1 should-fix (rollback could move a replacement it did not install; cleanup's
-  process snapshot taken before the run lock; scan failures authorizing deletion); all fixed
-  by a review-fix worker, each regression failing with its fix reverted, re-verified by the
-  orchestrator — `docs/reviews/phase-I-13b2.md`, summary in `docs/progress-archive/i-13b2.md`.
+- Phases I-13a, I-13b1, I-13b2: Codex wrote each file (`autoclaude-review.sh`), all
+  `ship-with-fixes` (I-13a 2 should-fix; I-13b1 2 blockers; I-13b2 2 blockers + 1 should-fix);
+  every finding fixed by a review-fix worker with a regression failing on the old code,
+  re-verified by the orchestrator — `docs/reviews/phase-I-13{a,b1,b2}.md`, summaries in
+  `docs/progress-archive/{i-13a,i-13b1,i-13b2}.md`.
+- Phase I-13c1: Codex wrote the file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`, 0
+  blockers + 2 should-fix (startup overwrote a toggle change made during the preference load;
+  `markNoticeSeen` published before its save, so a failed save could clear the dot and
+  interleaved saves could lose fields); both fixed by a review-fix worker (a change after
+  start wins and toggle saves run in order; serialized state saves, publish after success),
+  each regression failing with its fix reverted, re-verified by the orchestrator —
+  `docs/reviews/phase-I-13c1.md`, summary in `docs/progress-archive/i-13c1.md`.
 
 ## Next action
 
-0. **Phase I-13c (queued, high, the last): the UI, wiring and docs.** Poll the inbox first.
-   Read `PLAN.md` *Phase I-13* (the I-13c bullet, "The run rule", the calls for I-13a, I-13b1
-   and I-13b2), D39 whole (its "Not yet" line lists what is unwired), and the specification
-   `autoclaude/processed/120-update-check-github.md` (*UI*, *Release flow and docs*,
-   *Acceptance*). Split it at selection if one worker cannot finish it coherently (for
-   example I-13c1: the app's wiring in normal mode only, the scheduler and its toggle, the
-   popover notice, the icon dot, Settings › General's toggle, "Check for updates…" and status
-   line, galleries; I-13c2: the update flow (Update → `UpdatePipeline` prepare with progress
-   and Cancel, the ask before quitting with unsaved New session text or Settings edits,
-   install, quit; "Download" with the eligibility reason otherwise), leftover cleanup at
-   launch, README, ARCHITECTURE, TESTING, MANUAL-CHECKLIST, the release contract on
-   `CLAUDE.md`'s release line and in D35), recording the split and "The orchestrator's calls
-   for I-13c" in `PLAN.md` before the first worker. Binding: no diagnostic mode contacts the
-   network or writes the state file (`--report-update-eligibility` stays read-only); relaunch
-   only the installed path; never `/usr/bin/open`, `scripts/release.sh`, `install.sh`, a real
-   swap, or a request to any server in a run; the checklist gains the real update end to end
-   on a Developer ID build and `open` with only `PATH`. Release numbering: `v0.3.0` (build 3)
-   came from `release/0.3.0`, so the next release from `main` needs a build above 3 (D35).
+0. **Phase I-13c2 (queued, high): the one-click update.** Poll the inbox first. Read
+   `PLAN.md` *Phase I-13* ("The run rule", "I-13c split", the calls for I-13b2 and I-13c1),
+   D39's "Eligibility and install (I-13b2)", "The notice (I-13c1)" and "Not yet" parts, and
+   the specification `autoclaude/processed/120-update-check-github.md` (*Update*, *UI*).
+   Write "The orchestrator's calls for I-13c2" in `PLAN.md` before the worker: the notice
+   gains **Update** when the offer has an installable asset and eligibility (I-13b2's
+   `UpdateEligibility`, read when the notice shows) says eligible, else **Download** (opens the
+   release page through the injected opener) with the reason's short phrase; Update runs
+   `UpdatePipeline` prepare ("Downloading… 40%" with Cancel, "Checking the download…"), then
+   the ask before quitting when a New session window has text or Settings has unsaved edits
+   (the notice may say attached tmux sessions are not affected), then install
+   ("Installing…"), then quit normally after `relaunchScheduled` (the relauncher's opener
+   `/usr/bin/open` and the installed path only in the real app); a failure shows "Couldn't
+   update: <reason>" with the release page; leftover cleanup at launch in normal mode only
+   (through I-13c1's gate, `createsUpdateMachinery`); new popover gallery states for every
+   update state; screenshots regenerated. Real runs allowed as in I-13c1's calls; never
+   `/usr/bin/open`, a real swap, `scripts/release.sh`, `install.sh`, a normal launch or a
+   request to any server; the pipeline only over fakes, stub bundles and private folders.
+   Then **I-13c3** (routine, the documents; `PLAN.md` "I-13c split"). Release numbering:
+   `v0.3.0` (build 3) came from `release/0.3.0`, so the next release from `main` needs a
+   build above 3 (D35).
 1. Owed to nobody now: the `CLAUDE.md` notes of I-4, I-6 and I-9a were applied by I-10a.
 2. Owed to the user, not to a run: every item of `docs/MANUAL-CHECKLIST.md` (the 9b "Set up SSH
    in iTerm2…" round trip, a real install and uninstall, clicks in the real popover and
@@ -396,18 +406,23 @@ I-11a/I-11b, I-12 into I-12a–e.
   the flag in `Sources/MuxFinderUI/Model/AppLaunchOptions.swift` and
   `Sources/MuxFinderApp/MuxFinderMenuBarApp.swift`; tests listed in
   `docs/progress-archive/i-13b2.md`.
+- The notice (I-13c1, D39): `Sources/MuxFinderUI/Model/UpdateModel.swift`,
+  `Sources/MuxFinderUI/Views/UpdateViews.swift`, `Sources/MuxFinderUI/Preview/UpdateFixtures.swift`,
+  the gate `AppLaunchOptions.createsUpdateMachinery` and `AppEnvironment.update`, the dot in
+  `Views/MenuBarIcon.swift`, `UpdateScheduler.markNoticeSeen(_:)`; tests
+  `Tests/MuxFinderUITests/UpdateModelTests.swift`, `Tests/MuxFinderCoreTests/UpdateNoticeSeenTests.swift`.
 - Reviews: `docs/reviews/`; archive: `docs/progress-archive/` (inbox log: `inbox-log.md`).
 
 ## Verification (latest; earlier phases' are in their archives)
 
-- Phase I-13b2 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
-  lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test`: 1360 core tests in 151
-  suites + 549 UI tests in 56 suites passed (an earlier full run: 1 load-sensitive failure,
-  `answersAndEndsAtEndOfInput`, which passed alone); before the review fixes
-  `--report-update-eligibility` on the rebuilt `build/muxFinder.app` exit 0 (not eligible,
-  `notDeveloperID`) and `codesign --verify --deep --strict` exit 0; no `/private/tmp/mfx.*`
-  left; no `update` folder in the real support folder — `docs/progress-archive/i-13b2.md`.
-- Phases 1–I-13b1: each phase's final-tree verification is in
+- Phase I-13c1 (final tree, orchestrator, 2026-11-07): `swift build` exit 0; `swift format
+  lint -r Sources Tests` exit 0; `env -u TMUX_TMPDIR swift test` exit 0: 567 UI tests in 57
+  suites + 1365 core tests in 152 suites passed; `scripts/build-app.sh` exit 0 and
+  `codesign --verify --deep --strict build/muxFinder.app` exit 0;
+  `--report-popover-placement` on a private `CFFIXED_USER_HOME` exit 0 (after-fix check
+  passed), the home left empty and removed; no `update-state.json` or `update` folder in the
+  real support folder — `docs/progress-archive/i-13c1.md`.
+- Phases 1–I-13b2: each phase's final-tree verification is in
   `docs/progress-archive/<phase>.md`.
 
 ## Git state
@@ -415,7 +430,8 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phases 1 to I-12e: every commit, all pushed to `origin/main`, moved verbatim to
   `docs/progress-archive/git-state-1-i-12e.md` (the last, I-12e `3d47e6e`). Commit messages
   carry no AI attribution trailer (the user's global rule).
-- Phase I-13a: `9d2f1f2`; Phase I-13b1: `177aea5`; both pushed to `origin/main`.
-- Phase I-13b2: the commit carrying this checkpoint ("Phase I-13b2: install pipeline,
-  eligibility and install"), pushed (SHA and push result in the run's status line and the
-  next checkpoint). The tree was clean when this iteration started (empty preflight file).
+- Phase I-13a: `9d2f1f2`; Phase I-13b1: `177aea5`; Phase I-13b2: `53702db`; all pushed to
+  `origin/main`.
+- Phase I-13c1: the commit carrying this checkpoint ("Phase I-13c1: update UI, the notice"),
+  pushed (SHA and push result in the run's status line and the next checkpoint). The tree was
+  clean when this iteration started (empty preflight file).

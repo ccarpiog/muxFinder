@@ -87,6 +87,9 @@ public struct SettingsFixture: Sendable, Identifiable {
   public var persistentWorkNotice: String?
   /// The gallery frame's height, when it differs from its tab's.
   public var galleryHeight: Double?
+  /// The General tab's update check section (PLAN.md D39 *The notice (I-13c1)*); `nil`: no
+  /// section, as in every mode without update machinery.
+  public var update: UpdateFixture?
 
   /// A fixture of `hosts` with `configure` applied.
   public init(

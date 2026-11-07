@@ -65,6 +65,9 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var terminalDefinitions: TerminalDefinitionCatalog?
   /// Each terminal backend's records, by terminal id and session (a plain window, an app).
   public var terminalAttachments: [String: [SessionKey: TerminalAttachmentHandle]]
+  /// The update check's state (the popover's notice, PLAN.md D39 *The notice (I-13c1)*); `nil`:
+  /// none, as in every mode without update machinery.
+  public var update: UpdateFixture? = nil
 
   /// Creates a fixture.
   public init(

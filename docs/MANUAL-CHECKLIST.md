@@ -917,6 +917,44 @@ from GitHub.
   `$V` only and installs nothing.
 - **Undo:** `rm -r "$S" "$V"`.
 
+## 31. The update notice in the app (the popover, the menu bar dot, Settings › General)
+
+Owed by Phase I-13c1 (PLAN.md D39 *The notice (I-13c1)*): no unattended run launches the app
+in normal mode, since that sends the update check 5 s later (*Unattended-run rules* 3), so the
+notice, the dot and the Settings line were proven only over fakes and galleries. This item
+needs the network and an installed copy whose version is older than the latest published
+release (for example the 0.1.0 build, or a local build with `CFBundleShortVersionString` set
+lower); it sends anonymous requests to `api.github.com`.
+
+- **Do:**
+  1. Quit muxFinder, open the older copy normally (Finder or the login item), wait about
+     10 s.
+  2. Look at the menu bar icon (and, with VoiceOver on, hover it), then open the popover.
+  3. Close and reopen the popover; quit and open muxFinder again.
+  4. Click **What's new** in the popover.
+  5. Open Settings › General: read the "Updates" section; click **Check for updates…**.
+  6. Turn **Check for updates automatically** off, quit, open muxFinder again and wait a
+     minute; then `cat ~/Library/Application\ Support/muxFinder/preferences.json`.
+  7. Optionally, with Wi-Fi off, click **Check for updates…** again.
+- **Expect:**
+  1–2. The icon shows a small dot in its top-right corner (still tinted like the menu bar);
+     VoiceOver reads "muxFinder, update available". The popover shows "muxFinder <latest> is
+     available" with **What's new**, above the hosts.
+  3. Once the popover has shown the notice, the dot is gone (VoiceOver: "muxFinder") and stays
+     gone after relaunching; the notice still shows in the popover. A later, newer release
+     brings the dot back.
+  4. The release page `https://github.com/ccarpiog/muxFinder/releases/tag/<latest tag>` opens
+     in the default browser. Nothing is downloaded or installed.
+  5. The section shows the toggle on, the button, and "muxFinder <latest> is available" over
+     "Last checked just now" (or a few minutes ago). While the check runs the button is
+     disabled and the line reads "Checking for updates…"; afterwards the same lines. On a copy
+     that runs the latest version: "You're up to date (<version> (<build>))".
+  6. `preferences.json` holds `"checkForUpdatesAutomatically" : false`; no check is sent at
+     launch ("Last checked" keeps its earlier time). **Check for updates…** still checks.
+  7. "Couldn't check: no connection" (or "Couldn't check: no answer" after at most 15 s); no
+     alert.
+- **Undo:** turn the toggle back on; quit the older copy and reinstall the current one.
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -951,3 +989,4 @@ from GitHub.
 | 28 | | | |
 | 29 | | | |
 | 30 | | | |
+| 31 | | | |

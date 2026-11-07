@@ -3,7 +3,9 @@ import SwiftUI
 
 /// The `--preview-fixtures` window's content (PLAN.md D22): every popover state from
 /// `PreviewFixtures.all`, then the states per terminal (`TerminalSessionFixtures.popover`,
-/// PLAN.md D38 *The UI (I-12d2)*), side by side, each in a frame like the menu bar popover.
+/// PLAN.md D38 *The UI (I-12d2)*) and the update notice's (`UpdateFixtures.popover`, D39),
+/// side by side, each in a frame like the menu bar popover, under a row of the menu bar icon
+/// without and with the update dot.
 /// Nothing here runs an engine, reads `hosts.json`, contacts iTerm2 or any terminal app.
 public struct PreviewGallery: View {
   /// One state and the model that renders it.
@@ -26,9 +28,10 @@ public struct PreviewGallery: View {
   /// A gallery of every fixture.
   public init() {
     _entries = State(
-      initialValue: (PreviewFixtures.all + TerminalSessionFixtures.popover).map {
-        Entry(fixture: $0, model: AppModel(fixture: $0))
-      })
+      initialValue: (PreviewFixtures.all + TerminalSessionFixtures.popover
+        + UpdateFixtures.popover).map {
+          Entry(fixture: $0, model: AppModel(fixture: $0))
+        })
   }
 
   /// The grid of states.
@@ -36,15 +39,18 @@ public struct PreviewGallery: View {
     let rows = stride(from: 0, to: entries.count, by: Self.columns).map {
       Array(entries[$0..<min($0 + Self.columns, entries.count)])
     }
-    Grid(alignment: .topLeading, horizontalSpacing: 24, verticalSpacing: 28) {
-      ForEach(rows.indices, id: \.self) { index in
-        GridRow(alignment: .top) {
-          ForEach(rows[index]) { entry in
-            card(entry)
+    VStack(alignment: .leading, spacing: 28) {
+      MenuBarIconStrip(base: MenuBarIcon.statusItemImage())
+      Grid(alignment: .topLeading, horizontalSpacing: 24, verticalSpacing: 28) {
+        ForEach(rows.indices, id: \.self) { index in
+          GridRow(alignment: .top) {
+            ForEach(rows[index]) { entry in
+              card(entry)
+            }
           }
         }
-      }
-    } // End of Grid holding the states
+      } // End of Grid holding the states
+    }
     .padding(28)
     .background(Color(nsColor: .underPageBackgroundColor))
   } // End of var body

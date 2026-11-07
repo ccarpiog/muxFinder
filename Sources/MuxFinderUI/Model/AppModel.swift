@@ -230,8 +230,11 @@ public final class AppModel {
   /// first.
   public internal(set) var banners: [SessionBanner] = []
   /// The popover's Move here or Detach other clients confirmation, while shown (New session
-  /// has its own window, `newSessionWindow`, PLAN.md D34).
-  public internal(set) var panel: PopoverPanel?
+  /// has its own window, `newSessionWindow`, PLAN.md D34). While one shows, the popover shows
+  /// no update notice (`updateNoticeVisibility()`).
+  public internal(set) var panel: PopoverPanel? {
+    didSet { updateNoticeVisibility() }
+  }
   /// The New session window as the model has it (PLAN.md D34): whether it shows and the latest
   /// request to show it or bring it forward. Each change reaches `newSessionWindowChanged`; the
   /// window's closing, whatever closed it, also ends its folder search (`newSessionWindowClosed()`).
@@ -333,6 +336,10 @@ public final class AppModel {
   /// The session switcher shortcut (PLAN.md D32; inert without
   /// `AppEnvironment.globalShortcut`). Settings › General shows the same model.
   public let shortcut: GlobalShortcutModel
+  /// The update check's notice, dot and Settings section (PLAN.md D39 *The notice (I-13c1)*):
+  /// live over `AppEnvironment.update` (normal mode only), a fixture's in the galleries, inert
+  /// otherwise (nothing shown, nothing run).
+  public let update: UpdateModel
   /// What the session switcher shortcut does: toggles the switcher (`SwitcherController.make`
   /// sets it to `SwitcherController.toggle()`); `nil` does nothing.
   @ObservationIgnored public var toggleSwitcher: (@MainActor () -> Void)?
@@ -520,9 +527,11 @@ public final class AppModel {
       } ?? .inert()
     shortcut = GlobalShortcutModel(
       environment: environment.globalShortcut, diagnostics: environment.diagnostics)
+    update = environment.update.map { UpdateModel(environment: $0) } ?? .inert()
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     (actionEvents, actionSink) = AsyncStream.makeStream(of: ActionEvent.self)
     settings.globalShortcut = shortcut
+    settings.update = update
     shortcut.onPress = { [weak self] in self?.globalShortcutPressed() }
     settings.onHostListSaved = { [weak self] list in self?.hostListSaved(list) }
     settings.onDirectoriesSaved = { [weak self] lists in
@@ -576,6 +585,7 @@ public final class AppModel {
     sshSetup = SSHSetupActions(opener: nil, states: fixture.sshSetupStates)
     terminalPicker = .inert()
     shortcut = GlobalShortcutModel(fixture: GlobalShortcutFixture())
+    update = fixture.update.map { UpdateModel(fixture: $0) } ?? .inert()
     (commands, commandSink) = AsyncStream.makeStream(of: EngineCommand.self)
     commandSink.finish()
     (actionEvents, actionSink) = AsyncStream.makeStream(of: ActionEvent.self)
@@ -610,11 +620,13 @@ public final class AppModel {
   // MARK: - Lifecycle
 
   /// Loads the host list, builds and starts the engine and the system events adapter, and
-  /// returns once the engine runs. Does nothing for a fixture, a second time, or after
-  /// `shutdown()`.
+  /// returns once the engine runs; first starts the update check, which never waits (normal
+  /// mode only: nothing without `AppEnvironment.update`). Does nothing for a fixture, a second
+  /// time, or after `shutdown()`.
   public func start() async {
     guard lifecycle == .idle, let environment else { return }
     lifecycle = .starting
+    update.start()
     let task = Task { await self.performStart(environment) }
     startTask = task
     await task.value
@@ -788,6 +800,7 @@ public final class AppModel {
     async let sshSetupStopped: Void = sshSetup.shutdown()
     async let shortcutStopped: Void = shortcut.shutdown()
     async let folderSearchStopped: Void = stopFolderSearch()
+    async let updateStopped: Void = update.stop()
     await startTask?.value
     commandSink.finish()
     await commandTask?.value
@@ -795,7 +808,8 @@ public final class AppModel {
     await engine?.stop()
     await updatesTask?.value
     _ = await (
-      settingsStopped, onboardingStopped, sshSetupStopped, shortcutStopped, folderSearchStopped
+      settingsStopped, onboardingStopped, sshSetupStopped, shortcutStopped, folderSearchStopped,
+      updateStopped
     )
   } // End of func stopSubsystems()
 
@@ -844,9 +858,17 @@ public final class AppModel {
   /// Whether the popover or the session switcher shows: what the engine is told (PLAN.md D22).
   public var isSessionListVisible: Bool { isPopoverVisible || isSwitcherVisible }
 
-  /// The popover window became visible or hidden.
+  /// The popover window became visible or hidden (the update notice counts as seen while it
+  /// shows, PLAN.md D39 *The notice (I-13c1)*).
   public func popoverVisibilityChanged(_ isVisible: Bool) {
     if isVisible { popoverDidOpen() } else { popoverDidClose() }
+    updateNoticeVisibility()
+  }
+
+  /// Tells the update model whether the popover shows its main layout, where the update
+  /// notice is: visible, with no Move here or Detach other clients confirmation over it.
+  func updateNoticeVisibility() {
+    update.popoverVisibilityChanged(isPopoverVisible && panel == nil)
   }
 
   /// The popover opened: unless the switcher showed already, the engine refreshes every host
