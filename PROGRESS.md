@@ -85,7 +85,7 @@ empty. 2026-11-07 03:45 (start of I-13b2's iteration): `list` empty. 2026-11-07 
 of I-13c1's iteration): `list` empty. 2026-11-07 06:17 (start of I-13c2a's iteration): `list`
 empty. 2026-11-07 06:56 (record only, no phase): `list` empty. 2026-11-07 06:59 (I-13c2b's
 calls only): `list` empty. 2026-11-07 07:03 (I-13c2b's acceptance criteria only): `list`
-empty.
+empty. 2026-11-07 07:04 (record only, no phase): `list` empty.
 
 ## Current phase
 
@@ -129,20 +129,8 @@ I-11a/I-11b, I-12 into I-12a–e.
 
 ## Acceptance
 
-- Phases 1–12a: all criteria met, with the recorded deviations and the real runs owed to a
-  person listed under *Open risks*; criteria and evidence in `docs/progress-archive/<phase>.md`.
-- Phase 12b (the plan's acceptance bar): all criteria met on the final tree, 2026-10-23 — 680
-  core + 159 UI tests, lint and a warnings-free build exit 0; clean-`build/` bundle signed
-  (Apple Development, not notarized), `codesign --verify` exit 0; install-script check 35/35;
-  `e2e-local` 16/16, `e2e-remote saturno-m4` 17/17, `e2e-profile --local` and `--ssh
-  saturno-m4` 14/14 each, `--selftest attach-local` 6/6, `--selftest new-session-local` 5/5,
-  keep-mode quit check (row 12) exit 0; every brief bullet in `docs/TESTING.md` mapped to
-  evidence or to the manual checklist; nothing left behind, `profiles hashes` identical.
-  `docs/progress-archive/12b.md`.
-- Phases 13a–13c: all criteria met, 2026-10-24 (13a spike 12/12 on both hosts, D29; 13b
-  hermetic; 13c real runs all PASS: `e2e-local` 16/16, `e2e-remote saturno-m4` 17/17,
-  `e2e-bury` 13/13 on both hosts, self-tests 8/8 and 7/7, `e2e-profile --local` 14/14) —
-  `docs/progress-archive/13{a,b,c}.md`.
+- Phases 1–13c: all criteria met (12b the plan's acceptance bar, 2026-10-23) — verbatim in
+  `docs/progress-archive/head-1-13c-and-record-iterations.md` and each phase's archive.
 - Phases 14–I-3b: all criteria met, 2026-10-24 (14 the popover's look; I-1a/I-1b placement,
   `--report-popover-placement` exit 0 after the fix; I-2a/I-2b directory list; I-3a
   `--report-hotkey-registration` 8/8; I-3b the switcher, 815 core + 324 UI tests); the real
@@ -257,26 +245,9 @@ I-11a/I-11b, I-12 into I-12a–e.
 
 ## Reviews
 
-- Phases 1–7b: Codex reviewed each (`ship-with-fixes`); blockers and should-fix items and their
-  fixes (each regression failing on the old code) are summarized in
-  `docs/progress-archive/<phase>.md`, reports in `docs/reviews/phase-<phase>.md`.
-- Phases 6b–10b: Codex reviewed each (6b, 8, 9a, 9b, 10a `ship-with-fixes`; 10b `ship`);
-  every blocker and should-fix was fixed by a fix worker with a regression failing on the old
-  code — summaries in `docs/progress-archive/<phase>.md`, reports in
+- Phases 1–13c: Codex wrote each file, `ship` or `ship-with-fixes`, every finding fixed —
+  verbatim in `docs/progress-archive/head-1-13c-and-record-iterations.md`, reports
   `docs/reviews/phase-<phase>.md`.
-- Phases 11a–12a: Codex reviewed each (`ship-with-fixes`): 11a 1 blocker + 2 should-fix
-  (installer rollback, `e2e-profile` cleanup, combining-mark guard), 11b 2 should-fix (mirror
-  exclusion, absolute deadline), 11c 1 blocker + 1 should-fix (empty-document install on
-  reload, recreating a removed file), 12a 3 blockers (mapped readers, test-root containment,
-  deletion bound to the inspected folder). All fixed by a fix worker, each regression failing
-  with its fix reverted, re-verified — summaries in `docs/progress-archive/<phase>.md`, reports
-  in `docs/reviews/phase-<phase>.md`.
-- Phase 12b: Codex → `ship`, 0 findings (record matches the run logs, all 13 bullets mapped,
-  signing distinguished from notarization); `docs/reviews/phase-12b.md`.
-- Phases 13a–13c: Codex wrote each file (`autoclaude-review.sh`, 20 min) → `ship-with-fixes`
-  (13a 1 should-fix, 13b 1 blocker + 2 should-fix, 13c 2 should-fix); all fixed by review-fix
-  workers with regressions failing on the old code, re-verified (13c with real reruns) —
-  `docs/reviews/phase-13{a,b,c}.md`, summaries in `docs/progress-archive/13{a,b,c}.md`.
 - Phases 14, I-1a, I-1b: Codex wrote each file (`autoclaude-review.sh`), all
   `ship-with-fixes`. 14: 1 should-fix ("attached, location unknown"). I-1a: 1 blocker
   (resolved by deferring the before-frame) + 2 should-fix. I-1b: 2 should-fix (hardware press
@@ -413,21 +384,14 @@ I-11a/I-11b, I-12 into I-12a–e.
 - Phase I-13c1: `cd45b50`, pushed to `origin/main`.
 - Phase I-13c2a: `3011bd6`, pushed to `origin/main` (`main...origin/main`, checked
   2026-11-07 06:57).
-- 2026-11-07 06:56 iteration (record only, no phase): the tree was clean at start (empty
-  preflight file). This checkpoint is committed on its own ("Checkpoint: …"), against the
-  base file's leave-uncommitted rule for record-only iterations. The reason: the iteration's
-  deadline is the run's 24 h cap, so no later iteration of this run would pick up an
-  uncommitted checkpoint, and a new run would count it among the user's dirty paths. SHA and
-  push result in the run's status line.
-- 2026-11-07 06:59 iteration (I-13c2b's calls only, no code): the tree was clean at start
-  (empty preflight file). It commits `PLAN.md`'s calls with this checkpoint and
-  `PROGRESS.json` as "Plan: …", for the same reason as above (the run's 24 h cap is this
-  iteration's deadline): `252a33d`, pushed to `origin/main`. **Deviation, for the user:**
-  `252a33d`'s message ends with a `Co-Authored-By: Claude …` trailer, against the global rule
-  that commit messages carry no AI reference. It is pushed; it was not rewritten because
-  that needs a force-push, which the workflow forbids. Reword it yourself if you want it gone
-  (an interactive rebase and a force-push of `main`). Later commits carry no trailer.
-- 2026-11-07 07:03 iteration (I-13c2b's acceptance criteria only, no code): the tree was
-  clean at start (empty preflight file). It commits this checkpoint and `PROGRESS.json` as
-  "Checkpoint: …" for the same reason (its deadline, 07:23, is the run's 24 h cap). SHA and
-  push result in the run's status line.
+- 2026-11-07 record-only iterations (06:56, 06:59 calls `252a33d`, 07:03 criteria `914decd`;
+  all pushed): verbatim in `docs/progress-archive/head-1-13c-and-record-iterations.md`,
+  including the **deviation for the user**: `252a33d`'s message ends with a
+  `Co-Authored-By: Claude …` trailer (pushed; rewording it needs a force-push, so it is the
+  user's call). Later commits carry no trailer.
+- 2026-11-07 07:04 iteration (record only, no phase): began 19 min before the run's 24 h cap
+  (07:23), too short for I-13c2b's worker, verification and review; the tree was clean at
+  start (empty preflight file), the inbox `list` empty. It moved old head sections to the
+  archive above (the head was over its 400-line soft budget) and commits that with this
+  checkpoint as "Checkpoint: …", for the 06:56 iteration's reason. SHA and push result in
+  the run's status line.
