@@ -2,7 +2,8 @@ import MuxFinderCore
 import SwiftUI
 
 /// The `--preview-fixtures --preview-gallery switcher` window's content (PLAN.md D32): every
-/// session switcher state from `SwitcherFixtures.all`, each framed like the real switcher
+/// session switcher state from `SwitcherFixtures.all`, then the states per terminal
+/// (`TerminalSessionFixtures.switcher`, PLAN.md D38 *The UI (I-12d2)*), each framed like the real switcher
 /// panel (rounded, with a shadow; the switcher paints its own opaque background). Nothing here
 /// runs an engine, reads `hosts.json`, `directories.json` or `preferences.json`, registers a
 /// hotkey or contacts iTerm2.
@@ -16,7 +17,7 @@ public struct SwitcherGallery: View {
   /// A gallery of every switcher fixture.
   public init() {
     _entries = State(
-      initialValue: SwitcherFixtures.all.map {
+      initialValue: (SwitcherFixtures.all + TerminalSessionFixtures.switcher).map {
         PreviewGallery.Entry(fixture: $0, model: AppModel(fixture: $0))
       })
   }

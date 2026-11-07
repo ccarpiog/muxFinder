@@ -100,8 +100,16 @@ public enum HostStatusLabel: String, Sendable, Hashable, CaseIterable {
 /// The one-line explanation of a failed discovery, shown under the host's header with "Retry".
 /// English, sentence case, and free of host names, paths and command output.
 public enum HostProblemText {
-  /// The explanation for `status`, or `nil` for the successes (`ok`, `noServer`).
+  /// The explanation for `status`, or `nil` for the successes (`ok`, `noServer`), with
+  /// iTerm2's wording.
   public static func explanation(for status: HostStatus) -> String? {
+    explanation(for: status, wording: .iTerm2)
+  }
+
+  /// The explanation for `status` in the terminal `wording` names (a sign-in needed and an
+  /// unknown host key say where to set up SSH, PLAN.md D38 *The UI (I-12d2)*), or `nil` for the
+  /// successes.
+  public static func explanation(for status: HostStatus, wording: TerminalWording) -> String? {
     switch status {
     case .ok, .noServer:
       return nil
@@ -113,9 +121,9 @@ public enum HostProblemText {
       case .noRoute: return "There is no network route to the host."
       }
     case .authFailed:
-      return "SSH could not sign in without asking. Set up SSH for this host in iTerm2 first."
+      return wording.signInProblem
     case .hostKeyProblem(.unknown):
-      return "SSH does not know this host's key yet. Connect once in iTerm2 to check it."
+      return wording.hostKeyUnknownProblem
     case .hostKeyProblem(.changed):
       return "This host's SSH key changed. Check it before connecting; muxFinder never skips "
         + "the check."
@@ -124,5 +132,5 @@ public enum HostProblemText {
     case .probeError(let message):
       return message
     }
-  } // End of func explanation(for:)
+  } // End of func explanation(for:wording:)
 }

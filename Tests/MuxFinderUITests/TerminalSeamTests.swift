@@ -643,7 +643,8 @@ struct TerminalSeamTests {
     model.open(key)
     #expect(await harness.waitForActions(1))
     let backend = try #require(holder.withLock { $0 })
-    #expect(model.activities[key] == .focused)
+    // Worded for the plain terminal since Phase I-12d2 (it read `.focused` before).
+    #expect(model.activities[key] == .focusedWindow(Self.sampleWording))
     #expect(model.terminalAttachments[key] == .plainWindow(window))
     #expect(model.canDetach(key))
     model.showWindow(for: key)
@@ -672,10 +673,14 @@ struct TerminalSeamTests {
     named.model.open(bracketed.key)
     #expect(await named.waitForActions(1))
     #expect(
-      named.model.activities[bracketed.key] == .failed(.attach(.unsupportedSessionName)))
+      named.model.activities[bracketed.key]
+        == .failed(.attach(.unsupportedSessionName, wording: Self.sampleWording)))
     #expect(named.store.written.isEmpty && named.windows.opens.isEmpty)
     await named.model.shutdown()
   } // End of func plainResultsReachTheModel()
+
+  /// The sample definition's wording (Phase I-12d2's plain lines name it).
+  nonisolated static let sampleWording = TerminalWording(definition: SeamHarness.sample.definition)
 
   /// A plain client record for `target`'s session.
   nonisolated static func client(_ target: AttachTarget) -> PlainClientRecord {
@@ -742,8 +747,10 @@ struct TerminalSeamTests {
     #expect(await harness.waitForActions(2))
     #expect(
       model.finishedActions.last?.outcome.attachResult?.failure == .earlierLaunchPending)
+    // Since Phase I-12d2 the line names the terminal of the launch that holds it.
     #expect(
-      model.activities[key] == .failed(.attach(.earlierLaunchPending, launchTab: nil)))
+      model.activities[key]
+        == .failed(.attach(.earlierLaunchPending, launchTab: nil, wording: Self.sampleWording)))
     #expect(harness.store.written.count == 1, "nothing written")
     #expect(harness.windows.opens.count == 1, "nothing opened")
     #expect(await harness.iTerm2.calls.isEmpty, "nothing sent to iTerm2")

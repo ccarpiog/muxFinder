@@ -108,6 +108,8 @@ public struct SwitcherContent: Sendable, Hashable {
   /// of a session the engine does not list). The failures of `retriesConfirmedInPopover`
   /// (sessions whose last action was a move here or a "Detach other clients…") offer no "Try
   /// again" here, since its confirmation is drawn only in the popover (PLAN.md D25, D32, D37).
+  /// `windowsHere`, `catalog` and `wording` are the popover's (PLAN.md D38 *The UI (I-12d2)*):
+  /// the rows show the same apps a session is open in on this Mac.
   public init(
     state: RefreshState?,
     hostList: HostListStatus?,
@@ -121,7 +123,10 @@ public struct SwitcherContent: Sendable, Hashable {
     carried: [SessionKey] = [],
     actionKeys: [SessionKey] = [],
     targets: [SessionKey: AttachTarget] = [:],
-    retriesConfirmedInPopover: Set<SessionKey> = []
+    retriesConfirmedInPopover: Set<SessionKey> = [],
+    windowsHere: Set<SessionKey> = [],
+    catalog: TerminalDefinitionCatalog? = nil,
+    wording: TerminalWording = .iTerm2
   ) {
     self.banners = banners
     pinned = []
@@ -141,7 +146,8 @@ public struct SwitcherContent: Sendable, Hashable {
     placeholder = nil
     let all = PopoverContent(
       state: state, hostList: hostList, query: "", activities: activities, selection: nil,
-      now: now, notes: notes, attachedHere: attachedHere
+      now: now, notes: notes, attachedHere: attachedHere, windowsHere: windowsHere,
+      catalog: catalog, wording: wording
     ).sections.flatMap(\.rows)
     let live = all.filter { !$0.isStale }
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)

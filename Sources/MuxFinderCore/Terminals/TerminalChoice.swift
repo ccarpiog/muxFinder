@@ -73,7 +73,9 @@ public struct TerminalChoiceUnavailable: Error, Sendable, Hashable {
   /// A short machine-readable name, such as `notInstalled`.
   public var kind: String { reason.kind }
 
-  /// A neutral explanation (Phase I-12d writes the app's own sentence and the picker).
+  /// A neutral explanation, quoting the id. The app names a loaded definition's terminal in
+  /// its own sentence (`SessionProblem.terminalUnavailable(_:wording:)`, PLAN.md D38 *The UI
+  /// (I-12d2)*) and keeps this one for an id no definition has.
   public var message: String {
     let name = TerminalChoice.displayID(terminalID)
     switch reason {

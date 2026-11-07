@@ -81,11 +81,28 @@ public struct SessionRow: Sendable, Hashable, Identifiable {
   /// This Mac's tmux clients of the session traced to a terminal app (PLAN.md D38, Phase
   /// I-12c2; carried here since Phase I-12c3a): the engine's `localAttachments` for a session
   /// of This Mac, with iTerm2's control-mode clients left to D16's index while iTerm2 is the
-  /// chosen terminal. No view draws it yet (Phase I-12d).
+  /// chosen terminal. The row shows them as `openInApps`.
   public var localAttachments: [LocalAttachment] = []
+  /// Whether the chosen plain terminal's backend recorded a window of the session (a window it
+  /// confirmed or brought forward; PLAN.md D38 *The UI (I-12d2)*): the menu offers "Show
+  /// window", and "Detach from this Mac" goes to that backend. The record is the model's copy
+  /// of the backend's, never checked again by a refresh, so it never dims "Move here…".
+  public var hasWindowHere = false
+  /// The apps a client of the session runs in on this Mac, one per app in client order
+  /// (`localAttachments`, PLAN.md D38 *The UI (I-12d2)*): "Open in Terminal on this Mac" with
+  /// "Show in Terminal", whichever terminal is chosen.
+  public var openInApps: [OpenInApp] = []
+  /// The records other terminals than the chosen one keep of the session (a window a plain
+  /// backend opened, an attachment muxFinder made in iTerm2), one per terminal: "Detach (opened
+  /// in <terminal>)", through that terminal's own backend (PLAN.md D38 *The UI (I-12d2)*).
+  public var otherTerminalDetaches: [OtherTerminalDetach] = []
 
-  /// Whether "Move here…" is offered: not while this Mac's iTerm2 shows the session already
-  /// (the move would refuse, PLAN.md D21).
+  /// Whether "Move here…" is offered: not while this Mac's iTerm2 shows the session already (the
+  /// attachment index, read again at every refresh; PLAN.md D21). A window the chosen plain
+  /// terminal's backend recorded (`hasWindowHere`) does not dim it (PLAN.md D38 *The UI
+  /// (I-12d2)*, review fix): that record may be stale (its client detached in tmux, its window
+  /// closed), so the move goes to the backend, which checks its client first and refuses while it
+  /// still holds the session (`alreadyOpenInTerminal`), else moves here.
   public var offersMoveHere: Bool { !isOpenInITerm2Here }
 
   /// Whether "Detach other clients…" is offered (shown; disabled while `isPending`): see
@@ -138,16 +155,82 @@ public struct SessionRow: Sendable, Hashable, Identifiable {
   /// The VoiceOver label: the session and its host.
   public var accessibilityLabel: String { "\(name) on \(hostName)" }
 
-  /// The VoiceOver value: the counts or staleness, the badge (with its hint) and the activity.
+  /// The VoiceOver value: the counts or staleness, the badges (with the hint) and the activity.
   public var accessibilityValue: String {
     var parts = [detail]
     if isOpenInITerm2Here {
       parts.append(Self.openHereBadge)
       if offersDetachOtherClients { parts.append(Self.alsoAttachedElsewhereHint) }
     }
+    parts += openInApps.map(\.badgeText)
     if let activity { parts.append(activity.text) }
     return parts.joined(separator: ", ")
   }
+
+  /// `localAttachments` as the row shows them: one per app (bundle identifiers compared without
+  /// regard to case), in client order, each named from `catalog`.
+  static func openInApps(
+    _ attachments: [LocalAttachment],
+    catalog: TerminalDefinitionCatalog?
+  ) -> [OpenInApp] {
+    var seen: Set<String> = []
+    var apps: [OpenInApp] = []
+    for attachment in attachments where seen.insert(attachment.app.rowKey).inserted {
+      apps.append(
+        OpenInApp(
+          app: attachment.app, wording: TerminalWording(app: attachment.app, catalog: catalog)))
+    }
+    return apps
+  } // End of static func openInApps(_:catalog:)
+}
+
+/// An app a client of a session runs in on this Mac (PLAN.md D38 *Open on this Mac*, *The UI
+/// (I-12d2)*): the row's "Open in Terminal on this Mac" and its "Show in Terminal", which brings
+/// the running app forward (no Apple event, nothing launched).
+public struct OpenInApp: Sendable, Hashable, Identifiable {
+  /// The app, as process ancestry named it.
+  public var app: LocalTerminalApp
+  /// Its wording (its name).
+  public var wording: TerminalWording
+
+  /// Creates an entry.
+  public init(app: LocalTerminalApp, wording: TerminalWording) {
+    self.app = app
+    self.wording = wording
+  }
+
+  /// `Identifiable` conformance: the app's bundle identifier, lowercased.
+  public var id: String { app.rowKey }
+  /// "Open in Terminal on this Mac".
+  public var badgeText: String { wording.openOnThisMacText }
+  /// "Show in Terminal".
+  public var showTitle: String { wording.showInTitle }
+}
+
+/// A record another terminal than the chosen one keeps of a session (PLAN.md D38 *The UI
+/// (I-12d2)*): the row offers "Detach (opened in <terminal>)", which runs that terminal's own
+/// backend's detach only.
+public struct OtherTerminalDetach: Sendable, Hashable, Identifiable {
+  /// The terminal id of the backend that keeps the record (`iterm2`, or a definition's id).
+  public var terminalID: String
+  /// Its wording (its name).
+  public var wording: TerminalWording
+
+  /// Creates an entry.
+  public init(terminalID: String, wording: TerminalWording) {
+    self.terminalID = terminalID
+    self.wording = wording
+  }
+
+  /// `Identifiable` conformance: the terminal id.
+  public var id: String { terminalID }
+  /// "Detach (opened in Terminal)".
+  public var title: String { wording.detachOpenedInTitle }
+}
+
+extension LocalTerminalApp {
+  /// The app's bundle identifier, lowercased: one row entry per app.
+  var rowKey: String { bundleIdentifier.lowercased() }
 }
 
 /// One host's group in the popover.
@@ -265,7 +348,11 @@ public struct PopoverContent: Sendable, Hashable {
   /// `activities` and `notes`, the keyboard `selection`, relative times seen at `now`, the
   /// hosts' "Set up SSH in iTerm2…" lines (`sshSetupStates`, by host id), the `banners`, the
   /// sessions muxFinder attached or found in this Mac's iTerm2 (`attachedHere`) and those with
-  /// an action in progress (`pending`).
+  /// an action in progress (`pending`). For other terminals (PLAN.md D38 *The UI (I-12d2)*):
+  /// the sessions with a window of the chosen plain terminal's backend (`windowsHere`, offered
+  /// like `attachedHere`, and "Show window"), the definitions that name the apps of local
+  /// attachments (`catalog`), other terminals' records (`otherTerminalDetaches`) and the chosen
+  /// terminal's `wording` (the host problems that name it). The defaults are iTerm2's.
   ///
   /// Search: a host whose name contains the query shows all its sessions; any other host
   /// shows only the sessions whose names contain it, and is left out when none does. Matching
@@ -281,7 +368,11 @@ public struct PopoverContent: Sendable, Hashable {
     notes: [SessionKey: String] = [:],
     banners: [SessionBanner] = [],
     attachedHere: Set<SessionKey> = [],
-    pending: Set<SessionKey> = []
+    pending: Set<SessionKey> = [],
+    windowsHere: Set<SessionKey> = [],
+    catalog: TerminalDefinitionCatalog? = nil,
+    otherTerminalDetaches: [SessionKey: [OtherTerminalDetach]] = [:],
+    wording: TerminalWording = .iTerm2
   ) {
     notices = Self.notices(hostList: hostList, attachmentCheck: state?.attachmentCheck)
     self.banners = banners
@@ -300,17 +391,21 @@ public struct PopoverContent: Sendable, Hashable {
     for snapshot in state.hosts {
       var section = Self.section(
         for: snapshot, attachmentCheck: state.attachmentCheck, activities: activities,
-        selection: selection, now: now)
+        selection: selection, now: now, wording: wording)
       for index in section.rows.indices {
         let key = section.rows[index].key
+        let ownsOne = attachedHere.contains(key) || windowsHere.contains(key)
         section.rows[index].note = notes[key]
-        section.rows[index].offersDetach =
-          section.rows[index].isOpenInITerm2Here || attachedHere.contains(key)
-        if attachedHere.contains(key) {
+        section.rows[index].offersDetach = section.rows[index].isOpenInITerm2Here || ownsOne
+        if ownsOne {
           section.rows[index].attachmentsHere = max(section.rows[index].attachmentsHere, 1)
         }
         section.rows[index].isPending = pending.contains(key)
-      }
+        section.rows[index].hasWindowHere = windowsHere.contains(key)
+        section.rows[index].openInApps = SessionRow.openInApps(
+          section.rows[index].localAttachments, catalog: catalog)
+        section.rows[index].otherTerminalDetaches = otherTerminalDetaches[key] ?? []
+      } // End of loop over the section's rows
       if section.offersSSHSetup { section.sshSetup = sshSetupStates[snapshot.host.id] }
       if !trimmed.isEmpty, !Self.matches(snapshot.host.displayName, query: trimmed) {
         section.rows = section.rows.filter { Self.matches($0.name, query: trimmed) }
@@ -354,13 +449,15 @@ public struct PopoverContent: Sendable, Hashable {
   }
 
   /// The section for one host, before search filtering; `attachmentCheck` is this Mac's last
-  /// iTerm2 check, which says whether a row with clients is attached elsewhere.
+  /// iTerm2 check, which says whether a row with clients is attached elsewhere; `wording` is the
+  /// chosen terminal's (the host problems that name it).
   static func section(
     for snapshot: HostSnapshot,
     attachmentCheck: AttachmentCheck,
     activities: [SessionKey: SessionActivity],
     selection: SessionKey?,
-    now: Date
+    now: Date,
+    wording: TerminalWording = .iTerm2
   ) -> HostSection {
     let isStale = snapshot.freshness == .stale
     let knowsOpenHere = Self.knowsWhatIsOpenHere(attachmentCheck)
@@ -401,11 +498,13 @@ public struct PopoverContent: Sendable, Hashable {
       status: HostStatusLabel(snapshot),
       isRefreshing: snapshot.isRefreshing,
       caption: caption,
-      problem: snapshot.lastError.flatMap(HostProblemText.explanation(for:)),
+      problem: snapshot.lastError.flatMap {
+        HostProblemText.explanation(for: $0, wording: wording)
+      },
       emptyState: answered && rows.isEmpty ? emptyHostText : nil,
       rows: rows,
       offersSSHSetup: offersSSHSetup(snapshot))
-  } // End of func section(for:attachmentCheck:activities:selection:now:)
+  } // End of func section(for:attachmentCheck:activities:selection:now:wording:)
 
   /// Whether `snapshot`'s host offers "Set up SSH in iTerm2 first" (PLAN.md D24): its last
   /// check needed a sign-in or had a host key problem, and it is an SSH host with a valid

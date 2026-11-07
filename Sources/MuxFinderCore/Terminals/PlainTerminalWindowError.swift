@@ -154,8 +154,9 @@ public enum PlainTerminalWindowError: Error, Sendable, Hashable, LocalizedError 
     }
   } // End of static func scriptMessage(app:error:)
 
-  /// `error`'s system reason in parentheses, such as " (No such file or directory)", or empty.
-  static func reason(of error: ProcessRunnerError) -> String {
+  /// `error`'s system reason in parentheses, such as " (No such file or directory)", or empty
+  /// (public since Phase I-12d2: the popover's line for a program that could not start).
+  public static func reason(of error: ProcessRunnerError) -> String {
     switch error {
     case .spawnFailed(let code), .systemCallFailed(_, let code):
       return " (\(String(cString: strerror(code))))"

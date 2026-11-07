@@ -215,12 +215,13 @@ struct SwitcherListBox: View {
 
 /// One session in the switcher: Phase 14's attach-state indicator, its name (stronger while
 /// attached) and its host's name, the detail text, the "Open in iTerm2 here" badge (with the
-/// popover row's "also attached elsewhere"), and any progress, result or failure with the
-/// popover row's recoveries (without "Try again" after a move here or a "Detach other
-/// clients…", whose confirmation the popover draws: `SwitcherContent`). A click (or Return)
-/// opens it as the popover's Open does, as a click on a popover row does
-/// (`clickSwitcherItem(_:)`). No Move here, Detach here or Detach other clients: those stay in
-/// the popover (PLAN.md D32, D37).
+/// popover row's "also attached elsewhere"), the popover row's "Open in Terminal on this Mac"
+/// badges with "Show in Terminal" (PLAN.md D38 *The UI (I-12d2)*), and any progress, result or
+/// failure with the popover row's recoveries (without "Try again" after a move here or a
+/// "Detach other clients…", whose confirmation the popover draws: `SwitcherContent`). A click
+/// (or Return) opens it as the popover's Open does, in the chosen terminal, as a click on a
+/// popover row does (`clickSwitcherItem(_:)`). No Move here, Detach here, Detach (opened in …)
+/// or Detach other clients: those stay in the popover (PLAN.md D32, D37).
 struct SwitcherRowView: View {
   /// The row's content.
   let row: SessionRow
@@ -258,6 +259,9 @@ struct SwitcherRowView: View {
         if row.isOpenInITerm2Here {
           OpenHereBadge(text: row.openHereText)
         }
+        ForEach(row.openInApps) { entry in
+          OpenInAppLine(entry: entry, key: row.key, model: model)
+        }
         if let activity = row.activity {
           ActivityLine(activity: activity, key: row.key, model: model)
         }
@@ -290,21 +294,18 @@ struct SwitcherRowView: View {
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityValue(row.accessibilityValue)
     .accessibilityAddTraits(row.isSelected ? [.isButton, .isSelected] : [.isButton])
-    .accessibilityHint("Opens the session in iTerm2.")
+    .accessibilityHint(model.terminalWording.openHint)
     .accessibilityAction { model.activateSwitcherItem(item) }
     .accessibilityActions { accessibilityActions }
   } // End of var body
 
-  /// The activity's buttons for VoiceOver ("Show tab", a failure's recoveries).
+  /// The row's buttons for VoiceOver ("Show in Terminal", "Show tab" or "Show window", a
+  /// failure's recoveries).
   @ViewBuilder private var accessibilityActions: some View {
-    if case .stillConnecting = row.activity {
-      Button("Show tab") { model.showTab(for: row.key) }
+    ForEach(row.openInApps) { entry in
+      Button(entry.showTitle) { model.showInApp(entry.app, for: row.key) }
     }
-    if let problem = row.activity?.problem {
-      ForEach(problem.recoveries, id: \.self) { recovery in
-        Button(recovery.title) { model.perform(recovery, for: row.key) }
-      }
-    }
+    ActivityAccessibilityActions(activity: row.activity, key: row.key, model: model)
   }
 }
 

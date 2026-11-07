@@ -120,7 +120,10 @@ extension AppModel {
       carried: switcherCarriedFailures,
       actionKeys: switcherActions.keys.sorted { $0.sessionID.rawValue < $1.sessionID.rawValue },
       targets: switcherTargets,
-      retriesConfirmedInPopover: retriesConfirmedInPopover)
+      retriesConfirmedInPopover: retriesConfirmedInPopover,
+      windowsHere: windowsHere,
+      catalog: terminalDefinitions,
+      wording: terminalWording)
   } // End of var switcherContent
 
   // MARK: - Visibility
@@ -329,7 +332,7 @@ extension AppModel {
   func switcherActionEnded(_ key: SessionKey) {
     guard case .running(let closesOnSuccess)? = switcherActions[key] else { return }
     switch activities[key] {
-    case .confirmed?, .focused?:
+    case let activity? where activity.isAttached:
       forgetSwitcherAction(key)
       if closesOnSuccess, isSwitcherVisible { closeSwitcher?(.actionSucceeded) }
     case .failed?:

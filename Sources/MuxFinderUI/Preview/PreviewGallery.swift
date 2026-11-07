@@ -2,8 +2,9 @@ import MuxFinderCore
 import SwiftUI
 
 /// The `--preview-fixtures` window's content (PLAN.md D22): every popover state from
-/// `PreviewFixtures.all`, side by side, each in a frame like the menu bar popover. Nothing
-/// here runs an engine, reads `hosts.json` or contacts iTerm2.
+/// `PreviewFixtures.all`, then the states per terminal (`TerminalSessionFixtures.popover`,
+/// PLAN.md D38 *The UI (I-12d2)*), side by side, each in a frame like the menu bar popover.
+/// Nothing here runs an engine, reads `hosts.json`, contacts iTerm2 or any terminal app.
 public struct PreviewGallery: View {
   /// One state and the model that renders it.
   struct Entry: Identifiable {
@@ -25,7 +26,9 @@ public struct PreviewGallery: View {
   /// A gallery of every fixture.
   public init() {
     _entries = State(
-      initialValue: PreviewFixtures.all.map { Entry(fixture: $0, model: AppModel(fixture: $0)) })
+      initialValue: (PreviewFixtures.all + TerminalSessionFixtures.popover).map {
+        Entry(fixture: $0, model: AppModel(fixture: $0))
+      })
   }
 
   /// The grid of states.
@@ -86,6 +89,10 @@ public struct PreviewGallery: View {
 
 #Preview("No hosts turned on") {
   PopoverView(model: AppModel(fixture: PreviewFixtures.noHosts), isLive: false)
+}
+
+#Preview("Terminal: sessions") {
+  PopoverView(model: AppModel(fixture: TerminalSessionFixtures.terminalPopover), isLive: false)
 }
 
 #Preview("Every state") {

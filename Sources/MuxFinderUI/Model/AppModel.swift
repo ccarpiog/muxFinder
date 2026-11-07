@@ -128,13 +128,17 @@ public final class AppModel {
     case detach
     /// A confirmed "Detach other clients…" (PLAN.md D37).
     case detachOtherClients
+    /// "Detach (opened in <terminal>)": a detach through the backend of the terminal id, which
+    /// was not the chosen one when it was offered; "Try again" repeats it there even once that
+    /// terminal is the chosen one (PLAN.md D38 *The UI (I-12d2)*).
+    case detachOpenedIn(String)
 
     /// Its name in the log and in `ShutdownReport`.
     var name: String {
       switch self {
       case .open: return "open"
       case .moveHere: return "move here"
-      case .detach: return "detach"
+      case .detach, .detachOpenedIn: return "detach"
       case .detachOtherClients: return "detach other clients"
       }
     }
@@ -166,8 +170,10 @@ public final class AppModel {
   enum ActionEvent: Sendable {
     /// A state update of a launch (published by the coordinator).
     case update(AttachUpdate)
-    /// An open, move here, detach or "Detach other clients…" ended.
-    case finished(SessionKey, SessionActionRecord.Outcome)
+    /// An open, move here, detach or "Detach other clients…" ended; `heldBy` is the terminal
+    /// id of another backend whose launch refused an open or a move here
+    /// (`earlierLaunchPending`, PLAN.md D38 *The UI (I-12d2)*).
+    case finished(SessionKey, SessionActionRecord.Outcome, heldBy: String? = nil)
     /// New session number `id` created its session on `host` in `directory` (as checked; `nil`
     /// for the home folder); its attach starts now (before the coordinator publishes any state
     /// of it).
@@ -394,13 +400,15 @@ public final class AppModel {
   @ObservationIgnored private let commandSink: AsyncStream<EngineCommand>.Continuation
   /// The terminal setting as last resolved (PLAN.md D38, Phase I-12c3a): `unresolved` until
   /// `start()` resolves it (so nothing contacts iTerm2 before the stored choice is known), and
-  /// always iTerm2 without `AppEnvironment.terminal` (and for a fixture).
+  /// always iTerm2 without `AppEnvironment.terminal` (a fixture's is its own, PLAN.md D38 *The
+  /// UI (I-12d2)*).
   public internal(set) var terminalChoice = TerminalChoiceResolution.iTerm2
   /// A resolved change of the setting waiting for the pending session actions to end
   /// (`setTerminal(_:)`); `nil` when none waits.
   public internal(set) var pendingTerminalChoice: TerminalChoiceResolution?
-  /// The terminal definitions as loaded at launch, with their problems (Phase I-12d shows
-  /// them); `nil` before, and without `AppEnvironment.terminal`.
+  /// The terminal definitions as loaded at launch, with their problems (the picker shows them;
+  /// their names word the rows); `nil` before, and without `AppEnvironment.terminal` (a
+  /// fixture's are its own).
   public internal(set) var terminalDefinitions: TerminalDefinitionCatalog?
   /// The stored terminal setting as last read or set (`nil`: absent, so the default).
   @ObservationIgnored var storedTerminal: String?
@@ -437,6 +445,10 @@ public final class AppModel {
   @ObservationIgnored var nextShowTabID = 0
   /// The last action per session, which "Try again" repeats.
   @ObservationIgnored var lastActions: [SessionKey: ActionKind] = [:]
+  /// The terminal id of the backend that ran each session's last "Detach from this Mac", so its
+  /// "Try again" repeats it there once another terminal is chosen (PLAN.md D38 *The UI
+  /// (I-12d2)*, review fix).
+  @ObservationIgnored var lastDetachTerminalIDs: [SessionKey: String] = [:]
   /// The ordered stream of coordinator updates and action results.
   @ObservationIgnored let actionEvents: AsyncStream<ActionEvent>
   /// Feeds `actionEvents`.
@@ -552,6 +564,9 @@ public final class AppModel {
     folderSearchPrevious = fixture.folderSearch?.previous
     isFolderSearchHelpShown = fixture.folderSearchHelpShown
     attachedHere = fixture.attachedHere
+    terminalChoice = fixture.terminal
+    terminalDefinitions = fixture.terminalDefinitions
+    terminalAttachmentsByTerminal = fixture.terminalAttachments
     shownExplanation = fixture.shownExplanation
     switcherSearchText = fixture.switcherSearchText
     switcherSelection = fixture.switcherSelection
@@ -569,7 +584,10 @@ public final class AppModel {
 
   // MARK: - Content
 
-  /// What the popover shows now.
+  /// What the popover shows now: with the chosen plain terminal's windows, the apps of local
+  /// attachments named from the loaded definitions, other terminals' records and the chosen
+  /// terminal's wording (PLAN.md D38 *The UI (I-12d2)*; all empty or iTerm2's with iTerm2
+  /// chosen and no other backend's records).
   public var content: PopoverContent {
     PopoverContent(
       state: refreshState,
@@ -582,7 +600,11 @@ public final class AppModel {
       notes: notes,
       banners: banners,
       attachedHere: Set(selectedAttachedHere.keys),
-      pending: Set(runningActions.keys))
+      pending: Set(runningActions.keys),
+      windowsHere: windowsHere,
+      catalog: terminalDefinitions,
+      otherTerminalDetaches: otherTerminalDetaches,
+      wording: terminalWording)
   } // End of var content
 
   // MARK: - Lifecycle

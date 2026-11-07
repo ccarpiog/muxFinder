@@ -21,8 +21,13 @@ public struct ConnectionTestResult: Sendable, Hashable {
 
   /// The result of a discovery of a host in `mode`. A host that answered reads "This Mac"
   /// (local), "Reachable" (SSH, sessions) or "No sessions" (SSH, none or no server), as in the
-  /// popover; a failure reads its popover label with its explanation.
-  public init(_ result: DiscoveryResult, mode: HostConfig.ConnectionMode) {
+  /// popover; a failure reads its popover label with its explanation, in the chosen terminal's
+  /// `wording` (where to set up SSH, PLAN.md D38 *The UI (I-12d2)*).
+  public init(
+    _ result: DiscoveryResult,
+    mode: HostConfig.ConnectionMode,
+    wording: TerminalWording = .iTerm2
+  ) {
     let version = result.report?.tmuxVersion
     switch result.status {
     case .ok(let sessions):
@@ -41,10 +46,10 @@ public struct ConnectionTestResult: Sendable, Hashable {
       detail = ["No tmux server is running", version].compactMap { $0 }.joined(separator: " · ")
     default:
       status = HostStatusLabel(failure: result.status)
-      explanation = HostProblemText.explanation(for: result.status)
+      explanation = HostProblemText.explanation(for: result.status, wording: wording)
       detail = nil
     }
-  } // End of init(_:mode:)
+  } // End of init(_:mode:wording:)
 }
 
 /// "Test connection": not run, running, or its result.
@@ -70,8 +75,9 @@ public enum DetectionState: Sendable, Hashable {
   /// The host could not be checked: the popover's label and explanation.
   case failed(status: HostStatusLabel, explanation: String?)
 
-  /// The state for a discovery run without the tmux path.
-  public init(_ result: DiscoveryResult) {
+  /// The state for a discovery run without the tmux path, its explanation in the chosen
+  /// terminal's `wording`.
+  public init(_ result: DiscoveryResult, wording: TerminalWording = .iTerm2) {
     if let path = result.report?.tmuxPath {
       self = .found(path: path, version: result.report?.tmuxVersion)
       return
@@ -82,9 +88,9 @@ public enum DetectionState: Sendable, Hashable {
     default:
       self = .failed(
         status: HostStatusLabel(failure: result.status),
-        explanation: HostProblemText.explanation(for: result.status))
+        explanation: HostProblemText.explanation(for: result.status, wording: wording))
     }
-  } // End of init(_:)
+  } // End of init(_:wording:)
 
   /// The line shown under the field, if any.
   public var message: String? {

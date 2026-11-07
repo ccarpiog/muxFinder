@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-06T23:47:50Z",
+  "updated": "2026-11-07T01:07:56Z",
   "stamped_since": "2026-10-22T07:43:37Z",
   "plan": "PLAN.md",
   "goal": "Build muxFinder, a macOS menu bar app that finds tmux sessions on the user's Macs and attaches them in iTerm2 via tmux -CC.",
@@ -710,7 +710,7 @@
       "title": "Other terminal apps: Terminal.app and Ghostty",
       "status": "in_progress",
       "risk": "high",
-      "summary": "Lets muxFinder open sessions in Terminal.app and Ghostty with plain tmux; split into I-12a to I-12e, I-12a to I-12c done.",
+      "summary": "Lets muxFinder open sessions in Terminal.app and Ghostty with plain tmux; split into I-12a to I-12e, I-12a to I-12d done.",
       "added": "2026-11-06T10:29:06Z",
       "started": "2026-11-06T13:06:57Z",
       "status_since": "2026-11-06T13:06:57Z"
@@ -850,13 +850,13 @@
     {
       "id": "I-12d",
       "title": "Other terminals: Settings, strings, onboarding, galleries",
-      "status": "in_progress",
+      "status": "done",
       "risk": "routine",
       "parent": "I-12",
-      "summary": "Split into I-12d1 (Settings, onboarding, SSH setup) and I-12d2 (popover, switcher, session states).",
+      "summary": "Split into I-12d1 (Settings, onboarding, SSH setup) and I-12d2 (popover, switcher, session states), both done.",
       "added": "2026-11-06T13:06:57Z",
       "started": "2026-11-06T22:43:40Z",
-      "status_since": "2026-11-06T22:43:40Z"
+      "status_since": "2026-11-07T01:07:56Z"
     },
     {
       "id": "I-12d1",
@@ -874,12 +874,15 @@
     {
       "id": "I-12d2",
       "title": "Other terminals: popover, switcher and session states",
-      "status": "queued",
+      "status": "done",
       "risk": "routine",
       "parent": "I-12d",
-      "summary": "Makes every session action, state and error name the chosen terminal, with galleries per terminal.",
+      "summary": "Makes every session action, state and error line name the chosen terminal, with galleries per terminal; iTerm2 unchanged.",
+      "review": "docs/reviews/phase-I-12d2.md",
+      "narrative": "docs/progress-archive/i-12d2.md",
       "added": "2026-11-06T22:43:40Z",
-      "status_since": "2026-11-06T22:43:40Z"
+      "started": "2026-11-06T23:48:54Z",
+      "status_since": "2026-11-07T01:07:56Z"
     },
     {
       "id": "I-12e",

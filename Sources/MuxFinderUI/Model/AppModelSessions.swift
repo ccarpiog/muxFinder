@@ -16,7 +16,8 @@ import os
 ///   to "Waiting for iTerm2…" after "Confirmed". "Confirmed" comes only from the core's
 ///   `confirmed` state (after its identity check) or result; "Already open here — brought its
 ///   tab forward" only from a focus whose activation brought the tab forward. The plain
-///   backend's states show as their iTerm2 counterparts until Phase I-12d writes their text.
+///   backend's states and failures are worded for the terminal whose backend ran the action
+///   (PLAN.md D38 *The UI (I-12d2)*, `wording(forTerminalID:)`); iTerm2's are as before.
 /// - **Seams:** every action runs on the chosen terminal's `TerminalBackend`
 ///   (`AppModelTerminal.swift`), built through `AppEnvironment.makeTerminalBackend` at the
 ///   first action; tests build iTerm2's over an attach coordinator over a fake iTerm2
@@ -155,7 +156,8 @@ extension AppModel {
   /// on the row). While another terminal's backend built earlier holds a launch of `key` that
   /// may still attach it (`TerminalBackend.hasUnresolvedLaunch(for:)`, read-only), the action
   /// ends `earlierLaunchPending` with nothing written, opened or sent (PLAN.md D38, Phase
-  /// I-12c3a review fix): a change of terminal never starts a second attach of the session.
+  /// I-12c3a review fix): a change of terminal never starts a second attach of the session. Its
+  /// line names the terminal of the launch that holds it (PLAN.md D38 *The UI (I-12d2)*).
   @discardableResult
   func startAttach(_ key: SessionKey, kind: ActionKind, target given: AttachTarget?) -> Bool {
     guard lifecycle != .stopped, runningActions[key] == nil,
@@ -173,7 +175,8 @@ extension AppModel {
     let sink = actionSink
     let task = Task {
       let result: AttachResult
-      if await Self.anyHoldsUnresolvedLaunch(others, for: key) {
+      let holder = await Self.firstHoldingUnresolvedLaunch(others, for: key)
+      if holder != nil {
         result = AttachResult(
           key: key, launchID: LaunchToken(), state: .failed(.earlierLaunchPending))
       } else if kind == .moveHere {
@@ -182,7 +185,8 @@ extension AppModel {
       } else {
         result = await terminalBackend.attach(target)
       }
-      sink.yield(.finished(key, kind == .moveHere ? .moveHere(result) : .attach(result)))
+      sink.yield(
+        .finished(key, kind == .moveHere ? .moveHere(result) : .attach(result), heldBy: holder))
     }
     runningActions[key] = RunningAction(
       kind: kind, target: target, task: task, terminalID: terminalID)
@@ -191,15 +195,16 @@ extension AppModel {
     return true
   } // End of func startAttach(_:kind:target:)
 
-  /// Whether any of `backends` holds a launch of `key` that may still attach the session
-  /// (read-only; asked one after the other).
-  static func anyHoldsUnresolvedLaunch(
-    _ backends: [any TerminalBackend], for key: SessionKey
-  ) async -> Bool {
-    for backend in backends {
-      if await backend.hasUnresolvedLaunch(for: key) { return true }
+  /// The terminal id of the first of `backends` (by terminal id) that holds a launch of `key`
+  /// that may still attach the session, or `nil` when none does (read-only; asked one after
+  /// the other).
+  static func firstHoldingUnresolvedLaunch(
+    _ backends: [(id: String, backend: any TerminalBackend)], for key: SessionKey
+  ) async -> String? {
+    for entry in backends {
+      if await entry.backend.hasUnresolvedLaunch(for: key) { return entry.id }
     }
-    return false
+    return nil
   }
 
   // MARK: - Detach
@@ -219,6 +224,7 @@ extension AppModel {
       return
     }
     lastActions[key] = .detach
+    lastDetachTerminalIDs[key] = terminalChoice.chosen?.id
     activities[key] = .detaching
     notes[key] = nil
     let sink = actionSink
@@ -311,6 +317,28 @@ extension AppModel {
     startFocus(.iTerm2LaunchTab(sessionID: id), on: backend, for: key)
   }
 
+  /// "Show window" of a plain launch (a still-connecting attach's, or a failure's window,
+  /// PLAN.md D38 *The UI (I-12d2)*): brings it forward through the chosen terminal's backend
+  /// once an action built it (a window of another terminal is refused with nothing sent, as
+  /// "Show tab" is); a failure leaves a note.
+  public func showLaunchWindow(for key: SessionKey) {
+    guard let window = activities[key]?.launchWindow else { return }
+    showWindow(window, for: key)
+  }
+
+  /// Brings `window` forward for `key` through the chosen terminal's built backend.
+  func showWindow(_ window: PlainTerminalWindow, for key: SessionKey) {
+    guard let backend = builtBackend else { return }
+    startFocus(.plainWindow(window), on: backend, for: key)
+  }
+
+  /// "Show in Terminal": brings forward the app a client of `key` runs in on this Mac (PLAN.md
+  /// D38 *The UI (I-12d2)*), through the chosen terminal's backend (iTerm2's too): the running
+  /// app is activated, no Apple event is sent and nothing is launched.
+  public func showInApp(_ app: LocalTerminalApp, for key: SessionKey) {
+    focus(.app(app), for: key)
+  }
+
   /// Performs a button a failure offers.
   public func perform(_ recovery: SessionProblem.Recovery, for key: SessionKey) {
     switch recovery {
@@ -328,6 +356,10 @@ extension AppModel {
       detach(key)
     case .openSettings:
       openSettings()
+    case .showWindow(let window):
+      showWindow(window, for: key)
+    case .openAutomationSettings:
+      environment?.openURL(FixIt.automationSettingsURL)
     }
   } // End of func perform(_:for:)
 
@@ -347,7 +379,10 @@ extension AppModel {
   /// with none, clears the failure and refreshes the session's host. Those two confirmations
   /// are drawn only in the popover (PLAN.md D25, D32, D37), so while the popover is not the one
   /// showing their retry changes nothing (the failure stays, no confirmation is set to wait
-  /// hidden); the switcher does not offer it for them.
+  /// hidden); the switcher does not offer it for them. A detach is repeated on the backend
+  /// that ran it: "Detach (opened in …)" on its terminal's, and a "Detach from this Mac" whose
+  /// terminal is no longer the chosen one on that terminal's, while it keeps the record
+  /// (PLAN.md D38 *The UI (I-12d2)*, review fix).
   public func retry(session key: SessionKey) {
     guard runningActions[key] == nil else { return }
     let last = lastActions[key]
@@ -357,7 +392,16 @@ extension AppModel {
     switch last {
     case .open?: open(key)
     case .moveHere?: requestMoveHere(key)
-    case .detach?: detach(key)
+    case .detach?:
+      // Another terminal chosen since: the backend that ran it, while it keeps the record.
+      if let terminalID = lastDetachTerminalIDs[key], terminalID != terminalChoice.chosen?.id,
+        keepsRecord(of: key, terminalID: terminalID)
+      {
+        detach(key, openedIn: terminalID)
+      } else {
+        detach(key)
+      }
+    case .detachOpenedIn(let terminalID)?: detach(key, openedIn: terminalID)
     case .detachOtherClients?:
       // Its confirmation again; the host's listing decides whether it is still offered.
       if !requestDetachOtherClients(key) { refreshHost(key.hostID) }
@@ -385,7 +429,7 @@ extension AppModel {
   func handle(_ event: ActionEvent) {
     switch event {
     case .update(let update): apply(update)
-    case .finished(let key, let outcome): finish(key, outcome)
+    case .finished(let key, let outcome, let holder): finish(key, outcome, heldBy: holder)
     case .sessionCreated(let id, let created, let host, let directory):
       sessionCreated(id, created, on: host, directory: directory)
     case .created(let id, let result, let host): finishCreation(id, result, on: host)
@@ -396,31 +440,38 @@ extension AppModel {
   } // End of func handle(_:)
 
   /// A launch's state: the row of a session whose open, move here or New session attach is
-  /// pending follows it, except for a failure, which the result shows with its recoveries, and
-  /// a focus, which the result shows with how its activation went. Updates of a launch that was
-  /// replaced (`isCurrent == false`) and of launches no pending action of this model started
-  /// change nothing.
+  /// pending follows it, worded for the terminal of its backend, except for a failure, which
+  /// the result shows with its recoveries, and a focus (a tab, a window or an app), which the
+  /// result shows with how its activation went. Updates of a launch that was replaced
+  /// (`isCurrent == false`) and of launches no pending action of this model started change
+  /// nothing.
   func apply(_ update: AttachUpdate) {
     guard update.isCurrent, let running = runningActions[update.key],
       running.kind.followsLaunchStates
     else { return }
     switch update.state {
-    case .failed, .focused: return
+    case .failed, .focused, .plainFocused, .appFocused: return
     default: break
     }
-    activities[update.key] = SessionActivity(update.state, movingHere: running.kind == .moveHere)
-  }
+    activities[update.key] = SessionActivity(
+      update.state, movingHere: running.kind == .moveHere,
+      wording: wording(forTerminalID: running.terminalID))
+  } // End of func apply(_:)
 
   /// An open, move here, detach or "Detach other clients…" of `key` ended; a note from "Show
-  /// tab" goes with it. A terminal change that waited for it applies once nothing is pending.
-  func finish(_ key: SessionKey, _ outcome: SessionActionRecord.Outcome) {
+  /// tab" goes with it. `holder` is the terminal id of another backend whose launch refused it
+  /// (`earlierLaunchPending`). A terminal change that waited for it applies once nothing is
+  /// pending.
+  func finish(
+    _ key: SessionKey, _ outcome: SessionActionRecord.Outcome, heldBy holder: String? = nil
+  ) {
     let running = runningActions.removeValue(forKey: key)
     notes[key] = nil
     record(SessionActionRecord(key: key, outcome: outcome))
     let terminalID = running?.terminalID ?? terminalChoice.chosen?.id
     switch outcome {
     case .attach(let result), .moveHere(let result):
-      finishAttach(result, target: running?.target, terminalID: terminalID)
+      finishAttach(result, target: running?.target, terminalID: terminalID, heldBy: holder)
     case .detached(let result):
       finishDetach(result, terminalID: terminalID)
     case .detachedOtherClients(let result):
@@ -429,16 +480,22 @@ extension AppModel {
       break
     }
     applyPendingTerminalChoiceIfIdle()
-  } // End of func finish(_:_:)
+  } // End of func finish(_:_:heldBy:)
 
-  /// Shows how an attach or a move here of `target` ended on the backend of `terminalID`.
-  /// "Confirmed" and "focused" record the attachment among that backend's records (so Detach is
-  /// offered while it is the chosen one); a focus whose activation did not bring the tab
-  /// forward shows that problem instead of "Already open here — brought its tab forward"; a
-  /// session that vanished or changed gets a banner and its host is refreshed; any other
-  /// failure shows its problem and recoveries.
-  func finishAttach(_ result: AttachResult, target: AttachTarget?, terminalID: String?) {
+  /// Shows how an attach or a move here of `target` ended on the backend of `terminalID`,
+  /// worded for that terminal (`wording(forTerminalID:)`; an `earlierLaunchPending` refused for
+  /// another backend's launch, `holder`, names that one's terminal). "Confirmed" and "focused"
+  /// record the attachment among that backend's records (so Detach is offered while it is the
+  /// chosen one); a focus whose activation did not bring the tab, window or app forward shows
+  /// that problem instead of "Already open here…"; a session that vanished or changed gets a
+  /// banner and its host is refreshed; any other failure shows its problem and recoveries (a
+  /// window failure knowing whether that terminal's script is muxFinder's own,
+  /// `definitionSource(forTerminalID:)`).
+  func finishAttach(
+    _ result: AttachResult, target: AttachTarget?, terminalID: String?, heldBy holder: String? = nil
+  ) {
     let key = result.key
+    let wording = wording(forTerminalID: terminalID)
     switch result.state {
     case .confirmed(let connectionID), .focused(let connectionID):
       if result.isFocused, let problem = Self.focusProblem(result.activation) {
@@ -461,24 +518,54 @@ extension AppModel {
         addBanner(kind, key: key, target: target)
         refreshHost(key.hostID)
       } else {
-        activities[key] = .failed(.attach(failure, launchTab: result.gatewaySessionID))
+        let lineWording =
+          failure == .earlierLaunchPending
+          ? self.wording(forTerminalID: holder ?? terminalID) : wording
+        activities[key] = .failed(
+          .attach(
+            failure, launchTab: result.gatewaySessionID, wording: lineWording,
+            window: result.plainWindow,
+            definitionSource: definitionSource(forTerminalID: terminalID)))
       }
     case .requested, .launched, .stillWaiting, .plainLaunched, .plainStillWaiting:
-      activities[key] = SessionActivity(result.state)
+      activities[key] = SessionActivity(result.state, wording: wording)
     case .plainConfirmed, .plainFocused:
-      // The plain backend (PLAN.md D38), as its iTerm2 counterpart until Phase I-12d writes its
-      // text; its window is recorded, so "Detach from this Mac" and "Show window" are offered.
-      activities[key] = result.isFocused ? .focused : .confirmed
-      if let handle = result.plainWindowHandle {
-        setTerminalAttachment(handle, for: key, terminalID: terminalID)
-      }
+      finishPlainAttach(result, wording: wording, terminalID: terminalID)
     case .appFocused(let app):
       // Open on this Mac (Phase I-12c2): the app is what an app's focus brings forward.
-      activities[key] = .focused
+      let appWording = TerminalWording(app: app, catalog: terminalDefinitions)
+      if let activation = result.appActivation, activation != .activated {
+        activities[key] = .failed(.appNotBroughtForward(activation, app: appWording))
+      } else {
+        activities[key] = .focusedApp(appWording)
+      }
       setTerminalAttachment(.app(app), for: key, terminalID: terminalID)
     }
     switcherActionEnded(key)
-  } // End of func finishAttach(_:target:terminalID:)
+  } // End of func finishAttach(_:target:terminalID:heldBy:)
+
+  /// The plain backend's confirmed or focused attach (PLAN.md D38 *The UI (I-12d2)*): its
+  /// window is recorded, so "Detach from this Mac" and "Show window" are offered; a confirmed
+  /// one whose one focus failed keeps "Confirmed…" with the focus's note, a focus of the
+  /// existing window that failed shows that problem.
+  func finishPlainAttach(_ result: AttachResult, wording: TerminalWording, terminalID: String?) {
+    let key = result.key
+    var failedFocus: TerminalFocusResult?
+    if case .plainWindowFailed? = result.plainWindowFocus { failedFocus = result.plainWindowFocus }
+    if result.isFocused {
+      activities[key] =
+        failedFocus.map { .failed(.windowNotBroughtForward($0, wording: wording)) }
+        ?? .focusedWindow(wording)
+    } else {
+      activities[key] = .confirmedInTerminal(wording)
+      if let failedFocus {
+        notes[key] = SessionProblem.focusNote(failedFocus, wording: wording)
+      }
+    }
+    if let handle = result.plainWindowHandle {
+      setTerminalAttachment(handle, for: key, terminalID: terminalID)
+    }
+  } // End of func finishPlainAttach(_:wording:terminalID:)
 
   /// The problem of a focus whose activation did not bring the tab forward (no tab appeared, or
   /// iTerm2 refused); `nil` when it did.
@@ -492,13 +579,15 @@ extension AppModel {
 
   /// Shows how a detach on the backend of `terminalID` ended: "Detached" (that backend's record
   /// goes, another terminal's stays, and the host is refreshed so the badge follows), or its
-  /// problem.
+  /// problem, worded for that terminal. A plain detach whose bound check refused (`notSent`)
+  /// forgets the record too: the backend dropped it.
   func finishDetach(_ result: SessionDetachResult, terminalID: String?) {
     let key = result.key
-    if result.outcome == .detached || result.outcome == .nothingAttached {
+    let plainRefused = result.outcome == .notSent && result.plainDetach != nil
+    if result.outcome == .detached || result.outcome == .nothingAttached || plainRefused {
       forgetAttachment(of: key, terminalID: terminalID)
     }
-    if let problem = SessionProblem.detach(result) {
+    if let problem = SessionProblem.detach(result, wording: wording(forTerminalID: terminalID)) {
       activities[key] = .failed(problem)
     } else {
       activities[key] = .detached
@@ -509,8 +598,12 @@ extension AppModel {
   /// What the row shows after a "Detach other clients…" that ended `result` (PLAN.md D37):
   /// "Detached <n> other client(s) — the session keeps running" (with how many had already
   /// left), "No other clients to detach — they had already left", or the problem
-  /// (`SessionProblem.detachOtherClients(_:)`); `nil` for a cancelled one, which shows nothing.
-  static func activity(after result: DetachOtherClientsResult) -> SessionActivity? {
+  /// (`SessionProblem.detachOtherClients(_:wording:)`, worded for the terminal `wording`
+  /// names); `nil` for a cancelled one, which shows nothing.
+  nonisolated static func activity(
+    after result: DetachOtherClientsResult,
+    wording: TerminalWording = .iTerm2
+  ) -> SessionActivity? {
     switch result.outcome {
     case .detached(let count):
       return .detachedOtherClients(count: count, alreadyLeft: result.goneBeforeDetach)
@@ -519,9 +612,10 @@ extension AppModel {
     case .cancelled:
       return nil
     default:
-      return SessionProblem.detachOtherClients(result).map(SessionActivity.failed)
+      return SessionProblem.detachOtherClients(result, wording: wording)
+        .map(SessionActivity.failed)
     }
-  } // End of static func activity(after:)
+  } // End of static func activity(after:wording:)
 
   /// Shows how a "Detach other clients…" on the backend of `terminalID` ended
   /// (`activity(after:)`) and refreshes its host afterwards, so `clientCount` and the offer
@@ -529,7 +623,7 @@ extension AppModel {
   /// forgets the attachment muxFinder recorded for that backend.
   func finishDetachOtherClients(_ result: DetachOtherClientsResult, terminalID: String?) {
     let key = result.key
-    activities[key] = Self.activity(after: result)
+    activities[key] = Self.activity(after: result, wording: wording(forTerminalID: terminalID))
     switch result.outcome {
     case .cancelled, .notConfirmed:
       return

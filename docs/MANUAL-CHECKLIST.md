@@ -785,6 +785,58 @@ Use the installed app (item 1), opened from Finder.
   profiles off again if you turned them on only for this; end a test session with
   `/opt/homebrew/bin/tmux kill-session -t '=<name>'` if you made one.
 
+## 28. Other terminal apps: the popover, the switcher and the errors
+
+Owed by Phase I-12d2 (PLAN.md D38 *The UI (I-12d2)*): the rows' actions, states and errors
+for Terminal and Ghostty were tested over stand-ins only, since a real Open sends an Apple event
+to the terminal and opens a real window. Use the installed app (item 1), opened from Finder,
+with a test session of your own (`/opt/homebrew/bin/tmux new-session -d -s muxfinder-test-ui`
+on This Mac, and one on Saturno over ssh).
+
+- **Do, Open and Show window:** choose Terminal in Settings › General. In the popover,
+  right-click the test session: the menu's first item reads "Open in Terminal". Open it (allow
+  macOS's prompt the first time). The row reads "Waiting for Terminal…", then "Confirmed —
+  open in Terminal on this Mac"; right-click again: "Show window" is there and "Move here…" is
+  not dimmed (choosing it and confirming reads "This session is already open in a Terminal
+  window on this Mac, so muxFinder did not move it. …" with "Bring forward" and "Detach from
+  this Mac", and nothing is opened). Switch to another app, then choose "Show window". Open
+  Saturno's session too: while ssh asks for nothing it confirms the same way; with a host that
+  waits (a password), the row reads "Still connecting — check the Terminal window" with "Show
+  window".
+- **Do, Detach and Move here:** on the This Mac session choose "Detach from this Mac" (the row
+  reads "Detached from this Mac — the session keeps running"; the window's helper explains and
+  waits). Attach the session in another terminal yourself (`tmux attach -t muxfinder-test-ui`
+  in iTerm2), then "Move here…" and confirm: it opens in a new Terminal window and the other
+  client is detached. With two clients, "Detach other clients…" detaches the other one. Then
+  detach that new window's client in tmux yourself (prefix `d` in the window): "Move here…" is
+  still offered, and confirming it opens a new Terminal window (muxFinder's record of the old
+  one was stale, so it moves here instead of refusing).
+- **Do, open elsewhere and another terminal's record:** with the session open in a Terminal
+  window muxFinder opened, choose Ghostty in Settings: the row reads "Open in Terminal on this
+  Mac" with "Show in Terminal" (which brings Terminal forward), and the menu offers "Detach
+  (opened in Terminal)" (it detaches that window's client; nothing else of Terminal is used).
+  Choose iTerm2: a session open in Terminal still shows "Open in Terminal on this Mac", and Open
+  still opens it in iTerm2.
+- **Do, the errors:** with Terminal chosen, turn off muxFinder in System Settings › Privacy &
+  Security › Automation › Terminal and Open a session: "muxFinder isn't allowed to control
+  Terminal, so it opened nothing. …" with "Open System Settings…" (opening the Automation
+  pane) and "Try again"; turn it back on. With Ghostty chosen, put `macos-applescript = false`
+  in Ghostty's config, restart Ghostty and Open a session: note the error number the row
+  shows; muxFinder takes -1708 and -10004 for "Ghostty's AppleScript is turned off" (tell us
+  if the row shows another sentence). Remove the line again. (A terminal definition of your
+  own for Ghostty, whose script muxFinder cannot vouch for, reads at -1708 "… may have no
+  “muxfinder_open” handler, or Ghostty's AppleScript may be turned off …" instead.) Rename the
+  test session to `muxfinder-test[1]` (`tmux rename-session -t muxfinder-test-ui
+  'muxfinder-test[1]'`) and Open it with Terminal chosen: "Terminal windows can't attach a
+  session whose name has “{”, “[” or “]”, …".
+- **Expect:** every line names the chosen terminal and its window, never iTerm2's tab; nothing
+  is opened in iTerm2 while another terminal is chosen; Detach never closes a window itself;
+  the session keeps running throughout.
+- **Undo:** remove `macos-applescript = false` from Ghostty's config if it is still there;
+  choose iTerm2 again in Settings › General; close the test windows once their helpers ended;
+  end the test sessions with `/opt/homebrew/bin/tmux kill-session -t '=muxfinder-test-ui'` (and
+  `'=muxfinder-test[1]'` if renamed, and Saturno's over ssh).
+
 ## Results
 
 | Item | Date | Result | Notes |
@@ -816,3 +868,4 @@ Use the installed app (item 1), opened from Finder.
 | 25 | | | |
 | 26 | | | |
 | 27 | | | |
+| 28 | | | |

@@ -225,7 +225,7 @@ extension AppModel {
     let chosen: ChosenTerminal
     switch terminalChoice {
     case .unavailable(let failure):
-      backendProblem = .terminalUnavailable(failure)
+      backendProblem = .terminalUnavailable(failure, wording: terminalWording)
       return nil
     case .unresolved: return nil
     case .iTerm2: chosen = .iTerm2
@@ -256,10 +256,13 @@ extension AppModel {
   }
 
   /// The backends built so far for every terminal id but `terminalID` (all of them for
-  /// `nil`), in no particular order: those an Open or a Move here asks for an unresolved launch
-  /// of its session (`TerminalBackend.hasUnresolvedLaunch(for:)`).
-  func otherBackends(than terminalID: String?) -> [any TerminalBackend] {
-    backends.filter { $0.key != terminalID }.map(\.value)
+  /// `nil`), with their terminal ids, in id order: those an Open or a Move here asks for an
+  /// unresolved launch of its session (`TerminalBackend.hasUnresolvedLaunch(for:)`).
+  func otherBackends(
+    than terminalID: String?
+  ) -> [(id: String, backend: any TerminalBackend)] {
+    backends.filter { $0.key != terminalID }.sorted { $0.key < $1.key }
+      .map { (id: $0.key, backend: $0.value) }
   }
 
   // MARK: - Focus
@@ -300,10 +303,11 @@ extension AppModel {
     }
   }
 
-  /// One focus ended: its note, if any, shows under the session.
+  /// One focus ended: its note, if any, shows under the session, worded for the chosen
+  /// terminal (the one whose backend ran it).
   func focusEnded(_ number: Int, key: SessionKey, result: TerminalFocusResult) {
     showTabTasks[number] = nil
-    notes[key] = SessionProblem.focusNote(result)
+    notes[key] = SessionProblem.focusNote(result, wording: terminalWording)
     applyPendingTerminalChoiceIfIdle()
   }
 } // End of extension AppModel

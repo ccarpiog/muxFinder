@@ -58,6 +58,13 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
   public var switcherSelection: SwitcherContent.Item?
   /// Sessions whose switcher action failed after it closed, shown at its top.
   public var switcherCarriedFailures: [SessionKey]
+  /// The terminal choice the fixture shows (PLAN.md D38 *The UI (I-12d2)*): iTerm2, a plain
+  /// definition decoded in memory (`TerminalSessionFixtures`), or unavailable.
+  public var terminal: TerminalChoiceResolution
+  /// The definitions the fixture's terminal names come from (`nil`: none loaded).
+  public var terminalDefinitions: TerminalDefinitionCatalog?
+  /// Each terminal backend's records, by terminal id and session (a plain window, an app).
+  public var terminalAttachments: [String: [SessionKey: TerminalAttachmentHandle]]
 
   /// Creates a fixture.
   public init(
@@ -86,7 +93,10 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     folderSearchHelpShown: Bool = false,
     switcherSearchText: String = "",
     switcherSelection: SwitcherContent.Item? = nil,
-    switcherCarriedFailures: [SessionKey] = []
+    switcherCarriedFailures: [SessionKey] = [],
+    terminal: TerminalChoiceResolution = .iTerm2,
+    terminalDefinitions: TerminalDefinitionCatalog? = nil,
+    terminalAttachments: [String: [SessionKey: TerminalAttachmentHandle]] = [:]
   ) {
     self.id = id
     self.title = title
@@ -114,6 +124,9 @@ public struct PreviewFixture: Sendable, Hashable, Identifiable {
     self.switcherSearchText = switcherSearchText
     self.switcherSelection = switcherSelection
     self.switcherCarriedFailures = switcherCarriedFailures
+    self.terminal = terminal
+    self.terminalDefinitions = terminalDefinitions
+    self.terminalAttachments = terminalAttachments
   } // End of init(id:title:state:hostList:searchText:selection:activities:shownExplanation:…)
 }
 

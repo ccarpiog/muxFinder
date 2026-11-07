@@ -1543,7 +1543,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     through one `AsyncStream` read by one main-actor task: the coordinator publishes a launch's
     states before its call returns and the action yields its result after, so a row never goes
     back. `requested` shows "Opening…" ("Moving here…" for a move), `launched` "Waiting for
-    iTerm2…", `stillWaiting` "Still connecting — check the iTerm2 tab" with "Show tab",
+    iTerm2…", `stillWaiting` "Still connecting — check the iTerm2 tab" with "Show tab" (with a
+    plain terminal chosen the states name it and its window, "Waiting for Terminal…", "…check
+    the Terminal window" with "Show window", D38 *The UI (I-12d2)*),
     `confirmed` "Confirmed — open in iTerm2 on this Mac" (only from the core's `confirmed`,
     which follows its identity check) and `focused` "Already open here — brought its tab
     forward"; an Open of a session this Mac's iTerm2 shows already is the coordinator's focus,
@@ -1568,7 +1570,9 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     helper failure or a wait limit with a launch tab), "Bring forward" and "Detach from this
     Mac" (`alreadyAttachedHere`), "Open Settings" (an invalid destination, tmux missing), and
     D23's fix-it for iTerm2 permission and API errors. A helper failure's explanation says
-    "shown in the tab" where the helper wrote "shown above".
+    "shown in the tab" where the helper wrote "shown above". A plain terminal's failures are
+    worded for that terminal, with "Show window" and "Open System Settings…" (D38 *The UI
+    (I-12d2)*).
   - **Banners:** `sessionGone` is "vanished", `sessionChanged` and `identityMismatch`
     "changed": the row's activity is cleared, a banner names the session and its host
     (dismissible, at most 3, newest first) and the host is refreshed.
@@ -1582,14 +1586,20 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     activities. Not yet seen against iTerm2 3.7.6 (local attaches never wait, so the self-tests
     do not reach it).
   - **Move here:** the row's context menu offers "Move here…" (disabled while the attachment
-    index shows the session open here, where the move would refuse, D21). It shows a panel in
-    place of the host list: "Move “name” here?", that muxFinder disconnects every other client,
-    including iTerm2 on other Macs, that nothing is closed and the session keeps running, and
+    index shows the session open here, D21; a window the chosen plain terminal's backend
+    recorded never dims it, since that record may be stale: the backend checks its client at
+    the move and refuses while it still holds the session, D38 *The UI (I-12d2)*). It shows a
+    panel in place of the host list: "Move “name”
+    here?", that muxFinder disconnects every other client, including iTerm2 on other Macs
+    ("terminals" with a plain terminal chosen), that nothing is closed and the session keeps
+    running, and
     the last client count. Cancel or Esc runs nothing; "Move here" or Return calls
     `confirmMoveHere()`, the only caller of `moveHere(_:confirmation:)`, with
     `.detachOtherClients(of:)` for that session.
   - **Detach:** "Detach from this Mac" is offered only for a session this Mac's iTerm2 shows
-    (the index's badge, or `attachedHere`). It is `detach(session:on:)` (D16: the 10 s tab age,
+    (the index's badge, or `attachedHere`), or, with a plain terminal chosen, one its backend
+    holds a window of (D38 *The UI (I-12d2)*; another terminal's record offers "Detach (opened
+    in <terminal>)" instead). With iTerm2 it is `detach(session:on:)` (D16: the 10 s tab age,
     the identity re-check, `detach-client`, never a closed tab); the row then says "Detached
     from this Mac — the session keeps running", the record goes and the host is refreshed.
   - **Detach other clients** (Phase I-11b; D37 has the rules): the context menu's "Detach
@@ -2930,11 +2940,14 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     popover row's, but for "Try again" after a move here or a "Detach other clients…", whose
     confirmation only the popover draws, D37).
   - **Actions and carry-over** (`AppModelSwitcher.swift`): a session row opens through the
-    popover's Open (D25: focused when open here, else attached). An Open started while the
+    popover's Open (D25: focused when open here, else attached), in the chosen terminal; its
+    row shows the popover row's "Open in Terminal on this Mac" with "Show in Terminal" (D38
+    *The UI (I-12d2)*). An Open started while the
     switcher shows, and the creation and attach of a New session draft the switcher made (D34)
     and the attach its "Open existing" starts, are followed (`switcherActions`,
     `switcherCreation`): the row shows the activity (pinned while the engine does not list
-    it); a success closes the switcher
+    it); a success (`SessionActivity.isAttached`: confirmed, or a tab, window or app brought
+    forward) closes the switcher
     (`CloseReason.actionSucceeded`) only if it showed when the action started and stayed open
     since (rarely so for a creation: the switcher closes as the New session window opens); a failure while it shows stays on its row with the popover row's text
     and recoveries (the switcher stays open); a failure that arrives once it closed is carried
@@ -3589,8 +3602,10 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
     - **While it runs** the row shows "Detaching other clients…" (a spinner; up to about 20 s
       for young tabs and clients); clicks on the row are ignored; `shutdown()` cancels it
       (`cancelSessionActions`, kind "detach other clients").
-    - **Results** (`AppModel.activity(after:)`, failures through
-      `SessionProblem.detachOtherClients(_:)`, every line pairwise distinct, tested):
+    - **Results** (`AppModel.activity(after:wording:)`, failures through
+      `SessionProblem.detachOtherClients(_:wording:)`, every line pairwise distinct, tested;
+      these are iTerm2's, a plain terminal's are D38 *The UI (I-12d2)*'s: a run stopped partway
+      says "Stopped after detaching N" or "Some may have been detached"):
       `detached(count:)` → "Detached <n> other client(s) — the session keeps running", then
       "(<m> had already left)" when `goneBeforeDetach` is above zero (a check mark, cleared when
       the popover opens again); `nothingToDetach` → "No other clients to detach — they had
@@ -4068,8 +4083,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       `plainClientListing`. Right before each detach the attachment must still be the
       backend's record of the session with no helper result (a file-only peek), else
       `identityChanged`, nothing more sent. The detaches tmux confirmed before such a stop stay
-      counted in `detachedClients` (`identityChanged` reused; its UI sentence still says no
-      other client was detached, which I-12d's plain wording should cover).
+      counted in `detachedClients` (`identityChanged` reused; the plain wording says how many
+      were detached, D38 *The UI (I-12d2)*).
     - *Result types, extended additively with new cases* (an optional field could not carry a
       plain `confirmed` without overloading iTerm2's connection id): `AttachState`
       `plainLaunched(window:)`, `plainStillWaiting(window:)`, `plainConfirmed(client:)`,
@@ -4081,7 +4096,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       `SessionDetachResult.plainDetach`, `DetachOtherClientsResult.keptPlainClient`. The
       terminal-neutral failures are reused (`timedOut`, `waitLimitReached`, `helperEnded`,
       `helperFailed`, `sessionGone`, `sessionChanged`, `launchStore`, `earlierLaunchPending`,
-      `moveHereNotConfirmed`, `cancelled`; their iTerm2 wording is I-12d's). `isConfirmed` and
+      `moveHereNotConfirmed`, `cancelled`; a plain terminal's wording is D38 *The UI
+      (I-12d2)*'s). `isConfirmed` and
       `isFocused` (so `isAttached`) hold for the plain counterparts. Timings: `connected` is
       the report first seen, `activated` the window's focus.
     - *Factored out of the coordinator* (`AttachSharedSteps`, its behaviour unchanged): the
@@ -4192,7 +4208,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       ends the attach `AttachState.appFocused(app:)` (kind `appFocused`; `isFocused` and
       `isAttached` hold) with `AttachResult.localAttachment` and `appActivation`, published as
       `requested` → `appFocused`, nothing written or opened, whatever the activation's outcome.
-      The two `MuxFinderUI` switches show it as `.focused` (I-12d writes the strings).
+      The row shows it as `.focusedApp` ("Already open in Terminal on this Mac — brought it
+      forward", D38 *The UI (I-12d2)*).
     - *Remote sessions:* an SSH host's clients are never attributed (their processes run on
       that host), so a remote session attached by hand in a plain terminal is "attached
       somewhere" unless the plain backend's own record or D16's index says otherwise.
@@ -4235,7 +4252,8 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       `TerminalAppFacts.versionCheck(of:minimum:)`; no permission read, no event).
       `TerminalChoiceUnavailable` (an `Error`: the id, the reason, a neutral sentence quoting
       the id cut to printable ASCII) is the typed failure; the model shows it as
-      `SessionProblem.terminalUnavailable(_:)` ("Open Settings"; I-12d writes the sentence).
+      `SessionProblem.terminalUnavailable(_:wording:)` ("Open Settings"; since I-12d2 the
+      sentence names a loaded definition's terminal).
     - *The key* `terminal` in `preferences.json` (D32): a string kept as stored; a value that
       is not a string reads as the empty id (so unavailable, never the default); written only
       by the setter through a new `TerminalSettingStoring` (a sub-protocol of
@@ -4594,6 +4612,125 @@ interactive `/usr/bin/ssh -- <destination>` there (D24).
       **Owed** (`docs/MANUAL-CHECKLIST.md` item 27): the picker's real permission states, "Set up
       SSH" in Terminal and Ghostty (a real login and an Apple event), pasting the persistent
       work command into Terminal and Ghostty.
+  - **The UI (I-12d2)** (2026-11-07; requirement 9; code in `Sources/MuxFinderUI/Model/`:
+    `TerminalWordingSessions.swift` and `TerminalWordingFailures.swift` (extensions of
+    `TerminalWording`), `SessionProblemTerminal.swift`, `AppModelTerminalSessions.swift`;
+    `Preview/TerminalSessionFixtures.swift`, `Preview/TerminalAttachFixtures.swift`; changed:
+    `SessionActivity.swift` (five plain cases, `isAttached`, `launchWindow`),
+    `SessionProblem.swift` (`Recovery.showWindow`, `openAutomationSettings`; `attach`,
+    `detach`, `detachOtherClients`, `terminalUnavailable` take the terminal's wording),
+    `PopoverContent.swift` (`SessionRow.hasWindowHere`, `openInApps`, `otherTerminalDetaches`;
+    `OpenInApp`, `OtherTerminalDetach`), `SwitcherContent.swift`, `SessionPanels.swift`,
+    `HostStatusLabel.swift`, `SettingsResults.swift`, `AppModel*.swift`, the row, menu,
+    switcher, panel and footer views, `PreviewFixtures.swift` (a fixture's terminal) and the
+    three galleries; in the core, additively, public
+    `LoadedTerminalDefinition.init(definition:source:fileName:script:)`,
+    `TerminalDefinitionCatalog.init(definitions:problems:)` and
+    `PlainTerminalWindowError.reason(of:)`; tests `TerminalSessionWordingTests.swift`,
+    `TerminalSessionModelTests.swift`, the core's `TerminalPublicInitTests.swift`;
+    `docs/TESTING.md` *Phase I-12d2*, `docs/MANUAL-CHECKLIST.md` item 28). It does what the
+    calls for I-12d2 say. **The worker's calls:**
+    - *One wording source still:* every per-terminal string is a `TerminalWording` property or
+      method (two new files extend it); with iTerm2's wording each is byte for byte the old
+      literal (tested against the literals). A row's lines follow the terminal **whose backend
+      ran the action** (`AppModel.wording(forTerminalID:)`, from the running action's terminal
+      id), not the choice at display time, so a line stays true after a change of terminal;
+      menus, hints and the panels follow the applied choice. A window error is worded by its
+      own app name (`PlainTerminalWindowError` carries it), so the line is the same whatever
+      calls it.
+    - *States:* iTerm2's `SessionActivity` cases are unchanged; the plain backend's are
+      `waitingForTerminal` ("Waiting for Terminal…"), `stillConnectingInWindow` ("Still
+      connecting — check the Terminal window" with "Show window"), `confirmedInTerminal`,
+      `focusedWindow` ("Already open here — brought its Terminal window forward") and
+      `focusedApp` ("Already open in Ghostty on this Mac — brought it forward"). A confirmed
+      window whose one focus failed keeps "Confirmed…" with the focus's note; a focus of the
+      backend's own window, or an app activation, that did not bring it forward is a problem
+      with "Try again" (as iTerm2's `notBroughtForward`). The session switcher closes on
+      `isAttached` (any of the five success states).
+    - *Show window:* the context menu offers it for a window the chosen plain backend recorded
+      (`hasWindowHere`), a still-connecting launch and a failure whose window is known
+      (`Recovery.showWindow`), always through the chosen terminal's backend (another
+      terminal's window is refused with nothing sent, as "Show tab" is). A recorded window also
+      offers "Detach from this Mac", but never dims "Move here…" (review fix): the model's copy
+      of the record is not checked again by a refresh, so its client may have been detached in
+      tmux or its window closed; the backend checks its own record at the move (the helper's
+      result, then the bound presence check), refuses while its client still holds the session
+      (`alreadyOpenInTerminal`: "This session is already open in a Terminal window…" with
+      "Bring forward" and "Detach from this Mac") and otherwise drops it and moves here, the new
+      window replacing the record.
+    - *Errors:* `SessionProblem.plainAttach` switches over every `AttachFailure` and
+      `terminalWindow(_:kind:)` over every `PlainTerminalWindowError`, both with no `default:`;
+      iTerm2's own failures keep iTerm2's lines, the neutral ones the core's sentence. "Ghostty's
+      AppleScript is turned off" is decided by Ghostty's open answering -1708 or -10004 (a
+      guess: the real number is owed, item 28), -1708 only from muxFinder's own script (review
+      fix): -1708 (`errAEEventNotHandled`) is also what a script answers for a handler it
+      lacks, which the number cannot tell apart, and a built-in script defines every handler.
+      From a user definition or override (`LoadedTerminalDefinition.source`, passed by the
+      model as `SessionProblem.attach`'s `definitionSource`) an open answering -1708 reads as
+      possibilities, for any app: "Ghostty couldn't open a window (error -1708), so muxFinder
+      opened nothing. The script of your terminal definition for Ghostty may have no
+      “muxfinder_open” handler, or Ghostty's AppleScript may be turned off: …" with "Try again"
+      and "Open Settings" (`TerminalWording.windowOpenNotHandled(errorNumber:)`; without the
+      AppleScript part for other apps). -600, -609 and -10810 from an open read "isn't running
+      and couldn't be opened (error …)". A denied permission offers "Open System
+      Settings…" (a new recovery opening Privacy & Security › Automation's URL, no Apple event),
+      an app gone or too old "Open Settings", a refused launch command no recovery (moving
+      muxFinder is the fix). The unavailable choice names a loaded definition's terminal ("The
+      chosen terminal, Ghostty, isn't installed. …"); an id no definition has keeps the core's
+      sentence, which quotes it.
+    - *Earlier launch pending:* the refusal for another backend's launch records that backend's
+      terminal id (`ActionEvent.finished`'s `heldBy`, the first holder by id) and names it;
+      the chosen backend's own refusal names the chosen terminal (iTerm2's line as before).
+    - *Open on this Mac:* `SessionRow.openInApps` (one per app, named from the loaded
+      definitions, "another terminal" when none names it) shows "Open in Terminal on this Mac"
+      with "Show in Terminal" whatever the choice; "Show in …" focuses `.app(app)` through the
+      chosen backend (iTerm2's too: the activator, no Apple event, nothing launched); Open
+      still opens in the chosen terminal. The row's indicator is unchanged (D16's badge stays
+      iTerm2's).
+    - *Another terminal's records:* "Detach (opened in <terminal>)" for each plain window kept
+      by a terminal that is not chosen, and for iTerm2's `attachedHere` records while iTerm2
+      is not chosen; it runs only that terminal's cached backend's `detach(session:on:)`
+      (never builds one; `ActionKind.detachOpenedIn`, so "Try again" repeats it there). It
+      runs on the record that terminal keeps (`AppModel.keepsRecord(of:terminalID:)`: iTerm2's
+      `attachedHere`, a plain backend's window) whether or not that terminal is the chosen one
+      by then (review fix), so "Try again" still works after a change of terminal that waited
+      for the detach made it the chosen one; likewise "Try again" of a "Detach from this Mac"
+      whose terminal is no longer the chosen one repeats it on that terminal's backend while it
+      keeps the record (`lastDetachTerminalIDs`; with the same terminal chosen it is as before).
+      The iTerm2 one contacts iTerm2 with a plain choice: the user's explicit detach of an
+      attachment muxFinder made there, the only such contact (none exists without such a
+      record, so `aPlainChoiceNeverContactsITerm2` holds as written).
+    - *Detach other clients, plain:* a run that stopped says "Stopped after detaching N other
+      client(s): <why>" when `detachedClients` is known, "muxFinder detached no other client:
+      <why>" only when it is 0 and nothing may have run, and "Stopped detaching … Some may have
+      been detached: <why>" (with "At least N were") when a failed detach may have run
+      (`PlainTmuxCommandFailure.mayHaveRun`); never "none" when unproven (tested over every
+      outcome and count against `mayHaveSent`). A plain Detach's lines name the window; a
+      refused bound detach (`notSent`) also forgets the model's record, as the backend dropped
+      it.
+    - *Beyond the block:* the host problems that say where to set up SSH, Settings' "Test
+      connection" and "Detect" lines, New session's "Creating … in Terminal…", the Move here
+      and Detach other clients panels and Quit's help follow the choice too (iTerm2's strings
+      unchanged).
+    - *Galleries:* a fixture can choose a terminal (`PreviewFixture.terminal`, its definitions
+      and records), Terminal's and Ghostty's decoded in memory from copies of the built-ins'
+      JSON, which needed the core's two public initializers (no file read, no script). The new
+      states are separate lists after the existing ones (`TerminalSessionFixtures.popover` and
+      `.switcher`, `TerminalAttachFixtures.all` and `.menus`), so every existing fixture count
+      stands; attach cards hold at most three rows, so no popover scrolls in a screenshot.
+    - **Verified** (hermetic; `docs/TESTING.md` *Phase I-12d2*): 24 UI tests in 5 suites and 1
+      core test; every existing expectation unchanged but three of I-12c3a's plain
+      placeholders in `TerminalSeamTests` (a plain focus, the name refusal, the holder's
+      name), which now expect the plain wording. Galleries and screenshots (popover, attach,
+      switcher, light and dark). The review's three should-fix findings
+      (`docs/reviews/phase-I-12d2.md`) are fixed above, each with a regression in
+      `TerminalReviewFixTests` (7 UI tests in 1 suite) that fails with its fix reverted; one
+      expectation of this phase's `anotherTerminalsRecordDetachesThroughItsOwnBackend` now
+      expects "Move here…" offered beside a window; the attach screenshots show it so. `pgrep -x Terminal` and `pgrep -x ghostty` empty before and
+      after; no Apple event, no prompt. **Owed** (`docs/MANUAL-CHECKLIST.md` item 28): a real
+      Open, "Show window", Detach, Move here and "Detach other clients…" in Terminal and
+      Ghostty, the real permission and AppleScript-off lines (and Ghostty's number), "Show in
+      Terminal" and "Detach (opened in …)" after a change.
 
 ## Verified facts (planning session, 2026-10-21)
 

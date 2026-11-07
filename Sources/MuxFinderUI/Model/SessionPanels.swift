@@ -40,11 +40,12 @@ public struct MoveHereRequest: Sendable, Hashable {
   /// The dialog's title.
   public var title: String { "Move “\(sessionName)” here?" }
 
-  /// The dialog's explanation: what moving does, and what it leaves running.
-  public var explanation: String {
-    "muxFinder will open this session from \(hostName) in iTerm2 on this Mac and disconnect "
-      + "every other client attached to it, including iTerm2 on your other Macs. Nothing is "
-      + "closed: the session keeps running, and the other Macs can attach again later."
+  /// The dialog's explanation: what moving does, and what it leaves running (iTerm2's).
+  public var explanation: String { explanation(in: .iTerm2) }
+
+  /// The explanation in the terminal `wording` names (PLAN.md D38 *The UI (I-12d2)*).
+  public func explanation(in wording: TerminalWording) -> String {
+    wording.moveHereExplanation(hostName: hostName)
   }
 
   /// How many clients tmux reported attached when the session was listed, said plainly.
@@ -88,21 +89,26 @@ public struct DetachOtherClientsRequest: Sendable, Hashable {
   /// The dialog's title.
   public var title: String { "Detach other clients of “\(sessionName)”?" }
 
-  /// The dialog's explanation: what is detached, where they may be, and what stays running.
-  public var explanation: String {
-    "muxFinder will have tmux detach every other client of this session on \(hostName) and "
-      + "keep this Mac's attachment. They may be iTerm2 on your other Macs. Nothing is closed: "
-      + "the session keeps running, and they can attach again later."
+  /// The dialog's explanation: what is detached, where they may be, and what stays running
+  /// (iTerm2's).
+  public var explanation: String { explanation(in: .iTerm2) }
+
+  /// The explanation in the terminal `wording` names (PLAN.md D38 *The UI (I-12d2)*).
+  public func explanation(in wording: TerminalWording) -> String {
+    wording.detachOtherClientsExplanation(hostName: hostName)
   }
 
   /// How many other clients there were when it opened, said plainly ("1 other client …", "2
   /// other clients …"), with "including <k> in this Mac's iTerm2" when this Mac has more than
   /// one attachment of the session.
-  public var clientsText: String {
+  public var clientsText: String { clientsText(in: .iTerm2) }
+
+  /// `clientsText` in the terminal `wording` names.
+  public func clientsText(in wording: TerminalWording) -> String {
     let clients =
       otherClients == 1
       ? "1 other client was attached" : "\(otherClients) other clients were attached"
-    let here = otherClientsHere > 0 ? ", including \(otherClientsHere) in this Mac's iTerm2" : ""
+    let here = otherClientsHere > 0 ? wording.otherClientsHereText(otherClientsHere) : ""
     return clients + " when muxFinder last looked" + here + "."
   }
 
@@ -206,11 +212,15 @@ public struct NewSessionDraft: Sendable, Hashable {
       host: host, name: name, workingDirectory: workingDirectory, command: command)
   } // End of func request(hosts:command:)
 
-  /// The message shown for the form's state, if any.
-  public var stateMessage: String? {
+  /// The message shown for the form's state, if any (iTerm2's).
+  public var stateMessage: String? { stateMessage(in: .iTerm2) }
+
+  /// The message for the form's state in the terminal `wording` names (PLAN.md D38 *The UI
+  /// (I-12d2)*).
+  public func stateMessage(in wording: TerminalWording) -> String? {
     switch state {
     case .editing: return nil
-    case .creating: return "Creating the session and opening it in iTerm2…"
+    case .creating: return wording.creatingText
     case .collision: return SessionCreationError.sessionExists(.hasSession).message
     case .findingExisting: return "Looking for the existing session…"
     case .failed(let message): return message

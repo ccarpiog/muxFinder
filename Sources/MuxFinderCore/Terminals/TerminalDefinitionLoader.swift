@@ -44,6 +44,22 @@ public struct LoadedTerminalDefinition: Sendable, Hashable {
   public let fileName: String
   /// The script, for an `appleScript` open; `nil` for `exec`.
   public let script: TerminalScript?
+
+  /// A loaded definition of `definition` from `source`'s file `fileName`, with `script`. The
+  /// loader makes them from files; public since Phase I-12d2 so the app's preview fixtures can
+  /// name a terminal from a definition decoded in memory (`TerminalDefinition.decode(_:)`),
+  /// which reads no file and runs nothing.
+  public init(
+    definition: TerminalDefinition,
+    source: TerminalDefinitionSource,
+    fileName: String,
+    script: TerminalScript?
+  ) {
+    self.definition = definition
+    self.source = source
+    self.fileName = fileName
+    self.script = script
+  }
 }
 
 /// A file (or folder) that could not be used, and why.
@@ -65,6 +81,13 @@ public struct TerminalDefinitionCatalog: Sendable, Hashable {
   public let definitions: [LoadedTerminalDefinition]
   /// Every unusable file or folder, built-in folder first, then by file name.
   public let problems: [TerminalDefinitionFileProblem]
+
+  /// A catalog of `definitions` and `problems` (public since Phase I-12d2, for the app's
+  /// preview fixtures; the loader makes the real one).
+  public init(definitions: [LoadedTerminalDefinition], problems: [TerminalDefinitionFileProblem]) {
+    self.definitions = definitions
+    self.problems = problems
+  }
 
   /// The definition with `id`, if any.
   public func definition(withID id: String) -> LoadedTerminalDefinition? {

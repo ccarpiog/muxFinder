@@ -2,10 +2,11 @@ import MuxFinderCore
 import SwiftUI
 
 /// The `--preview-fixtures --preview-gallery attach` window's content (PLAN.md D25): every
-/// session-action state from `AttachFixtures.all`, each in a frame like the menu bar popover,
-/// and a card with the session row's context menu for a session open here and one attached
-/// elsewhere. Nothing here runs an engine, reads `hosts.json` or `directories.json`, or
-/// contacts iTerm2.
+/// session-action state from `AttachFixtures.all`, then the states per terminal
+/// (`TerminalAttachFixtures.all`, PLAN.md D38 *The UI (I-12d2)*), each in a frame like the menu
+/// bar popover, a card with the session row's context menu for a session open here and one
+/// attached elsewhere, and one card per plain terminal's context menus. Nothing here runs an
+/// engine, reads `hosts.json` or `directories.json`, or contacts iTerm2 or any terminal app.
 public struct AttachGallery: View {
   /// How many cards each row holds.
   public static let columns = 4
@@ -14,18 +15,26 @@ public struct AttachGallery: View {
   @State private var entries: [PreviewGallery.Entry]
   /// A model for the context menu's card (a fixture: its buttons do nothing).
   @State private var menuModel = AppModel(fixture: AttachFixtures.banners)
+  /// The plain terminals' menu cards, each with its model (fixtures: their buttons do nothing).
+  @State private var terminalMenus: [PreviewGallery.Entry]
 
   /// A gallery of every session-action fixture.
   public init() {
     _entries = State(
-      initialValue: AttachFixtures.all.map {
+      initialValue: (AttachFixtures.all + TerminalAttachFixtures.all).map {
         PreviewGallery.Entry(fixture: $0, model: AppModel(fixture: $0))
+      })
+    _terminalMenus = State(
+      initialValue: TerminalAttachFixtures.menus.map {
+        PreviewGallery.Entry(fixture: $0.fixture, model: AppModel(fixture: $0.fixture))
       })
   }
 
-  /// The grid of states, the context menu's card last.
+  /// The grid of states, the context menus' cards last.
   public var body: some View {
-    let cards = entries.map(Card.state) + [.menu]
+    let cards =
+      entries.map(Card.state) + [.menu]
+      + TerminalAttachFixtures.menus.indices.map(Card.terminalMenu)
     let rows = stride(from: 0, to: cards.count, by: Self.columns).map {
       Array(cards[$0..<min($0 + Self.columns, cards.count)])
     }
@@ -36,6 +45,7 @@ public struct AttachGallery: View {
             switch card {
             case .state(let entry): stateCard(entry)
             case .menu: menuCard
+            case .terminalMenu(let index): terminalMenuCard(index)
             }
           }
         }
@@ -51,15 +61,18 @@ public struct AttachGallery: View {
     case state(PreviewGallery.Entry)
     /// The context menu.
     case menu
+    /// A plain terminal's context menus (`TerminalAttachFixtures.menus[index]`).
+    case terminalMenu(Int)
 
     /// `Identifiable` conformance.
     var id: String {
       switch self {
       case .state(let entry): return entry.id
       case .menu: return "context-menu"
+      case .terminalMenu(let index): return "context-menu-\(index)"
       }
     }
-  }
+  } // End of enum Card
 
   /// One state: its title above a popover-like frame (the popover paints its own opaque
   /// background, as in the menu bar).
@@ -76,16 +89,36 @@ public struct AttachGallery: View {
 
   /// The context menu of a session open here and of one attached elsewhere, drawn as menus.
   private var menuCard: some View {
+    menus(
+      title: "Session context menu", rows: AttachFixtures.menuRows, model: menuModel,
+      caption: { row in
+        row.isOpenInITerm2Here ? "“\(row.name)”, open here" : "“\(row.name)”, elsewhere"
+      })
+  }
+
+  /// A plain terminal's context menus (`TerminalAttachFixtures.menus[index]`).
+  private func terminalMenuCard(_ index: Int) -> some View {
+    let card = TerminalAttachFixtures.menus[index]
+    return menus(
+      title: card.title, rows: card.rows, model: terminalMenus[index].model,
+      caption: { row in "“\(row.name)”" })
+  }
+
+  /// A card titled `title` drawing the context menu of each of `rows` for `model`, each under
+  /// its `caption`.
+  private func menus(
+    title: String, rows: [SessionRow], model: AppModel, caption: @escaping (SessionRow) -> String
+  ) -> some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Session context menu")
+      Text(title)
         .font(.headline)
-      ForEach(AttachFixtures.menuRows) { row in
+      ForEach(rows) { row in
         VStack(alignment: .leading, spacing: 4) {
-          Text(row.isOpenInITerm2Here ? "“\(row.name)”, open here" : "“\(row.name)”, elsewhere")
+          Text(caption(row))
             .font(.caption)
             .foregroundStyle(.secondary)
           VStack(alignment: .leading, spacing: 6) {
-            SessionMenu(row: row, model: menuModel)
+            SessionMenu(row: row, model: model)
           }
           .buttonStyle(.plain)
           .padding(10)
@@ -97,7 +130,7 @@ public struct AttachGallery: View {
       }
     } // End of VStack holding the card
     .frame(width: PopoverView.width, alignment: .leading)
-  } // End of var menuCard
+  } // End of func menus(title:rows:model:caption:)
 }
 
 #Preview("New session: directory list") {

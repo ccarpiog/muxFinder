@@ -13,7 +13,8 @@ public struct TerminalEnvironment: Sendable {
   public var preferences: (any TerminalSettingStoring)?
   /// Loads the terminal definitions; called once, at launch (`TerminalDefinitionLoader` over
   /// the bundle's `Resources/Terminals/` and the user's folder, read only, never created).
-  /// Their problems are kept for Phase I-12d to show (`AppModel.terminalDefinitions`).
+  /// Their problems are kept for the picker to show (`AppModel.terminalDefinitions`), and
+  /// their names word the session rows (PLAN.md D38 *The UI (I-12d2)*).
   public var loadDefinitions: @Sendable () -> TerminalDefinitionCatalog
   /// Where LaunchServices finds an app and its version, and whether it runs; read without
   /// launching it or sending an Apple event (`WorkspaceTerminalAppInspector` in the app).

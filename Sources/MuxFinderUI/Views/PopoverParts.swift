@@ -2,7 +2,7 @@ import MuxFinderCore
 import SwiftUI
 
 /// The footer: "New session", "Refresh", "Settings", and "Quit" (which leaves every session
-/// and iTerm2 tab running). Each icon sits closer to its own title than to the next button
+/// and iTerm2 tab, or the chosen terminal's windows, running). Each icon sits closer to its own title than to the next button
 /// (PLAN.md D22): the buttons are `buttonSpacing` apart, at least three times the
 /// `iconTitleSpacing` inside each label.
 struct FooterView: View {
@@ -39,7 +39,7 @@ struct FooterView: View {
       Button("Quit") {
         model.quit()
       }
-      .help("Quit muxFinder. Your tmux sessions and iTerm2 tabs keep running.")
+      .help(model.terminalWording.quitHelp)
     } // End of HStack holding the buttons
     .buttonStyle(.borderless)
     .labelStyle(FooterLabelStyle())

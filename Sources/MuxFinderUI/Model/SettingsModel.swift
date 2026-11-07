@@ -967,7 +967,8 @@ public final class SettingsModel {
     testTask = track { [weak self] in
       guard let result = try? await environment.discovery.discover(host) else { return }
       guard let self, self.probeGeneration == generation else { return }
-      self.connectionTest = .finished(ConnectionTestResult(result, mode: host.mode))
+      self.connectionTest = .finished(
+        ConnectionTestResult(result, mode: host.mode, wording: self.terminalWording))
       await self.record(
         Self.outcome(of: result.status), hostID: host.id, duration: result.duration,
         detail: "connection test: \(result.status.kind)")
@@ -985,7 +986,7 @@ public final class SettingsModel {
     detectTask = track { [weak self] in
       guard let result = try? await environment.discovery.discover(host) else { return }
       guard let self, self.probeGeneration == generation else { return }
-      let state = DetectionState(result)
+      let state = DetectionState(result, wording: self.terminalWording)
       if case .found(let path, _) = state, var updated = self.draft, updated.id == host.id {
         updated.tmuxPath = path
         self.draft = updated

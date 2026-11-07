@@ -22,7 +22,7 @@ struct MoveHerePanelView: View {
         Image(systemName: "arrow.down.right.and.arrow.up.left")
           .foregroundStyle(.orange)
       }
-      Text(request.explanation)
+      Text(request.explanation(in: model.terminalWording))
         .font(.callout)
         .fixedSize(horizontal: false, vertical: true)
       Text(request.clientsText)
@@ -67,13 +67,13 @@ struct DetachOtherClientsPanelView: View {
         Image(systemName: "person.2.slash")
           .foregroundStyle(.orange)
       }
-      Text(request.explanation)
+      Text(request.explanation(in: model.terminalWording))
         .font(.callout)
         .fixedSize(horizontal: false, vertical: true)
       Text(DetachOtherClientsRequest.windowSizeText)
         .font(.callout)
         .fixedSize(horizontal: false, vertical: true)
-      Text(request.clientsText)
+      Text(request.clientsText(in: model.terminalWording))
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
@@ -133,7 +133,7 @@ struct NewSessionPanelView: View {
         "Name", text: $model.newSessionDraft.name, prompt: Self.namePrompt,
         issue: draft.nameIssue)
       DirectoryFieldView(model: model)
-      if let message = draft.stateMessage {
+      if let message = draft.stateMessage(in: model.terminalWording) {
         stateLine(message, state: draft.state)
       }
       HStack {
