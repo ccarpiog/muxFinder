@@ -20,9 +20,10 @@
 #   com.apple.security.automation.apple-events entitlement and no sandbox. Without an
 #   identity it signs ad hoc and warns that macOS permission grants (Automation) reset on
 #   every build. Signatures carry no timestamp.
-# - --release (used by scripts/release.sh, PLAN.md D28): the first "Developer ID
-#   Application" identity instead (or MUXFINDER_SIGN_IDENTITY), with a secure timestamp, as
-#   notarization requires; no ad hoc fallback. This script itself never notarizes.
+# - --release (used by scripts/release.sh, PLAN.md D28): the exact G2 Developer ID
+#   fingerprint in scripts/lib/developer-id.sh (or DEVELOPER_ID_SHA1;
+#   MUXFINDER_SIGN_IDENTITY also accepts a full fingerprint), with a secure timestamp.
+#   No ad hoc fallback. This script itself never notarizes.
 # - Every value written into the bundle is a constant of this script; nothing is built from
 #   the environment except the signing identity, which is passed to codesign as one argument.
 set -euo pipefail
@@ -142,23 +143,26 @@ cat > "$ENTITLEMENTS" <<'ENTITLEMENTS_PLIST'
 ENTITLEMENTS_PLIST
 plutil -lint "$ENTITLEMENTS" > /dev/null
 
-# The first matching identity is chosen by its SHA-1 hash, which codesign takes as is: a name
-# with non-ASCII letters may not match the way security prints it.
+# Release builds require the exact current G2 identity; development builds keep Apple Development.
 if [ "$RELEASE" = 1 ]; then
-  KIND="Developer ID Application"
+  source "$ROOT/scripts/lib/developer-id.sh"
+  if [[ -n "${MUXFINDER_SIGN_IDENTITY:-}" && -z "${DEVELOPER_ID_SHA1+x}" ]]; then
+    DEVELOPER_ID_SHA1="$MUXFINDER_SIGN_IDENTITY"
+  fi
+  select_developer_id || exit 2
+  IDENTITY="$DEVELOPER_ID_HASH"
+  IDENTITY_NAME="$DEVELOPER_ID_NAME"
   TIMESTAMP="--timestamp"
 else
-  KIND="Apple Development"
   TIMESTAMP="--timestamp=none"
-fi
-if [ -n "${MUXFINDER_SIGN_IDENTITY:-}" ]; then
-  IDENTITY="$MUXFINDER_SIGN_IDENTITY"
-  IDENTITY_NAME="$MUXFINDER_SIGN_IDENTITY"
-else
-  # awk reads to the end (no early exit), so security never gets SIGPIPE under pipefail.
-  FOUND="$(security find-identity -v -p codesigning | awk -v kind="\"$KIND: " '!found && index($0, kind) { print; found = 1 }')"
-  IDENTITY="$(printf '%s\n' "$FOUND" | awk '{ print $2 }')"
-  IDENTITY_NAME="$(printf '%s\n' "$FOUND" | awk -F'"' '{ print $2 }')"
+  if [ -n "${MUXFINDER_SIGN_IDENTITY:-}" ]; then
+    IDENTITY="$MUXFINDER_SIGN_IDENTITY"
+    IDENTITY_NAME="$MUXFINDER_SIGN_IDENTITY"
+  else
+    FOUND="$(security find-identity -v -p codesigning | awk '!found && index($0, "\"Apple Development: ") { print; found = 1 }')"
+    IDENTITY="$(printf '%s\n' "$FOUND" | awk '{ print $2 }')"
+    IDENTITY_NAME="$(printf '%s\n' "$FOUND" | awk -F'"' '{ print $2 }')"
+  fi
 fi
 if [ -z "$IDENTITY" ] && [ "$RELEASE" = 1 ]; then
   echo "error: no \"Developer ID Application\" signing identity found; a release needs one." >&2
@@ -176,5 +180,9 @@ codesign --force "$TIMESTAMP" --options runtime --sign "$IDENTITY" \
 codesign --force "$TIMESTAMP" --options runtime --entitlements "$ENTITLEMENTS" \
   --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
+if [ "$RELEASE" = 1 ]; then
+  verify_developer_id_signature "$APP"
+  verify_developer_id_signature "$APP/Contents/MacOS/muxfinder-launch"
+fi
 
 echo "Built $APP (signed with: $IDENTITY_NAME; not notarized)."

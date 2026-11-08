@@ -6,8 +6,9 @@
 # - Checks first that notarytool's keychain profile AC_NOTARY_PROFILE (or the one named by
 #   MUXFINDER_NOTARY_PROFILE) works. This script never reads, prints or stores credentials;
 #   create the profile once with `xcrun notarytool store-credentials`.
-# - Runs scripts/build-app.sh --release: build/muxFinder.app signed by the first "Developer ID
-#   Application" identity (or MUXFINDER_SIGN_IDENTITY), hardened runtime, secure timestamp.
+# - Runs scripts/build-app.sh --release: build/muxFinder.app signed by the exact G2
+#   fingerprint selected by scripts/lib/developer-id.sh (DEVELOPER_ID_SHA1 overrides;
+#   MUXFINDER_SIGN_IDENTITY also accepts a full fingerprint), hardened runtime, secure timestamp.
 # - Uploads a ditto zip of the app to Apple's notary service and waits up to 30 minutes. On any
 #   verdict other than Accepted it saves the notary log to build/notarization-log.json, prints
 #   it, and stops.
